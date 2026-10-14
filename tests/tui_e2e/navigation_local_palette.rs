@@ -293,11 +293,13 @@ fn check_local_storage_only(fixture: &Fixture) {
 }
 
 #[test]
-fn navigation_local_palette_keyboard_working_graph_context_help_search_back_and_breadcrumb() {
+fn navigation_local_palette_keyboard_working_graph_context_help_search_back_and_breadcrumb_test_framework(
+) {
     journey(false);
 }
 #[test]
-fn navigation_local_palette_mouse_working_graph_context_help_search_back_and_breadcrumb() {
+fn navigation_local_palette_mouse_working_graph_context_help_search_back_and_breadcrumb_test_framework(
+) {
     journey(true);
 }
 fn journey(mouse: bool) {
@@ -391,13 +393,23 @@ fn journey(mouse: bool) {
     assert_eq!(starts(&local.fixture), count);
     session.wait_for_screen("1 results • Exact");
     // Global route: never replace with repository File back.
+    let before_back = session.completed_cursorless_end();
     choose(&mut session, mouse, GLOBAL_BACK, GLOBAL_BACK_KEY);
     session.assert_focused_view("Repository");
     session.wait_for_screen("● saved version");
     session.wait_for_screen(&local.original);
-    let selected = session.locate("Original navigation ancestry").unwrap();
+    let selected = session.wait_for_saved_graph_return(
+        before_back,
+        &local.original,
+        "Original navigation ancestry",
+    );
     assert!(
-        session.cell_inverted(selected.1, selected.0),
+        session
+            .completed_cursorless_screen()
+            .unwrap()
+            .cell(selected.1, selected.0)
+            .unwrap()
+            .inverse(),
         "Back restores actual canonical commit, not old row index"
     );
     session.resize(120, 40);

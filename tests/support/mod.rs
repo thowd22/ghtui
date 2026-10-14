@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+pub mod completed_navigation_controls_v1;
 pub mod cursorless_frames;
 pub mod fixture_shell_publication_v1;
 #[cfg(target_os = "linux")]
@@ -540,6 +541,121 @@ impl Session {
         self.cursorless_frames.end
     }
 
+    pub fn wait_for_saved_graph_return(
+        &mut self,
+        after: usize,
+        sha: &str,
+        subject: &str,
+    ) -> (u16, u16) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some(position) = completed_navigation_controls_v1::saved_graph_position(
+                &self.cursorless_frames,
+                after,
+                sha,
+                subject,
+                "Original navigation source restored • read-only",
+            ) {
+                return position;
+            }
+            assert!(Instant::now() < deadline, "No NEW completed original Graph with exact Saved SHA and actual inverted selected commit\n{}", self.screen());
+        }
+    }
+
+    pub fn completed_actions_page(&self) -> Option<completed_navigation_controls_v1::ActionsPage> {
+        completed_navigation_controls_v1::actions_page(&self.cursorless_frames, 0)
+    }
+
+    pub fn activate_completed_actions_control(&mut self, mouse: bool, label: &str, key: &[u8]) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        for _ in 0..30 {
+            let page = loop {
+                self.poll_output(Duration::from_millis(1));
+                if let Some(page) = self.completed_actions_page() {
+                    break page;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "No completed owned Actions control page\n{}",
+                    self.screen()
+                );
+            };
+            if !mouse {
+                self.send_key(key);
+                return;
+            }
+            if let Some((x, y)) = completed_navigation_controls_v1::actions_control_position(
+                &self.cursorless_frames,
+                &page,
+                label,
+            ) {
+                self.click(x, y);
+                return;
+            }
+            assert!(
+                page.current < page.total,
+                "Actual final Actions page lacks expected control {label:?}\n{}",
+                self.screen()
+            );
+            self.change_completed_actions_page(mouse, 1, page, deadline);
+        }
+        panic!("Bounded actual Actions pages lack expected control {label:?}");
+    }
+
+    pub fn first_completed_actions_page(&mut self, mouse: bool) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        for _ in 0..30 {
+            let page = loop {
+                self.poll_output(Duration::from_millis(1));
+                if let Some(page) = self.completed_actions_page() {
+                    break page;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "No completed original Actions page after explanation Close\n{}",
+                    self.screen()
+                );
+            };
+            if page.current == 1 {
+                return;
+            }
+            self.change_completed_actions_page(mouse, -1, page, deadline);
+        }
+        panic!("Actual Actions first page not reached within30 pages");
+    }
+
+    fn change_completed_actions_page(
+        &mut self,
+        mouse: bool,
+        delta: i32,
+        page: completed_navigation_controls_v1::ActionsPage,
+        deadline: Instant,
+    ) {
+        assert!(matches!(delta, -1 | 1));
+        let before = self.completed_cursorless_end();
+        if mouse {
+            let (x, y) = if delta > 0 { page.next } else { page.previous };
+            self.click(x, y);
+        } else {
+            self.send_key(if delta > 0 { b"]" } else { b"[" });
+        }
+        let expected = page.current.saturating_add_signed(delta as isize);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if completed_navigation_controls_v1::actions_page(&self.cursorless_frames, before)
+                .is_some_and(|actual| actual.current == expected && actual.total == page.total)
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No NEW complete exact Actions page after one arrow input\n{}",
+                self.screen()
+            );
+        }
+    }
+
     pub fn wait_for_cursorless_condition(
         &mut self,
         predicate: impl Fn(&vt100::Screen) -> bool,
@@ -560,6 +676,29 @@ impl Session {
                     self.artifact_dir.display()
                 );
             }
+        }
+    }
+
+    pub fn wait_for_new_cursorless_condition(
+        &mut self,
+        after: usize,
+        predicate: impl Fn(&vt100::Screen) -> bool,
+        label: &str,
+        timeout: Duration,
+    ) {
+        let deadline = Instant::now() + timeout;
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if self.completed_cursorless_end() > after
+                && self.completed_cursorless_screen().is_some_and(&predicate)
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No NEW completed cursorless frame: {label}\n{}",
+                self.screen()
+            );
         }
     }
 

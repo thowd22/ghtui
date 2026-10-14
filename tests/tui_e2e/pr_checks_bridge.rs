@@ -198,6 +198,7 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
     choose(session, mouse, "[k Checks]", b"k");
     session.wait_for_screen(CHECK);
     records(session, fixture, 16);
+    let before_open = session.completed_cursorless_end();
     if mouse {
         session.click_visible_action("[Enter Open check]");
     } else {
@@ -215,23 +216,23 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
             Duration::from_secs(8),
         )
         .unwrap();
+    session.wait_for_new_cursorless_condition(
+        before_open,
+        |frame| {
+            frame.contents().contains("Run 123 • attempt 2")
+                && frame.contents().contains("Job 501")
+                && frame
+                    .contents()
+                    .contains("Attempt source: verified exact endpoint")
+                && !frame.contents().contains("[Esc Cancel]")
+        },
+        "completed original run/attempt/job before control input",
+        Duration::from_secs(8),
+    );
     records(session, fixture, 32);
 }
 fn actions_control(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
-    if !mouse {
-        session.send_key(key);
-        return;
-    }
-    for _ in 0..30 {
-        if session.screen().contains(label) {
-            session.click_visible_action(label);
-            return;
-        }
-        session.click_visible_action("[Controls →]");
-        session.poll_output(Duration::from_millis(20));
-    }
-    session.save_artifacts();
-    panic!("Exact shared Actions control not found: {label}");
+    session.activate_completed_actions_control(mouse, label, key);
 }
 fn controls_page(screen: &str) -> Option<usize> {
     screen
@@ -273,6 +274,7 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
         };
         assert!(flatten(&explanation).contains(&flatten(BRIDGE_READ_ONLY_REASON)));
         assert_eq!(mutation_count(&records(session, fixture, 32)), 0);
+        let before_close = session.completed_cursorless_end();
         if mouse {
             session.click_visible_action("[Esc Close]");
         } else {
@@ -290,30 +292,24 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
                 Duration::from_secs(8),
             )
             .unwrap();
+        session.wait_for_new_cursorless_condition(
+            before_close,
+            |frame| {
+                !frame.contents().contains("Action unavailable")
+                    && frame.contents().contains("Run 123 • attempt 2")
+                    && frame.contents().contains("Job 501")
+            },
+            "completed original Actions after owned explanation Close",
+            Duration::from_secs(8),
+        );
+        assert!(session.completed_cursorless_end() > before_close);
         assert!(!session.screen().contains("Stop watch"));
         records(session, fixture, 32);
     }
     // Watch appears after Logs in the paged controls. Return via actual shared
     // controls and observed page transitions before the existing narrow journey;
     // this does not alter the retained row/source or send any provider request.
-    for _ in 0..30 {
-        let page = controls_page(&session.screen()).expect("Actual control-page indicator");
-        if page == 1 {
-            break;
-        }
-        if mouse {
-            session.click_visible_action("[← Controls]");
-        } else {
-            session.send_key(b"[");
-        }
-        session
-            .try_wait_for_condition(
-                |screen| controls_page(screen) == Some(page - 1),
-                "observed previous shared control page before resize",
-                Duration::from_secs(8),
-            )
-            .unwrap();
-    }
+    session.first_completed_actions_page(mouse);
     assert_eq!(controls_page(&session.screen()), Some(1));
     records(session, fixture, 32);
 }
@@ -362,11 +358,11 @@ fn effects(session: &mut Session, fixture: &Fixture, head: &str, index: &[u8]) {
     );
 }
 #[test]
-fn pr_checks_bridge_keyboard_exact_source_job_logs_and_owned_back() {
+fn pr_checks_bridge_keyboard_exact_source_job_logs_and_owned_back_test_framework() {
     happy(false)
 }
 #[test]
-fn pr_checks_bridge_mouse_exact_source_job_logs_and_owned_back() {
+fn pr_checks_bridge_mouse_exact_source_job_logs_and_owned_back_test_framework() {
     happy(true)
 }
 fn happy(mouse: bool) {
@@ -397,6 +393,7 @@ fn happy(mouse: bool) {
         session.poll_output(Duration::from_millis(20));
     }
     session.wait_for_screen("Job 501");
+    let before_job = session.completed_cursorless_end();
     if mouse {
         session.click_visible_action("Job 501");
     } else {
@@ -405,6 +402,16 @@ fn happy(mouse: bool) {
     }
     session.wait_for_screen("Step 3");
     session.wait_for_screen("Run tests");
+    session.wait_for_new_cursorless_condition(
+        before_job,
+        |frame| {
+            frame.contents().contains("Step 3")
+                && frame.contents().contains("Run tests")
+                && !frame.contents().contains("[Esc Cancel]")
+        },
+        "completed exact selected job details before paged Logs control",
+        Duration::from_secs(8),
+    );
     records(&mut session, &fixture, 32);
     actions_control(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_screen(LOG);
