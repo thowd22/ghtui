@@ -1,0 +1,144 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+name: CI
+
+env:
+  CARGO_TERM_COLOR: "always"
+  RUSTFLAGS: "-D warnings"
+  PROPTEST_CASES: 10000
+  MIRIFLAGS: "-Zmiri-strict-provenance"
+  RUST_VERSION: 1.92.0
+  RUST_NIGHTLY_VERSION: "nightly-2026-02-27"
+
+jobs:
+  check:
+    name: cargo check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: rustup toolchain install ${{ env.RUST_VERSION }} --no-self-update --profile minimal
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: cargo check --tests --all-features
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - toolchain: "1.92.0"
+          - toolchain: "nightly-2026-02-27"
+
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ matrix.toolchain }} --no-self-update --profile minimal
+          rustup override set ${{ matrix.toolchain }}
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test
+        run: |
+          cargo nextest run --release --all-features --manifest-path=compact_str/Cargo.toml --run-ignored=all
+          cargo test --doc --release --all-features --manifest-path=compact_str/Cargo.toml
+
+  miri:
+    name: cargo miri test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_NIGHTLY_VERSION }} --no-self-update --profile minimal --component miri
+          rustup override set ${{ env.RUST_NIGHTLY_VERSION }}
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run Miri
+        run: |
+          cargo miri nextest run --all-features --manifest-path=compact_str/Cargo.toml
+          cargo miri test --doc --all-features --manifest-path=compact_str/Cargo.toml
+
+  randomize-layout:
+    name: cargo test -Zrandomize-layout
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Zrandomize-layout
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_NIGHTLY_VERSION }} --no-self-update --profile minimal
+          rustup override set ${{ env.RUST_NIGHTLY_VERSION }}
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run Tests with Randomized Layout
+        run: |
+          cargo nextest run --all-features --manifest-path=compact_str/Cargo.toml
+          cargo test --doc --all-features --manifest-path=compact_str/Cargo.toml
+
+  examples:
+    name: example - ${{ matrix.ex }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ex: ["bytes", "macros", "serde", "traits"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_VERSION }} --no-self-update --profile minimal
+          rustup override set ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.ex }}
+
+      - name: Run example-${{ matrix.ex }}
+        run: cargo run --manifest-path examples/${{ matrix.ex }}/Cargo.toml
+
+  example-tests:
+    name: example - ${{ matrix.ex }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ex: ["diesel", "sqlx"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_VERSION }} --no-self-update --profile minimal
+          rustup override set ${{ env.RUST_VERSION }}
+
+      - name: Install Third Party Libraries
+        run: |
+          sudo apt-get install sqlite3 libsqlite3-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.ex }}-test
+
+      - name: Test example-${{ matrix.ex }}
+        run: cargo test --manifest-path examples/${{ matrix.ex }}/Cargo.toml

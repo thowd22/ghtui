@@ -1,0 +1,37 @@
+error[E0277]: the trait bound `A: IntoWasmAbi` is not satisfied
+ --> ui-tests/traits-not-implemented.rs:8:12
+  |
+5 | #[wasm_bindgen]
+  | --------------- in this procedural macro expansion
+...
+8 |     pub fn foo(a: A);
+  |            ^^^ the trait `IntoWasmAbi` is not implemented for `A`
+  |
+  = help: the following other types implement trait `IntoWasmAbi`:
+            &'__wbg_ref JsNullable<T>
+            &'__wbg_ref JsOption<T>
+            &'__wbg_ref Undefined
+            &'__wbg_ref wasm_bindgen::sys::Null
+            &'a [MaybeUninit<f32>]
+            &'a [MaybeUninit<f64>]
+            &'a [MaybeUninit<i16>]
+            &'a [MaybeUninit<i32>]
+          and $N others
+  = note: this error originates in the attribute macro `wasm_bindgen` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `A: IntoWasmAbi` is not satisfied
+ --> ui-tests/traits-not-implemented.rs:8:19
+  |
+8 |     pub fn foo(a: A);
+  |                   ^ the trait `IntoWasmAbi` is not implemented for `A`
+  |
+  = help: the following other types implement trait `IntoWasmAbi`:
+            &'__wbg_ref JsNullable<T>
+            &'__wbg_ref JsOption<T>
+            &'__wbg_ref Undefined
+            &'__wbg_ref wasm_bindgen::sys::Null
+            &'a [MaybeUninit<f32>]
+            &'a [MaybeUninit<f64>]
+            &'a [MaybeUninit<i16>]
+            &'a [MaybeUninit<i32>]
+          and $N others

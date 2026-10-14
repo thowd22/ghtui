@@ -1,0 +1,90 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'compact_str/**'
+      - '.github/workflows/cross_platform.yml'
+      - '!CHANGELOG.md'
+      - '!**/README.md'
+  workflow_dispatch:
+
+name: X-Plat
+
+env:
+  CARGO_TERM_COLOR: "always"
+  # local default for proptest is 100
+  PROPTEST_CASES: 1000
+  RUSTFLAGS: "-D warnings"
+  MIRIFLAGS: "-Zmiri-strict-provenance"
+  RUST_NIGHTLY_VERSION: "nightly-2026-02-27"
+
+jobs:
+  cross-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            OS: macos-latest
+            target: x86_64-apple-darwin
+          - name: Windows
+            OS: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: Linux 32-bit
+            OS: ubuntu-latest
+            target: i686-unknown-linux-gnu
+            cross: true
+          - name: Linux ARMv6 32-bit
+            OS: ubuntu-latest
+            target: arm-unknown-linux-gnueabihf
+            cross: true
+          - name: Linux ARMv7-A 32-bit
+            OS: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            cross: true
+          - name: Linux PowerPC Big Endian 32-bit
+            OS: ubuntu-latest
+            target: powerpc-unknown-linux-gnu
+            cross: true
+          - name: Linux PowerPC Little Endian 64-bit
+            OS: ubuntu-latest
+            target: powerpc64le-unknown-linux-gnu
+            cross: true
+          - name: Linux ARM64 Little Endian 64-bit
+            OS: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - name: Linux PowerPC Big Endian 64-bit
+            OS: ubuntu-latest
+            target: powerpc64-unknown-linux-gnu
+            cross: true
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.OS }}
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout Repo
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_NIGHTLY_VERSION }} --no-self-update --profile minimal --component miri --target ${{ matrix.target }}
+          rustup override set ${{ env.RUST_NIGHTLY_VERSION }}
+      - name: Install cross
+        if: "matrix.cross"
+        uses: taiki-e/install-action@cross
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: cargo test
+        if: "! matrix.cross"
+        run: cargo test --release --all-features --manifest-path=compact_str/Cargo.toml --target ${{ matrix.target }} -- --include-ignored
+      - name: cargo test
+        if: "matrix.cross"
+        # Note: we exclude sqlx from here because it can require building system dependencies, e.g. libsqlite3-sys.
+        run: cross test --release --features=arbitrary,bytes,diesel,markup,proptest,quickcheck,rkyv,serde,smallvec --manifest-path=compact_str/Cargo.toml --target ${{ matrix.target }}
+      - name: cargo test miri
+        # Note: we exclude sqlx from here because it can require building system dependencies, e.g. libsqlite3-sys.
+        run: cargo miri test --features=arbitrary,bytes,diesel,markup,proptest,quickcheck,rkyv,serde,smallvec --manifest-path=compact_str/Cargo.toml --target ${{ matrix.target }}

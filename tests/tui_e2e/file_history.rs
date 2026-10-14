@@ -1,0 +1,415 @@
+//! Compiled-binary file provenance journeys with independent real Git effect checks.
+#[path = "graph_paging_v1.rs"]
+mod graph_paging_v1;
+#[path = "original_saved_navigation_v1.rs"]
+mod original_saved_navigation_v1;
+use crate::support::{Fixture, Session};
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
+fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        session.click_visible_action(label);
+    } else {
+        session.send_key(key);
+    }
+}
+fn select_row(session: &mut Session, mouse: bool, label: &str) {
+    if mouse {
+        session.click_visible_action(label);
+        return;
+    }
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if let Some((column, row)) = session.locate(label) {
+            if session.cell_inverted(row, column) {
+                session.send_key(b"\r");
+                return;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Canonical row never keyboard-selected: {label}\n{}",
+            session.screen()
+        );
+        session.send_key(b"\x1b[B");
+        session.poll_output(Duration::from_millis(50));
+    }
+}
+fn tree_file(session: &mut Session, mouse: bool, name: &str) {
+    choose(session, mouse, "[t Tree]", b"t");
+    session.wait_for_screen("Saved file tree");
+    select_row(session, mouse, name);
+    session.wait_for_screen(&format!("{name} at saved version"));
+}
+fn provenance_row(session: &mut Session, mouse: bool, label: &str) {
+    select_row(session, mouse, label);
+    session.wait_for_screen("File/line provenance — exact responsible saved version");
+}
+fn blame_row(session: &mut Session, mouse: bool, text: &str) {
+    // A file preview or introduced diff can retain the same text during a
+    // transition. Require the actual prepared Blame row's actor separator.
+    let label = format!("│ {text}");
+    session.wait_for_screen(&label);
+    if !mouse {
+        session.send_key(b"\x1b[H");
+    }
+    provenance_row(session, mouse, &label);
+}
+fn scroll_diff_to(session: &mut Session, mouse: bool, label: &str) {
+    // A narrow terminal need not show an entire patch and its source labels at
+    // once. Navigate the actual body, retaining the earlier source assertions.
+    let (column, row) = session
+        .locate("first parent")
+        .expect("the independently checked comparison source must be visible");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if session.locate(label).is_some() {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Patch line never became visible through body navigation: {label}\n{}",
+            session.screen()
+        );
+        if mouse {
+            session.wheel(column, row, true);
+        } else {
+            session.send_key(b"\x1b[B");
+        }
+        session.poll_output(Duration::from_millis(50));
+    }
+}
+#[test]
+fn file_history_keyboard_old_revision_rename_blame_graph_diff_actor_roles_pages_and_back() {
+    happy(false);
+}
+#[test]
+fn file_history_mouse_old_revision_rename_blame_graph_diff_actor_roles_pages_and_back() {
+    happy(true);
+}
+fn happy(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    let mut lines = (1..=145)
+        .map(|line| format!("source line {line:03}"))
+        .collect::<Vec<_>>();
+    fixture.commit_file(
+        "old name.txt",
+        format!("{}\n", lines.join("\n")).as_bytes(),
+        "Original complete saved file",
+    );
+    fixture.git(&["config", "user.name", "Distinct Integrator"]);
+    fixture.git(&["config", "user.email", "integrator@example.invalid"]);
+    lines[1] = "responsible second line".into();
+    fs::write(
+        fixture.repo().join("old name.txt"),
+        format!("{}\n", lines.join("\n")),
+    )
+    .unwrap();
+    fixture.git(&["add", "old name.txt"]);
+    fixture.git(&[
+        "commit",
+        "--author=Line Writer <writer@example.invalid>",
+        "-m",
+        "Responsible source line change",
+    ]);
+    let responsible = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    for change in 1..=12 {
+        lines[144] = format!("history edit {change:02}");
+        fixture.commit_file(
+            "old name.txt",
+            format!("{}\n", lines.join("\n")).as_bytes(),
+            &format!("Historical edit {change:02}"),
+        );
+    }
+    fixture.git(&["mv", "old name.txt", "new name.txt"]);
+    fixture.git(&["commit", "-m", "Chosen snapshot after rename"]);
+    let chosen = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    lines[1] = "future source line outside chosen revision".into();
+    fixture.commit_file(
+        "new name.txt",
+        format!("{}\n", lines.join("\n")).as_bytes(),
+        "Future version must not rewrite chosen provenance",
+    );
+    let dirty = b"uncommitted user checkout bytes\n";
+    fs::write(fixture.repo().join("new name.txt"), dirty).unwrap();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let refs = fixture.git(&["show-ref"]);
+    let index = fs::read(fixture.repo().join(".git/index")).unwrap();
+    let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+    choose(&mut session, mouse, "[g Graph]", b"g");
+    session.wait_for_screen("● saved version");
+    select_row(&mut session, mouse, "Chosen snapshot after rename");
+    session.wait_for_screen(&chosen);
+    tree_file(&mut session, mouse, "new name.txt");
+    session.wait_for_screen("responsible second line");
+    assert!(!session.screen().contains("future source line outside"));
+    // Saved-file line actions use exact immutable BlameAt coordinates too.
+    provenance_row(&mut session, mouse, "responsible second line");
+    session.wait_for_screen("Original line: 2 • chosen file line: 2");
+    session.wait_for_screen("Original path: old name.txt");
+    session.wait_for_screen(&responsible);
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("Blame lines 1–100 of 145");
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("new name.txt:1 / saved version");
+    session.wait_for_screen(&chosen);
+    choose(&mut session, mouse, "[H History]", b"H");
+    session.wait_for_screen("File history — chosen saved version");
+    session.wait_for_screen("Rename: old name.txt → new name.txt");
+    session.wait_for_screen("History entries 1–10");
+    choose(&mut session, mouse, "[P Previous]", b"P");
+    session.wait_for_screen("Action unavailable");
+    session.wait_for_screen("First source page");
+    // The disabled explanation captures input; an underlying Tree click is inert.
+    if mouse {
+        session.click_visible_action("[t Tree]");
+    }
+    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+    // The history heading remains visible behind the Notice. Prove the
+    // capturing overlay actually closed before sending N; otherwise ESC+N
+    // can be decoded as Alt-N and leave the first-page explanation open.
+    session.wait_for_overlay_close("Action unavailable • explanation only");
+    session.wait_for_screen("File history — chosen saved version");
+    choose(&mut session, mouse, "[N Next]", b"N");
+    session.wait_for_screen("History entries 11–15");
+    session.wait_for_screen("Responsible source line change");
+    provenance_row(&mut session, mouse, "Responsible source line change");
+    session.wait_for_screen("Original path: old name.txt");
+    session.wait_for_screen(&responsible);
+    choose(&mut session, mouse, "[F Original file]", b"F");
+    session.wait_for_screen("old name.txt");
+    session.wait_for_screen("responsible second line");
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("File history — chosen saved version");
+    session.wait_for_screen("History entries 11–15");
+    choose(&mut session, mouse, "[Y Blame]", b"Y");
+    session.wait_for_screen("Blame lines 1–100 of 145");
+    session.wait_for_screen("moved/copied line detection (-M/-C) is off");
+    choose(&mut session, mouse, "[N Next]", b"N");
+    session.wait_for_screen("Blame lines 101–145");
+    session.resize(80, 24);
+    choose(&mut session, mouse, "[P Previous]", b"P");
+    session.wait_for_screen("Blame lines 1–100");
+    blame_row(&mut session, mouse, "responsible second line");
+    session.wait_for_screen("Original line: 2 • chosen file line: 2");
+    session.wait_for_screen("Original path: old name.txt");
+    session.wait_for_screen("Line Writer");
+    session.wait_for_screen("Distinct Integrator");
+    session.wait_for_screen(&responsible);
+    choose(&mut session, mouse, "[a Author]", b"a");
+    session.wait_for_screen("Actor profile — Git author");
+    session.wait_for_screen("Line Writer");
+    session.wait_for_screen("GitHub account association: unavailable");
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("Line blame");
+    blame_row(&mut session, mouse, "responsible second line");
+    choose(&mut session, mouse, "[G Responsible graph]", b"G");
+    session.wait_for_screen("● saved version");
+    session.wait_for_screen(&responsible);
+    session.wait_for_screen("Responsible source line change");
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("Blame lines 1–100");
+    session.wait_for_screen(&chosen);
+    blame_row(&mut session, mouse, "responsible second line");
+    choose(&mut session, mouse, "[D Introduced diff]", b"D");
+    session.wait_for_screen("Saved commit changes");
+    session.wait_for_screen("first parent");
+    session.wait_for_screen(&responsible);
+    scroll_diff_to(&mut session, mouse, "+responsible second line");
+    session.wait_for_screen("+responsible second line");
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("Blame lines 1–100");
+    blame_row(&mut session, mouse, "responsible second line");
+    choose(&mut session, mouse, "[F Original file]", b"F");
+    session.wait_for_screen("Original immutable");
+    session.wait_for_screen("old name.txt");
+    session.wait_for_screen("responsible second line");
+    assert_eq!(
+        fixture
+            .git(&["show", &format!("{responsible}:old name.txt")])
+            .lines()
+            .nth(1),
+        Some("responsible second line")
+    );
+    assert_eq!(
+        fixture
+            .git(&[
+                "blame",
+                "--line-porcelain",
+                "-L",
+                "2,2",
+                &chosen,
+                "--",
+                "new name.txt"
+            ])
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .next(),
+        Some(responsible.as_str())
+    );
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2", "-z"]), status);
+    assert_eq!(
+        fs::read(fixture.repo().join("new name.txt")).unwrap(),
+        dirty
+    );
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn file_history_keyboard_binary_empty_lfs_limits_do_not_fabricate_provenance() {
+    limits(false);
+}
+#[test]
+fn file_history_mouse_binary_empty_lfs_limits_do_not_fabricate_provenance() {
+    limits(true);
+}
+fn limits(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("binary", b"binary\0payload", "Saved binary");
+    fixture.commit_file("empty", b"", "Saved empty text");
+    fixture.commit_file("pointer",b"version https://git-lfs.github.com/spec/v1\noid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nsize 5000\n","Saved LFS pointer");
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let index = fs::read(fixture.repo().join(".git/index")).unwrap();
+    let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
+    let trace = fixture.root.join("unsupported-content-git-trace.jsonl");
+    let mut session = Session::launch_binary(
+        std::path::Path::new(env!("CARGO_BIN_EXE_ghtui")),
+        &fixture,
+        120,
+        40,
+        &[("GIT_TRACE2_EVENT", trace.to_str().unwrap())],
+    );
+    let children = || {
+        fs::read_to_string(&trace)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .filter(|event| event["event"] == "start")
+            .count()
+    };
+    session.wait_for_screen("Recent commits");
+    for (name, expected) in [
+        ("binary", "binary/LFS"),
+        ("empty", "Empty saved text"),
+        ("pointer", "binary/LFS"),
+    ] {
+        tree_file(&mut session, mouse, name);
+        choose(&mut session, mouse, "[Y Blame]", b"Y");
+        session.wait_for_screen(expected);
+        assert!(!session.screen().contains("Original line:"));
+        assert!(!session.screen().contains("Blame lines"));
+        for (label, key) in [
+            ("[G Responsible graph]", b"G".as_slice()),
+            ("[D Introduced diff]", b"D".as_slice()),
+            ("[F Original file]", b"F".as_slice()),
+        ] {
+            session.wait_for_screen(label);
+            let before = children();
+            assert!(before > 0, "The actual unsupported object was read");
+            choose(&mut session, mouse, label, key);
+            session.wait_for_screen("Select an exact history entry or attributed line");
+            assert_eq!(children(), before, "An explanation cannot read a target");
+            assert!(!session.screen().contains("Original line:"));
+            choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+            session.wait_for_overlay_close("Action unavailable • explanation only");
+            session.wait_for_screen(expected);
+        }
+        choose(&mut session, mouse, "[H History]", b"H");
+        session.wait_for_screen("File history — chosen saved version");
+        session.wait_for_screen("Limits: single-file");
+        session.resize(80, 24);
+    }
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2", "-z"]), status);
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn file_history_keyboard_shallow_boundary_disabled_parent_diff_and_back_are_read_only() {
+    shallow(false);
+}
+#[test]
+fn file_history_mouse_shallow_boundary_disabled_parent_diff_and_back_are_read_only() {
+    shallow(true);
+}
+fn shallow(mouse: bool) {
+    let origin = Fixture::new();
+    origin.init_git();
+    origin.commit_file("file.txt", b"earlier original\n", "Older source version");
+    origin.commit_file(
+        "file.txt",
+        b"shallow chosen line\n",
+        "Shallow visible saved version",
+    );
+    let fixture = Fixture::new();
+    fixture.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "clone",
+        "--no-local",
+        "--depth=1",
+        &format!("file://{}", origin.repo().display()),
+        ".",
+    ]);
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let refs = fixture.git(&["show-ref"]);
+    let index = fs::read(fixture.repo().join(".git/index")).unwrap();
+    let shallow = fs::read(fixture.repo().join(".git/shallow")).unwrap();
+    let bytes = fs::read(fixture.repo().join("file.txt")).unwrap();
+    let mut session = Session::launch(&fixture, 80, 24);
+    session.wait_for_screen("Recent commits");
+    tree_file(&mut session, mouse, "file.txt");
+    choose(&mut session, mouse, "[Y Blame]", b"Y");
+    session.wait_for_screen("SHALLOW:");
+    session.wait_for_screen("Blame lines 1–1 of 1");
+    provenance_row(&mut session, mouse, "shallow chosen line");
+    session.wait_for_screen("BOUNDARY:");
+    session.wait_for_screen(head.trim());
+    choose(&mut session, mouse, "[D Introduced diff]", b"D");
+    session.wait_for_screen("Action unavailable");
+    session.wait_for_screen("Shallow boundary:");
+    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+    session.wait_for_overlay_close("Action unavailable • explanation only");
+    session.wait_for_screen("Original path: file.txt");
+    choose(&mut session, mouse, "[G Responsible graph]", b"G");
+    session.wait_for_screen("● saved version");
+    session.wait_for_screen("Shallow visible saved version");
+    assert!(!session.screen().contains("Older source version"));
+    choose(&mut session, mouse, "[u File back]", b"u");
+    session.wait_for_screen("Blame lines 1–1 of 1");
+    session.wait_for_screen("shallow chosen line");
+    if mouse {
+        for _ in 0..3 {
+            session.wheel(20, 14, false);
+        }
+    } else {
+        session.send_key(b"\x1b[5~");
+    }
+    session.wait_for_screen("Line blame");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
+    assert_eq!(
+        fs::read(fixture.repo().join(".git/shallow")).unwrap(),
+        shallow
+    );
+    assert_eq!(fs::read(fixture.repo().join("file.txt")).unwrap(), bytes);
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}

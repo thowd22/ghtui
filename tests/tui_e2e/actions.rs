@@ -1,0 +1,1650 @@
+//! Native Actions real-binary journeys: terminal input plus strict command/Git assertions.
+use crate::support::{Fixture, GhStep, Session};
+use ghtui::config::Config;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+#[path = "actions/approval_recovery.rs"]
+mod approval_recovery;
+#[path = "actions/approvals.rs"]
+mod approvals;
+#[path = "actions/lease_selection.rs"]
+mod lease_selection;
+#[path = "actions/principal_freshness.rs"]
+mod principal_freshness;
+#[path = "../support/actions_publication.rs"]
+mod publication_support;
+#[path = "actions/restart.rs"]
+mod restart;
+#[path = "actions/settings.rs"]
+mod settings;
+
+fn fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("unchanged.txt", b"preserve this checkout\n", "initial");
+    Config {
+        host: "github.invalid".into(),
+        avatars: false,
+        repository_sets: BTreeMap::from([("actions".into(), vec!["example/repo".into()])]),
+        active_set: Some("actions".into()),
+        ..Config::default()
+    }
+    .save(&fixture.root.join("config/ghtui/config.toml"))
+    .unwrap();
+    fixture
+}
+fn api(endpoint: &str) -> Vec<String> {
+    [
+        "api",
+        endpoint,
+        "--hostname",
+        "github.invalid",
+        "--method",
+        "GET",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+fn read(endpoint: &str, value: Value, pages: bool) -> GhStep {
+    let mut args = api(endpoint);
+    if pages {
+        args.extend(["--paginate".into(), "--slurp".into()]);
+    }
+    GhStep {
+        args,
+        stdout: serde_json::to_vec(&value).unwrap(),
+        stdin: vec![],
+        stderr: vec![],
+        status: 0,
+        delay_ms: 0,
+    }
+}
+fn raw_run() -> Value {
+    json!({"id":123,"workflow_id":7,"name":"CI matrix","display_title":"Fix checkout","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"feature","event":"pull_request","status":"completed","conclusion":"failure","run_attempt":2,"created_at":"2026-10-13T12:00:00Z","actor":{"login":"alice","type":"User"},"triggering_actor":{"login":"octocat","type":"User"}})
+}
+fn initial() -> Vec<GhStep> {
+    vec![
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        read(
+            "repos/example/repo/actions/runs?per_page=100",
+            json!([{"total_count":1,"workflow_runs":[raw_run()]}]),
+            true,
+        ),
+    ]
+}
+fn open_steps() -> Vec<GhStep> {
+    vec![
+        read(
+            "repos/example/repo/actions/runs/123/attempts/2",
+            raw_run(),
+            false,
+        ),
+        read(
+            "repos/example/repo/actions/runs/123/attempts/2/jobs?per_page=100",
+            json!([{"jobs":[{"id":501,"run_id":123,"run_attempt":2,"head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"matrix test linux","status":"completed","conclusion":"failure","runner_name":"hosted","labels":["ubuntu-latest"],"check_run_url":"https://github.invalid/api/v3/repos/example/repo/check-runs/600","steps":[{"number":3,"name":"Run tests","status":"completed","conclusion":"failure"}]}]}]),
+            true,
+        ),
+    ]
+}
+fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        button(session, label)
+    } else {
+        session.send_key(key)
+    }
+}
+fn button(session: &mut Session, label: &str) {
+    if matches!(
+        label,
+        "[Preview]"
+            | "[External editor]"
+            | "[Confirm action]"
+            | "[Keep draft / Close]"
+            | "[F9 New intent]"
+    ) {
+        // Composer footers can arrive after the worker prepared the form. Never
+        // page the underlying catalogue while waiting for the overlay's real hit.
+        session.click_visible_action(label);
+        return;
+    }
+    if !session.screen().contains(label) {
+        first_page(session, true);
+    }
+    for _ in 0..30 {
+        if session.screen().contains(label) {
+            session.click_visible_action(label);
+            return;
+        }
+        session.click_visible_action("[Controls →]");
+        let _ = session.try_wait_for(label, std::time::Duration::from_millis(80));
+    }
+    panic!("Action never appeared: {label}");
+}
+fn first_page(session: &mut Session, mouse: bool) {
+    for _ in 0..30 {
+        let page = session
+            .screen()
+            .lines()
+            .find(|line| line.contains(" • []"))
+            .and_then(|line| line.split(" • []").next())
+            .and_then(|line| line.split_whitespace().last())
+            .and_then(|number| number.split('/').next())
+            .and_then(|number| number.parse::<usize>().ok());
+        if page.is_none_or(|page| page <= 1) {
+            return;
+        }
+        if mouse {
+            session.click_visible_action("[← Controls]");
+        } else {
+            session.send_key(b"[");
+        }
+        session.poll_output(std::time::Duration::from_millis(30));
+    }
+    panic!("Could not reach first native controls page");
+}
+fn command(session: &mut Session, mouse: bool, label: &str) {
+    if !session.screen().contains(label) {
+        first_page(session, mouse);
+    }
+    for _ in 0..30 {
+        if session.screen().contains(label) {
+            if mouse {
+                session.click_visible_action(label);
+            } else {
+                session.focus_visible_action(label);
+                session.send_key(b"\r");
+            }
+            return;
+        }
+        if mouse {
+            session.click_visible_action("[Controls →]");
+        } else {
+            session.send_key(b"]");
+        }
+        let _ = session.try_wait_for(label, std::time::Duration::from_millis(80));
+    }
+    panic!("Native command never became visible: {label}");
+}
+fn write(endpoint: &str, input: Option<Value>, out: Value) -> GhStep {
+    let mut step = read(endpoint, out, false);
+    step.args[5] = "POST".into();
+    if let Some(input) = input {
+        step.args.extend(["--input".into(), "-".into()]);
+        step.stdin = serde_json::to_vec(&input).unwrap();
+    }
+    step
+}
+fn run_guard(run: Value) -> Vec<GhStep> {
+    vec![
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        read("repos/example/repo/actions/runs/123", run, false),
+    ]
+}
+fn current_account() -> Vec<GhStep> {
+    vec![
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+    ]
+}
+/// Private draft OPEN has an explicit positive principal before and after loading.
+fn compose_identity_steps() -> Vec<GhStep> {
+    let mut steps = current_account();
+    steps.extend(current_account());
+    steps
+}
+fn confirm(session: &mut Session, mouse: bool, field_count: usize) {
+    if mouse {
+        session.click_visible_action("[Confirm action]");
+    } else {
+        for _ in 0..field_count + 2 {
+            session.send_key(b"\t");
+        }
+        session.send_key(b"\r");
+    }
+}
+fn close_form(session: &mut Session, mouse: bool) {
+    if mouse {
+        session.click_visible_action("[Keep draft / Close]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    if let Err(error) = session.try_wait_for_condition(
+        |screen| {
+            !screen.contains("READ-ONLY PREVIEW")
+                && !screen.contains("ACTIONS INTENT")
+                && !screen.contains("ORIGINAL ATTEMPT •")
+                && !screen.contains("[Keep draft / Close]")
+        },
+        "Actions composer closed",
+        std::time::Duration::from_secs(8),
+    ) {
+        session.save_artifacts();
+        panic!("{error}; artifacts: {}", session.artifact_dir.display());
+    }
+}
+fn inspect_original_publication(session: &mut Session, mouse: bool, attempt_id: i64) {
+    open_original_publication(session, mouse, attempt_id);
+    session.wait_for_screen(&format!("Inspect ORIGINAL Actions attempt #{attempt_id}"));
+}
+fn open_original_publication(session: &mut Session, mouse: bool, attempt_id: i64) {
+    // Disabled control explanations also mention Publications; target its exact
+    // rendered button, not another control whose explanatory text contains it.
+    command(session, mouse, "[Publications]");
+    session.wait_for_screen("unresolved publications shown");
+    let heading = format!("ORIGINAL ACTIONS ATTEMPT #{attempt_id} •");
+    session.wait_for_screen(&heading);
+    if mouse {
+        session.click_visible_action(&heading);
+    } else {
+        session.send_key(b"\x1b[H");
+        for _ in 0..768 {
+            session.poll_output(std::time::Duration::from_millis(40));
+            if session.screen().lines().any(|line| {
+                line.contains(&heading) && line.contains('>') && line.matches(" • ").count() >= 2
+            }) {
+                session.send_key(b"\r");
+                return;
+            }
+            session.send_key(b"\x1b[B");
+        }
+        session.save_artifacts();
+        panic!("Exact original publication {attempt_id} never gained keyboard selection");
+    }
+}
+fn journal(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value> {
+    session.wait_for_command_count(fixture, count);
+    let rows = session
+        .inspect_command_journal(fixture)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), count);
+    assert!(rows.iter().all(|row| row["matched"] == true));
+    rows
+}
+
+#[test]
+fn actions_inventory_keyboard_catalog_actor_resize_and_read_only_git() {
+    inventory(false)
+}
+#[test]
+fn actions_inventory_mouse_catalog_actor_resize_and_read_only_git() {
+    inventory(true)
+}
+fn inventory(mouse: bool) {
+    let fixture = fixture();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.scripted_gh(&initial());
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen("@alice");
+    session.wait_for_screen("1 runs of 1 reported");
+    journal(&mut session, &fixture, 3);
+    session.resize(80, 24);
+    session.wait_for_screen("example/repo run 123 attempt 2");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    assert_eq!(
+        std::fs::read(fixture.repo().join("unchanged.txt")).unwrap(),
+        b"preserve this checkout\n"
+    );
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn actions_run_view_keyboard_exact_attempt_job_logs_and_annotations() {
+    run_view(false)
+}
+
+#[test]
+fn mouse_keyboard_actions_disabled_keyboard_inspects_guard_without_requests() {
+    disabled_control(false)
+}
+#[test]
+fn mouse_keyboard_actions_disabled_mouse_inspects_guard_without_requests() {
+    disabled_control(true)
+}
+fn disabled_control(mouse: bool) {
+    let fixture = fixture();
+    let mut steps = initial();
+    steps.extend(open_steps());
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    if mouse {
+        session.click_visible_action("example/repo run 123");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Job 501");
+    command(&mut session, mouse, "Rerun selected job");
+    session.wait_for_screen("Action unavailable");
+    session.wait_for_screen("Open the job to rerun before composing");
+    assert!(!session.screen().contains("ACTIONS INTENT"));
+    journal(&mut session, &fixture, 5);
+    session.resize(80, 24);
+    session.wait_for_screen("Action unavailable");
+    session.wait_for_screen("Open the job to rerun before composing");
+    if mouse {
+        session.click_visible_action("[PgDn More]");
+        session.click_visible_action("[PgUp Previous]");
+        session.click_visible_action("[Esc Close]");
+    } else {
+        session.send_key(b"\x1b[6~\x1b[5~\x1b");
+    }
+    session
+        .try_wait_for_condition(
+            |screen| !screen.contains("Action unavailable"),
+            "Disabled control explanation closed",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    let records = journal(&mut session, &fixture, 5);
+    assert!(!records
+        .iter()
+        .any(|row| row["args"].as_array().is_some_and(|args| args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), Some("POST" | "PUT" | "PATCH" | "DELETE"))))));
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+#[test]
+fn actions_run_view_mouse_exact_attempt_job_logs_and_annotations() {
+    run_view(true)
+}
+fn run_view(mouse: bool) {
+    let fixture = fixture();
+    let mut steps = initial();
+    steps.extend(open_steps());
+    steps.push(GhStep::read(
+        &[
+            "run",
+            "view",
+            "123",
+            "--repo",
+            "github.invalid/example/repo",
+            "--attempt",
+            "2",
+            "--log",
+            "--job",
+            "501",
+        ],
+        "matrix test linux\tRun tests\tERROR fixture assertion failed\nA useful next line\n",
+    ));
+    steps.push(read("repos/example/repo/check-runs/600/annotations?per_page=100",json!([[{"path":"src/lib.rs","start_line":4,"end_line":5,"annotation_level":"failure","title":"Fixture assertion","message":"Expected true"}]]),true));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123 attempt 2");
+    if mouse {
+        session.click_visible_action("example/repo run 123")
+    } else {
+        session.send_key(b"\r")
+    };
+    session.wait_for_screen("Job 501");
+    session.wait_for_screen("trigger pull_request");
+    session.wait_for_screen("@octocat");
+    journal(&mut session, &fixture, 5);
+    if mouse {
+        session.click_visible_action("Job 501")
+    } else {
+        for _ in 0..5 {
+            session.send_key(b"\x1b[B");
+        }
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Step 3");
+    session.wait_for_screen("Run tests");
+    choose(&mut session, mouse, "[l Logs]", b"l");
+    session.wait_for_screen("ERROR fixture assertion failed");
+    session.wait_for_screen("A useful next line");
+    journal(&mut session, &fixture, 6);
+    choose(&mut session, mouse, "[N Annotations]", b"N");
+    session.wait_for_screen("src/lib.rs:4–5");
+    session.wait_for_screen("Expected true");
+    let records = journal(&mut session, &fixture, 7);
+    assert!(records[5]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg == "501"));
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.wait_for_screen("src/lib.rs:4–5");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn actions_run_control_keyboard_exact_job_debug_watch_cancel_and_cancelled_delete() {
+    run_control(false)
+}
+#[test]
+fn actions_run_control_mouse_exact_job_debug_watch_cancel_and_cancelled_delete() {
+    run_control(true)
+}
+fn run_control(mouse: bool) {
+    let fixture = fixture();
+    let mut steps = initial();
+    steps.extend(open_steps());
+    let mut queued = raw_run();
+    queued["run_attempt"] = json!(3);
+    queued["status"] = json!("queued");
+    queued["conclusion"] = Value::Null;
+    steps.extend(compose_identity_steps());
+    let rerun_open_count = steps.len();
+    steps.extend(current_account());
+    steps.extend(run_guard(raw_run()));
+    steps.extend([
+        read("repos/example/repo/actions/jobs/501",json!({"id":501,"run_id":123,"run_attempt":2,"head_sha":"a".repeat(40),"status":"completed","conclusion":"failure"}),false),
+        write("repos/example/repo/actions/jobs/501/rerun",Some(json!({"enable_debug_logging":true})),Value::Null),
+        read("repos/example/repo/actions/runs/123",queued.clone(),false),
+    ]);
+    steps.extend(current_account());
+    let rerun_count = steps.len();
+    steps.extend(compose_identity_steps());
+    steps.extend(publication_support::inspect_run(Some(queued.clone()), 42));
+    let inspected_count = steps.len();
+    steps.extend(current_account());
+    steps.push(read(
+        "repos/example/repo/actions/runs?per_page=100",
+        json!([{"total_count":1,"workflow_runs":[queued.clone()]}]),
+        true,
+    ));
+    steps.extend(current_account());
+    let acknowledged_count = steps.len();
+    steps.push(read(
+        "repos/example/repo/actions/runs?per_page=100",
+        json!([{"total_count":1,"workflow_runs":[queued.clone()]}]),
+        true,
+    ));
+    steps.extend(publication_support::open_attempt(&queued, vec![]));
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    steps.extend(run_guard(queued.clone()));
+    let mut cancelled = queued;
+    cancelled["status"] = json!("completed");
+    cancelled["conclusion"] = json!("cancelled");
+    steps.extend([
+        write(
+            "repos/example/repo/actions/runs/123/cancel",
+            None,
+            Value::Null,
+        ),
+        read("repos/example/repo/actions/runs/123", cancelled, false),
+    ]);
+    steps.extend(current_account());
+    let cancel_count = steps.len();
+    steps.extend(compose_identity_steps());
+    let final_count = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    if mouse {
+        session.click_visible_action("example/repo run 123")
+    } else {
+        session.send_key(b"\r")
+    };
+    session.wait_for_screen("Job 501");
+    if mouse {
+        session.click_visible_action("Job 501")
+    } else {
+        for _ in 0..5 {
+            session.send_key(b"\x1b[B");
+        }
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Step 3");
+    command(&mut session, mouse, "Rerun selected job");
+    session.wait_for_screen("ACTIONS INTENT");
+    journal(&mut session, &fixture, rerun_open_count);
+    // An attempted confirmation without Preview is a local validation error, not a request.
+    confirm(&mut session, mouse, 1);
+    session.wait_for_screen("Choose Preview");
+    journal(&mut session, &fixture, rerun_open_count);
+    if !mouse {
+        session.send_key(b"\x1b[Z\x1b[Z\x1b[Z");
+    }
+    if mouse {
+        session.click_visible_action("[true]")
+    } else {
+        session.send_key(b" ")
+    };
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    session.wait_for_screen("debug: true");
+    journal(&mut session, &fixture, rerun_open_count);
+    confirm(&mut session, mouse, 1);
+    session.wait_for_screen("attempt 3");
+    session.wait_for_screen("requested state transition was observed");
+    journal(&mut session, &fixture, rerun_count);
+    let accepted =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(accepted.len(), 1);
+    assert_eq!(accepted[0].state, "accepted_pending");
+    assert_eq!(accepted[0].context["attempt"], 2);
+    inspect_original_publication(&mut session, mouse, 1);
+    journal(&mut session, &fixture, inspected_count);
+    command(&mut session, mouse, "Acknowledge inspected state");
+    session.wait_for_screen("Original affected state acknowledged");
+    journal(&mut session, &fixture, acknowledged_count);
+    choose(&mut session, mouse, "Runs", b"R");
+    session.wait_for_screen("example/repo run 123 attempt 3");
+    if mouse {
+        session.click_visible_action("example/repo run 123 attempt 3");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Run 123 • attempt 3");
+    choose(&mut session, mouse, "[w Watch]", b"w");
+    session.wait_for_screen("watching: bounded polling");
+    command(&mut session, mouse, "Cancel run");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    confirm(&mut session, mouse, 0);
+    session.wait_for_screen("cancelled");
+    journal(&mut session, &fixture, cancel_count);
+    choose(&mut session, mouse, "[w Stop watch]", b"w");
+    command(&mut session, mouse, "Delete run");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    close_form(&mut session, mouse);
+    let rows = journal(&mut session, &fixture, final_count);
+    assert_eq!(
+        rows.iter().filter(|row| row["args"][5] == "POST").count(),
+        2
+    );
+    assert!(!rows.iter().any(|row| row["args"][5] == "DELETE"));
+    assert_eq!(
+        rows.iter().find(|row| row["args"][5] == "POST").unwrap()["args"][1],
+        "repos/example/repo/actions/jobs/501/rerun"
+    );
+    let durable =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(durable.len(), 2);
+    assert_eq!(durable[0].state, "transition_observed");
+    assert_eq!(durable[0].context["attempt"], 2);
+    assert_eq!(
+        durable[0].receipt.as_ref().unwrap()["kind"],
+        "run_transition"
+    );
+    assert_eq!(durable[1].state, "confirmed");
+    assert_eq!(durable[1].context["attempt"], 3);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn actions_secrets_vars_keyboard_masked_transient_secret_variable_and_cancelled_deletions() {
+    secrets_vars(false)
+}
+#[test]
+fn actions_secrets_vars_mouse_masked_transient_secret_variable_and_cancelled_deletions() {
+    secrets_vars(true)
+}
+fn secrets_vars(mouse: bool) {
+    const SECRET: &str = "synthetic-tui-secret-never-persist";
+    let fixture = fixture();
+    let mut steps = initial();
+    steps.push(read(
+        "repos/example/repo/actions/secrets?per_page=100",
+        json!([{"secrets":[]}]),
+        true,
+    ));
+    steps.extend(compose_identity_steps());
+    let secret_open_count = steps.len();
+    steps.extend(current_account());
+    steps.extend([
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        read(
+            "repos/example/repo/actions/secrets?per_page=100",
+            json!([{"secrets":[]}]),
+            true,
+        ),
+    ]);
+    let mut set_secret = GhStep::read(
+        &[
+            "secret",
+            "set",
+            "DEPLOY_TOKEN",
+            "--app",
+            "actions",
+            "--repo",
+            "github.invalid/example/repo",
+        ],
+        "",
+    );
+    set_secret.stdin = SECRET.as_bytes().to_vec();
+    steps.push(set_secret);
+    steps.push(read("repos/example/repo/actions/secrets?per_page=100",json!([{"secrets":[{"name":"DEPLOY_TOKEN","created_at":"2026-10-13T12:00:00Z","updated_at":"2026-10-13T12:00:00Z"}]}]),true));
+    steps.extend(current_account());
+    let secret_confirmed_count = steps.len();
+    steps.extend(compose_identity_steps());
+    let delete_secret_open_count = steps.len();
+    let variable = json!({"name":"MODE","value":"east","created_at":"2026-10-13T12:00:00Z","updated_at":"2026-10-13T12:00:00Z"});
+    steps.push(read(
+        "repos/example/repo/actions/variables?per_page=100",
+        json!([{"variables":[variable.clone()]}]),
+        true,
+    ));
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    let mut changed = variable.clone();
+    changed["value"] = json!("west");
+    changed["updated_at"] = json!("2026-10-13T12:01:00Z");
+    steps.extend([
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        read("repos/example/repo/actions/variables/MODE", variable, false),
+    ]);
+    let mut patch = write(
+        "repos/example/repo/actions/variables/MODE",
+        Some(json!({"name":"MODE","value":"west"})),
+        changed.clone(),
+    );
+    patch.args[5] = "PATCH".into();
+    steps.extend([
+        patch,
+        read("repos/example/repo/actions/variables/MODE", changed, false),
+    ]);
+    steps.extend(current_account());
+    let variable_confirmed_count = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    choose(&mut session, mouse, "Secrets", b"S");
+    session.wait_for_screen("Existing secret values cannot be read");
+    command(&mut session, mouse, "Set secret");
+    session.wait_for_screen("ACTIONS INTENT");
+    session.paste("DEPLOY_TOKEN");
+    focus_field(&mut session, mouse, "New secret value", 1);
+    session.paste(SECRET);
+    session.wait_for_screen("Draft saved locally");
+    assert!(!session.screen().contains(SECRET));
+    choose(&mut session, mouse, "[External editor]", b"\x05");
+    session.wait_for_screen("external-editor files are not used for secrets");
+    journal(&mut session, &fixture, secret_open_count);
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    assert!(!session.screen().contains(SECRET));
+    // Preview retains the active secret field; return keyboard focus to field0 before footer traversal.
+    if !mouse {
+        session.send_key(b"\x1b[Z");
+    }
+    confirm(&mut session, mouse, 2);
+    session.wait_for_screen("Secret metadata confirmed");
+    journal(&mut session, &fixture, secret_confirmed_count);
+    command(&mut session, mouse, "Delete secret");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    close_form(&mut session, mouse);
+    journal(&mut session, &fixture, delete_secret_open_count);
+    choose(&mut session, mouse, "Variables", b"v");
+    session.wait_for_screen("MODE = east");
+    command(&mut session, mouse, "Set variable");
+    session.wait_for_screen("ACTIONS INTENT");
+    focus_field(&mut session, mouse, "Variable value", 1);
+    session.send_key(b"\x15");
+    session.paste("west");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    if !mouse {
+        session.send_key(b"\x1b[Z");
+    }
+    confirm(&mut session, mouse, 2);
+    session.wait_for_screen("MODE = west");
+    let records = journal(&mut session, &fixture, variable_confirmed_count);
+    let secret_writes = records
+        .iter()
+        .filter(|row| row["args"][0] == "secret" && row["args"][1] == "set")
+        .collect::<Vec<_>>();
+    assert_eq!(secret_writes.len(), 1);
+    assert_eq!(secret_writes[0]["stdin_hex"], "[REDACTED]");
+    let durable =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(
+        durable.len(),
+        2,
+        "Cancelled deletes must not allocate a publication"
+    );
+    assert!(durable
+        .iter()
+        .all(|row| row.state == "confirmed" && row.principal == "user-id:42"));
+    assert_eq!(durable[0].kind, json!("set_secret"));
+    assert_eq!(durable[1].kind, json!("set_variable"));
+    assert_eq!(durable[0].target["Secret"]["name"], "DEPLOY_TOKEN");
+    assert_eq!(durable[1].target["Variable"]["name"], "MODE");
+    assert_eq!(
+        durable[0].receipt.as_ref().unwrap()["kind"],
+        "secret_metadata"
+    );
+    assert_eq!(
+        durable[1].receipt.as_ref().unwrap()["kind"],
+        "variable_metadata"
+    );
+    assert!(!session.inspect_command_journal(&fixture).contains(SECRET));
+    assert!(!String::from_utf8_lossy(&session.transcript).contains(SECRET));
+    assert!(!records.iter().any(|row| row["args"]
+        .as_array()
+        .is_some_and(|args| args.iter().any(|value| value == "DELETE"))));
+    for path in product_files(&fixture.root.join("config")) {
+        assert!(
+            !std::fs::read(&path)
+                .unwrap()
+                .windows(SECRET.len())
+                .any(|window| window == SECRET.as_bytes()),
+            "secret persisted at {}",
+            path.display()
+        );
+    }
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.wait_for_screen("MODE = west");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+fn focus_field(session: &mut Session, mouse: bool, label: &str, index: usize) {
+    if mouse {
+        session.click_owned_form_field("ACTIONS INTENT", label);
+    } else {
+        for _ in 0..index {
+            session.send_key(b"\t");
+        }
+    }
+}
+
+const DISPATCH_YAML: &str = "name: Build dispatch\non:\n  workflow_dispatch:\n    inputs:\n      debug:\n        description: Debug build\n        type: boolean\n        default: false\n      mode:\n        description: Build mode\n        type: choice\n        default: safe\n        options: [safe, fast]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        version: [stable, beta]\n    steps:\n      - run: echo fixture\n  report:\n    needs: build\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo report\n";
+
+fn workflow(state: &str) -> Value {
+    json!({"id":7,"name":"Build dispatch","path":".github/workflows/ci.yml","state":state})
+}
+fn workflow_guard(state: &str) -> Vec<GhStep> {
+    vec![
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        read(
+            "repos/example/repo/actions/workflows/7",
+            workflow(state),
+            false,
+        ),
+    ]
+}
+#[test]
+fn actions_workflow_controls_keyboard_typed_dispatch_disable_enable_and_cancel() {
+    workflow_controls(false)
+}
+#[test]
+fn actions_workflow_controls_mouse_typed_dispatch_disable_enable_and_cancel() {
+    workflow_controls(true)
+}
+fn workflow_controls(mouse: bool) {
+    let fixture = fixture();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let mut steps = initial();
+    steps.extend([
+        read("repos/example/repo", json!({"id":1,"full_name":"example/repo","default_branch":"main"}), false),
+        read("repos/example/repo/actions/workflows?per_page=100",json!([{"workflows":[workflow("active")]}]),true),
+        read("repos/example/repo/commits/main",json!({"sha":"a".repeat(40)}),false),
+        GhStep::read(&["api","repos/example/repo/contents/.github/workflows/ci.yml?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","--hostname","github.invalid","--method","GET","--header","Accept: application/vnd.github.raw+json","--allow-escape-sequences"], DISPATCH_YAML),
+    ]);
+    let mut dispatched = raw_run();
+    dispatched["id"] = json!(200);
+    dispatched["run_attempt"] = json!(1);
+    dispatched["event"] = json!("workflow_dispatch");
+    dispatched["head_branch"] = json!("main");
+    dispatched["status"] = json!("queued");
+    dispatched["conclusion"] = Value::Null;
+    steps.extend(compose_identity_steps());
+    let disable_cancelled_count = steps.len();
+    steps.extend(compose_identity_steps());
+    let dispatch_open_count = steps.len();
+    steps.extend(current_account());
+    steps.extend(workflow_guard("active"));
+    steps.extend([
+        read(
+            "repos/example/repo/commits/main",
+            json!({"sha":"a".repeat(40)}),
+            false,
+        ),
+        write(
+            "repos/example/repo/actions/workflows/7/dispatches",
+            Some(json!({"ref":"main","inputs":{"debug":false,"mode":"fast"}})),
+            json!({"workflow_run_id":200}),
+        ),
+        read(
+            "repos/example/repo/actions/runs/200",
+            dispatched.clone(),
+            false,
+        ),
+    ]);
+    steps.extend(current_account());
+    let dispatch_count = steps.len();
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    steps.extend([
+        read(
+            "repos/example/repo/actions/workflows?per_page=100",
+            json!([{"workflows":[workflow("active")]}]),
+            true,
+        ),
+        read(
+            "repos/example/repo/actions/workflows/7/runs?per_page=100",
+            json!([{"total_count":1,"workflow_runs":[dispatched.clone()]}]),
+            true,
+        ),
+    ]);
+    steps.extend(current_account());
+    let inspected_count = steps.len();
+    steps.extend(current_account());
+    steps.push(read(
+        "repos/example/repo/actions/runs?per_page=100",
+        json!([{"total_count":1,"workflow_runs":[dispatched.clone()]}]),
+        true,
+    ));
+    steps.extend(current_account());
+    let acknowledged_count = steps.len();
+    steps.extend([
+        read("repos/example/repo", json!({"id":1,"full_name":"example/repo","default_branch":"main"}), false),
+        read("repos/example/repo/actions/workflows?per_page=100",json!([{"workflows":[workflow("active")]}]),true),
+        read("repos/example/repo/commits/main",json!({"sha":"a".repeat(40)}),false),
+        GhStep::read(&["api","repos/example/repo/contents/.github/workflows/ci.yml?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","--hostname","github.invalid","--method","GET","--header","Accept: application/vnd.github.raw+json","--allow-escape-sequences"], DISPATCH_YAML),
+    ]);
+    let mut state_counts = vec![];
+    for (before, effect, after) in [
+        ("active", "disable", "disabled_manually"),
+        ("disabled_manually", "enable", "active"),
+    ] {
+        if effect == "disable" {
+            steps.extend(current_account());
+        } // Restore old shared workflow draft before F9 new intent.
+        steps.extend(compose_identity_steps());
+        steps.extend(current_account());
+        steps.extend(workflow_guard(before));
+        let mut change = write(
+            &format!("repos/example/repo/actions/workflows/7/{effect}"),
+            None,
+            Value::Null,
+        );
+        change.args[5] = "PUT".into();
+        steps.extend([
+            change,
+            read(
+                "repos/example/repo/actions/workflows/7",
+                workflow(after),
+                false,
+            ),
+        ]);
+        steps.extend(current_account());
+        state_counts.push(steps.len());
+    }
+    steps.push(read(
+        "repos/example/repo/actions/runs?per_page=100",
+        json!([{"total_count":1,"workflow_runs":[dispatched]}]),
+        true,
+    ));
+    let final_count = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    choose(&mut session, mouse, "Workflows", b"W");
+    session.wait_for_screen("Build dispatch");
+    journal(&mut session, &fixture, 5);
+    if mouse {
+        session.click_visible_action("Build dispatch");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("revision main");
+    session.wait_for_screen("Input debug");
+    session.wait_for_screen("Definition job report");
+    journal(&mut session, &fixture, 7);
+    command(&mut session, mouse, "Disable workflow");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    close_form(&mut session, mouse);
+    journal(&mut session, &fixture, disable_cancelled_count);
+    command(&mut session, mouse, "Dispatch workflow");
+    session.wait_for_screen("ACTIONS INTENT");
+    focus_field(&mut session, mouse, "mode — Build mode", 2);
+    if mouse {
+        session.click_visible_action("[fast]");
+    } else {
+        session.send_key(b" ");
+    }
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    session.wait_for_screen("fast");
+    journal(&mut session, &fixture, dispatch_open_count);
+    if !mouse {
+        session.send_key(b"\x1b[Z\x1b[Z");
+    }
+    confirm(&mut session, mouse, 3);
+    session.wait_for_screen("Exact workflow run ID, event and selected commit confirmed");
+    journal(&mut session, &fixture, dispatch_count);
+    let accepted =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(accepted.len(), 1);
+    assert_eq!(accepted[0].state, "accepted_pending");
+    assert_eq!(
+        accepted[0].receipt.as_ref().unwrap()["observed_run_id"],
+        200
+    );
+    inspect_original_publication(&mut session, mouse, 1);
+    journal(&mut session, &fixture, inspected_count);
+    command(&mut session, mouse, "Acknowledge inspected state");
+    session.wait_for_screen("Original affected state acknowledged");
+    journal(&mut session, &fixture, acknowledged_count);
+    choose(&mut session, mouse, "Workflows", b"W");
+    session.wait_for_screen("Build dispatch");
+    if mouse {
+        session.click_visible_action("Build dispatch");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("revision main");
+    for (label, state, count) in [
+        ("Disable workflow", "disabled_manually", state_counts[0]),
+        ("Enable workflow", "active", state_counts[1]),
+    ] {
+        command(&mut session, mouse, label);
+        if label == "Disable workflow" {
+            session.wait_for_screen("ORIGINAL ACTIONS ATTEMPT #1");
+            session.wait_for_screen("Correlated launch: run #200");
+            choose(&mut session, mouse, "[F9 New intent]", b"\x1b[20~");
+        }
+        session.wait_for_screen("ACTIONS INTENT");
+        choose(&mut session, mouse, "[Preview]", b"\x10");
+        session.wait_for_screen("READ-ONLY PREVIEW");
+        confirm(&mut session, mouse, 0);
+        session.wait_for_screen(&format!("Workflow 7 state confirmed: {state}"));
+        journal(&mut session, &fixture, count);
+    }
+    choose(&mut session, mouse, "Runs", b"R");
+    session.wait_for_screen("example/repo run 200 attempt 1");
+    let rows = journal(&mut session, &fixture, final_count);
+    let writes = rows
+        .iter()
+        .filter(|row| row["args"][5] == "POST" || row["args"][5] == "PUT")
+        .collect::<Vec<_>>();
+    assert_eq!(writes.len(), 3);
+    assert_eq!(
+        writes[0]["args"][1],
+        "repos/example/repo/actions/workflows/7/dispatches"
+    );
+    let durable =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(durable.len(), 3);
+    assert_eq!(durable[0].state, "transition_observed");
+    assert_eq!(durable[0].context["workflow_commit"], "a".repeat(40));
+    assert_eq!(durable[0].receipt.as_ref().unwrap()["kind"], "dispatch");
+    assert!(durable[1..]
+        .iter()
+        .all(|row| row.state == "confirmed"
+            && row.receipt.as_ref().unwrap()["kind"] == "workflow_state"));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.wait_for_screen("example/repo run 200 attempt 1");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+fn product_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = vec![];
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for item in std::fs::read_dir(directory).unwrap() {
+            let path = item.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+#[test]
+fn actions_cache_keyboard_filter_usage_cancel_and_exact_delete_preserves_other_cache() {
+    cache_management(false)
+}
+#[test]
+fn actions_cache_mouse_filter_usage_cancel_and_exact_delete_preserves_other_cache() {
+    cache_management(true)
+}
+fn cache_management(mouse: bool) {
+    let fixture = fixture();
+    let cache = json!({"id":71,"key":"cargo/linux/v1","ref":"refs/heads/main","version":"v1","size_in_bytes":2048,"created_at":"2026-10-12T12:00:00Z","last_accessed_at":"2026-10-13T12:00:00Z"});
+    let other = json!({"id":72,"key":"docs/index","ref":"refs/heads/docs","version":"v2","size_in_bytes":4096,"created_at":"2026-10-11T12:00:00Z","last_accessed_at":"2026-10-12T12:00:00Z"});
+    let usage = json!({"active_caches_count":2,"active_caches_size_in_bytes":6144});
+    let updated_usage = json!({"active_caches_count":1,"active_caches_size_in_bytes":4096});
+    let mut steps = initial();
+    steps.extend([
+        read(
+            "repos/example/repo/actions/caches?per_page=100",
+            json!([{"actions_caches":[cache.clone(),other.clone()]}]),
+            true,
+        ),
+        read(
+            "repos/example/repo/actions/cache/usage",
+            usage.clone(),
+            false,
+        ),
+    ]);
+    let cache_catalogue_count = steps.len();
+    steps.extend(compose_identity_steps());
+    let filter_open_count = steps.len();
+    steps.extend(current_account());
+    steps.extend([
+        read("repos/example/repo/actions/caches?per_page=100&key=cargo%2Flinux&ref=refs%2Fheads%2Fmain",json!([{"actions_caches":[cache.clone()]}]),true),
+        read("repos/example/repo/actions/cache/usage",usage,false),
+    ]);
+    steps.extend(current_account());
+    let filtered_count = steps.len();
+    steps.extend(compose_identity_steps());
+    let cancelled_open_count = steps.len();
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    steps.extend([
+        GhStep::read(&["--version"],"gh version 2.101.0\n"),
+        read("user",json!({"id":42,"login":"octocat"}),false),
+        read("repos/example/repo/actions/caches?per_page=100&key=cargo%2Flinux%2Fv1&ref=refs%2Fheads%2Fmain",json!([{"actions_caches":[cache]}]),true),
+    ]);
+    let mut deletion = write("repos/example/repo/actions/caches/71", None, Value::Null);
+    deletion.args[5] = "DELETE".into();
+    steps.extend([
+        deletion,
+        read(
+            "repos/example/repo/actions/caches?per_page=100",
+            json!([{"actions_caches":[other]}]),
+            true,
+        ),
+        read(
+            "repos/example/repo/actions/cache/usage",
+            updated_usage.clone(),
+            false,
+        ),
+    ]);
+    steps.extend(current_account());
+    let deleted_count = steps.len();
+    steps.extend([read(
+        "repos/example/repo/actions/cache/usage",
+        updated_usage,
+        false,
+    )]);
+    let final_count = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    choose(&mut session, mouse, "Caches", b"c");
+    session.wait_for_screen("#71 • cargo/linux/v1");
+    session.wait_for_screen("#72 • docs/index");
+    session.wait_for_screen("6144 bytes in 2 caches");
+    journal(&mut session, &fixture, cache_catalogue_count);
+    command(&mut session, mouse, "Filter caches");
+    session.wait_for_screen("ACTIONS INTENT");
+    session.paste("cargo/linux");
+    focus_field(&mut session, mouse, "Exact Git ref", 1);
+    session.paste("refs/heads/main");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    journal(&mut session, &fixture, filter_open_count);
+    if !mouse {
+        session.send_key(b"\x1b[Z");
+    }
+    confirm(&mut session, mouse, 2);
+    session.wait_for_screen("1 displayed");
+    session.wait_for_screen("6144 bytes in 2 caches");
+    assert!(!session.screen().contains("#72 • docs/index"));
+    journal(&mut session, &fixture, filtered_count);
+    command(&mut session, mouse, "Delete selected cache");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    session.wait_for_screen("71");
+    close_form(&mut session, mouse);
+    journal(&mut session, &fixture, cancelled_open_count);
+    command(&mut session, mouse, "Delete selected cache");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    confirm(&mut session, mouse, 1);
+    session.wait_for_screen("Only cache 71 deleted; unrelated caches preserved");
+    session.wait_for_screen("#72 • docs/index");
+    session.wait_for_screen("4096 bytes in 1 caches");
+    assert!(!session.screen().contains("#71 • cargo/linux/v1"));
+    journal(&mut session, &fixture, deleted_count);
+    choose(&mut session, mouse, "Usage", b"u");
+    session.wait_for_screen("Cache storage: 4096 bytes in 1 caches");
+    let rows = journal(&mut session, &fixture, final_count);
+    let writes = rows
+        .iter()
+        .filter(|row| row["args"][5] == "DELETE")
+        .collect::<Vec<_>>();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["args"][1], "repos/example/repo/actions/caches/71");
+    let durable =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(
+        durable.len(),
+        1,
+        "Local filters and cancelled deletes are not remote publications"
+    );
+    assert_eq!(durable[0].state, "confirmed");
+    assert_eq!(durable[0].kind, json!("delete_cache"));
+    assert_eq!(durable[0].target["Cache"]["id"], 71);
+    assert_eq!(
+        durable[0].receipt.as_ref().unwrap()["kind"],
+        "cache_deleted"
+    );
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.wait_for_screen("Cache storage: 4096 bytes in 1 caches");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn actions_run_control_keyboard_uncertain_cancel_refresh_inspect_ack_then_guarded_retry() {
+    uncertain_cancel(false)
+}
+#[test]
+fn actions_run_control_mouse_uncertain_cancel_refresh_inspect_ack_then_guarded_retry() {
+    uncertain_cancel(true)
+}
+fn uncertain_cancel(mouse: bool) {
+    let fixture = fixture();
+    let mut queued = raw_run();
+    queued["status"] = json!("queued");
+    queued["conclusion"] = Value::Null;
+    let catalogue = read(
+        "repos/example/repo/actions/runs?per_page=100",
+        json!([{"total_count":1,"workflow_runs":[queued.clone()]}]),
+        true,
+    );
+    let attempt = read(
+        "repos/example/repo/actions/runs/123/attempts/2",
+        queued.clone(),
+        false,
+    );
+    let jobs = read(
+        "repos/example/repo/actions/runs/123/attempts/2/jobs?per_page=100",
+        json!([{"jobs":[]}]),
+        true,
+    );
+    let mut steps = initial();
+    steps[2] = catalogue.clone();
+    steps.extend([attempt.clone(), jobs.clone()]);
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    steps.extend(run_guard(queued.clone()));
+    let mut uncertain = write(
+        "repos/example/repo/actions/runs/123/cancel",
+        None,
+        Value::Null,
+    );
+    uncertain.status = 1;
+    uncertain.stderr = b"connection closed after request; result unknown".to_vec();
+    steps.push(uncertain);
+    steps.extend(current_account());
+    let unknown_count = steps.len();
+    // A normal refresh observes data but never clears the failed-write barrier.
+    steps.extend(current_account());
+    steps.extend([attempt.clone(), jobs.clone()]);
+    let refresh_count = steps.len();
+    // List4 has no remote resource reads; inspect follows separately.
+    steps.extend(compose_identity_steps());
+    // Explicit original inspection produces an opaque fresh exact-target proof.
+    steps.extend([
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        catalogue.clone(),
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+    ]);
+    let inspected_count = steps.len();
+    // Explicit local ACK: fresh identity2, optional catalogue1, final identity2.
+    steps.extend(current_account());
+    steps.push(catalogue.clone());
+    steps.extend(current_account());
+    let acknowledged_count = steps.len();
+    steps.push(catalogue);
+    steps.extend([attempt, jobs]);
+    let reopened_count = steps.len();
+    // Reopening the old draft restores its ORIGINAL reference before fields.
+    steps.extend(current_account());
+    steps.extend(compose_identity_steps());
+    let restored_count = steps.len();
+    steps.extend(current_account());
+    steps.extend(run_guard(queued.clone()));
+    let mut cancelled = queued;
+    cancelled["status"] = json!("completed");
+    cancelled["conclusion"] = json!("cancelled");
+    steps.extend([
+        write(
+            "repos/example/repo/actions/runs/123/cancel",
+            None,
+            Value::Null,
+        ),
+        read("repos/example/repo/actions/runs/123", cancelled, false),
+    ]);
+    steps.extend(current_account());
+    let final_count = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    if mouse {
+        session.click_visible_action("example/repo run 123");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Run 123 • attempt 2");
+    command(&mut session, mouse, "Cancel run");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    confirm(&mut session, mouse, 0);
+    session.wait_for_screen("result unknown");
+    journal(&mut session, &fixture, unknown_count);
+    let original =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].state, "uncertain");
+    assert_eq!(original[0].kind, json!("cancel"));
+    assert_eq!(original[0].context["run_id"], 123);
+    assert_eq!(original[0].context["attempt"], 2);
+    assert_eq!(original[0].context["head_sha"], "a".repeat(40));
+    assert!(original[0].receipt.is_none());
+    close_form(&mut session, mouse);
+    choose(&mut session, mouse, "Refresh", b"r");
+    journal(&mut session, &fixture, refresh_count);
+    command(&mut session, mouse, "Cancel run");
+    session.wait_for_screen("Action unavailable");
+    session.wait_for_screen("Original attempt #1");
+    assert!(!session.screen().contains("ACTIONS INTENT"));
+    journal(&mut session, &fixture, refresh_count);
+    if mouse {
+        session.click_visible_action("[Esc Close]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    session
+        .try_wait_for_condition(
+            |screen| !screen.contains("Action unavailable"),
+            "Uncertain-write explanation closed",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    inspect_original_publication(&mut session, mouse, 1);
+    journal(&mut session, &fixture, inspected_count);
+    session.wait_for_screen("Original run: #123");
+    // Inspecting and presenting the state alone still does not permit a mutation.
+    let rows = journal(&mut session, &fixture, inspected_count);
+    assert_eq!(
+        rows.iter().filter(|row| row["args"][5] == "POST").count(),
+        1
+    );
+    command(&mut session, mouse, "Acknowledge inspected state");
+    session.wait_for_screen("Original affected state acknowledged");
+    journal(&mut session, &fixture, acknowledged_count);
+    let acknowledged =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(acknowledged.len(), 1);
+    assert_eq!(acknowledged[0].state, "acknowledged");
+    assert_eq!(acknowledged[0].context, original[0].context);
+    assert!(acknowledged[0].receipt.is_none());
+    choose(&mut session, mouse, "Runs", b"R");
+    session.wait_for_screen("example/repo run 123");
+    if mouse {
+        session.click_visible_action("example/repo run 123");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Run 123 • attempt 2");
+    journal(&mut session, &fixture, reopened_count);
+    command(&mut session, mouse, "Cancel run");
+    session.wait_for_screen("ORIGINAL ACTIONS ATTEMPT #1");
+    session.wait_for_screen("Original run: #123");
+    journal(&mut session, &fixture, restored_count);
+    choose(&mut session, mouse, "[F9 New intent]", b"\x1b[20~");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    confirm(&mut session, mouse, 0);
+    session.wait_for_screen("cancelled");
+    let rows = journal(&mut session, &fixture, final_count);
+    let writes = rows
+        .iter()
+        .filter(|row| row["args"][5] == "POST")
+        .collect::<Vec<_>>();
+    assert_eq!(writes.len(), 2);
+    assert!(writes
+        .iter()
+        .all(|row| row["args"][1] == "repos/example/repo/actions/runs/123/cancel"));
+    let durable =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(durable.len(), 2);
+    assert_eq!(durable[0].state, "acknowledged");
+    assert_eq!(durable[1].state, "confirmed");
+    assert_eq!(
+        durable[1].receipt.as_ref().unwrap()["kind"],
+        "run_transition"
+    );
+    assert_eq!(durable[1].receipt.as_ref().unwrap()["observed_attempt"], 2);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.wait_for_screen("cancelled");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+fn artifact_png() -> Vec<u8> {
+    use image::ImageEncoder;
+    let mut bytes = vec![];
+    let pixels = [240, 40, 20, 255].repeat(64);
+    image::codecs::png::PngEncoder::new(&mut bytes)
+        .write_image(&pixels, 8, 8, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    bytes
+}
+fn artifact_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::{Cursor, Write};
+    let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for (path, bytes) in entries {
+        archive
+            .start_file(
+                *path,
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored)
+                    .unix_permissions(0o755),
+            )
+            .unwrap();
+        archive.write_all(bytes).unwrap();
+    }
+    archive.finish().unwrap().into_inner()
+}
+fn artifact_value(id: u64, name: &str, bytes: &[u8], expired: bool) -> Value {
+    use sha2::{Digest, Sha256};
+    json!({"id":id,"name":name,"size_in_bytes":bytes.len(),"expired":expired,"created_at":"2026-10-12T12:00:00Z","updated_at":"2026-10-12T12:00:00Z","expires_at":"2026-10-20T12:00:00Z","digest":format!("sha256:{:x}",Sha256::digest(bytes)),"workflow_run":{"id":123,"head_sha":"a".repeat(40)}})
+}
+fn artifact_download(id: u64, bytes: Vec<u8>) -> GhStep {
+    let mut step = read(
+        &format!("repos/example/repo/actions/artifacts/{id}/zip"),
+        Value::Null,
+        false,
+    );
+    step.args.push("--allow-escape-sequences".into());
+    step.stdout = bytes;
+    step
+}
+#[test]
+fn actions_artifacts_keyboard_previews_exports_extracts_deletes_and_rejects_unsafe_archive() {
+    artifact_management(false)
+}
+#[test]
+fn actions_artifacts_mouse_previews_exports_extracts_deletes_and_rejects_unsafe_archive() {
+    artifact_management(true)
+}
+fn artifact_management(mouse: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let png = artifact_png();
+    let text = b"artifact fixture report\nall checks explained\n";
+    let zip = artifact_zip(&[
+        ("report.txt", text),
+        ("pixel.png", &png),
+        ("binary.bin", &[0, 255, 1, 2]),
+    ]);
+    let unsafe_zip = artifact_zip(&[("../outside", b"never publish")]);
+    let valid = artifact_value(41, "build-output", &zip, false);
+    let expired = artifact_value(42, "old-output", &zip, true);
+    let unsafe_value = artifact_value(43, "unsafe-output", &unsafe_zip, false);
+    let mut steps = initial();
+    steps.extend(open_steps());
+    steps.extend([
+        read(
+            "repos/example/repo/actions/runs/123/artifacts?per_page=100",
+            json!([{"artifacts":[valid.clone(),expired.clone(),unsafe_value.clone()]}]),
+            true,
+        ),
+        read(
+            "repos/example/repo/actions/artifacts/41",
+            valid.clone(),
+            false,
+        ),
+        artifact_download(41, zip.clone()),
+    ]);
+    let archive_read_count = steps.len();
+    // Two local archive effects: OPEN4, pre2, filesystem effect, final2.
+    for _ in 0..2 {
+        steps.extend(compose_identity_steps());
+        steps.extend(current_account());
+        steps.extend(current_account());
+    }
+    let archive_effects_count = steps.len();
+    // Existing destination refusal has no effect and checks pre2/final2.
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    steps.extend(current_account());
+    let existing_export_count = steps.len();
+    steps.extend(compose_identity_steps());
+    let cancelled_delete_count = steps.len();
+    steps.extend(compose_identity_steps());
+    steps.extend(current_account());
+    steps.extend([
+        GhStep::read(&["--version"], "gh version 2.101.0\n"),
+        read("user", json!({"id":42,"login":"octocat"}), false),
+        read("repos/example/repo/actions/artifacts/41", valid, false),
+    ]);
+    let mut deletion = write("repos/example/repo/actions/artifacts/41", None, Value::Null);
+    deletion.args[5] = "DELETE".into();
+    steps.extend([
+        deletion,
+        read(
+            "repos/example/repo/actions/runs/123/artifacts?per_page=100",
+            json!([{"artifacts":[expired,unsafe_value.clone()]}]),
+            true,
+        ),
+    ]);
+    steps.extend(current_account());
+    let confirmed_delete_count = steps.len();
+    steps.extend([
+        read(
+            "repos/example/repo/actions/artifacts/43",
+            unsafe_value,
+            false,
+        ),
+        artifact_download(43, unsafe_zip),
+    ]);
+    let final_count = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123");
+    if mouse {
+        session.click_visible_action("example/repo run 123");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Job 501");
+    choose(&mut session, mouse, "Artifacts", b"a");
+    session.wait_for_screen("build-output #41");
+    session.wait_for_screen("attempt not exposed");
+    journal(&mut session, &fixture, 6);
+    if mouse {
+        session.click_visible_action("build-output #41");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("report.txt");
+    session.wait_for_screen("SHA256 digest verified");
+    journal(&mut session, &fixture, archive_read_count);
+    if mouse {
+        session.click_visible_action("report.txt");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("artifact fixture report");
+    session.wait_for_screen("all checks explained");
+    if mouse {
+        session.click_visible_action("pixel.png");
+    } else {
+        session.send_key(b"\x1b[H\x1b[B\r");
+    }
+    session.wait_for_screen("8×8 original pixels");
+    if mouse {
+        session.click_visible_action("binary.bin");
+    } else {
+        session.send_key(b"\x1b[H\x1b[B\x1b[B\r");
+    }
+    session.wait_for_screen("Binary bytes");
+    session.wait_for_screen("00 ff 01 02");
+    journal(&mut session, &fixture, archive_read_count);
+    let export = fixture.root.join("explicit-output.zip");
+    let extract = fixture.root.join("explicit-extracted");
+    for (index, (label, path)) in [
+        ("Export artifact ZIP", &export),
+        ("Extract artifact into a new directory", &extract),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        command(&mut session, mouse, label);
+        session.wait_for_screen("ACTIONS INTENT");
+        session.paste(path.to_str().unwrap());
+        choose(&mut session, mouse, "[Preview]", b"\x10");
+        session.wait_for_screen("READ-ONLY PREVIEW");
+        confirm(&mut session, mouse, 1);
+        session.wait_for_screen("without overwrite or execution");
+        journal(&mut session, &fixture, archive_read_count + (index + 1) * 8);
+    }
+    assert_eq!(archive_effects_count, archive_read_count + 16);
+    assert_eq!(std::fs::read(&export).unwrap(), zip);
+    assert_eq!(std::fs::read(extract.join("report.txt")).unwrap(), text);
+    assert_eq!(std::fs::read(extract.join("pixel.png")).unwrap(), png);
+    assert_eq!(
+        std::fs::metadata(extract.join("report.txt"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    // A second explicit export must preserve the existing bytes instead of overwriting.
+    command(&mut session, mouse, "Export artifact ZIP");
+    session.wait_for_screen("ACTIONS INTENT");
+    session.send_key(b"\x15");
+    session.paste(export.to_str().unwrap());
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    confirm(&mut session, mouse, 1);
+    session.wait_for_screen("already exists");
+    journal(&mut session, &fixture, existing_export_count);
+    assert_eq!(std::fs::read(&export).unwrap(), zip);
+    close_form(&mut session, mouse);
+    command(&mut session, mouse, "Delete artifact");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    close_form(&mut session, mouse);
+    journal(&mut session, &fixture, cancelled_delete_count);
+    command(&mut session, mouse, "Delete artifact");
+    session.wait_for_screen("ACTIONS INTENT");
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("READ-ONLY PREVIEW");
+    confirm(&mut session, mouse, 0);
+    session.wait_for_screen("Artifact 41 deletion confirmed");
+    session.wait_for_screen("old-output #42");
+    session.wait_for_screen("unsafe-output #43");
+    journal(&mut session, &fixture, confirmed_delete_count);
+    if mouse {
+        session.click_visible_action("old-output #42");
+    } else {
+        session.send_key(b"\x1b[H\r");
+    }
+    session.wait_for_screen("Action unavailable");
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen
+                    .chars()
+                    .filter(|character| !character.is_whitespace() && *character != '│')
+                    .collect::<String>()
+                    .contains("GitHubcannotprovideitsarchive")
+            },
+            "Full expired-artifact explanation across terminal wrapping",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    if mouse {
+        session.click_visible_action("[Esc Close]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    session
+        .try_wait_for_condition(
+            |screen| !screen.contains("Action unavailable"),
+            "Expired artifact explanation closed",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    if mouse {
+        session.click_visible_action("unsafe-output #43");
+    } else {
+        session.send_key(b"\x1b[H\x1b[B\r");
+    }
+    session.wait_for_screen("unsafe path");
+    let records = journal(&mut session, &fixture, final_count);
+    let writes = records
+        .iter()
+        .filter(|row| row["args"][5] == "DELETE")
+        .collect::<Vec<_>>();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(
+        writes[0]["args"][1],
+        "repos/example/repo/actions/artifacts/41"
+    );
+    assert!(!records
+        .iter()
+        .any(|row| row["args"][1] == "repos/example/repo/actions/artifacts/42"));
+    let durable =
+        publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
+    assert_eq!(
+        durable.len(),
+        1,
+        "Local archive operations never allocate remote markers"
+    );
+    assert_eq!(durable[0].state, "confirmed");
+    assert_eq!(durable[0].kind, json!("delete_artifact"));
+    assert_eq!(durable[0].target["Artifact"]["id"], 41);
+    assert_eq!(
+        durable[0].receipt.as_ref().unwrap()["kind"],
+        "artifact_deleted"
+    );
+    assert!(!fixture.root.join("outside").exists());
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.resize(80, 24);
+    session.wait_for_screen("old-output #42");
+    session.quit_and_assert_restored_terminal(mouse);
+}

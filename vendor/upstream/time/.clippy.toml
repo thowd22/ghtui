@@ -1,0 +1,35 @@
+msrv = "1.88.0"
+
+missing-docs-in-crate-items = true
+disallowed-macros = [
+    "std::column",
+    "std::env",
+    "std::file",
+    "std::include_bytes",
+    "std::include_str",
+    "std::include",
+    "std::line",
+    "std::module_path",
+    "std::option_env",
+]
+disallowed-names = ["alpha", "beta", "gamma", "delta"]
+disallowed-types = [
+    { path = "core::num::NonZeroU8", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroU16", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroU32", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroU64", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroU128", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroUsize", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroI8", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroI16", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroI32", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroI64", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroI128", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+    { path = "core::num::NonZeroIsize", reason = "use generic `NonZero`", replacement = "core::num::NonZero" },
+]
+matches-for-let-else = "AllTypes"
+enforced-import-renames = [
+    { path = "std::time::Duration", rename = "StdDuration" },
+    { path = "std::time::Instant", rename = "StdInstant" },
+]
+semicolon-outside-block-ignore-multiline = true

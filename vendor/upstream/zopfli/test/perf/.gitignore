@@ -1,0 +1,6 @@
+data/*.gz
+data_google
+data_rust
+zopfli
+benchmark*.json
+profiles

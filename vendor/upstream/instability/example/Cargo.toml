@@ -1,0 +1,32 @@
+[package]
+name = "instability-example"
+description = "Example crate demonstrating instablity usage."
+documentation = "https://docs.rs/instability-example/"
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+unstable-enum = []
+unstable-constant = []
+unstable-function = []
+unstable-method = []
+unstable-module = []
+unstable-private-function = []
+unstable-reexport = []
+unstable-static = []
+unstable-struct-with-issue = []
+unstable-struct = []
+unstable-trait = []
+unstable-type-alias = []
+
+[dependencies]
+instability.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,9 @@
+/target/
+/dist/
+/.ghtui-cache/
+/.verification/
+/.aws/
+.DS_Store
+.env
+.env.*
+!.env.example

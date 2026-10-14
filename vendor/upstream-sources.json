@@ -1,0 +1,810 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "directory": "vendor/upstream/arbitrary",
+      "repository": "https://github.com/rust-fuzz/arbitrary.git",
+      "revision": "dc22fdefd5456a0f4d2f190c6d3e017e3c7ddd8e",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/arc-swap",
+      "revision": "ec5291f4206561f8ecb0f719e61d791cee8f060f",
+      "repository": "https://github.com/vorner/arc-swap.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/arraydeque",
+      "repository": "https://github.com/andylokandy/arraydeque.git",
+      "revision": "2ccf30574a2fac91311a0fca7b32f99d41f5680e",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/base64",
+      "revision": "e14400697453bcc85997119b874bc03d9601d0af",
+      "repository": "https://github.com/marshallpierce/rust-base64.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/bitpacking",
+      "revision": "bb6341a3e160f3566351b47e4b0dee6a17f80a39",
+      "repository": "https://github.com/quickwit-oss/bitpacking.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/bon",
+      "revision": "5099fefd1b072827864aa7148190967c383ed2ef",
+      "repository": "https://github.com/elastio/bon.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/bstr",
+      "revision": "cabbfe32c3c321671b8b983a39a860df5a2be4a1",
+      "repository": "https://github.com/BurntSushi/bstr.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/byteorder",
+      "revision": "ec068eefa042d494475db125c4b034bd8e9e34dd",
+      "repository": "https://github.com/BurntSushi/byteorder.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/castaway",
+      "repository": "https://github.com/sagebind/castaway.git",
+      "revision": "5459a5ebcdd833c88fc1bb398b015e8690ada580",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/census",
+      "revision": "ca2f3735c6305536b15444ced6ee5da5d86ffea9",
+      "repository": "https://github.com/quickwit-inc/census.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/compact_str09",
+      "repository": "https://github.com/ParkMyCar/compact_str.git",
+      "revision": "fbe932e7d03c9a18d25c7242e7703e096708e840",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/critical-section",
+      "repository": "https://github.com/rust-embedded/critical-section.git",
+      "revision": "bf5538122dbf93d5a74125efd7d1ccee397efe38",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/crossbeam",
+      "revision": "d35ffde18a76ae9667f602d8c0127ff89ac2e4d4",
+      "repository": "https://github.com/crossbeam-rs/crossbeam.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/crossterm",
+      "repository": "https://github.com/crossterm-rs/crossterm.git",
+      "revision": "36d95b26a26e64b0f8c12edfe11f410a6d56a812",
+      "modified_files": [
+        "Cargo.toml"
+      ],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/crunchy",
+      "revision": "ba7b86cea6ba89ccfc72ccb24cc4a4ac6d9c6272",
+      "repository": "https://github.com/eira-fransham/crunchy.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/darling",
+      "repository": "https://github.com/TedDriggs/darling.git",
+      "revision": "70b280dede2eaa1ee53f445a970657b16299767b",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/darling020",
+      "revision": "82a51e0b65b158de02ffb5d753ea4cd03529743b",
+      "repository": "https://github.com/TedDriggs/darling.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/datasketches",
+      "revision": "fdb38b85d22e6549ab283bf3b9b133659267d19f",
+      "repository": "https://github.com/apache/datasketches-rust.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/deranged",
+      "revision": "8b2624e6e71ec22fe615aab1affc7ded2edea571",
+      "repository": "https://github.com/jhpratt/deranged.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/downcast-rs2",
+      "revision": "ed3050915cfaee7a38a033f75761705fa9fc1569",
+      "repository": "https://github.com/marcianx/downcast-rs.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/encoding_rs_io",
+      "revision": "04268d951494a90649f35088253e549fade32f44",
+      "repository": "https://github.com/BurntSushi/encoding_rs_io.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/erased-serde",
+      "revision": "29441afc1aec7694ab4fa0351dd1c92fc93ec240",
+      "repository": "https://github.com/dtolnay/erased-serde.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/fallible-iterator",
+      "repository": "https://github.com/sfackler/rust-fallible-iterator.git",
+      "revision": "0b4fdb728e643c1cbd9ce06868715bbf98f9052a",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/fallible-streaming-iterator",
+      "repository": "https://github.com/sfackler/fallible-streaming-iterator.git",
+      "revision": "9217bc5e381b54b4ef4c38959488a5dc993b7b81",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/fastdivide",
+      "revision": "1e9a529523855453eef80d93ab8471bef1874770",
+      "repository": "https://github.com/fulmicoton/fastdivide.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/fnv",
+      "revision": "4e55052a343a4372c191141f29a17ab829cf1dbc",
+      "repository": "https://github.com/servo/rust-fnv.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/foldhash01",
+      "repository": "https://github.com/orlp/foldhash.git",
+      "revision": "6822931d0ae7cd90accbd176acb65db7e83466cf",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/fs4",
+      "revision": "511e2d2a2a3a730e1158a6fd72e4acb20f65998a",
+      "repository": "https://github.com/al8n/fs4.git",
+      "modified_files": [
+        "Cargo.toml"
+      ],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/hashbrown015",
+      "repository": "https://github.com/rust-lang/hashbrown.git",
+      "revision": "b751eef8e99ccf3652046ef4a9e1ec47c1bfb78d",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/hashlink",
+      "repository": "https://github.com/kyren/hashlink.git",
+      "revision": "11088cb368f93e1f61fc42e696b4ab89158ae70d",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/hashlink-0.11",
+      "repository": "https://github.com/kyren/hashlink.git",
+      "revision": "fe151cc410a22009eb56157ce9ec101daad174ae",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/htmlescape",
+      "revision": "1699b539179798e705ad8464128492a0a0092876",
+      "repository": "https://github.com/veddan/rust-htmlescape.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ],
+      "license_declaration": "Apache-2.0 / MIT / MPL-2.0",
+      "license_note": "Original upstream Cargo.toml declaration retained; no standalone license texts supplied upstream."
+    },
+    {
+      "directory": "vendor/upstream/ident_case",
+      "repository": "https://github.com/TedDriggs/ident_case.git",
+      "revision": "9ecdb364564374ecc694927f0f587f1357fbd62a",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/indoc",
+      "repository": "https://github.com/dtolnay/indoc.git",
+      "revision": "79ab4aa68838fd831e577e1e192161c718325e60",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/instability",
+      "repository": "https://github.com/ratatui/instability.git",
+      "revision": "20792849479a9cee6eea53b031f0230cdf64eee1",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/inventory",
+      "revision": "c8310fa1b9d6dc4b41f74dea98cd01d5fd490f72",
+      "repository": "https://github.com/dtolnay/inventory.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/kasuari",
+      "repository": "https://github.com/ratatui/kasuari.git",
+      "revision": "4945ebb497dda7e7ae575c153061f8d6998d51b4",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/levenshtein_automata",
+      "revision": "54fc3b82ed148817f73cc2430d6214aa7b5742ba",
+      "repository": "https://github.com/quickwit-oss/levenshtein-automata.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/line-clipping",
+      "repository": "https://github.com/ratatui/line-clipping.git",
+      "revision": "d0987c3ad380ae7e19eef31dbbf4798895a3be23",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/lru",
+      "repository": "https://github.com/jeromefroe/lru-rs.git",
+      "revision": "f1e972197053a6814e77b77afacb51f03fc03170",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/lru016",
+      "revision": "af233e5c36a6b1be65e1c6d67ebf9601a71150fb",
+      "repository": "https://github.com/jeromefroe/lru-rs.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/measure_time",
+      "revision": "a8981215f46635c0ffcb8f461e6a15bc6d2f0277",
+      "repository": "https://github.com/PSeitz/rust_measure_time.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/minimal-lexical",
+      "repository": "https://github.com/Alexhuszagh/minimal-lexical.git",
+      "revision": "b961dc819c9d5a1939716688b408ce6d98840a99",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git",
+        "etc",
+        "assets",
+        "docs",
+        "ci",
+        "examples",
+        "scripts",
+        "fuzz"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/murmurhash32",
+      "revision": "93b82f2ff10570d8d631b3a771680339f944bff8",
+      "repository": "https://github.com/quickwit-inc/murmurhash32.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/nix",
+      "repository": "https://github.com/nix-rust/nix.git",
+      "revision": "1dad4d8d04a2cd187fae87cb91c4f4e95ff0decd",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/nom7",
+      "revision": "869f8972a4383b13cf89574fda28cb7dbfd56517",
+      "repository": "https://github.com/rust-bakery/nom.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/nucleo",
+      "revision": "e9cca9fd56480c6a4aca7a9df5edf115eb58ba17",
+      "repository": "https://github.com/helix-editor/nucleo.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/num-conv",
+      "revision": "67f41e3300be24184fb63855819cd87a5d1de6d1",
+      "repository": "https://github.com/jhpratt/num-conv.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/oneshot",
+      "revision": "a6a03981ec4d9aa3abb4445f0b90919d08a746ad",
+      "repository": "https://github.com/faern/oneshot.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/ordered-float",
+      "revision": "478e67d5c8ae3a853ccc1f9b09ad853b69e941bd",
+      "repository": "https://github.com/reem/rust-ordered-float.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/powerfmt",
+      "revision": "3dd45162a7e64d6b354675e4282d0550dce8bfc8",
+      "repository": "https://github.com/jhpratt/powerfmt.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/prettyplease",
+      "revision": "c971184fa8c5ef5a2828196e35bd99469455b46b",
+      "repository": "https://github.com/dtolnay/prettyplease.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/r-efi",
+      "repository": "https://github.com/r-efi/r-efi.git",
+      "revision": "7e1b0322d31d625f81a5656096330934f9cd835d",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/ratatui",
+      "repository": "https://github.com/ratatui/ratatui.git",
+      "revision": "e665c36cb14752a61cd777fbd06dbef8474f2add",
+      "modified_files": [
+        "ratatui-core/Cargo.toml",
+        "ratatui-crossterm/Cargo.toml",
+        "ratatui-widgets/Cargo.toml",
+        "ratatui/Cargo.toml"
+      ],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/redox_syscall",
+      "repository": "https://gitlab.redox-os.org/redox-os/syscall.git",
+      "revision": "15aa8e32ef0f3328dd9d48cc8ca02e148a362069",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/ripgrep",
+      "revision": "af60c2de9d85e7f3d81c78601669468cf02dabab",
+      "repository": "https://github.com/BurntSushi/ripgrep.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/rusqlite",
+      "repository": "https://github.com/rusqlite/rusqlite.git",
+      "revision": "44e0ef965580b94d59c5dfe8874b57ab5993a8f7",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/sha1",
+      "repository": "https://github.com/RustCrypto/hashes.git",
+      "revision": "7aba4b52715f9cb17a90303bab55bd59471d65ae",
+      "upstream_subdirectory": "sha1",
+      "modified_files": [],
+      "excluded_paths": [".git"]
+    },
+    {
+      "directory": "vendor/upstream/ryu",
+      "repository": "https://github.com/dtolnay/ryu.git",
+      "revision": "f0b52bb194befe6fd242154f2182fafd43a819b8",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/same-file",
+      "revision": "5799cd323b8eefd17a089c950dac113f66c89c9e",
+      "repository": "https://github.com/BurntSushi/same-file.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/serial2",
+      "repository": "https://github.com/de-vri-es/serial2-rs.git",
+      "revision": "448a20ece5e6e37236d247ed957042420672029b",
+      "modified_files": [
+        "Cargo.toml"
+      ],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/shell-words",
+      "repository": "https://github.com/tmiasko/shell-words.git",
+      "revision": "8d2868b0edadbd5572acd7ed25b6be890c2781b7",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/signal-hook-mio",
+      "repository": "https://github.com/vorner/signal-hook.git",
+      "revision": "ac4c81cb0cc67d52af392f7d6a46655eab672477",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/sketches-ddsketch",
+      "revision": "305157e278636cb6fcf647dc576487a0998309de",
+      "repository": "https://github.com/mheffner/rust-sketches-ddsketch.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/strsim",
+      "repository": "https://github.com/rapidfuzz/strsim-rs.git",
+      "revision": "f72cd1cbbfc0b43db217a9c57c543b025bdba863",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/syn3",
+      "repository": "https://github.com/dtolnay/syn.git",
+      "revision": "7c44a5565b4421035101cc16184e9af08ab5fc77",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/tantivy",
+      "revision": "72d1ef9a6468aa68bbc69dcc80cdf60aaf64364d",
+      "repository": "https://github.com/quickwit-oss/tantivy.git",
+      "modified_files": [
+        "Cargo.toml"
+      ],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/tantivy-fst",
+      "revision": "663c33a0c3b62110ed5e183d7ba852a1106ab308",
+      "repository": "https://github.com/quickwit-inc/fst.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/time",
+      "revision": "d5144cd2874862d46466c900910cd8577d066019",
+      "repository": "https://github.com/time-rs/time.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/typeid",
+      "revision": "b06a3c08a0eaccc7df6091ade1ae4e3fb53609d5",
+      "repository": "https://github.com/dtolnay/typeid.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/typetag",
+      "revision": "0ec09d455f39885e09881a794727824a176feca1",
+      "repository": "https://github.com/dtolnay/typetag.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/unicode-truncate2",
+      "repository": "https://github.com/Aetf/unicode-truncate.git",
+      "revision": "dec61c2e6dba4a202b55baa2bc6f21e72b172c57",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/unicode-width-0.1",
+      "repository": "https://github.com/unicode-rs/unicode-width.git",
+      "revision": "9eaafa5f91b737bb5958d46f9647aa11104c6f25",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/utf8-ranges",
+      "revision": "be9b8dfcaf449453cbf83ac85260ee80323f4f77",
+      "repository": "https://github.com/BurntSushi/utf8-ranges.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/vcpkg",
+      "repository": "https://github.com/mcgoo/vcpkg-rs.git",
+      "revision": "fa42994af157924e44223f2559a95c906e00c1fa",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/vt100",
+      "repository": "https://github.com/doy/vt100-rust.git",
+      "revision": "4c9e5da3de10d838d792929f1691024d6bf59c85",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git",
+        "tests"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/vte",
+      "repository": "https://github.com/alacritty/vte.git",
+      "revision": "dc861b1dae166183c66848fcbd47b8e81a43d972",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/walkdir",
+      "revision": "4f26be4d450910916ea11533b2efc52b9a6483bc",
+      "repository": "https://github.com/BurntSushi/walkdir.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/wasi",
+      "repository": "https://github.com/bytecodealliance/wasi.git",
+      "revision": "f136a81add9706ed0b36ac3c4b0da943de8e690d",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/wasm-bindgen",
+      "revision": "246946fddd62163e778c3a1f6afe7264347adceb",
+      "repository": "https://github.com/wasm-bindgen/wasm-bindgen.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git",
+        "benches",
+        "tests",
+        "examples",
+        "guide",
+        "crates/other-unselected-packages"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/wezterm-full",
+      "repository": "https://github.com/wezterm/wezterm.git",
+      "revision": "e2a98e1b8af156988ad0ac778658ac27b60a55fb",
+      "modified_files": [
+        "filedescriptor/Cargo.toml",
+        "pty/Cargo.toml"
+      ],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/winapi-util",
+      "revision": "803874c57dc1f10ecd42f7c86d9de72f53818432",
+      "repository": "https://github.com/BurntSushi/winapi-util.git",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/windows-rs",
+      "repository": "https://github.com/microsoft/windows-rs.git",
+      "revision": "bcc24b5c5fb3fe0a7d00559ceee824abc66e030b",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/yaml-rust2",
+      "repository": "https://github.com/Ethiraric/yaml-rust2.git",
+      "revision": "635ffd17f2bf3c095c8881b53441a7c3d968775f",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/zip",
+      "repository": "https://github.com/zip-rs/zip2.git",
+      "revision": "2283915c1e03477ce7cf9e6a0cfb92408c6108ec",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git",
+        "tests"
+      ]
+    },
+    {
+      "directory": "vendor/upstream/zopfli",
+      "repository": "https://github.com/zopfli-rs/zopfli.git",
+      "revision": "91a34e5d2ce57883a82145158bc74222d7da5229",
+      "modified_files": [],
+      "excluded_paths": [
+        ".git"
+      ]
+    }
+  ]
+}

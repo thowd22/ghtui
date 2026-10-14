@@ -1,0 +1,23 @@
+name: Compile Test
+
+on: [push, pull_request]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    compiletest:
+        runs-on: ubuntu-latest
+
+        env:
+            RUST_BACKTRACE: 1
+            RUSTFLAGS: "--cfg compiletests"
+
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@1.88
+            - name: main crate
+              run: |
+                  cargo build --verbose
+                  cargo test --no-fail-fast --verbose --test compiletests -- --nocapture

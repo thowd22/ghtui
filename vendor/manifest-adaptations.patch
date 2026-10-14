@@ -1,0 +1,327 @@
+# vendor/upstream/crossterm
+# upstream commit 36d95b26a26e64b0f8c12edfe11f410a6d56a812
+diff --git a/Cargo.toml b/Cargo.toml
+index 41c3797..9a90fcb 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -21,7 +21,7 @@ path = "src/lib.rs"
+ all-features = true
+ 
+ [features]
+-default = ["bracketed-paste", "events", "windows", "derive-more"]
++default = ["bracketed-paste", "events"]
+ 
+ #! ### Default features
+ ## Enables triggering [`Event::Paste`](event::Event::Paste) when pasting text into the terminal.
+@@ -31,7 +31,7 @@ bracketed-paste = []
+ events = ["dep:mio", "dep:signal-hook", "dep:signal-hook-mio"]
+ 
+ ## Enables windows specific crates.
+-windows = ["dep:winapi", "dep:crossterm_winapi"]
++windows = []
+ 
+ #! ### Optional Features
+ 
+@@ -45,7 +45,7 @@ serde = ["dep:serde", "bitflags/serde"]
+ use-dev-tty = ["filedescriptor", "rustix/process"]
+ 
+ ## Enables `is_*` helper functions for event enums.
+-derive-more = ["dep:derive_more"]
++derive-more = []
+ 
+ ## Enables interacting with a host clipboard via [`clipboard`](clipboard/index.html)
+ osc52 = ["dep:base64"]
+@@ -53,17 +53,11 @@ osc52 = ["dep:base64"]
+ [dependencies]
+ base64 = { version = "0.22", optional = true }
+ bitflags = { version = "2.9" }
+-derive_more = { version = "2.0.0", features = ["is_variant"], optional = true }
+ document-features = "0.2.11"
+ futures-core = { version = "0.3", optional = true, default-features = false }
+ parking_lot = "0.12"
+ serde = { version = "1.0", features = ["derive"], optional = true }
+ 
+-# Windows dependencies
+-[target.'cfg(windows)'.dependencies]
+-crossterm_winapi = { version = "0.9.1", optional = true }
+-winapi = { version = "0.3.9", optional = true, features = ["winuser", "winerror"] }
+-
+ # UNIX dependencies
+ [target.'cfg(unix)'.dependencies]
+ filedescriptor = { version = "0.8", optional = true }
+
+# vendor/upstream/ratatui
+# upstream commit e665c36cb14752a61cd777fbd06dbef8474f2add
+diff --git a/ratatui-core/Cargo.toml b/ratatui-core/Cargo.toml
+index 6efe58e..cff28f3 100644
+--- a/ratatui-core/Cargo.toml
++++ b/ratatui-core/Cargo.toml
+@@ -34,7 +34,6 @@ std = [
+   "compact_str/std",
+   "itertools/use_std",
+   "kasuari/std",
+-  "palette?/std",
+   "serde?/std",
+   "strum/std",
+   "thiserror/std",
+@@ -49,7 +48,7 @@ layout-cache = ["dep:critical-section"]
+ anstyle = ["dep:anstyle"]
+ 
+ ## enables conversions from colors in the [`palette`] crate to [`Color`](crate::style::Color).
+-palette = ["dep:palette"]
++palette = []
+ 
+ ## enables portable-atomic integration for targets that don't support atomic types.
+ portable-atomic = ["kasuari/portable-atomic"]
+@@ -67,16 +66,15 @@ scrolling-regions = []
+ serde = ["bitflags/serde", "compact_str/serde", "dep:serde"]
+ 
+ [dependencies]
++document-features = { workspace = true, optional = true }
+ anstyle = { workspace = true, optional = true }
+ bitflags.workspace = true
+ compact_str.workspace = true
+ critical-section = { workspace = true, optional = true }
+-document-features = { workspace = true, optional = true }
+ hashbrown.workspace = true
+ itertools.workspace = true
+ kasuari = { workspace = true, default-features = false }
+ lru.workspace = true
+-palette = { workspace = true, optional = true }
+ serde = { workspace = true, optional = true }
+ strum.workspace = true
+ thiserror = { workspace = true, default-features = false }
+diff --git a/ratatui-crossterm/Cargo.toml b/ratatui-crossterm/Cargo.toml
+index 5b2004a..0cce546 100644
+--- a/ratatui-crossterm/Cargo.toml
++++ b/ratatui-crossterm/Cargo.toml
+@@ -32,7 +32,7 @@ default = ["crossterm_0_29", "underline-color"]
+ #! of the following features.
+ 
+ ## Enables crossterm 0.28.x
+-crossterm_0_28 = ["dep:crossterm_0_28"]
++crossterm_0_28 = []
+ ## Enables crossterm 0.29.x
+ crossterm_0_29 = ["dep:crossterm_0_29"]
+ 
+@@ -41,7 +41,7 @@ crossterm_0_29 = ["dep:crossterm_0_29"]
+ #! certain situations.
+ 
+ ## Enables serde for crossterm dependency
+-serde = ["crossterm_0_28?/serde", "crossterm_0_29?/serde"]
++serde = ["crossterm_0_29?/serde"]
+ 
+ ## enables the backend code that sets the underline color.
+ ## Underline color is not supported on Windows 7.
+@@ -59,10 +59,9 @@ unstable = ["unstable-backend-writer"]
+ unstable-backend-writer = []
+ 
+ [dependencies]
++document-features = { workspace = true, optional = true }
+ cfg-if = "1.0.1"
+-crossterm_0_28 = { version = "0.28", package = "crossterm", optional = true }
+ crossterm_0_29 = { version = "0.29", package = "crossterm", optional = true }
+-document-features = { workspace = true, optional = true }
+ instability.workspace = true
+ ratatui-core.workspace = true
+ 
+diff --git a/ratatui-widgets/Cargo.toml b/ratatui-widgets/Cargo.toml
+index 107de02..5eb60a7 100644
+--- a/ratatui-widgets/Cargo.toml
++++ b/ratatui-widgets/Cargo.toml
+@@ -24,7 +24,7 @@ rustdoc-args = ["--cfg", "docsrs"]
+ default = ["all-widgets"]
+ 
+ ## enables std
+-std = ["serde?/std", "time?/local-offset"]
++std = ["serde?/std"]
+ 
+ ## enables serialization and deserialization of style and color types using the [`serde`] crate.
+ ## This is useful if you want to save themes to a file.
+@@ -37,7 +37,7 @@ serde = ["dep:serde", "ratatui-core/serde"]
+ all-widgets = ["calendar"]
+ 
+ ## enables the [`calendar`](calendar) widget module and adds a dependency on [`time`].
+-calendar = ["dep:time"]
++calendar = []
+ 
+ ## Enable all unstable features.
+ unstable = ["unstable-rendered-line-info"]
+@@ -49,8 +49,8 @@ unstable = ["unstable-rendered-line-info"]
+ unstable-rendered-line-info = []
+ 
+ [dependencies]
+-bitflags.workspace = true
+ document-features = { workspace = true, optional = true }
++bitflags.workspace = true
+ hashbrown.workspace = true
+ indoc.workspace = true
+ instability.workspace = true
+@@ -59,7 +59,6 @@ line-clipping.workspace = true
+ ratatui-core = { workspace = true }
+ serde = { workspace = true, optional = true }
+ strum.workspace = true
+-time = { workspace = true, optional = true }
+ unicode-segmentation.workspace = true
+ unicode-width.workspace = true
+ 
+diff --git a/ratatui/Cargo.toml b/ratatui/Cargo.toml
+index ae63f20..e10e2eb 100644
+--- a/ratatui/Cargo.toml
++++ b/ratatui/Cargo.toml
+@@ -36,11 +36,11 @@ crossterm_0_28 = ["crossterm", "ratatui-crossterm/crossterm_0_28"]
+ ## selects the crossterm 0.29.x backend implementation (default)
+ crossterm_0_29 = ["crossterm", "ratatui-crossterm/crossterm_0_29"]
+ ## enables the [`TermionBackend`](backend::TermionBackend) backend and adds a dependency on [`termion`].
+-termion = ["dep:ratatui-termion", "std"]
++termion = []
+ ## enables the [`TerminaBackend`](backend::TerminaBackend) backend and adds a dependency on [`termina`].
+-termina = ["dep:ratatui-termina", "std"]
++termina = []
+ ## enables the [`TermwizBackend`](backend::TermwizBackend) backend and adds a dependency on [`termwiz`].
+-termwiz = ["dep:ratatui-termwiz", "std"]
++termwiz = []
+ 
+ ## enables std
+ std = ["ratatui-core/std", "ratatui-widgets/std", "serde?/std"]
+@@ -52,9 +52,6 @@ serde = [
+   "dep:serde",
+   "ratatui-core/serde",
+   "ratatui-crossterm?/serde",
+-  "ratatui-termina?/serde",
+-  "ratatui-termion?/serde",
+-  "ratatui-termwiz?/serde",
+   "ratatui-widgets/serde",
+ ]
+ 
+@@ -62,7 +59,7 @@ serde = [
+ layout-cache = ["ratatui-core/layout-cache"]
+ 
+ ## enables conversions from colors in the [`palette`] crate to [`Color`](crate::style::Color).
+-palette = ["dep:palette", "ratatui-core/palette"]
++palette = []
+ 
+ ## enables portable-atomic integration for targets that don't support atomic types.
+ portable-atomic = ["ratatui-core/portable-atomic"]
+@@ -72,14 +69,11 @@ portable-atomic = ["ratatui-core/portable-atomic"]
+ scrolling-regions = [
+   "ratatui-core/scrolling-regions",
+   "ratatui-crossterm?/scrolling-regions",
+-  "ratatui-termina?/scrolling-regions",
+-  "ratatui-termion?/scrolling-regions",
+-  "ratatui-termwiz?/scrolling-regions",
+ ]
+ 
+ ## enables the [`macros`](macros) module which provides some useful macros for creating spans,
+ ## lines, text, and layouts
+-macros = ["dep:ratatui-macros"]
++macros = []
+ 
+ ## enables all widgets.
+ all-widgets = ["widget-calendar"]
+@@ -87,7 +81,7 @@ all-widgets = ["widget-calendar"]
+ #! Widgets that add dependencies are gated behind feature flags to prevent unused transitive
+ #! dependencies. The available features are:
+ ## enables the [`calendar`](widgets::calendar) widget module.
+-widget-calendar = ["ratatui-widgets/calendar"]
++widget-calendar = []
+ 
+ #! The following optional features are only available for some backends:
+ 
+@@ -97,8 +91,6 @@ widget-calendar = ["ratatui-widgets/calendar"]
+ underline-color = [
+   "ratatui-core/underline-color",
+   "ratatui-crossterm?/underline-color",
+-  "ratatui-termina?/underline-color",
+-  "ratatui-termwiz?/underline-color",
+ ]
+ 
+ #! The following features are unstable and may change in the future:
+@@ -122,25 +114,16 @@ unstable-widget-ref = []
+ ## Enables getting access to backends' writers.
+ unstable-backend-writer = [
+   "ratatui-crossterm?/unstable-backend-writer",
+-  "ratatui-termina?/unstable-backend-writer",
+-  "ratatui-termion?/unstable-backend-writer",
+ ]
+ 
+ [dependencies]
+ document-features = { workspace = true, optional = true }
+ instability.workspace = true
+-palette = { workspace = true, optional = true }
+ ratatui-core = { workspace = true }
+ ratatui-crossterm = { workspace = true, optional = true }
+-ratatui-macros = { workspace = true, optional = true }
+-ratatui-termina = { workspace = true, optional = true }
+-ratatui-termwiz = { workspace = true, optional = true }
+ ratatui-widgets = { workspace = true }
+ serde = { workspace = true, optional = true }
+ 
+-[target.'cfg(not(windows))'.dependencies]
+-ratatui-termion = { workspace = true, optional = true }
+-
+ [dev-dependencies]
+ criterion.workspace = true
+ crossterm = { workspace = true, features = ["event-stream"] }
+
+# vendor/upstream/serial2
+# upstream commit 448a20ece5e6e37236d247ed957042420672029b
+diff --git a/Cargo.toml b/Cargo.toml
+index 94b99c8..16b66c9 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -42,9 +42,6 @@ serde = { version = "1.0", features = ["derive"], optional = true }
+ libc = "0.2.109"
+ cfg-if = "1.0.0"
+ 
+-[target.'cfg(windows)'.dependencies]
+-windows-sys = {version = "0.61", features = ["Win32_Devices_Communication", "Win32_System_Registry", "Win32_System_IO", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_WindowsProgramming", "Win32_Security"] }
+-
+ [dev-dependencies]
+ assert2 = "0.4.0"
+ serde_json = "1.0.108"
+
+# vendor/upstream/wezterm-full
+# upstream commit e2a98e1b8af156988ad0ac778658ac27b60a55fb
+diff --git a/filedescriptor/Cargo.toml b/filedescriptor/Cargo.toml
+index 50f9728..04f7a27 100644
+--- a/filedescriptor/Cargo.toml
++++ b/filedescriptor/Cargo.toml
+@@ -14,14 +14,3 @@ keywords = ["socketpair", "pipe", "poll", "filedescriptor"]
+ thiserror.workspace = true
+ libc.workspace = true
+ 
+-[target."cfg(windows)".dependencies]
+-windows-sys = { workspace=true, features = [
+-    "Win32_Foundation",
+-    "Win32_Networking_WinSock",
+-    "Win32_Security",
+-    "Win32_Storage_FileSystem",
+-    "Win32_System_Console",
+-    "Win32_System_IO",
+-    "Win32_System_Pipes",
+-    "Win32_System_Threading",
+-]}
+diff --git a/pty/Cargo.toml b/pty/Cargo.toml
+index 50cf3fc..9c0b215 100644
+--- a/pty/Cargo.toml
++++ b/pty/Cargo.toml
+@@ -23,18 +23,6 @@ shell-words.workspace = true
+ default = []
+ serde_support = ["serde"]
+ 
+-[target."cfg(windows)".dependencies]
+-bitflags.workspace = true
+-lazy_static.workspace = true
+-shared_library.workspace = true
+-windows-sys = { workspace = true, features = [
+-    "Win32_Foundation",
+-    "Win32_System_Console",
+-    "Win32_System_Environment",
+-    "Win32_System_Threading",
+-] }
+-winreg.workspace = true
+-
+ [dev-dependencies]
+ futures.workspace = true
+ smol.workspace = true

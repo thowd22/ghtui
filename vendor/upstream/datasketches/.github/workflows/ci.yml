@@ -1,0 +1,129 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+name: CI
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+# Concurrency strategy:
+#   github.workflow: distinguish this workflow from others
+#   github.event_name: distinguish `push` event from `pull_request` event
+#   github.event.number: set to the number of the pull request if `pull_request` event
+#   github.run_id: otherwise, it's a `push` event, only cancel if we rerun the workflow
+#
+# Reference:
+#   https://docs.github.com/en/actions/using-jobs/using-concurrency
+#   https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Delete rust-toolchain.toml
+        run: rm rust-toolchain.toml
+      - name: Install toolchain
+        run: rustup toolchain install --component rustfmt,clippy nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: typos-cli,taplo-cli,hawkeye
+      - name: Check all
+        run: cargo x lint
+
+  msrv:
+    name: Resolve MSRV
+    runs-on: ubuntu-24.04
+    outputs:
+      rust-versions: ${{ steps.metadata.outputs.rust-versions }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: metadata
+        run: |
+          msrv=$(yq '.workspace.package.rust-version' Cargo.toml)
+          echo "MSRV: $msrv"
+          echo "rust-versions=[\"${msrv}\", \"stable\"]" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Run tests
+    needs: msrv
+    strategy:
+      matrix:
+        os: [ ubuntu-24.04, macos-14, windows-2022 ]
+        rust-version: ${{ fromJson(needs.msrv.outputs.rust-versions) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Delete rust-toolchain.toml
+        run: rm rust-toolchain.toml
+      - uses: Swatinem/rust-cache@v2
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ matrix.rust-version }}
+          rustup default ${{ matrix.rust-version }}
+      - name: Run examples
+        shell: bash
+        working-directory: examples
+        run: |
+          set -x
+          METADATA=$( cargo metadata --format-version=1 --no-deps )
+          EXAMPLES=$( echo "$METADATA" | jq -r '.packages[] | select(.name == "examples") | .targets[].name' | tr -d '\r' )
+          while read -r example; do
+            if [ -n "$example" ]; then
+              echo "Running example: $example"
+              cargo run --bin "$example"
+            fi
+          done <<< "$EXAMPLES"
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+      - name: Prepare test data
+        shell: bash
+        run: ./tools/generate_serialization_test_data.py
+      - name: Run unit tests
+        shell: bash
+        run: cargo x test
+
+  required:
+    name: Required
+    runs-on: ubuntu-24.04
+    if: ${{ always() }}
+    needs:
+      - check
+      - test
+    steps:
+      - name: Guardian
+        run: |
+          if [[ ! ( \
+                 "${{ needs.check.result }}" == "success" \
+              && "${{ needs.test.result }}" == "success" \
+              ) ]]; then
+            echo "Required jobs haven't been completed successfully."
+            exit -1
+          fi

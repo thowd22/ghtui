@@ -1,0 +1,14 @@
+# Rust/Cargo files
+**/target
+**/Cargo.lock
+
+# Fuzzer
+**/artifacts
+**/fuzz*.log
+hfuzz_target/**
+
+# macOS
+**/.DS_Store
+
+# VSCode
+.vscode/**

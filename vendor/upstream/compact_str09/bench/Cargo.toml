@@ -1,0 +1,34 @@
+[package]
+name = "benches"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+compact_str = { path = "../compact_str" }
+compact_str_6 = { package = "compact_str", version = "0.6" }
+criterion = { version = "0.5", default-features = false }
+iai = "0.1.1"
+smartstring = "1.0.1"
+smol_str = "0.2"
+
+[[bench]]
+name = "apis"
+harness = false
+
+[[bench]]
+name = "compact_str"
+harness = false
+
+[[bench]]
+name = "compact_str_iai"
+harness = false
+
+[[bench]]
+name = "comparison"
+harness = false
+
+[[bench]]
+name = "random"
+harness = false

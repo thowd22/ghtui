@@ -1,0 +1,40 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'compact_str/**'
+      - '.github/workflows/msrv.yml'
+      - '!CHANGELOG.md'
+      - '!**/README.md'
+  workflow_dispatch:
+
+name: MSRV
+
+env:
+  CARGO_TERM_COLOR: "always"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  msrv:
+    name: cargo check msrv...
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: rustup toolchain install stable --no-self-update --profile minimal
+      - name: Install cargo hack
+        uses: taiki-e/install-action@cargo-hack
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check msrv..
+        # Note: For a while we tried including all of our features in the MSRV
+        # check but it ended up being very flaky since a change in MSRV is not
+        # considered a breaking change, so often the feature crates would bump
+        # their MSRV causing this test to break.
+        #
+        # See <https://github.com/rust-lang/api-guidelines/discussions/231>
+        run: |
+          cargo hack check --manifest-path=compact_str/Cargo.toml --version-range 1.60..

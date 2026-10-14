@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "bench",
+    "examples/bytes",
+    "examples/diesel",
+    "examples/macros",
+    "examples/serde",
+    "examples/sqlx",
+    "examples/traits",
+    "fuzz",
+]
+exclude = ["compact_str"]
+
+resolver = "2"

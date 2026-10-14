@@ -1,0 +1,54 @@
+# Offline dependency sources
+
+The application and its actual-binary PTY tests build with `cargo test --offline
+--locked --all-targets`. `.cargo/config.toml` selects the checked-in registry
+packages; the Cargo patch table selects relative upstream source directories.
+No Cargo cache, `/tmp` checkout, network, or extra Git checkout is required.
+Rust, the system C toolchain, installed `git`, and external `gh` remain required.
+Only macOS and Linux are product targets. Some other-target packages are retained
+because Cargo resolves their metadata even on Unix; their inclusion does not add
+platform support.
+
+`upstream-sources.json` records the official origin and exact Git revision of
+every upstream directory. Each upstream license is retained. Registry sources
+were copied by `cargo vendor --versioned-dirs`; Cargo.lock package checksums and
+each `.cargo-checksum.json` verify them. `upstream-checksums.json` freezes the
+retained upstream file tree. Run `node scripts/audit-dependencies.mjs` to check
+both source sets, relative path containment, pins, licenses, and checksums.
+
+The registry transport was unavailable in the development environment; ordinary
+approved Git clone/fetch commands supplied official sources. No sandbox-policy
+bypass or unrelated modified dependency source was used. A handful of upstream
+Cargo manifests were reduced to the selected Unix/default feature graph; the
+exact changes are in `manifest-adaptations.patch` and
+`search-manifest-adaptations.patch`. Runtime Rust sources and
+package versions were not changed. Windows-only dependencies and unused Ratatui
+backends/calendar/macros were removed from those manifests. Optional document
+features remain available. The product's selected Crossterm events, bracketed
+paste, Ratatui backend, and Unix PTY behavior are unchanged.
+
+Embedded dependency `.git` directories and the large Zip/VT100 upstream test
+fixture directories are excluded; the application's independent contract and
+PTY tests remain in `tests/`. Exploratory unused source versions are not bundled.
+During development these exclusions were moved recoverably to
+`.verification/dependency-metadata` (ignored development backup); that backup is
+not a build dependency. The backup originally lived under `/tmp` and was moved
+inside the ignored workspace directory to relieve the temporary-files quota.
+
+The old htmlescape repository supplies only the license declaration in its
+original Cargo.toml (`Apache-2.0 / MIT / MPL-2.0`), not separate license texts.
+That exact declaration and the unmodified source are retained and explicitly
+recorded; the audit does not pretend an upstream license file was supplied.
+
+SHA-1 is used only to verify Git object identity for GitHub content, not for new
+security signatures or password hashing. Its unmodified `sha1` package subtree
+from the pinned RustCrypto/hashes repository is retained with both original
+licenses; `upstream_subdirectory` records that provenance. Unused sibling hash
+packages and clone metadata were moved into the ignored development backup.
+
+To update a dependency, obtain its official source, preserve its license, record
+its new exact pin and any manifest-only adaptation, and rerun `cargo vendor
+--versioned-dirs vendor/crates`. Deliberate source updates must then regenerate
+the upstream checksum inventory with `node scripts/audit-dependencies.mjs
+--refresh-upstream-checksums`. Ordinary builds/tests never refresh integrity
+metadata or accept changed source checksums automatically.

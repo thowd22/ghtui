@@ -1,0 +1,57 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "compact_str/**"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+      - "!CHANGELOG.md"
+      - "!**/README.md"
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 01,13 * * *'
+
+name: Fuzz
+
+env:
+  CARGO_TERM_COLOR: "always"
+  RUSTFLAGS: "-D warnings -Zrandomize-layout"
+  RUST_NIGHTLY_VERSION: "nightly-2026-02-27"
+
+jobs:
+  libFuzzer_x86_64:
+    name: libFuzzer [x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout compact_str
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_NIGHTLY_VERSION }} --no-self-update
+          rustup override set ${{ env.RUST_NIGHTLY_VERSION }}
+      - name: Install cargo-fuzz
+        run: |
+          cargo install cargo-fuzz
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set Fuzz Time
+        run: |
+          if [[ "${{github.event_name}}" == "push" || "${{github.event_name}}" == "pull_request" ]]; then
+            echo "fuzz_time=120" >> $GITHUB_ENV
+          else
+            echo "fuzz_time=1800" >> $GITHUB_ENV
+          fi
+          echo "${{ env.fuzz_time }}"
+      - name: Fuzz!
+        run: cargo fuzz run --features=libfuzzer-sys --debug-assertions compact_str -- -max_total_time=${{ env.fuzz_time }}
+      # - name: File Issue (if failure found)
+      #   if: failure()
+      #   uses: JasonEtco/create-an-issue@v2.9
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   with:
+      #     update_existing: true

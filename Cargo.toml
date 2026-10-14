@@ -1,0 +1,162 @@
+[package]
+name = "ghtui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "A fast, clear Git and GitHub terminal workspace"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22.1"
+# Unix level-triggered polling keeps simultaneous resize/input readiness usable.
+# The supported backend is upstream code, not a local vendor-source patch.
+crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste", "use-dev-tty"] }
+libc = "0.2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ignore = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+nucleo-matcher = "0.3"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "layout-cache", "underline-color"] }
+regex = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10.6"
+sha2 = "0.10"
+shell-words = "1"
+tempfile = "3"
+tantivy = { version = "0.26", default-features = false, features = ["mmap"] }
+toml = "1"
+unicode-segmentation = "1"
+yaml-rust2 = { version = "0.11", default-features = false }
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+portable-pty = "0.9"
+vt100 = "0.15"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+# Verified upstream source pins and manifest-only platform reductions are documented
+# in vendor/upstream-sources.json and vendor/README.md.
+[patch.crates-io]
+sha1 = { path = "vendor/upstream/sha1" }
+ratatui = { path = "vendor/upstream/ratatui/ratatui" }
+ratatui-core = { path = "vendor/upstream/ratatui/ratatui-core" }
+ratatui-crossterm = { path = "vendor/upstream/ratatui/ratatui-crossterm" }
+ratatui-widgets = { path = "vendor/upstream/ratatui/ratatui-widgets" }
+crossterm = { path = "vendor/upstream/crossterm" }
+portable-pty = { path = "vendor/upstream/wezterm-full/pty" }
+filedescriptor = { path = "vendor/upstream/wezterm-full/filedescriptor" }
+vt100 = { path = "vendor/upstream/vt100" }
+vte = { path = "vendor/upstream/vte" }
+unicode-width-old = { package = "unicode-width", path = "vendor/upstream/unicode-width-0.1" }
+nix = { path = "vendor/upstream/nix" }
+signal-hook = { path = "vendor/upstream/signal-hook-mio" }
+signal-hook-mio = { path = "vendor/upstream/signal-hook-mio/signal-hook-mio" }
+serial2 = { path = "vendor/upstream/serial2" }
+shell-words = { path = "vendor/upstream/shell-words" }
+kasuari = { path = "vendor/upstream/kasuari" }
+line-clipping = { path = "vendor/upstream/line-clipping" }
+lru = { path = "vendor/upstream/lru" }
+critical-section = { path = "vendor/upstream/critical-section" }
+unicode-truncate = { path = "vendor/upstream/unicode-truncate2" }
+instability = { path = "vendor/upstream/instability" }
+indoc = { path = "vendor/upstream/indoc" }
+rusqlite = { path = "vendor/upstream/rusqlite" }
+fallible-iterator = { path = "vendor/upstream/fallible-iterator" }
+vcpkg = { path = "vendor/upstream/vcpkg" }
+compact_str = { path = "vendor/upstream/compact_str09/compact_str" }
+castaway = { path = "vendor/upstream/castaway" }
+darling = { path = "vendor/upstream/darling" }
+darling_core = { path = "vendor/upstream/darling/core" }
+darling_macro = { path = "vendor/upstream/darling/macro" }
+syn3 = { package = "syn", path = "vendor/upstream/syn3" }
+ryu = { path = "vendor/upstream/ryu" }
+ident_case = { path = "vendor/upstream/ident_case" }
+strsim = { path = "vendor/upstream/strsim" }
+fallible-streaming-iterator = { path = "vendor/upstream/fallible-streaming-iterator" }
+hashlink = { path = "vendor/upstream/hashlink" }
+hashbrown015 = { package = "hashbrown", path = "vendor/upstream/hashbrown015" }
+foldhash01 = { package = "foldhash", path = "vendor/upstream/foldhash01" }
+yaml-rust2 = { path = "vendor/upstream/yaml-rust2" }
+zip = { path = "vendor/upstream/zip" }
+arraydeque = { path = "vendor/upstream/arraydeque" }
+hashlink11 = { package = "hashlink", path = "vendor/upstream/hashlink-0.11" }
+zopfli = { path = "vendor/upstream/zopfli" }
+r-efi = { path = "vendor/upstream/r-efi" }
+derive_arbitrary = { path = "vendor/upstream/arbitrary/derive" }
+redox_syscall = { path = "vendor/upstream/redox_syscall" }
+wasi = { path = "vendor/upstream/wasi" }
+windows-sys = { path = "vendor/upstream/windows-rs/crates/libs/sys" }
+windows-link = { path = "vendor/upstream/windows-rs/crates/libs/link" }
+ignore = { path = "vendor/upstream/ripgrep/crates/ignore" }
+globset = { path = "vendor/upstream/ripgrep/crates/globset" }
+grep-matcher = { path = "vendor/upstream/ripgrep/crates/matcher" }
+grep-regex = { path = "vendor/upstream/ripgrep/crates/regex" }
+grep-searcher = { path = "vendor/upstream/ripgrep/crates/searcher" }
+nucleo-matcher = { path = "vendor/upstream/nucleo/matcher" }
+bstr = { path = "vendor/upstream/bstr" }
+encoding_rs_io = { path = "vendor/upstream/encoding_rs_io" }
+same-file = { path = "vendor/upstream/same-file" }
+walkdir = { path = "vendor/upstream/walkdir" }
+winapi-util = { path = "vendor/upstream/winapi-util" }
+tantivy = { path = "vendor/upstream/tantivy" }
+arc-swap = { path = "vendor/upstream/arc-swap" }
+base64 = { path = "vendor/upstream/base64" }
+oneshot = { path = "vendor/upstream/oneshot" }
+downcast-rs = { path = "vendor/upstream/downcast-rs2" }
+lru016 = { package = "lru", path = "vendor/upstream/lru016" }
+bitpacking = { path = "vendor/upstream/bitpacking" }
+tantivy-fst = { path = "vendor/upstream/tantivy-fst" }
+fastdivide = { path = "vendor/upstream/fastdivide" }
+measure_time = { path = "vendor/upstream/measure_time" }
+datasketches = { path = "vendor/upstream/datasketches/datasketches" }
+sketches-ddsketch = { path = "vendor/upstream/sketches-ddsketch" }
+levenshtein_automata = { path = "vendor/upstream/levenshtein_automata" }
+census = { path = "vendor/upstream/census" }
+htmlescape = { path = "vendor/upstream/htmlescape" }
+time = { path = "vendor/upstream/time/time" }
+time-core = { path = "vendor/upstream/time/time-core" }
+time-macros = { path = "vendor/upstream/time/time-macros" }
+bon = { path = "vendor/upstream/bon/bon" }
+bon-macros = { path = "vendor/upstream/bon/bon-macros" }
+typetag = { path = "vendor/upstream/typetag" }
+typetag-impl = { path = "vendor/upstream/typetag/impl" }
+byteorder = { path = "vendor/upstream/byteorder" }
+fs4 = { path = "vendor/upstream/fs4" }
+nom = { path = "vendor/upstream/nom7" }
+crossbeam-channel = { path = "vendor/upstream/crossbeam/crossbeam-channel" }
+murmurhash32 = { path = "vendor/upstream/murmurhash32" }
+ordered-float = { path = "vendor/upstream/ordered-float" }
+fnv = { path = "vendor/upstream/fnv" }
+darling020 = { package = "darling", path = "vendor/upstream/darling020" }
+darling_core020 = { package = "darling_core", path = "vendor/upstream/darling020/core" }
+darling_macro020 = { package = "darling_macro", path = "vendor/upstream/darling020/macro" }
+erased-serde = { path = "vendor/upstream/erased-serde" }
+inventory = { path = "vendor/upstream/inventory" }
+typeid = { path = "vendor/upstream/typeid" }
+prettyplease = { path = "vendor/upstream/prettyplease" }
+deranged = { path = "vendor/upstream/deranged/deranged" }
+num-conv = { path = "vendor/upstream/num-conv" }
+powerfmt = { path = "vendor/upstream/powerfmt/powerfmt" }
+utf8-ranges = { path = "vendor/upstream/utf8-ranges" }
+minimal-lexical = { path = "vendor/upstream/minimal-lexical" }
+crunchy = { path = "vendor/upstream/crunchy" }
+wasm-bindgen = { path = "vendor/upstream/wasm-bindgen" }
+wasm-bindgen-macro = { path = "vendor/upstream/wasm-bindgen/crates/macro" }
+wasm-bindgen-macro-support = { path = "vendor/upstream/wasm-bindgen/crates/macro-support" }
+wasm-bindgen-shared = { path = "vendor/upstream/wasm-bindgen/crates/shared" }
+js-sys = { path = "vendor/upstream/wasm-bindgen/crates/js-sys" }

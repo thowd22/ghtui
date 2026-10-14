@@ -1,0 +1,9 @@
+[package]
+name = "example-diesel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+compact_str = { path = "../../compact_str", features = ["diesel"] }
+diesel = { version = "2.2.3", features = ["sqlite"] }
+tempfile = "3"

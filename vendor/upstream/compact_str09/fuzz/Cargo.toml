@@ -1,0 +1,49 @@
+[package]
+name = "compact_str-fuzz"
+version = "0.0.0"
+authors = ["Parker Timmerman <parker@parkertimmerman.com>"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+bytes = "1"
+compact_str = { path = "../compact_str", features = ["bytes", "smallvec", "zeroize"] }
+rand = { version = "0.8", features = ["small_rng"] }
+rand_distr = "0.4"
+zeroize = "1"
+
+# Fuzz with both AFL++ and libFuzzer
+afl = { version = "0.14.2", optional = true }
+honggfuzz = { version = "0.5.56", git = "https://github.com/ParkMyCar/honggfuzz-rs.git", optional = true }
+libfuzzer-sys = { version = "0.4", optional = true }
+
+[[bin]]
+name = "compact_str"
+path = "fuzz_targets/compact_str.rs"
+test = false
+doc = false
+required-features = ["libfuzzer-sys"]
+
+[[bin]]
+name = "afl"
+path = "src/bin/afl.rs"
+test = false
+doc = false
+required-features = ["afl"]
+
+[[bin]]
+name = "debug"
+path = "src/bin/debug.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "honggfuzz"
+path = "src/bin/honggfuzz.rs"
+test = false
+doc = false
+required-features = ["honggfuzz"]

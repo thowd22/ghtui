@@ -1,0 +1,6 @@
+# Cargo verifies each registry source against Cargo.lock and its vendored checksums.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor/crates"

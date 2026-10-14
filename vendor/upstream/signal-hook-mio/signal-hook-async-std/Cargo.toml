@@ -1,0 +1,34 @@
+[package]
+name = "signal-hook-async-std"
+version = "0.3.0"
+authors = [
+    "Michal 'vorner' Vaner <vorner@vorner.cz>",
+    "Thomas Himmelstoss <thimm@posteo.de>",
+]
+
+description = "async-std support for signal-hook"
+documentation = "https://docs.rs/signal-hook-async-std"
+readme = "README.md"
+repository = "https://github.com/vorner/signal-hook"
+keywords = ["signal", "unix", "async-std"]
+license = "MIT OR Apache-2.0"
+
+edition = "2018"
+
+[badges]
+travis-ci = { repository = "vorner/signal-hook" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+libc = "~0.2"
+async-io = "~2"
+futures-lite = "~2"
+signal-hook = { version = "~0.3", path = ".." }
+
+[dev-dependencies]
+async-std = { version = "~1", features = ["attributes"] }
+serial_test = "~3"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
