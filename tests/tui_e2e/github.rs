@@ -188,6 +188,11 @@ fn cache_storage_mouse_live_identity_loss_hides_private_pages_preserving_cache()
 }
 fn live_identity_loss(mouse: bool) {
     let fixture = configured();
+    let database = fixture.root.join("config/ghtui/cache.sqlite3");
+    assert!(
+        !database.exists(),
+        "Only the real app may create this cache"
+    );
     let mut steps = initial(false);
     steps.push(GhStep::read(&["--version"], "gh version 2.101.0\n"));
     let mut failure = read(api("user"), Value::Null);
@@ -200,7 +205,24 @@ fn live_identity_loss(mouse: bool) {
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
     journal(&mut session, &fixture, 7);
-    let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
+    // Check BEFORE any inspector Cache::open: actual binary publication must
+    // create one0600 inode and remove only its unpublished temporary name.
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::symlink_metadata(&database).unwrap();
+        assert!(metadata.is_file());
+        assert_eq!((metadata.mode() & 0o777, metadata.nlink()), (0o600, 1));
+        assert!(std::fs::read_dir(database.parent().unwrap())
+            .unwrap()
+            .all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .as_encoded_bytes()
+                    .starts_with(b".ghtui-new-cache-")
+            }));
+    }
+    let cache = Cache::open(&database).unwrap();
     let scope = Scope::github("github.invalid", Some(42)).unwrap();
     let records = cache.list(&scope, Some("pr")).unwrap();
     cache

@@ -1,18 +1,46 @@
 //! Unix-only private SQLite preparation. Never follows or removes aliases.
-use anyhow::{bail, Result};
+#[cfg(target_os = "linux")]
+use anyhow::bail;
+use anyhow::Result;
 use std::{
     fs::{self, File},
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
+mod create_v1;
+#[cfg(any(target_os = "macos", test))]
+mod directory_v1;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 
 /// Hold validated metadata handles until SQLite has opened the database. New
 /// journals inherit0600; existing nonempty legacy journals need explicit repair.
 /// Linux O_PATH handles do not cancel SQLite's POSIX locks on close.
+#[cfg(target_os = "linux")]
 pub(crate) fn prepare(path: &Path) -> Result<Vec<File>> {
     prepare_after_open(path, |_, _| {})
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn prepare(path: &Path) -> Result<Vec<File>> {
+    directory_v1::prepare(path)
+}
+
+fn target_paths(path: &Path) -> [PathBuf; 4] {
+    let append = |suffix: &str| {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    [
+        path.to_path_buf(),
+        append("-wal"),
+        append("-shm"),
+        append("-journal"),
+    ]
+}
+
+#[cfg(target_os = "linux")]
 fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> Result<Vec<File>> {
     let parent = path
         .parent()
@@ -31,12 +59,7 @@ fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> 
     }
     // Validate every existing target before repairing any mode. Refusing an
     // unsafe journal must not alter an unrelated alias target or the database.
-    let mut paths = vec![path.to_path_buf()];
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let mut name = path.as_os_str().to_os_string();
-        name.push(suffix);
-        paths.push(PathBuf::from(name));
-    }
+    let paths = target_paths(path);
     // SQLite may unlink optional journals during an ordinary commit/last close.
     // Never repair a detached descriptor or relax the current-target policy.
     // Discard the WHOLE tentative set and inspect fresh names, at most four
@@ -127,15 +150,8 @@ fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> 
 
 #[cfg(target_os = "linux")]
 fn open_target(path: &Path, create: bool) -> std::io::Result<File> {
-    use std::os::unix::ffi::OsStrExt;
     if create {
-        let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
-        // SAFETY: the name is NUL-terminated. Creating an empty regular file by
-        // name opens no ordinary descriptor that could close after a racing
-        // SQLite connection acquires its POSIX locks. Never truncate/replace.
-        if unsafe { libc::mknod(name.as_ptr(), libc::S_IFREG | 0o600, 0) } != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+        create_v1::create(path)?;
     }
     fs::OpenOptions::new()
         .read(true)
@@ -157,27 +173,11 @@ fn repair_mode(file: &File) -> std::io::Result<()> {
     )
 }
 
-#[cfg(target_os = "macos")]
-fn open_target(path: &Path, create: bool) -> std::io::Result<File> {
-    fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(create)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
-        .open(path)
-}
-
-#[cfg(target_os = "macos")]
-fn repair_mode(file: &File) -> std::io::Result<()> {
-    file.set_permissions(fs::Permissions::from_mode(0o600))
-}
-
 fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
     left.dev() == right.dev() && left.ino() == right.ino()
 }
 
+#[cfg(target_os = "linux")]
 fn verify(metadata: &fs::Metadata, uid: u32) -> Result<()> {
     if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
         bail!("Cache database/journal target must be an owned regular file, not a symlink/hardlink/device");
@@ -188,6 +188,7 @@ fn verify(metadata: &fs::Metadata, uid: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -236,6 +237,7 @@ mod tests {
         assert_eq!(actual, "committed original");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn cache_storage_private_actual_sqlite_last_wal_close_after_open_is_not_an_unsafe_alias() {
         let directory = tempfile::Builder::new()
@@ -275,6 +277,7 @@ mod tests {
         assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn cache_storage_private_detached_optional_journal_then_symlink_or_hardlink_refuses_before_any_repair(
     ) {
@@ -317,6 +320,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn cache_storage_private_late_alias_in_previously_absent_optional_slot_refuses_before_repair() {
         let directory = tempfile::Builder::new()
@@ -347,6 +351,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn cache_storage_private_removed_main_database_never_recreates_or_repairs_optional_files() {
         let directory = tempfile::Builder::new()
@@ -374,6 +379,7 @@ mod tests {
         assert_eq!(fs::metadata(&journal).unwrap().mode() & 0o777, 0o644);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn cache_storage_private_repeated_optional_journal_churn_stops_at_four_passes_without_repair() {
         let directory = tempfile::Builder::new()
@@ -426,7 +432,10 @@ mod tests {
             fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
         }
         let descriptors = prepare(&path).unwrap();
+        #[cfg(target_os = "linux")]
         assert_eq!(descriptors.len(), 4);
+        #[cfg(target_os = "macos")]
+        assert!(descriptors.len() == 1 && descriptors[0].metadata().unwrap().is_dir());
         for name in [
             "cache.sqlite",
             "cache.sqlite-wal",
