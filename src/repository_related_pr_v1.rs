@@ -21,6 +21,9 @@ use ratatui::{
 };
 use std::{path::Path, sync::Arc, time::Instant};
 
+#[path = "repository_related_pr_avatars_v1.rs"]
+pub mod avatars_v1;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RelatedPrActionV1 {
     Discover,
@@ -176,6 +179,7 @@ pub struct RelatedPrStateV1 {
     scroll: usize,
     focus: usize,
     hits: Vec<(Rect, RelatedPrActionV1)>,
+    avatar_view_v1: Option<avatars_v1::ViewportV1>,
     next: Option<usize>,
     boundary_failed: bool,
     status: String,
@@ -225,6 +229,7 @@ pub fn begin(
     });
     state.snapshot = None;
     state.viewer = None;
+    state.avatar_view_v1 = None;
     state.hits.clear();
     state.status = "Checking exact original commit • previous private bodies hidden".into();
     state.pending = Some(owner.clone());
@@ -260,6 +265,7 @@ pub fn accept(
         }
     );
     state.snapshot = Some(Arc::new(result.closed));
+    state.avatar_view_v1 = None;
     state.selected = 0;
     state.scroll = 0;
     state.focus = 0;
@@ -276,6 +282,7 @@ pub fn fail(app: &mut App, owner: &Arc<RelatedPrOwnerV1>) -> bool {
     state.pending = None;
     state.snapshot = None;
     state.viewer = None;
+    state.avatar_view_v1 = None;
     state.hits.clear();
     state.boundary_failed = true;
     state.status = "Original related PR read unavailable • private repositories/bodies hidden • return and choose explicitly; local Git unchanged".into();
@@ -328,6 +335,7 @@ pub fn dispatch(app: &mut App, action: RelatedPrActionV1) {
             scroll: 0,
             focus: 0,
             hits: Vec::new(),
+            avatar_view_v1: None,
             next: None,
             boundary_failed: false,
             status: String::new(),
@@ -340,6 +348,7 @@ pub fn dispatch(app: &mut App, action: RelatedPrActionV1) {
     let Some(state) = app.related_pr_v1.as_mut() else {
         return;
     };
+    state.avatar_view_v1 = None;
     if state.boundary_failed
         && !matches!(
             action,
@@ -479,6 +488,7 @@ pub fn event(app: &mut App, event: Event) -> bool {
         Event::Resize(_, _) => {
             if let Some(state) = app.related_pr_v1.as_mut() {
                 state.hits.clear();
+                state.avatar_view_v1 = None;
             }
             app.hits.clear();
             None
@@ -497,6 +507,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> bool {
     };
     app.hits.clear();
     state.hits.clear();
+    state.avatar_view_v1 = None;
     let area = frame.area();
     let theme = app.theme();
     frame.render_widget(Clear, area);
@@ -589,7 +600,19 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> bool {
                 let previous_focus = std::mem::replace(&mut app.focus, mapped_focus);
                 let previous_content = std::mem::replace(&mut app.github_content_focused, false);
                 let previous_visible_rows = app.github_visible_rows;
+                app.github_visible_rows = 0;
                 crate::github_ui::draw(frame, app, body);
+                state.avatar_view_v1 = app.github.as_ref().and_then(|viewer| {
+                    avatars_v1::ViewportV1::viewer(
+                        &state,
+                        viewer,
+                        if body.width > 2 {
+                            app.github_visible_rows
+                        } else {
+                            0
+                        },
+                    )
+                });
                 for hit in app.hits.drain(..) {
                     let action = match hit.action {
                         Action::Github(GithubAction::Back) => RelatedPrActionV1::Back,
@@ -604,6 +627,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> bool {
                 app.github_content_focused = previous_content;
                 app.github_visible_rows = previous_visible_rows;
             } else if let Some(snapshot) = &state.snapshot {
+                state.avatar_view_v1 = avatars_v1::ViewportV1::candidates(
+                    &state,
+                    if body.width > 2 {
+                        body.height as usize
+                    } else {
+                        0
+                    },
+                );
                 if snapshot.candidates().is_empty() {
                     frame.render_widget(
                         Paragraph::new(

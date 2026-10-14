@@ -660,25 +660,35 @@ fn run() -> Result<()> {
                 )
             });
         }
-        let catalogue_avatar_owned = ghtui::repository_catalogue_avatars_v1::poll_catalogue(
-            &mut app,
-            &mut avatar_cache,
-            &paths.avatars,
-            config.avatars,
-            &mut catalogue_avatar_active,
-        );
-        let remote_avatar_owned = ghtui::remote_repository_native_v1::sync_avatars(
+        let related_avatar_owned = ghtui::repository_related_pr_v1::avatars_v1::poll_related(
             &mut app,
             &mut avatar_cache,
             &paths.avatars,
             config.avatars,
         );
+        let catalogue_avatar_owned = !related_avatar_owned
+            && ghtui::repository_catalogue_avatars_v1::poll_catalogue(
+                &mut app,
+                &mut avatar_cache,
+                &paths.avatars,
+                config.avatars,
+                &mut catalogue_avatar_active,
+            );
+        let remote_avatar_owned = !related_avatar_owned
+            && !catalogue_avatar_owned
+            && ghtui::remote_repository_native_v1::sync_avatars(
+                &mut app,
+                &mut avatar_cache,
+                &paths.avatars,
+                config.avatars,
+            );
         let actor_color_mode = app.theme().mode;
         if app.graph_reread_dialog_v3.is_none()
             && app.original_tree_jump_v1.is_none()
             && app.original_diff_picker_v1.is_none()
             && !remote_avatar_owned
             && !catalogue_avatar_owned
+            && !related_avatar_owned
             && !ghtui::repository_commit_actor_avatars_v1::poll_repository(
                 &app.local_commit_actors,
                 app.view == ghtui::app::View::Repository && app.remote_repository.is_none(),

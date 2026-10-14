@@ -1,5 +1,7 @@
 //! Genuine binary input and independent Git/gh/SQL/config/TTY oracles.
 use super::*;
+#[path = "related_pr_avatars_v1.rs"]
+mod avatars_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};
 const TITLE: &str = "Related PRs • exact original saved commit • read-only";
 const PRIVATE: &str = "PRIVATE_RELATED_PR_CANARY";
