@@ -2,7 +2,7 @@
 //! Actual execution and integrated checkpoint evidence are recorded in Backlog.
 use super::*;
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
-use std::{io::Cursor, os::unix::fs::PermissionsExt};
+use std::io::Cursor;
 
 const ASSET_URL: &str = "https://avatars.githubusercontent.com/u/71?v=4";
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,8 +63,7 @@ fn public_asset(fixture: &Fixture, mode: Mode) -> PublicAsset {
     // gate is controlled provider latency, not an arbitrary readiness sleep.
     let script=format!("#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nprintf '%s\\n' \"$@\" >> '{}'\n/usr/bin/env | /usr/bin/sed 's/=.*//' > '{}'\ntries=0\nwhile [ ! -e '{}' ] && [ \"$tries\" -lt 600 ]; do /bin/sleep 0.01; tries=$((tries + 1)); done\nprintf complete > '{}'\n{}",files.pid.display(),files.argv.display(),files.env_keys.display(),files.release.display(),files.complete.display(),effect);
     let program = fixture.root.join("bin/curl");
-    fs::write(&program, script).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::fixture_shell_publication_v1::install(&program, script.as_bytes()).unwrap();
     files
 }
 fn launch_assets(fixture: &Fixture, mouse: bool, mode: Mode) -> Session {
@@ -265,6 +264,9 @@ fn image_at_current_row(session: &mut Session) {
     );
 }
 fn journey(mouse: bool, mode: Mode) {
+    journey_with_writer(mouse, mode, false);
+}
+fn journey_with_writer(mouse: bool, mode: Mode, hold_writer: bool) {
     let fixture = configured(&asset_protocol(mode));
     let path = fixture.root.join("config/ghtui/config.toml");
     let mut config = Config::load(&path).unwrap();
@@ -273,6 +275,15 @@ fn journey(mouse: bool, mode: Mode) {
     let config_before = fs::read(&path).unwrap();
     let git_before = git_state(&fixture);
     let files = public_asset(&fixture, mode);
+    #[cfg(target_os = "linux")]
+    let mut inherited_writer = hold_writer.then(|| {
+        let data = crate::fixture_shell_publication_v1::data_path(&fixture.root.join("bin/curl"));
+        let holder =
+            crate::support::inherited_fixture_writer_v1::HeldFixtureWriter::hold(&[&data]).unwrap();
+        assert!(holder.pid() > 0);
+        holder
+    });
+    let _ = hold_writer;
     let mut session = launch_assets(&fixture, mouse, mode);
     open_catalogue(&mut session, &fixture, mouse, 0);
     discover(&mut session, mouse);
@@ -441,6 +452,21 @@ fn journey(mouse: bool, mode: Mode) {
     );
     assert_local_state(&fixture, &config_before, &git_before);
     assert_public_asset(&files, if mode == Mode::Monochrome { 0 } else { 1 });
+    #[cfg(target_os = "linux")]
+    if let Some(holder) = inherited_writer.as_mut() {
+        holder.finish().unwrap();
+    }
+}
+
+#[test]
+fn test_framework_fixture_shell_publication_v1_keyboard_avatar_stable_launcher_exact_original_effects(
+) {
+    journey_with_writer(false, Mode::Ready, true);
+}
+#[test]
+fn test_framework_fixture_shell_publication_v1_mouse_avatar_stable_launcher_exact_original_effects()
+{
+    journey_with_writer(true, Mode::Ready, true);
 }
 
 #[test]

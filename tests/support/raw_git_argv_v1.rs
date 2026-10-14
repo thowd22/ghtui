@@ -51,8 +51,7 @@ pub fn install(root: &Path) -> PathBuf {
     );
     script.extend_from_slice(&quoted_path(&installed));
     script.extend_from_slice(b" \"$@\"\n");
-    fs::write(&program, script).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::fixture_shell_publication_v1::install(&program, &script).unwrap();
     program
 }
 

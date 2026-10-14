@@ -17,7 +17,8 @@ use ratatui::{
     widgets::Widget,
 };
 use serde_json::json;
-use std::os::unix::fs::PermissionsExt;
+#[path = "support/fixture_shell_publication_v1.rs"]
+mod fixture_shell_publication_v1;
 #[path = "git_support/mod.rs"]
 mod git_support;
 use std::{
@@ -584,8 +585,7 @@ fn actor_identity_curl_transport_exact_argv_no_auth_env_or_redirect_follow() {
         environment.display(),
         source.display()
     );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    fixture_shell_publication_v1::install(&program, script.as_bytes()).unwrap();
     let fetcher = CurlAvatarFetcher::with_program(program, AssetPolicy::default());
     let bytes = fetcher
         .fetch(
@@ -651,8 +651,7 @@ fn actor_identity_shutdown_cancels_and_reaps_actual_image_process() {
         "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec /bin/sleep 30\n",
         pid_path.display()
     );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    fixture_shell_publication_v1::install(&program, script.as_bytes()).unwrap();
     let cache = AvatarCache::new(
         directory.path().join("cache"),
         "github.com/alice".into(),

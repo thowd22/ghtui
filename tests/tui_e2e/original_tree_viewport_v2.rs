@@ -1140,5 +1140,51 @@ fn cancel_descendant(mouse: bool) {
     );
     assert_eq!(inventory_count(&native), 1);
     effects_v2(&native, 0);
+
+    session.wait_for_cursorless_condition(
+        |frame| {
+            frame.contents().contains("Saved file tree")
+                && !frame.contents().contains("[Esc Cancel]")
+        },
+        "Close retires original loading without leaving a disabled tree",
+        Duration::from_secs(8),
+    );
+    let original_object = native
+        .fixture
+        .git(&[
+            "rev-parse",
+            &format!("{}:nested/renamed.txt", native.chosen),
+        ])
+        .trim()
+        .to_owned();
+    let before_new_read = argv_records(&native);
+    jump(&mut session, mouse);
+    filter_v2(&mut session, mouse, "nested/renamed.txt", "1 known matches");
+    select_row(&mut session, mouse, "file · nested/renamed.txt");
+    session.wait_for_overlay_close(TITLE);
+    session.wait_for_screen("saved nested line 002");
+    let mut new_args = argv_records(&native);
+    for args in before_new_read {
+        let index = new_args.iter().position(|actual| *actual == args).unwrap();
+        new_args.remove(index);
+    }
+    assert!(new_args
+        .iter()
+        .any(|args| args.iter().any(|arg| arg == b"ls-tree")
+            && args.iter().any(|arg| arg == b"-z")
+            && args.iter().any(|arg| arg == native.chosen.as_bytes())
+            && args.last().is_some_and(|arg| arg == b"nested/renamed.txt")));
+    assert!(new_args
+        .iter()
+        .any(|args| args.iter().any(|arg| arg == b"cat-file")
+            && args
+                .last()
+                .is_some_and(|arg| arg == original_object.as_bytes())));
+    assert_eq!(
+        inventory_count(&native),
+        2,
+        "Only the NEW explicit Jump reads again"
+    );
+    effects_v2(&native, 0);
     session.quit_and_assert_restored_terminal(mouse);
 }

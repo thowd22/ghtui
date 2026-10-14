@@ -1,3 +1,5 @@
+#[path = "support/fixture_shell_publication_v1.rs"]
+mod fixture_shell_publication_v1;
 mod git_support;
 #[path = "git_contracts/graph_paging_v1.rs"]
 mod graph_paging_v1;

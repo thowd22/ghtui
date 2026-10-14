@@ -166,6 +166,7 @@ pub struct Background {
         Option<Arc<crate::navigation_local_owner_v1::OriginalLocalNavigationOwnerV1>>,
     current_original_tree_owner_v1:
         Option<Arc<crate::repository_tree_worker_v1::OriginalTreeWorkerOwnerV1>>,
+    current_original_tree_generation_v2: Option<u64>,
 }
 
 impl Background {
@@ -225,6 +226,7 @@ impl Background {
             workers,
             current_original_local_owner: None,
             current_original_tree_owner_v1: None,
+            current_original_tree_generation_v2: None,
         }
     }
 
@@ -465,6 +467,7 @@ impl Background {
         if view == View::Repository {
             self.current_original_local_owner = None;
             self.current_original_tree_owner_v1 = None;
+            self.current_original_tree_generation_v2 = None;
         }
         if let Some((_, cancellation)) = self.current.remove(&view.index()) {
             cancellation.cancel();
@@ -737,6 +740,26 @@ impl Background {
             {
                 continue;
             }
+            if let Some(owner) = &completion.original_tree_owner_v1 {
+                // The physical slot alone is not the retained logical owner.
+                // Reject a foreign/mixed completion before retiring any slot
+                // or allowing a specialized publisher's visible effects.
+                if completion.view != View::Repository
+                    || self.current_original_tree_generation_v2 != Some(completion.generation)
+                    || self
+                        .current_original_tree_owner_v1
+                        .as_ref()
+                        .is_none_or(|current| !Arc::ptr_eq(current, owner))
+                    || completion.catalogue_owner.is_some()
+                    || completion.catalogue_recovery.is_some()
+                    || completion.remote_scope_owner.is_some()
+                    || completion.local_actor_owner.is_some()
+                    || completion.remote_repository_owner.is_some()
+                    || completion.local_navigation_owner.is_some()
+                {
+                    continue;
+                }
+            }
             self.current.remove(&slot);
             // Before EVERY specialized publisher/privacy/principal/loading
             // effect: this facet belongs ONLY to the original-local lane.
@@ -818,11 +841,16 @@ impl Background {
                 continue;
             }
             if let Some(owner) = &completion.original_tree_owner_v1 {
-                changed |= original_tree_background_v1::publish_original_tree_v1(
+                let admitted = original_tree_background_v1::publish_original_tree_v1(
                     app,
                     owner,
                     completion.result,
                 );
+                if admitted {
+                    self.current_original_tree_owner_v1 = None;
+                    self.current_original_tree_generation_v2 = None;
+                }
+                changed |= admitted;
                 continue;
             }
             if completion

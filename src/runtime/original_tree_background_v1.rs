@@ -69,6 +69,7 @@ impl Background {
         {
             Ok(()) => {
                 self.current_original_tree_owner_v1 = Some(owner);
+                self.current_original_tree_generation_v2 = Some(generation);
                 self.current
                     .insert(View::Repository.index(), (generation, cancellation));
                 app.loading[View::Repository.index()] = !work.metadata_v2();
@@ -96,21 +97,30 @@ impl Background {
                 .as_ref()
                 .is_some_and(|owner| Arc::ptr_eq(owner.work(), work))
         {
-            self.cancel(View::Repository);
-            true
+            self.cancel_current_original_tree_v2()
         } else {
             false
         }
     }
     pub fn cancel_current_original_tree_v2(&mut self) -> bool {
-        if self.current_original_tree_owner_v1.is_some()
-            && self.current.contains_key(&View::Repository.index())
+        let Some(owner) = &self.current_original_tree_owner_v1 else {
+            return false;
+        };
+        let Some(generation) = self.current_original_tree_generation_v2 else {
+            return false;
+        };
+        if self
+            .current
+            .get(&View::Repository.index())
+            .is_some_and(|(current, _)| *current != generation)
         {
-            self.cancel(View::Repository);
-            true
-        } else {
-            false
+            return false; // Another live Repository job must remain untouched.
         }
+        // poll may already have consumed a completed-but-vetoed physical slot.
+        // Close still owns the original logical token/loading retirement.
+        owner.cancellation().cancel();
+        self.cancel(View::Repository);
+        true
     }
 }
 /// Must run before generic loading/status/private/identity/model effects.

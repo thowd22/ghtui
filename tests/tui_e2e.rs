@@ -49,7 +49,7 @@ mod search;
 mod support;
 #[path = "tui_e2e/untracked.rs"]
 mod untracked;
-use support::{empty_inbox_steps, Fixture, GhStep, Session};
+use support::{empty_inbox_steps, fixture_shell_publication_v1, Fixture, GhStep, Session};
 
 #[test]
 fn dependency_transport_keyboard_offline_bootstrap_help_and_delayed_provider() {

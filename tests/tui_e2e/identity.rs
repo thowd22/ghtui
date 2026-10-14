@@ -611,8 +611,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
         format!("cat '{}'\n", image.display())
     };
     let script=format!("#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nprintf '%s\\n' \"$@\" >> '{}'\ntries=0\nwhile [ ! -e '{}' ] && [ \"$tries\" -lt 500 ]; do /bin/sleep 0.01; tries=$((tries + 1)); done\nprintf complete > '{}'\n{}",asset_pid.display(),journal.display(),release.display(),complete.display(),effect);
-    std::fs::write(&curl, script).unwrap();
-    std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::fixture_shell_publication_v1::install(&curl, script.as_bytes()).unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     if mouse {

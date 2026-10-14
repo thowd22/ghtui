@@ -39,6 +39,8 @@ fn completion_before_new_intent(kind: u8) {
         background
             .current
             .insert(View::Repository.index(), (generation, cancellation.clone()));
+        background.current_original_tree_owner_v1 = Some(owner.clone());
+        background.current_original_tree_generation_v2 = Some(generation);
         let captured = owner.clone();
         background
             .requests
@@ -132,6 +134,23 @@ fn completion_before_new_intent(kind: u8) {
         ));
         assert!(real.children().is_empty());
         assert_eq!(real.snapshot(), before);
+        assert!(!background.current.contains_key(&View::Repository.index()));
+        if input == 3 {
+            // Main consumes Close AFTER poll. The physical completion slot is
+            // gone, but the vetoed original logical owner must still retire.
+            app.original_tree_cancel_v1 = false;
+            assert!(
+                background.cancel_current_original_tree_v2(),
+                "Close must retire the actual completed-but-vetoed Tree owner"
+            );
+            app.loading[View::Repository.index()] = false;
+            assert!(owner.cancellation().is_cancelled());
+            assert!(background.current_original_tree_owner_v1.is_none());
+            assert!(!app.loading[View::Repository.index()]);
+            assert_eq!(app.status, "new input owns status");
+            assert!(real.children().is_empty());
+            assert_eq!(real.snapshot(), before);
+        }
     }
 }
 
@@ -146,6 +165,133 @@ fn original_tree_viewport_before_poll_new_input_rejects_actual_sealed_error_befo
 #[test]
 fn original_tree_viewport_before_poll_new_input_rejects_actual_caught_panic_before_effects() {
     completion_before_new_intent(2);
+}
+
+struct CompletedOriginalTreeV2 {
+    real: Real,
+    app: App,
+    background: Background,
+    owner: Arc<OriginalTreeWorkerOwnerV1>,
+    completion: Completion,
+}
+fn actual_submitted_completion() -> CompletedOriginalTreeV2 {
+    let real = Real::new("sha256");
+    let workspace = Workspace::load(&real.root, RepositoryMode::Tree, &real.original, None)
+        .unwrap()
+        .unwrap();
+    let mut jump = OriginalTreeJumpV1::new(OriginalTreeIntentV1::capture(&workspace).unwrap());
+    let work = Arc::new(OriginalTreeWorkV1::Query(jump.request().unwrap()));
+    let mut app = App {
+        view: View::Repository,
+        workspace: Some(workspace),
+        original_tree_jump_v1: Some(jump),
+        refresh_requested: false,
+        ..Default::default()
+    };
+    let mut background = Background::new();
+    assert!(background.submit_original_tree_v1(&mut app, work));
+    let owner = background.current_original_tree_owner_v1.clone().unwrap();
+    let completion = background
+        .completions
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert!(completion.result.is_ok());
+    assert!(owner.accounting().unwrap().sealed());
+    assert_eq!(owner.accounting().unwrap().children_started(), 1);
+    CompletedOriginalTreeV2 {
+        real,
+        app,
+        background,
+        owner,
+        completion,
+    }
+}
+
+#[test]
+fn original_tree_viewport_actual_admitted_completion_releases_only_its_logical_owner() {
+    let CompletedOriginalTreeV2 {
+        real,
+        mut app,
+        mut background,
+        owner,
+        completion,
+    } = actual_submitted_completion();
+    let before = real.snapshot();
+    real.clear_trace();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    sender.send(completion).unwrap();
+    background.completions = receiver;
+    assert!(background.poll(&mut app));
+    assert!(app
+        .original_tree_jump_v1
+        .as_ref()
+        .unwrap()
+        .frame()
+        .is_some());
+    assert!(!app.loading[View::Repository.index()]);
+    assert!(background.current_original_tree_owner_v1.is_none());
+    assert!(background.current_original_tree_generation_v2.is_none());
+    assert!(!background.cancel_current_original_tree_v2());
+    assert!(!owner.cancellation().is_cancelled());
+    assert!(real.children().is_empty());
+    assert_eq!(real.snapshot(), before);
+}
+
+#[test]
+fn original_tree_viewport_foreign_logical_arc_generation_or_mixed_kind_preserves_actual_slot() {
+    for replacement in 0..4 {
+        let CompletedOriginalTreeV2 {
+            real,
+            mut app,
+            mut background,
+            owner,
+            mut completion,
+        } = actual_submitted_completion();
+        let generation = completion.generation;
+        match replacement {
+            0 => {
+                let newer = OriginalTreeWorkerOwnerV1::begin(
+                    app.workspace.as_ref().unwrap(),
+                    app.original_tree_jump_v1.as_ref(),
+                    owner.work().clone(),
+                    CancellationToken::default(),
+                )
+                .unwrap();
+                assert!(!Arc::ptr_eq(&owner, &newer));
+                background.current_original_tree_owner_v1 = Some(newer);
+            }
+            1 => background.current_original_tree_generation_v2 = Some(generation + 1),
+            2 => {
+                completion.local_navigation_owner = Some(
+                    crate::navigation_local_owner_v1::OriginalLocalNavigationOwnerV1::begin(
+                        app.workspace.as_ref().unwrap(),
+                        CancellationToken::default(),
+                    )
+                    .unwrap(),
+                );
+            }
+            _ => background.current_original_tree_owner_v1 = None,
+        }
+        app.status = "Newer input owns the untouched current slot".into();
+        let before = real.snapshot();
+        real.clear_trace();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(completion).unwrap();
+        background.completions = receiver;
+        assert!(!background.poll(&mut app));
+        assert_eq!(background.current[&View::Repository.index()].0, generation);
+        assert!(app.loading[View::Repository.index()]);
+        assert_eq!(app.status, "Newer input owns the untouched current slot");
+        assert!(app
+            .original_tree_jump_v1
+            .as_ref()
+            .unwrap()
+            .frame()
+            .is_none());
+        assert!(!owner.cancellation().is_cancelled());
+        assert!(real.children().is_empty());
+        assert_eq!(real.snapshot(), before);
+    }
 }
 
 #[test]
@@ -182,6 +328,7 @@ fn original_tree_viewport_actual_member_completion_width_and_field_are_owned_at_
                 (background.generation, cancellation.clone()),
             );
             background.current_original_tree_owner_v1 = Some(owner.clone());
+            background.current_original_tree_generation_v2 = Some(background.generation);
             let captured = owner.clone();
             background
                 .requests
@@ -371,5 +518,32 @@ fn original_tree_viewport_retired_metadata_cancel_never_cancels_unrelated_reposi
     assert!(!background.cancel_current_original_tree_v2());
     assert!(!cancellation.is_cancelled());
     assert_eq!(background.current[&View::Repository.index()].0, 42);
+    assert!(real.children().is_empty());
+
+    // Even a retained matching metadata owner cannot cancel a different live
+    // Repository generation. Its physical slot and BOTH tokens must survive.
+    let original_token = CancellationToken::default();
+    // Source ownership is separate from the retired UI purpose; capture a
+    // genuinely fresh current member rather than treating a source as revoked.
+    crate::repository_tree_viewport_native_v2::queue_member(&mut app);
+    let current_work = app.original_tree_work_v1.take().unwrap();
+    let owner = OriginalTreeWorkerOwnerV1::begin(
+        app.workspace.as_ref().unwrap(),
+        app.original_tree_jump_v1.as_ref(),
+        current_work.clone(),
+        original_token.clone(),
+    )
+    .unwrap();
+    background.current_original_tree_owner_v1 = Some(owner.clone());
+    background.current_original_tree_generation_v2 = Some(41);
+    assert!(!background.cancel_original_tree_metadata_v2(&current_work));
+    assert!(!background.cancel_current_original_tree_v2());
+    assert!(!original_token.is_cancelled());
+    assert!(!cancellation.is_cancelled());
+    assert_eq!(background.current[&View::Repository.index()].0, 42);
+    assert!(Arc::ptr_eq(
+        background.current_original_tree_owner_v1.as_ref().unwrap(),
+        &owner
+    ));
     assert!(real.children().is_empty());
 }

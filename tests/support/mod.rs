@@ -3,6 +3,9 @@
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 pub mod cursorless_frames;
+pub mod fixture_shell_publication_v1;
+#[cfg(target_os = "linux")]
+pub mod inherited_fixture_writer_v1;
 pub mod owned_pty_processes_v1;
 use std::{
     fs,
