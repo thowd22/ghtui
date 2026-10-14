@@ -112,12 +112,16 @@ impl OriginalSavedVisitV1 {
         if !Arc::ptr_eq(original, request.source()) {
             return Err("Graph pending request does not own this exact retained source".into());
         }
-        Workspace::restore_graph_snapshot_v2(
+        let mut workspace = Workspace::restore_graph_snapshot_v2(
             original.snapshot(),
             request.position(),
             self.route.provenance.as_ref(),
             operation,
-        )
+        )?;
+        if let Some(diff) = &self.diff_v1 {
+            diff.restore(self.origin.clone(), operation, &mut workspace)?;
+        }
+        Ok(workspace)
     }
 }
 

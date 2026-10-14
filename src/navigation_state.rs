@@ -104,6 +104,16 @@ impl Write for BoundedHash {
 pub(crate) fn row_key(action: &RowAction) -> Result<Vec<u8>, String> {
     let mut hash = BoundedHash::new();
     match action {
+        RowAction::OriginalDiffReturn(ticket) => {
+            let side = ticket.side();
+            hash.field(b"original-comparison-return")?;
+            hash.field(side.source().intent().head().as_bytes())?;
+            hash.field(side.source().intent().content_base().as_bytes())?;
+            hash.json(&side.index())?;
+            hash.field(side.side().label().as_bytes())?;
+            hash.field(&side.entry().path.0)?;
+            hash.field(side.entry().id.as_bytes())?;
+        }
         RowAction::Commit(id) => {
             hash.field(b"commit")?;
             hash.field(id.as_bytes())?;
@@ -291,7 +301,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
         }
     }
     let mut parent = None;
-    if let Some(comparison) = &workspace.comparison {
+    if let Some(comparison) = workspace.comparison_v1() {
         use crate::git::Comparison;
         detour.field(match &comparison.comparison {
             Comparison::Working => b"working",
@@ -329,7 +339,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
         mode: mode_number(workspace.mode),
         revision: workspace.revision.clone(),
         parent,
-        mutable_source: workspace.comparison.as_ref().and_then(|comparison| {
+        mutable_source: workspace.comparison_v1().and_then(|comparison| {
             comparison
                 .observed
                 .map(|observed| observed.navigation_identity())

@@ -3,6 +3,8 @@
 use super::*;
 #[path = "graph_refresh_v3.rs"]
 mod refresh_v3;
+#[path = "../support/graph_compact_selection_v1.rs"]
+mod selection_v1;
 
 fn ordinary10000() -> NativeGraph {
     let mut native = fixture("ordinary");
@@ -106,19 +108,7 @@ fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
     ready_loaded(session, 10_000, 0);
 }
 
-fn inverted_body_row(session: &Session) -> Option<String> {
-    let frame = session.completed_cursorless_screen()?;
-    frame
-        .contents()
-        .lines()
-        .enumerate()
-        .find_map(|(row, text)| {
-            (text.starts_with('│') && frame.cell(row as u16, 1).is_some_and(|cell| cell.inverse()))
-                .then(|| text.to_owned())
-        })
-}
-
-fn select_loaded_row(session: &mut Session, mouse: bool, label: &str) {
+fn select_loaded_row(session: &mut Session, mouse: bool, label: &str, actual_saved_sha: &str) {
     if mouse {
         select_row(session, true, label);
         return;
@@ -126,23 +116,39 @@ fn select_loaded_row(session: &mut Session, mouse: bool, label: &str) {
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         session.poll_output(Duration::from_millis(1));
-        let selected = inverted_body_row(session);
-        if selected.as_ref().is_some_and(|row| row.contains(label)) {
+        let frame = session
+            .completed_cursorless_screen()
+            .expect("actual completed Graph frame");
+        let batch = selection_v1::first_page_down_batch(frame, label, actual_saved_sha)
+            .unwrap_or_else(|reason| {
+                panic!(
+                    "Refused graph navigation plan: {reason}\n{}",
+                    session.screen()
+                )
+            });
+        let Some(batch) = batch else {
             session.send_key(b"\r");
             return;
-        }
-        session.send_key(b"\x1b[B");
-        // Commit AND parent-connector rows are actual keyboard actions. Prove
-        // each Down applied rather than sleeping50ms or flooding400 events.
+        };
+        let previous = session.completed_cursorless_end();
+        // Preserve every real commit AND parent-connector action, with at most
+        //16 genuine Down events per bounded batch. Labels are navigation hints;
+        // independent full SHA/read completion below remains object authority.
+        session.send_key(&batch.bytes());
         loop {
             session.poll_output(Duration::from_millis(1));
-            let current = inverted_body_row(session);
-            if current.is_some() && current != selected {
+            if session.completed_cursorless_end() > previous
+                && session.completed_cursorless_screen().is_some_and(|frame| {
+                    selection_v1::selected_subject(frame)
+                        .is_ok_and(|subject| subject == batch.expected_subject)
+                        && !frame.contents().contains("[Esc Cancel]")
+                })
+            {
                 break;
             }
             assert!(
                 Instant::now() < deadline,
-                "Actual selected graph row did not progress toward {label}\n{}",
+                "Actual NEW graph frame did not finish the exact bounded batch toward {label}\n{}",
                 session.screen()
             );
         }
@@ -205,8 +211,15 @@ fn full_back(mouse: bool) {
     visible_page(&mut session, 10_000, 0);
     // Select actual last row on first projection; its actual parent lives on
     // another projection, proving cross-page global membership not row index.
-    body_to(&mut session, mouse, "Ordinary graph version 09800");
-    select_loaded_row(&mut session, mouse, "Ordinary graph version 09800");
+    if mouse {
+        body_to(&mut session, true, "Ordinary graph version 09800");
+    }
+    select_loaded_row(
+        &mut session,
+        mouse,
+        "Ordinary graph version 09800",
+        &native.tip,
+    );
     let last_first_page = native
         .fixture
         .git(&["rev-parse", "HEAD~199"])

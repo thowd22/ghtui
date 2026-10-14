@@ -57,10 +57,12 @@ pub enum Action {
     SettingsSave,
     RepositoryMode(crate::workspace::RepositoryMode),
     RepositoryRow(crate::workspace::RowAction),
+    OriginalDiffSidesV1(crate::repository_diff_sides_v1::OriginalDiffActionV1),
     OriginalTreeV1(crate::repository_tree_jump_v1::OriginalTreeJumpActionV1),
     OriginalTreeViewportV2(crate::repository_tree_viewport_v2::TreeViewportActionV2),
     GraphRereadV3(crate::repository_graph_reread_native_v3::GraphRereadActionV3),
     LocalActor(crate::repository_commit_actor_native_v1::LocalActorActionV1),
+    RelatedPrV1(crate::repository_related_pr_v1::RelatedPrActionV1),
     Scroll(i32),
     Select(usize),
     Github(crate::github_workspace::GithubAction),
@@ -178,6 +180,11 @@ pub struct App {
     pub context_help_area: Rect,
     pub navigation_trail: crate::navigation_trail::NavigationTrail,
     pub original_saved_visits: crate::navigation_local_source_v1::OriginalSavedVisitsV1,
+    pub original_diff_picker_v1: Option<crate::repository_diff_sides_v1::OriginalDiffPickerV1>,
+    pub original_diff_work_v1:
+        Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkV1>>,
+    pub original_diff_layout_v1: crate::repository_diff_sides_ui_v1::OriginalDiffLayoutV1,
+    pub original_diff_cancel_v1: bool,
     pub original_tree_jump_v1: Option<crate::repository_tree_jump_v1::OriginalTreeJumpV1>,
     pub original_tree_work_v1: Option<Arc<crate::repository_tree_worker_v1::OriginalTreeWorkV1>>,
     pub original_tree_layout_v1: crate::repository_tree_jump_ui_v1::OriginalTreeLayoutV1,
@@ -209,6 +216,9 @@ pub struct App {
     pub local_actor_layout: crate::repository_commit_actor_ui_v1::LocalActorLayoutV1,
     pub local_actor_requested: bool,
     pub local_actor_cancel_requested: bool,
+    pub related_pr_v1: Option<crate::repository_related_pr_v1::RelatedPrStateV1>,
+    pub related_pr_requested_v1: bool,
+    pub related_pr_cancel_v1: bool,
     pub repository_source_identity:
         Option<std::sync::Arc<crate::repository_source_identity::PreparedRepositorySourceIdentity>>,
     pub repository_source_overlay:
@@ -356,6 +366,10 @@ impl Default for App {
             context_help_area: Rect::default(),
             navigation_trail: Default::default(),
             original_saved_visits: Default::default(),
+            original_diff_picker_v1: None,
+            original_diff_work_v1: None,
+            original_diff_layout_v1: Default::default(),
+            original_diff_cancel_v1: false,
             original_tree_jump_v1: None,
             original_tree_work_v1: None,
             original_tree_layout_v1: Default::default(),
@@ -385,6 +399,9 @@ impl Default for App {
             local_actor_layout: Default::default(),
             local_actor_requested: false,
             local_actor_cancel_requested: false,
+            related_pr_v1: None,
+            related_pr_requested_v1: false,
+            related_pr_cancel_v1: false,
             repository_source_identity: None,
             repository_source_overlay: None,
             repository_source_scroll: 0,
@@ -631,6 +648,27 @@ impl App {
         controls
     }
     pub fn dispatch(&mut self, action: Action) {
+        if let Action::RelatedPrV1(input) = &action {
+            crate::repository_related_pr_v1::dispatch(self, input.clone());
+            return;
+        }
+        if self.related_pr_v1.is_some() {
+            match action {
+                Action::Quit => {
+                    self.related_pr_v1 = None;
+                    self.related_pr_requested_v1 = false;
+                    self.related_pr_cancel_v1 = true;
+                }
+                Action::Close | Action::Cancel => {
+                    crate::repository_related_pr_v1::dispatch(
+                        self,
+                        crate::repository_related_pr_v1::RelatedPrActionV1::Back,
+                    );
+                    return;
+                }
+                _ => return,
+            }
+        }
         if self.overlay == Some(Overlay::GraphRereadV3) {
             match &action {
                 Action::GraphRereadV3(_) => {}
@@ -778,8 +816,10 @@ impl App {
                 | Action::Navigation(_)
         ) {
             crate::repository_tree_native_v1::retire(self);
+            crate::repository_diff_sides_native_v1::retire(self);
         }
         match action {
+            Action::RelatedPrV1(_) => (), // Handled before global dispatch.
             Action::OriginalTreeViewportV2(action) => {
                 crate::repository_tree_viewport_native_v2::dispatch(self, action)
             }
@@ -805,6 +845,12 @@ impl App {
                         | crate::repository_commit_actor_native_v1::LocalActorActionV1::Verify)
                 { self.dispatch(Action::Explain("Wait for the genuine selected repository/profile read, or cancel it first".into())); return; }
                 match self.local_commit_actors.apply(action) {
+                    Ok(Some(LocalActorNativeIntentV1::RelatedPrs)) => {
+                        crate::repository_related_pr_v1::dispatch(
+                            self,
+                            crate::repository_related_pr_v1::RelatedPrActionV1::Discover,
+                        );
+                    }
                     Ok(Some(LocalActorNativeIntentV1::ChooseRepository(purpose))) => {
                         self.local_actor_cancel_requested |= actor_was_pending;
                         if actor_was_pending {
@@ -1131,6 +1177,12 @@ impl App {
             Action::OriginalTreeV1(action) => {
                 crate::repository_tree_native_v1::dispatch(self, action)
             }
+            Action::OriginalDiffSidesV1(action) => {
+                crate::repository_diff_sides_native_v1::dispatch(self, action)
+            }
+            Action::RepositoryRow(crate::workspace::RowAction::OriginalDiffReturn(ticket)) => {
+                crate::repository_diff_sides_native_v1::back(self, ticket)
+            }
             Action::RepositoryMode(mode) => {
                 self.repository_selection = None;
                 self.repository_mode = mode;
@@ -1391,9 +1443,16 @@ impl App {
             }
             Action::LocalCommand(command) => {
                 if let Some(workspace) = &self.workspace {
-                    let context =
-                        crate::local_actions::LocalContext::from_row(workspace, self.selected);
-                    if let Some(reason) = command.disabled_reason(&context) {
+                    if let Some(reason) =
+                        crate::local_availability::LocalAvailability::from_workspace(
+                            workspace,
+                            self.selected,
+                            self.repository_selection
+                                .as_ref()
+                                .map(|selection| &selection.start),
+                        )
+                        .disabled_reason(command)
+                    {
                         self.status = reason;
                     } else {
                         self.local_command = Some(command);
@@ -1500,6 +1559,9 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        if crate::repository_related_pr_v1::event(self, event.clone()) {
+            return;
+        }
         if let Event::Resize(width, _) = &event {
             crate::repository_tree_viewport_native_v2::resize(self, *width);
         }
@@ -1532,6 +1594,11 @@ impl App {
             return;
         }
         if self.overlay.is_none() && crate::repository_tree_native_v1::capture(self, event.clone())
+        {
+            return;
+        }
+        if self.overlay.is_none()
+            && crate::repository_diff_sides_native_v1::capture(self, event.clone())
         {
             return;
         }
@@ -2103,6 +2170,30 @@ impl App {
                         )));
                         return;
                     }
+                    if key.code == KeyCode::Char('f') {
+                        self.dispatch(Action::OriginalDiffSidesV1(
+                            crate::repository_diff_sides_v1::OriginalDiffActionV1::Open,
+                        ));
+                        return;
+                    }
+                    if key.code == KeyCode::Char('u') {
+                        if let Some(ticket) = self
+                            .workspace
+                            .as_ref()
+                            .and_then(|workspace| {
+                                workspace
+                                    .original_diff_side_v1
+                                    .as_ref()
+                                    .filter(|side| side.visible_for(workspace))
+                            })
+                            .map(|side| side.return_ticket())
+                        {
+                            self.dispatch(Action::RepositoryRow(
+                                crate::workspace::RowAction::OriginalDiffReturn(ticket),
+                            ));
+                            return;
+                        }
+                    }
                     let file_action =
                         match key.code {
                             KeyCode::Char('H') => Some(crate::workspace::FileAction::History),
@@ -2624,8 +2715,7 @@ impl App {
             .filter(|anchor| {
                 matches!(
                     workspace
-                        .comparison
-                        .as_ref()
+                        .comparison_v1()
                         .and_then(|comparison| comparison.diff.files.get(anchor.file_index))
                         .and_then(|file| file.hunks.get(anchor.hunk_index))
                         .and_then(|hunk| hunk.lines.get(anchor.line_index))

@@ -42,8 +42,7 @@ impl Workspace {
         let Some(member) = state.selected_commit(&self.revision) else {
             return false;
         };
-        self.comparison
-            .as_ref()
+        self.comparison_v1()
             .is_some_and(|result| match &result.comparison {
                 Comparison::CommitChanges { commit, parent } => {
                     commit == &self.revision
@@ -59,8 +58,7 @@ impl Workspace {
             .as_ref()
             .ok_or("Original Graph source unavailable")?;
         let parent = self
-            .comparison
-            .as_ref()
+            .comparison_v1()
             .and_then(|comparison| match comparison.comparison {
                 Comparison::CommitChanges { parent, .. } => Some(parent),
                 _ => None,
@@ -172,6 +170,8 @@ impl Workspace {
                     graph_projection_start_v2: position.projection_start,
                     tree_navigation_v1: None,
                     tree_breadcrumbs_v2: None,
+                    original_comparison_v1: None,
+                    original_diff_side_v1: None,
                 };
                 if position.view == GraphViewV1::Comparison {
                     workspace.graph_action_v1(

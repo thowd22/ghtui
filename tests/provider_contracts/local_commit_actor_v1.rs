@@ -9,6 +9,8 @@ mod denial;
 mod initial_sql;
 #[path = "local_commit_actor_owner_pin_v1.rs"]
 mod owner_pin;
+#[path = "related_pr_v1.rs"]
+mod related_pr_v1;
 use ghtui::{
     git::{GitRepository, OriginalLocalCommitActors},
     identity::GitRole,

@@ -48,7 +48,7 @@ fn original_diff_sides_worker_same_original_query_sealed_actual_nine_reads_arc_p
 }
 #[test]
 fn original_diff_sides_worker_old_query_both_success_and_error_refused() {
-    let (_, mut workspace, mut picker, owner) = fixture();
+    let (_real, mut workspace, mut picker, owner) = fixture();
     let result = owner.prepare().unwrap();
     picker
         .as_mut()
@@ -72,11 +72,11 @@ fn original_diff_sides_worker_cancel_before_start_has_zero_children_no_rebase() 
 }
 #[test]
 fn original_diff_sides_worker_foreign_result_and_closed_picker_cannot_admit() {
-    let (_, mut workspace, mut picker, owner) = fixture();
+    let (_real, mut workspace, _, owner) = fixture();
     let result = owner.prepare().unwrap();
-    let (_, _, _, foreign) = fixture();
+    let (_foreign_real, _, _, foreign) = fixture();
     assert!(!result.matches(&foreign));
-    picker = None;
+    let mut picker = None;
     assert!(result.publish(&mut workspace, &mut picker).is_err());
     assert!(!owner.can_admit(&workspace, None, false));
 }

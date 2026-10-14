@@ -79,6 +79,8 @@ impl Workspace {
             tree_navigation_v1: None,
             tree_breadcrumbs_v2: None,
             comparison: None,
+            original_comparison_v1: None,
+            original_diff_side_v1: None,
             preview: Some(preview),
             file_provenance: Some(FileProvenance::new(commit.into(), path.clone())),
             selected_commit: None,

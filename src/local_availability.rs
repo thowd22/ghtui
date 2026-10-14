@@ -57,10 +57,7 @@ impl<'a> LocalAvailability<'a> {
             status: &workspace.status,
             path,
             anchor,
-            comparison: workspace
-                .comparison
-                .as_ref()
-                .map(|result| &result.comparison),
+            comparison: workspace.comparison_v1().map(|result| &result.comparison),
         }
     }
     pub fn disabled_reason(&self, command: LocalCommand) -> Option<String> {

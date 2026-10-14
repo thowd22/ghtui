@@ -26,6 +26,7 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LocalActorActionV1 {
     ChooseRepository,
+    RelatedPrs,
     Verify,
     Clear,
     Details,
@@ -36,6 +37,7 @@ pub enum LocalActorActionV1 {
 pub enum LocalActorNativeIntentV1 {
     ChooseRepository(Arc<LocalActorChooserPurposeV1>),
     Verify,
+    RelatedPrs,
 }
 
 /// Genuine selected-row navigation intent only; no permission/serialized proof.
@@ -351,6 +353,12 @@ impl LocalCommitActorNativeV1 {
         action: LocalActorActionV1,
     ) -> Result<Option<LocalActorNativeIntentV1>, String> {
         match action {
+            LocalActorActionV1::RelatedPrs => {
+                if self.profile().is_none() || self.choice.is_none() {
+                    return Err("Choose an original repository before related PR discovery".into());
+                }
+                return Ok(Some(LocalActorNativeIntentV1::RelatedPrs));
+            }
             LocalActorActionV1::ChooseRepository => {
                 let purpose = self.chooser_purpose()?;
                 self.clear_host_report();

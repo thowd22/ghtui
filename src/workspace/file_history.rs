@@ -134,6 +134,11 @@ impl Workspace {
         cancellation: CancellationToken,
     ) -> Result<(), String> {
         self.provenance_available(&action)?;
+        let retained_side = self
+            .original_diff_side_v1
+            .as_ref()
+            .filter(|side| side.owns(self))
+            .cloned();
         let mut state = self
             .file_provenance
             .clone()
@@ -310,6 +315,9 @@ impl Workspace {
                     );
                 }
                 next.file_provenance = Some(state);
+                if let Some(side) = retained_side {
+                    next.carry_original_diff_side_v1(side)?;
+                }
                 *self = next;
                 return Ok(());
             }
@@ -704,6 +712,11 @@ impl Workspace {
     ) -> Result<(), String> {
         let retained_tree = self.tree_navigation_v1.clone();
         let retained_strip = self.tree_breadcrumbs_v2.clone();
+        let retained_side = self
+            .original_diff_side_v1
+            .as_ref()
+            .filter(|side| side.owns(self))
+            .cloned();
         let mut fresh = Self::open_search_file_from_repository_v1(
             repo,
             &state.path,
@@ -716,6 +729,9 @@ impl Workspace {
             fresh.tree_breadcrumbs_v2 =
                 retained_strip.filter(|strip| Arc::ptr_eq(strip.source(), &tree));
             fresh.tree_navigation_v1 = Some(tree);
+        }
+        if let Some(side) = retained_side {
+            fresh.carry_original_diff_side_v1(side)?;
         }
         *self = fresh;
         Ok(())

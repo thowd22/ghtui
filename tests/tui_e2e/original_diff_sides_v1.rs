@@ -1,6 +1,7 @@
-//! NEW UNREGISTERED actual-binary journeys. Intended child of comparison.rs.
+//! Actual-binary original comparison-side journeys, owned by comparison.rs.
 //! No Source/owner/receipt is constructed in tests; genuine UI + installed Git.
 use super::*;
+use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession, ProcessIdentity};
 use crate::support::GhStep;
 use ghtui::{
     config::Config,
@@ -258,11 +259,16 @@ fn launch(native: &Native, mouse: bool) -> Session {
     )
 }
 fn starts(native: &Native) -> Vec<Value> {
-    fs::read_to_string(native.fixture.root.join("diff-sides-trace.jsonl"))
-        .expect("Actual Trace2 initialized")
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+    crate::raw_git_argv_v1::ascii_trace2(&native.fixture.root.join("diff-sides-trace.jsonl"))
+        .into_iter()
         .filter(|event| event["event"] == "start")
+        .collect()
+}
+fn journal_rows(session: &Session, native: &Native) -> Vec<Value> {
+    session
+        .inspect_command_journal(&native.fixture)
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("Actual strict fake-gh JSON journal record"))
         .collect()
 }
 fn no_discovery(native: &Native, prior: usize) {
@@ -292,27 +298,25 @@ fn effects(native: &Native, session: &Session) {
         .unwrap()
         .is_empty());
     assert!(!starts(native).is_empty());
-    let trace = fs::read_to_string(native.fixture.root.join("diff-sides-trace.jsonl")).unwrap();
-    assert!(!trace
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).unwrap())
-        .any(|event| event["event"] == "cmd_name"
-            && matches!(
-                event["name"].as_str(),
-                Some(
-                    "add"
-                        | "reset"
-                        | "checkout"
-                        | "switch"
-                        | "commit"
-                        | "fetch"
-                        | "clone"
-                        | "push"
-                        | "merge"
-                        | "rebase"
-                        | "update-ref"
-                )
-            )));
+    let trace =
+        crate::raw_git_argv_v1::ascii_trace2(&native.fixture.root.join("diff-sides-trace.jsonl"));
+    assert!(!trace.into_iter().any(|event| event["event"] == "cmd_name"
+        && matches!(
+            event["name"].as_str(),
+            Some(
+                "add"
+                    | "reset"
+                    | "checkout"
+                    | "switch"
+                    | "commit"
+                    | "fetch"
+                    | "clone"
+                    | "push"
+                    | "merge"
+                    | "rebase"
+                    | "update-ref"
+            )
+        )));
 }
 fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if mouse {
@@ -320,6 +324,85 @@ fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     } else {
         session.send_key(key);
     }
+}
+fn close_absence(session: &mut Session, mouse: bool, message: &str) {
+    session.wait_for_cursorless_condition(
+        |frame| {
+            frame.contents().contains(message)
+                && frame.contents().contains("Action unavailable")
+                && frame.contents().contains("[Esc Close]")
+        },
+        "completed owned absence Notice before Close",
+        Duration::from_secs(8),
+    );
+    let previous = session.completed_cursorless_end();
+    choose(session, mouse, "[Esc Close]", b"\x1b");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if session.completed_cursorless_end() > previous
+            && session.completed_cursorless_screen().is_some_and(|frame| {
+                frame.contents().contains(TITLE)
+                    && frame.contents().contains("[q Quit]")
+                    && !frame.contents().contains("Action unavailable")
+                    && !frame.contents().contains(message)
+            })
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "No NEW complete actual picker frame after closing absence Notice"
+        );
+    }
+}
+fn observe_restored_basis(native: &Native, session: &mut Session, mouse: bool) {
+    let before = starts(native).len();
+    choose(session, mouse, "[Source identity]", b"I");
+    let title = "Repository source identity • read-only";
+    session.wait_for_cursorless_condition(
+        |frame| frame.contents().contains(title) && frame.contents().contains("[PgDn More]"),
+        "completed current comparison Source identity",
+        Duration::from_secs(8),
+    );
+    let mut observed_a = false;
+    let mut observed_c = false;
+    let mut observed_actual_start = false;
+    for page in 0..8 {
+        let text = session.completed_cursorless_screen().unwrap().contents();
+        observed_a |= text.contains(&native.a);
+        observed_c |= text.contains(&native.c);
+        observed_actual_start |= text.contains("Actual diff starting object");
+        if observed_a && observed_c && observed_actual_start {
+            break;
+        }
+        assert!(page<7,"Actual restored requested A / original Old C basis not observed in genuine Source viewer");
+        let previous = session.completed_cursorless_end();
+        choose(session, mouse, "[PgDn More]", b"\x1b[6~");
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            session.poll_output(Duration::from_millis(1));
+            if session.completed_cursorless_end() > previous
+                && session.completed_cursorless_screen().is_some_and(|frame| {
+                    frame.contents().contains(title) && frame.contents().contains("[PgDn More]")
+                })
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No new actual Source detail page"
+            );
+        }
+    }
+    assert!(observed_a && observed_c && observed_actual_start);
+    choose(session, mouse, "[Esc Close]", b"\x1b");
+    session.wait_for_overlay_close(title);
+    assert_eq!(
+        starts(native).len(),
+        before,
+        "Prepared Source details must perform no Git reads"
+    );
 }
 fn open_comparison(native: &Native, session: &mut Session, mouse: bool, proposed: bool) {
     session.wait_for_screen("Recent commits");
@@ -366,9 +449,20 @@ fn filter(session: &mut Session, mouse: bool, text: &str, count: &str) {
     session.paste(text);
     session.wait_for_screen(&format!("Filter: {text}"));
     session.wait_for_screen(count);
-    if !mouse {
-        session.send_key(b"\r");
-    }
+    // Leave the editing caret before requiring a completed list frame. Query
+    // frames show the cursor and cannot be certified by EndHideCursor.
+    session.send_key(b"\r");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            frame.contents().contains(&format!("Filter: {text}"))
+                && frame.contents().contains(count)
+                && !frame
+                    .contents()
+                    .contains("Matching original changed-file paths")
+        },
+        "completed current query/member frame before side activation",
+        Duration::from_secs(8),
+    );
 }
 fn open_side(
     native: &Native,
@@ -449,15 +543,14 @@ fn proposed(mouse: bool) {
     choose(&mut session, mouse, "[H History]", b"H");
     session.wait_for_screen("File history — chosen saved version");
     session.wait_for_screen(&native.b);
-    choose(&mut session, mouse, "[B Back]", b"B");
+    choose(&mut session, mouse, "[u File back]", b"u");
     session.wait_for_screen("Original new saved file");
     back(&native, &mut session, mouse);
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
     choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
     session.wait_for_screen("Saved comparison • actual Old/New content");
-    session.wait_for_screen(&native.c);
-    session.wait_for_screen(&native.a);
+    observe_restored_basis(&native, &mut session, mouse);
     effects(&native, &session);
     session.quit_and_assert_restored_terminal(mouse);
 }
@@ -482,14 +575,7 @@ fn special(mouse: bool) {
     let background = session.locate("2 Repository").unwrap_or((18, 1));
     session.click(background.0, background.1);
     session.wait_for_screen("Old side is absent");
-    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session
-        .try_wait_for_condition(
-            |screen| !screen.contains("Old side is absent"),
-            "actual absence explanation closed before picker close",
-            Duration::from_secs(8),
-        )
-        .unwrap();
+    close_absence(&mut session, mouse, "Old side is absent");
     session.wait_for_screen(TITLE);
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close(TITLE);
@@ -531,38 +617,12 @@ fn special(mouse: bool) {
     choose(&mut session, mouse, "[N Open new]", b"N");
     session.wait_for_screen("New side is absent");
     assert_eq!(starts(&native).len(), before);
-    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session
-        .try_wait_for_condition(
-            |screen| !screen.contains("New side is absent"),
-            "actual absence explanation closed before picker close",
-            Duration::from_secs(8),
-        )
-        .unwrap();
+    close_absence(&mut session, mouse, "New side is absent");
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close(TITLE);
     choose(&mut session, mouse, "[g Graph]", b"g");
-    session.wait_for_screen("Common exact side version");
-    if mouse {
-        session.click_visible_action("Common exact side version");
-    } else {
-        let deadline = Instant::now() + Duration::from_secs(8);
-        loop {
-            session.poll_output(Duration::from_millis(1));
-            if let Some((column, row)) = session.locate("Common exact side version") {
-                if session.cell_inverted(row, column) {
-                    session.send_key(b"\r");
-                    break;
-                }
-            }
-            assert!(
-                Instant::now() < deadline,
-                "Actual root graph row never selected"
-            );
-            session.send_key(b"\x1b[B");
-            session.poll_output(Duration::from_millis(20));
-        }
-    }
+    session.open_saved_graph_subject(mouse, "Common exact side version", &native.c);
+    choose(&mut session, mouse, "[D Details]", b"D");
     session.wait_for_screen("root commit:");
     session.wait_for_screen(&native.c);
     choose(&mut session, mouse, "[d Changes]", b"d");
@@ -581,14 +641,7 @@ fn special(mouse: bool) {
     choose(&mut session, mouse, "[O Open old]", b"O");
     session.wait_for_screen("Old side is absent");
     assert_eq!(starts(&native).len(), before);
-    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session
-        .try_wait_for_condition(
-            |screen| !screen.contains("Old side is absent"),
-            "actual root absence notice closed",
-            Duration::from_secs(8),
-        )
-        .unwrap();
+    close_absence(&mut session, mouse, "Old side is absent");
     open_side(
         &native,
         &mut session,
@@ -610,38 +663,104 @@ fn original_diff_sides_mouse_raw_paths_same_prefix_query_resize_choose_exact() {
 }
 fn raw(mouse: bool) {
     let native = fixture("sha256");
+    crate::raw_git_argv_v1::install(&native.fixture.root);
+    let paths: [&[u8]; 5] = [b"same-\xfe", b"same-\xff", b"line\nname", b"Case", b"case"];
+    let members = paths
+        .iter()
+        .map(|path| {
+            crate::raw_git_argv_v1::original_blob(native.fixture.repo().as_path(), &native.b, path)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        members
+            .iter()
+            .map(|(oid, _)| oid)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        paths.len(),
+        "Distinct raw members must have independently distinct actual blobs"
+    );
     let mut session = launch(&native, mouse);
     open_comparison(&native, &mut session, mouse, false);
-    picker(&native, &mut session, mouse, false);
-    let before = starts(&native).len();
-    filter(&mut session, mouse, "same", "2 known matches");
-    session.resize_owned_modal(80, 24, TITLE, &["[q Quit]", "[Esc Close]"]);
-    session.wait_for_screen("same-\\xfe");
-    session.wait_for_screen("same-\\xff");
-    filter(&mut session, mouse, "same-\\xff", "1 known matches");
-    assert_eq!(starts(&native).len(), before);
-    open_side(
-        &native,
-        &mut session,
-        mouse,
-        false,
-        &native.b,
-        "FF actual new target",
-    );
-    assert!(!session.screen().contains("FE actual old target"));
-    back(&native, &mut session, mouse);
-    picker(&native, &mut session, mouse, false);
-    filter(&mut session, mouse, "line\\nname", "1 known matches");
-    open_side(
-        &native,
-        &mut session,
-        mouse,
-        false,
-        &native.b,
-        "LF byte path target",
-    );
+    // Repeated FE must produce a NEW selection delta, never use ever-seen
+    // records or the same body/object as proof for another raw member.
+    for index in [1, 0, 3, 4, 2, 0] {
+        picker(&native, &mut session, mouse, false);
+        session.resize_owned_modal(80, 24, TITLE, &["[q Quit]", "[Esc Close]"]);
+        let query = ["same-\\xfe", "same-\\xff", "line\\nname", "case", "case"][index];
+        let displayed = ["same-\\xfe", "same-\\xff", "line\\nname", "Case", "case"][index];
+        let before = starts(&native).len();
+        filter(
+            &mut session,
+            mouse,
+            query,
+            if index >= 3 {
+                "2 known matches"
+            } else {
+                "1 known matches"
+            },
+        );
+        assert_eq!(
+            starts(&native).len(),
+            before,
+            "Filtering an actual retained source must not spawn Git"
+        );
+        if index >= 3 {
+            if mouse {
+                session.click_visible_action(&format!("[old absent] → {displayed}"));
+            } else {
+                session.send_key(b"\x1b[H");
+                if index == 4 {
+                    session.send_key(b"\x1b[B");
+                }
+            }
+        }
+        let old_pids =
+            crate::raw_git_argv_v1::records(&native.fixture.root.join("raw-git-argv-v1"))
+                .iter()
+                .map(|record| record.pid)
+                .collect::<std::collections::BTreeSet<_>>();
+        let previous_frame = session.completed_cursorless_end();
+        let body = std::str::from_utf8(&members[index].1).unwrap().trim();
+        open_side(&native, &mut session, mouse, false, &native.b, body);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            session.poll_output(Duration::from_millis(1));
+            if session.completed_cursorless_end() > previous_frame
+                && session.completed_cursorless_screen().is_some_and(|frame| {
+                    frame.contents().contains("Original new saved file")
+                        && frame.contents().contains(body)
+                        && frame.contents().contains(&native.b)
+                        && !frame.contents().contains(TITLE)
+                })
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No NEW complete actual raw-side body frame for {displayed}"
+            );
+        }
+        let delta = crate::raw_git_argv_v1::records(&native.fixture.root.join("raw-git-argv-v1"))
+            .into_iter()
+            .filter(|record| !old_pids.contains(&record.pid))
+            .collect::<Vec<_>>();
+        assert!(
+            !delta.is_empty(),
+            "Each actual raw-side selection must start new real Git children"
+        );
+        crate::raw_git_argv_v1::exact_read(&delta, &native.b, paths[index], &members[index].0);
+        assert_eq!(
+            crate::raw_git_argv_v1::original_blob(
+                native.fixture.repo().as_path(),
+                &native.b,
+                paths[index]
+            ),
+            members[index]
+        );
+        back(&native, &mut session, mouse);
+    }
     session.resize(120, 40);
-    back(&native, &mut session, mouse);
     picker(&native, &mut session, mouse, false);
     let prior = starts(&native).len();
     filter(&mut session, mouse, "page", "110 known matches");
@@ -762,17 +881,32 @@ fn installed() -> String {
     assert!(out.status.success());
     String::from_utf8(out.stdout).unwrap().trim().into()
 }
-fn alive(pid: i32) -> bool {
-    (unsafe { libc::kill(pid, 0) }) == 0
+fn alive(expected: &ProcessIdentity) -> bool {
+    process_identity(expected.pid)
+        .unwrap()
+        .is_some_and(|current| {
+            assert_eq!(
+                (current.pid, current.uid, current.session, current.birth),
+                (expected.pid, expected.uid, expected.session, expected.birth),
+                "Only the actual original process identity may be observed"
+            );
+            !current.zombie
+        })
 }
-fn pid(session: &mut Session, path: &Path) -> i32 {
+fn pid(session: &mut Session, path: &Path) -> ProcessIdentity {
+    let owner = OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         if let Ok(text) = fs::read_to_string(path) {
             if text.ends_with('\n') {
                 if let Ok(pid) = text.trim().parse::<i32>() {
-                    if pid > 0 && alive(pid) {
-                        return pid;
+                    if pid > 0 {
+                        if let Some(identity) = process_identity(pid).unwrap() {
+                            assert!(owner.owns(&identity));
+                            if !identity.zombie {
+                                return identity;
+                            }
+                        }
                     }
                 }
             }
@@ -785,13 +919,32 @@ fn pid(session: &mut Session, path: &Path) -> i32 {
         );
     }
 }
-fn reaped(session: &mut Session, pid: i32) {
+fn reaped(session: &mut Session, expected: ProcessIdentity) {
+    let owner = OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
     let deadline = Instant::now() + Duration::from_secs(8);
-    while alive(pid) {
+    loop {
+        let Some(current) = process_identity(expected.pid).unwrap() else {
+            return;
+        };
+        assert!(owner.owns(&current));
+        assert_eq!(
+            (current.pid, current.uid, current.session, current.birth),
+            (expected.pid, expected.uid, expected.session, expected.birth)
+        );
+        if current.zombie && current.parent == std::process::id() as i32 {
+            let mut status = 0;
+            // SAFETY: this exact positive UID/birth/SID was captured before
+            // Cancel and is now an observed adopted child of this test.
+            let waited = unsafe { libc::waitpid(current.pid, &mut status, libc::WNOHANG) };
+            assert_eq!(waited, current.pid);
+            assert!(libc::WIFEXITED(status) || libc::WIFSIGNALED(status));
+            assert!(process_identity(current.pid).unwrap().is_none());
+            return;
+        }
         session.poll_output(Duration::from_millis(5));
         assert!(
             Instant::now() < deadline,
-            "Actual original child survives cancellation"
+            "Actual original owned child must actually be gone after cancellation"
         );
     }
 }
@@ -813,7 +966,27 @@ fn cancel(mouse: bool) {
         .trim()
         .to_owned();
     let program = native.fixture.root.join("bin/git");
-    fs::write(&program,format!("#!/bin/sh\ncase \" $* \" in *' cat-file blob {id} '*) '{installed}' \"$@\" > '{root}/held-side-output' || exit $?; printf '%s\\n' \"$$\" > '{root}/held-side-pid'; while [ ! -f '{root}/release-side' ]; do /bin/sleep 0.02; done; /bin/cat '{root}/held-side-output';; *) exec '{installed}' \"$@\";; esac\n")).unwrap();
+    fs::write(
+        &program,
+        format!(
+            r#"#!/bin/sh
+case " $* " in
+  *' cat-file blob {id} '*)
+    '{installed}' "$@" > '{root}/held-side-output' || exit $?
+    /bin/sleep 30 &
+    descendant=$!
+    printf '%s\n' "$descendant" > '{root}/held-side-descendant'
+    printf '%s\n' "$$" > '{root}/held-side-pid'
+    while [ ! -f '{root}/release-side' ]; do /bin/sleep 0.02; done
+    kill "$descendant" 2>/dev/null || :
+    wait "$descendant" 2>/dev/null || :
+    /bin/cat '{root}/held-side-output';;
+  *) exec '{installed}' "$@";;
+esac
+"#
+        ),
+    )
+    .unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
     let mut session = launch(&native, mouse);
     open_comparison(&native, &mut session, mouse, true);
@@ -822,6 +995,12 @@ fn cancel(mouse: bool) {
     let before = starts(&native).len();
     choose(&mut session, mouse, "[O Open old]", b"O");
     let pid = pid(&mut session, &native.fixture.root.join("held-side-pid"));
+    let descendant = self::pid(
+        &mut session,
+        &native.fixture.root.join("held-side-descendant"),
+    );
+    assert_eq!(descendant.parent, pid.pid);
+    assert!(alive(&pid) && alive(&descendant));
     assert_eq!(
         fs::read(native.fixture.root.join("held-side-output")).unwrap(),
         b"COMMON old bytes\n"
@@ -830,6 +1009,7 @@ fn cancel(mouse: bool) {
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close(TITLE);
     reaped(&mut session, pid);
+    reaped(&mut session, descendant);
     let completed = starts(&native).len();
     fs::write(
         native.fixture.root.join("release-side"),
@@ -861,7 +1041,33 @@ fn queued(mouse: bool) {
     let installed = installed();
     let root = native.fixture.root.display().to_string();
     let program = native.fixture.root.join("bin/git");
-    fs::write(&program,format!("#!/bin/sh\ncase \" $* \" in *' ls-tree -r '*) '{installed}' \"$@\" > '{root}/queued-tree-output' || exit $?; printf '%s\\n' \"$$\" > '{root}/queued-tree-pid'; while [ ! -f '{root}/queued-release-tree' ]; do /bin/sleep 0.02; done; /bin/cat '{root}/queued-tree-output';; *) exec '{installed}' \"$@\";; esac\n")).unwrap();
+    let checkout = native.fixture.git(&["rev-parse", "HEAD"]);
+    let checkout = checkout.trim();
+    assert_ne!(checkout, native.b);
+    assert_ne!(checkout, native.c);
+    assert_eq!(checkout.len(), 40);
+    assert!(checkout.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    fs::write(
+        &program,
+        format!(
+            r#"#!/bin/sh
+case " $* " in
+  *' ls-tree -r -t -z --full-tree {checkout} '*)
+    '{installed}' "$@" > '{root}/queued-tree-output' || exit $?
+    /bin/sleep 30 &
+    descendant=$!
+    printf '%s\n' "$descendant" > '{root}/queued-tree-descendant'
+    printf '%s\n' "$$" > '{root}/queued-tree-pid'
+    while [ ! -f '{root}/queued-release-tree' ]; do /bin/sleep 0.02; done
+    kill "$descendant" 2>/dev/null || :
+    wait "$descendant" 2>/dev/null || :
+    /bin/cat '{root}/queued-tree-output';;
+  *) exec '{installed}' "$@";;
+esac
+"#
+        ),
+    )
+    .unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
     let mut session = launch(&native, mouse);
     open_comparison(&native, &mut session, mouse, true);
@@ -876,6 +1082,11 @@ fn queued(mouse: bool) {
     session.paste("tracked");
     choose(&mut session, mouse, "[Enter Search]", b"\r");
     let tree_pid = pid(&mut session, &native.fixture.root.join("queued-tree-pid"));
+    let tree_descendant = pid(
+        &mut session,
+        &native.fixture.root.join("queued-tree-descendant"),
+    );
+    assert_eq!(tree_descendant.parent, tree_pid.pid);
     assert!(!fs::read(native.fixture.root.join("queued-tree-output"))
         .unwrap()
         .is_empty());
@@ -884,25 +1095,30 @@ fn queued(mouse: bool) {
     choose(&mut session, mouse, "[r Refresh]", b"r");
     let deadline = Instant::now() + Duration::from_secs(8);
     let gh_pid = loop {
-        let journal = session.inspect_command_journal(&native.fixture);
+        let journal = journal_rows(&session, &native);
         if journal.len() == 1 {
             assert_eq!(journal[0]["args"], json!(["--version"]));
             assert_eq!(journal[0]["matched"], true);
             let pid = journal[0]["pid"].as_i64().unwrap() as i32;
-            if alive(pid) {
-                break pid;
+            if let Some(identity) = process_identity(pid).unwrap() {
+                let owner =
+                    OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
+                assert!(owner.owns(&identity));
+                if !identity.zombie {
+                    break identity;
+                }
             }
         }
         session.poll_output(Duration::from_millis(5));
         assert!(Instant::now() < deadline, "Actual gh worker fence absent");
     };
-    assert!(alive(tree_pid) && alive(gh_pid));
+    assert!(alive(&tree_pid) && alive(&tree_descendant) && alive(&gh_pid));
     choose(&mut session, mouse, "2 Repository", b"2");
     session.wait_for_screen("Saved comparison • actual Old/New content");
     let before = starts(&native).len();
     choose(&mut session, mouse, "[f Changed files]", b"f");
     session.wait_for_screen(TITLE);
-    assert!(alive(tree_pid) && alive(gh_pid));
+    assert!(alive(&tree_pid) && alive(&tree_descendant) && alive(&gh_pid));
     assert_eq!(starts(&native).len(), before);
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close(TITLE);
@@ -915,6 +1131,7 @@ fn queued(mouse: bool) {
     choose(&mut session, mouse, "[Esc Cancel]", b"\x1b");
     session.wait_for_screen("Cancelled");
     reaped(&mut session, tree_pid);
+    reaped(&mut session, tree_descendant);
     fs::write(
         native.fixture.root.join("queued-release-tree"),
         b"released after observed cancel cleanup\n",
@@ -935,7 +1152,7 @@ fn queued(mouse: bool) {
     assert!(fs::read(native.fixture.root.join("curl-journal"))
         .unwrap()
         .is_empty());
-    let journal = session.inspect_command_journal(&native.fixture);
+    let journal = journal_rows(&session, &native);
     assert_eq!(journal.len(), 1);
     assert_eq!(journal[0]["args"], json!(["--version"]));
     assert_eq!(journal[0]["matched"], true);

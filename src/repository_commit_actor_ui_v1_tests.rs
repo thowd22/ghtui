@@ -51,6 +51,7 @@ fn git_actor_association_native_ui_empty_owned_chooser_explains_purpose_before_a
 fn git_actor_association_native_ui_typed_profile_keys_do_not_steal_modified_bindings() {
     for (code, action) in [
         (KeyCode::Char('R'), LocalActorActionV1::ChooseRepository),
+        (KeyCode::Char('P'), LocalActorActionV1::RelatedPrs),
         (KeyCode::Char('V'), LocalActorActionV1::Verify),
         (KeyCode::Char('X'), LocalActorActionV1::Clear),
         (KeyCode::F(7), LocalActorActionV1::Details),
@@ -70,7 +71,8 @@ fn git_actor_association_native_ui_every_toolbar_control_same_hit_and_key_at80_a
         terminal
             .draw(|frame| layout.controls(frame, frame.area(), &k.state, theme()))
             .unwrap();
-        assert_eq!(layout.hits().len(), 4);
+        assert_eq!(layout.hits().len(), 5);
+        assert!(screen(&terminal).contains("[P Related PRs]"));
         assert!(screen(&terminal).contains("[R Choose repository]"));
         for hit in layout.hits() {
             assert_eq!(

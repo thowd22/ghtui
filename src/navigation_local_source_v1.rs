@@ -92,6 +92,7 @@ pub struct OriginalSavedVisitV1 {
     route: OriginalLocalRouteV1,
     key: [u8; 32],
     tree_v1: Option<Arc<crate::workspace::tree_jump_route_v1::OriginalTreeSavedRouteV1>>,
+    diff_v1: Option<Arc<crate::workspace::original_diff_sides_route_v1::OriginalDiffSavedRouteV1>>,
 }
 impl std::fmt::Debug for OriginalSavedVisitV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -153,7 +154,7 @@ impl OriginalSavedVisitV1 {
                 validate_selected_member(state, selection)?;
             }
         }
-        if let Some(comparison) = &workspace.comparison {
+        if let Some(comparison) = workspace.comparison_v1() {
             for value in [&comparison.base, &comparison.head].into_iter().flatten() {
                 sha(value)?;
                 charge(&mut meter, value.as_bytes(), 64)?;
@@ -218,7 +219,7 @@ impl OriginalSavedVisitV1 {
                     }),
             }
         });
-        let comparison = workspace.comparison.as_ref().and_then(|result| {
+        let comparison = workspace.comparison_v1().and_then(|result| {
             let (kind, parent) = match result.comparison {
                 Comparison::Snapshots { .. } => (1, None),
                 Comparison::BranchChanges { .. } => (2, None),
@@ -253,7 +254,7 @@ impl OriginalSavedVisitV1 {
             }),
             provenance,
             comparison,
-            mutable_source: workspace.comparison.as_ref().and_then(|comparison| {
+            mutable_source: workspace.comparison_v1().and_then(|comparison| {
                 comparison
                     .observed
                     .map(|observed| observed.navigation_identity())
@@ -269,6 +270,11 @@ impl OriginalSavedVisitV1 {
                     .map(Arc::new)
             })
             .transpose()?;
+        let diff_v1 =
+            crate::workspace::original_diff_sides_route_v1::OriginalDiffSavedRouteV1::capture(
+                workspace,
+            )?
+            .map(Arc::new);
         let mut hash = RouteHash {
             hash: Sha256::new(),
             left: MAX_ROUTE_BYTES,
@@ -282,6 +288,10 @@ impl OriginalSavedVisitV1 {
             hash.write_all(&tree.identity_bytes()?)
                 .map_err(|_| "Original tree route exceeds shared16KiB metadata limit")?;
         }
+        if let Some(diff) = &diff_v1 {
+            hash.write_all(&diff.identity_bytes()?)
+                .map_err(|_| "Original comparison side route exceeds shared16KiB metadata limit")?;
+        }
         let key = hash.hash.finalize().into();
         Ok(Arc::new(Self {
             origin: origin.clone(),
@@ -290,6 +300,7 @@ impl OriginalSavedVisitV1 {
             graph_lease_v2: None,
             graph_metadata_v3: None,
             tree_v1,
+            diff_v1,
         }))
     }
     pub fn key(&self) -> &[u8; 32] {
@@ -348,6 +359,9 @@ impl OriginalSavedVisitV1 {
                 )?;
                 if let Some(tree) = &self.tree_v1 {
                     tree.restore(operation)?.install(&mut workspace)?;
+                }
+                if let Some(diff) = &self.diff_v1 {
+                    diff.restore(self.origin.clone(), operation, &mut workspace)?;
                 }
                 Ok(workspace)
             })

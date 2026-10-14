@@ -28,6 +28,9 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    if crate::repository_related_pr_v1::draw(frame, app) {
+        return;
+    }
     if app.remote_repository.is_some() {
         crate::remote_repository_native_v1::draw(frame, app);
         return;
@@ -37,6 +40,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
     if app.overlay.is_none() && crate::repository_tree_native_v1::draw(frame, app, area) {
+        return;
+    }
+    if app.overlay.is_none() && crate::repository_diff_sides_native_v1::draw(frame, app, area) {
         return;
     }
     let theme = app.theme();

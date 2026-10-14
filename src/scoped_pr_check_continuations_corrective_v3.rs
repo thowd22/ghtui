@@ -8,7 +8,9 @@ use super::*;
 /// Conversely the local Tree/Graph publishers must reject this result facet.
 pub(crate) fn prepared_only(value: &PreparedView) -> bool {
     value.pr_check_continuation_v2.is_some()
+        && value.related_pr_v1.is_none()
         && value.original_tree_result_v1.is_none()
+        && value.original_diff_result_v1.is_none()
         && value.graph_reread_retention_v3.is_none()
         && value.workspace.is_none()
         && value.repository_source_identity.is_none()

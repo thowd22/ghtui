@@ -14,6 +14,9 @@ use std::{
 
 #[derive(Default)]
 pub struct PreparedView {
+    pub original_diff_result_v1:
+        Option<crate::repository_diff_sides_worker_v1::PreparedOriginalDiffWorkV1>,
+    pub related_pr_v1: Option<crate::repository_related_pr_v1::PreparedRelatedPrV1>,
     pub lines: Vec<String>,
     pub context: Option<String>,
     pub status: String,
@@ -80,11 +83,15 @@ mod graph_refresh_v3_tests;
 
 #[path = "runtime/local_saved_navigation_v1.rs"]
 mod local_saved_navigation_v1;
+#[path = "runtime/original_diff_sides_background_v1.rs"]
+mod original_diff_sides_background_v1;
 #[path = "runtime/original_tree_background_v1.rs"]
 mod original_tree_background_v1;
 #[cfg(test)]
 #[path = "runtime/pr_check_continuation_corrective_v3_test_support.rs"]
 pub(crate) mod pr_check_continuation_corrective_v3_test_support;
+#[path = "runtime/related_pr_background_v1.rs"]
+mod related_pr_background_v1;
 
 type Work = Box<dyn FnOnce(CancellationToken) -> Result<PreparedView, String> + Send>;
 
@@ -137,6 +144,8 @@ struct Request {
         Option<Arc<crate::navigation_local_owner_v1::OriginalLocalNavigationOwnerV1>>,
     original_tree_owner_v1:
         Option<Arc<crate::repository_tree_worker_v1::OriginalTreeWorkerOwnerV1>>,
+    original_diff_owner_v1:
+        Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkerOwnerV1>>,
     work: Work,
 }
 struct Completion {
@@ -153,10 +162,14 @@ struct Completion {
         Option<Arc<crate::navigation_local_owner_v1::OriginalLocalNavigationOwnerV1>>,
     original_tree_owner_v1:
         Option<Arc<crate::repository_tree_worker_v1::OriginalTreeWorkerOwnerV1>>,
+    original_diff_owner_v1:
+        Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkerOwnerV1>>,
     result: Result<PreparedView, String>,
 }
 
 pub struct Background {
+    current_related_pr_v1: Option<Arc<crate::repository_related_pr_v1::RelatedPrOwnerV1>>,
+    current_related_pr_generation_v1: Option<u64>,
     requests: Option<SyncSender<Request>>,
     completions: Receiver<Completion>,
     current: HashMap<usize, (u64, CancellationToken)>,
@@ -167,6 +180,9 @@ pub struct Background {
     current_original_tree_owner_v1:
         Option<Arc<crate::repository_tree_worker_v1::OriginalTreeWorkerOwnerV1>>,
     current_original_tree_generation_v2: Option<u64>,
+    current_original_diff_owner_v1:
+        Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkerOwnerV1>>,
+    current_original_diff_generation_v1: Option<u64>,
 }
 
 impl Background {
@@ -209,6 +225,7 @@ impl Background {
                         local_actor_owner: request.local_actor_owner,
                         local_navigation_owner: request.local_navigation_owner,
                         original_tree_owner_v1: request.original_tree_owner_v1,
+                        original_diff_owner_v1: request.original_diff_owner_v1,
                         remote_repository_owner: request.remote_repository_owner,
                         result,
                     })
@@ -219,6 +236,8 @@ impl Background {
             }));
         }
         Self {
+            current_related_pr_v1: None,
+            current_related_pr_generation_v1: None,
             requests: Some(requests),
             completions,
             current: HashMap::new(),
@@ -227,6 +246,8 @@ impl Background {
             current_original_local_owner: None,
             current_original_tree_owner_v1: None,
             current_original_tree_generation_v2: None,
+            current_original_diff_owner_v1: None,
+            current_original_diff_generation_v1: None,
         }
     }
 
@@ -376,6 +397,7 @@ impl Background {
             remote_repository_owner: None,
             local_navigation_owner: None,
             original_tree_owner_v1: None,
+            original_diff_owner_v1: None,
             work: Box::new(work),
         };
         match self
@@ -439,6 +461,7 @@ impl Background {
             local_actor_owner: Some(owner.clone()),
             local_navigation_owner: None,
             original_tree_owner_v1: None,
+            original_diff_owner_v1: None,
             remote_repository_owner: None,
             work: Box::new(move |_actual_same_token| work(work_owner)),
         };
@@ -465,9 +488,13 @@ impl Background {
     }
     pub fn cancel(&mut self, view: View) {
         if view == View::Repository {
+            self.current_related_pr_v1 = None;
+            self.current_related_pr_generation_v1 = None;
             self.current_original_local_owner = None;
             self.current_original_tree_owner_v1 = None;
             self.current_original_tree_generation_v2 = None;
+            self.current_original_diff_owner_v1 = None;
+            self.current_original_diff_generation_v1 = None;
         }
         if let Some((_, cancellation)) = self.current.remove(&view.index()) {
             cancellation.cancel();
@@ -524,6 +551,7 @@ impl Background {
             remote_repository_owner: None,
             local_navigation_owner: None,
             original_tree_owner_v1: None,
+            original_diff_owner_v1: None,
             work: Box::new(work),
         };
         match self
@@ -756,7 +784,110 @@ impl Background {
                     || completion.local_actor_owner.is_some()
                     || completion.remote_repository_owner.is_some()
                     || completion.local_navigation_owner.is_some()
+                    || completion.original_diff_owner_v1.is_some()
                 {
+                    continue;
+                }
+            }
+            // The physical slot is shared with other repository workflows.
+            // A stale logical Diff owner or mixed result cannot consume it.
+            if let Some(owner) = &completion.original_diff_owner_v1 {
+                if completion.view != View::Repository
+                    || completion.catalogue_owner.is_some()
+                    || completion.catalogue_recovery.is_some()
+                    || completion.remote_scope_owner.is_some()
+                    || completion.local_actor_owner.is_some()
+                    || completion.remote_repository_owner.is_some()
+                    || completion.local_navigation_owner.is_some()
+                    || completion.original_tree_owner_v1.is_some()
+                    || self.current_related_pr_v1.is_some()
+                    || self.current_original_diff_generation_v1 != Some(completion.generation)
+                    || self
+                        .current_original_diff_owner_v1
+                        .as_ref()
+                        .is_none_or(|current| !Arc::ptr_eq(current, owner))
+                    || completion.result.as_ref().is_ok_and(|prepared| {
+                        !original_diff_sides_background_v1::original_diff_prepared_only_v1(prepared)
+                            || prepared
+                                .original_diff_result_v1
+                                .as_ref()
+                                .is_none_or(|result| !result.matches(owner))
+                    })
+                {
+                    continue;
+                }
+            } else if completion
+                .result
+                .as_ref()
+                .is_ok_and(|prepared| prepared.original_diff_result_v1.is_some())
+            {
+                continue;
+            }
+            // Gate original owner before every success/error/panic effect.
+            if completion
+                .result
+                .as_ref()
+                .is_ok_and(|p| p.related_pr_v1.is_some())
+                && (slot != View::Repository.index() || self.current_related_pr_v1.is_none())
+            {
+                continue;
+            }
+            if slot == View::Repository.index() {
+                if let Some(owner) = self.current_related_pr_v1.clone() {
+                    if self.current_related_pr_generation_v1 != Some(completion.generation)
+                        || completion.local_navigation_owner.is_some()
+                        || completion.local_actor_owner.is_some()
+                        || completion.original_tree_owner_v1.is_some()
+                        || completion.original_diff_owner_v1.is_some()
+                        || completion.remote_scope_owner.is_some()
+                        || !owner.owns(app)
+                        || completion.result.as_ref().is_ok_and(|prepared| {
+                            !related_pr_background_v1::only_related(prepared)
+                                || prepared
+                                    .related_pr_v1
+                                    .as_ref()
+                                    .is_none_or(|p| !p.matches_owner(&owner))
+                        })
+                    {
+                        continue;
+                    }
+                    // Rejected completed work keeps its logical exact owner
+                    // and slot until Close, never consuming a newer intent.
+                    self.current.remove(&slot);
+                    self.current_related_pr_v1 = None;
+                    self.current_related_pr_generation_v1 = None;
+                    if owner.expired() {
+                        self.fail_current_related_pr_v1(app, &owner);
+                        changed = true;
+                        continue;
+                    }
+                    match completion.result {
+                        Ok(mut prepared)
+                            if related_pr_background_v1::only_related(&prepared)
+                                && prepared
+                                    .related_pr_v1
+                                    .as_ref()
+                                    .is_some_and(|p| p.matches_owner(&owner)) =>
+                        {
+                            if !crate::repository_related_pr_v1::accept(
+                                app,
+                                &owner,
+                                prepared.related_pr_v1.take().expect("checked facet"),
+                            ) {
+                                if owner.owns(app) && owner.expired() {
+                                    self.fail_current_related_pr_v1(app, &owner);
+                                } else {
+                                    continue;
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            self.fail_current_related_pr_v1(app, &owner);
+                        }
+                        _ => continue,
+                    }
+                    app.loading[View::Repository.index()] = false;
+                    changed = true;
                     continue;
                 }
             }
@@ -809,6 +940,7 @@ impl Background {
                     || completion.remote_repository_owner.is_some()
                     || completion.local_navigation_owner.is_some()
                     || completion.original_tree_owner_v1.is_some()
+                    || completion.original_diff_owner_v1.is_some()
                 {
                     continue;
                 }
@@ -840,6 +972,19 @@ impl Background {
                 changed = true;
                 continue;
             }
+            if let Some(owner) = &completion.original_diff_owner_v1 {
+                let admitted = original_diff_sides_background_v1::publish_original_diff_sides_v1(
+                    app,
+                    owner,
+                    completion.result,
+                );
+                if admitted {
+                    self.current_original_diff_owner_v1 = None;
+                    self.current_original_diff_generation_v1 = None;
+                    changed = true;
+                }
+                continue;
+            }
             if let Some(owner) = &completion.original_tree_owner_v1 {
                 let admitted = original_tree_background_v1::publish_original_tree_v1(
                     app,
@@ -867,6 +1012,10 @@ impl Background {
                 if app.repository_load_requested
                     || app.repository_action.is_some()
                     || app.graph_reread_request_v3.is_some()
+                    || app.related_pr_requested_v1
+                    || app.related_pr_cancel_v1
+                    || app.original_diff_work_v1.is_some()
+                    || app.original_diff_cancel_v1
                 {
                     continue;
                 }

@@ -265,7 +265,8 @@ fn object_type(mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "[g Graph]", b"g");
     session.wait_for_screen("● saved version");
-    select_row(&mut session, mouse, "Special object saved source");
+    session.open_saved_graph_subject(mouse, "Special object saved source", &native.chosen);
+    choose(&mut session, mouse, "[D Details]", b"D");
     session.wait_for_screen("This saved version follows parent");
     assert!(!session.screen().contains("Reading original local source"));
     choose(&mut session, mouse, "[t Tree]", b"t");

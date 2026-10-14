@@ -119,7 +119,13 @@ impl OriginalDiffFrameV1 {
             .collect::<Vec<_>>()
             .into();
         let status = format!(
-            "{} original members • {} known matches • showing {}–{} • {} • omitted {}",
+            "{} • omitted {}\n{} original members • {} known matches • showing {}–{}",
+            if source.complete() {
+                "Complete original comparison"
+            } else {
+                "Partial; unseen sides unknown"
+            },
+            source.excluded(),
             source.observed_members(),
             known_matches,
             if indices.is_empty() {
@@ -127,13 +133,7 @@ impl OriginalDiffFrameV1 {
             } else {
                 request.offset + 1
             },
-            request.offset + indices.len(),
-            if source.complete() {
-                "Complete original comparison"
-            } else {
-                "Partial; unseen sides unknown"
-            },
-            source.excluded()
+            request.offset + indices.len()
         );
         operation.check()?;
         Ok(Arc::new(Self {

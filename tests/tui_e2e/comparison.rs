@@ -1,4 +1,6 @@
 //! Immutable saved-commit comparisons, including both ordered merge parents.
+#[path = "original_diff_sides_v1.rs"]
+mod original_diff_sides_v1;
 use crate::support::{Fixture, Session};
 use std::{fs, time::Duration};
 

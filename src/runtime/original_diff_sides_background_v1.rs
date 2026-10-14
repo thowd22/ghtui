@@ -1,5 +1,5 @@
 //! Specialized publication on the EXISTING Background and exact queued owner.
-//! UNAPPLIED registration/match hooks; no separate transport/queue.
+//! No separate transport/queue; stale owners cannot retire a newer shared slot.
 use super::*;
 use crate::repository_diff_sides_worker_v1::{OriginalDiffWorkV1, OriginalDiffWorkerOwnerV1};
 impl Background {
@@ -8,6 +8,14 @@ impl Background {
         app: &mut App,
         work: Arc<OriginalDiffWorkV1>,
     ) -> bool {
+        if app
+            .workspace
+            .as_ref()
+            .is_none_or(|workspace| !work.owns(workspace, app.original_diff_picker_v1.as_ref()))
+        {
+            return false;
+        }
+        let retained_work = work.clone();
         let cancellation = CancellationToken::default();
         let owner = match app
             .workspace
@@ -23,6 +31,11 @@ impl Background {
             }) {
             Ok(owner) => owner,
             Err(reason) => {
+                if let (OriginalDiffWorkV1::Query(request), Some(picker)) =
+                    (retained_work.as_ref(), app.original_diff_picker_v1.as_mut())
+                {
+                    picker.fail(request, &reason);
+                }
                 app.status = reason;
                 return false;
             }
@@ -43,7 +56,7 @@ impl Background {
             remote_repository_owner: None,
             local_navigation_owner: None,
             original_tree_owner_v1: None,
-            original_diff_owner_v1: Some(owner),
+            original_diff_owner_v1: Some(owner.clone()),
             work: Box::new(move |_| {
                 worker_owner.prepare().map(|result| PreparedView {
                     original_diff_result_v1: Some(result),
@@ -58,23 +71,68 @@ impl Background {
             .try_send(request)
         {
             Ok(()) => {
+                self.current_original_diff_owner_v1 = Some(owner.clone());
+                self.current_original_diff_generation_v1 = Some(generation);
                 self.current
                     .insert(View::Repository.index(), (generation, cancellation));
                 app.loading[View::Repository.index()] = true;
                 app.status = "Reading original comparison side… • Esc Cancel".into();
                 true
             }
-            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+            Err(failure) => {
+                let reason = match failure {
+                    TrySendError::Full(_) => {
+                        "Original comparison queue full; close and reopen explicitly"
+                    }
+                    TrySendError::Disconnected(_) => {
+                        "Original comparison worker queue disconnected; close explicitly"
+                    }
+                };
+                if let Some(picker) = app.original_diff_picker_v1.as_mut() {
+                    owner.failed(picker, reason);
+                }
                 app.loading[View::Repository.index()] = false;
-                app.status = "Original comparison queue full • close/retry explicitly".into();
+                app.status = reason.into();
                 false
             }
         }
     }
+    pub fn cancel_current_original_diff_v1(&mut self) -> bool {
+        let (Some(owner), Some(generation)) = (
+            &self.current_original_diff_owner_v1,
+            self.current_original_diff_generation_v1,
+        ) else {
+            return false;
+        };
+        if self
+            .current
+            .get(&View::Repository.index())
+            .is_some_and(|(actual, _)| *actual != generation)
+        {
+            return false;
+        }
+        // Poll can already have consumed a completed slot before newer Close
+        // vetoed publication. The exact logical owner still owns its loading
+        // state, but must not cancel a newer unrelated repository generation.
+        owner.cancellation().cancel();
+        self.current_original_diff_owner_v1 = None;
+        self.current_original_diff_generation_v1 = None;
+        if self.current.contains_key(&View::Repository.index()) {
+            self.cancel(View::Repository);
+        }
+        true
+    }
 }
+
+#[cfg(test)]
+#[path = "original_diff_before_poll_v1_tests.rs"]
+mod before_poll_v1_tests;
 pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.original_diff_result_v1.is_some()
+        && prepared.related_pr_v1.is_none()
         && prepared.original_tree_result_v1.is_none()
+        && prepared.graph_reread_retention_v3.is_none()
+        && prepared.pr_check_continuation_v2.is_none()
         && prepared.workspace.is_none()
         && prepared.lines.is_empty()
         && prepared.context.is_none()
@@ -121,7 +179,21 @@ pub(super) fn publish_original_diff_sides_v1(
     owner: &Arc<OriginalDiffWorkerOwnerV1>,
     result: Result<PreparedView, String>,
 ) -> bool {
-    if app.view != View::Repository
+    if app.repository_load_requested
+        || app.related_pr_requested_v1
+        || app.related_pr_cancel_v1
+        || app.related_pr_v1.is_some()
+        || app.repository_action.is_some()
+        || app.original_diff_work_v1.is_some()
+        || app.original_diff_cancel_v1
+        || app.original_tree_work_v1.is_some()
+        || app.original_tree_cancel_v1
+        || app.graph_reread_request_v3.is_some()
+        || app.navigation_restore.is_some()
+        || app.navigation_restore_inflight
+        || app.cancel_requested
+        || (app.refresh_requested && app.view == View::Repository)
+        || app.view != View::Repository
         || app.remote_repository.is_some()
         || app.workspace.as_ref().is_none_or(|workspace| {
             !owner.can_admit(
@@ -155,16 +227,18 @@ pub(super) fn publish_original_diff_sides_v1(
                 .take()
                 .expect("typed result checked");
             let workspace = app.workspace.as_mut().expect("original source checked");
+            let source_identity = result.source_identity_v1().clone();
             match result.publish(workspace, &mut app.original_diff_picker_v1) {
                 Ok(Some(focus)) => {
+                    app.repository_source_identity = Some(source_identity);
                     app.selected = focus.min(workspace.display_rows_v1().len().saturating_sub(1));
                     app.scroll = app.selected.saturating_sub(2);
                     app.repository_selection = None;
                     app.repository_content_focused = true;
-                    app.status =
-                        "Original comparison side ready • read-only; checkout preserved".into();
+                    app.status = if workspace.original_diff_side_v1.as_ref().is_some_and(|side|side.visible_for(workspace)) {"Original comparison side ready • read-only; checkout preserved"} else {"Original saved comparison restored • actual Old/New content; checkout preserved"}.into();
                 }
                 Ok(None) => {
+                    app.repository_source_identity = Some(source_identity);
                     app.status =
                         "Original changed-file matches ready • bounded canonical members".into()
                 }

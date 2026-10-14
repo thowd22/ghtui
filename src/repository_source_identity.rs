@@ -10,6 +10,60 @@ use crate::{
 use std::{os::unix::ffi::OsStrExt, sync::Arc};
 use unicode_segmentation::UnicodeSegmentation;
 
+struct MetadataViewV1<'a> {
+    directory: &'a std::path::Path,
+    revision: &'a str,
+    status: &'a crate::git::RepoStatus,
+    mode: RepositoryMode,
+    selected_commit: Option<&'a crate::git::Commit>,
+    preview: Option<&'a crate::repository_view::FilePreview>,
+    comparison: Option<&'a crate::git::ComparisonResult>,
+}
+impl<'a> MetadataViewV1<'a> {
+    fn workspace(workspace: &'a Workspace) -> Self {
+        Self {
+            directory: &workspace.directory,
+            revision: &workspace.revision,
+            status: &workspace.status,
+            mode: workspace.mode,
+            selected_commit: workspace.selected_commit.as_ref(),
+            preview: workspace.file_preview_v1(),
+            comparison: workspace.comparison_v1(),
+        }
+    }
+    fn file_preview_v1(&self) -> Option<&'a crate::repository_view::FilePreview> {
+        self.preview
+    }
+    fn comparison_v1(&self) -> Option<&'a crate::git::ComparisonResult> {
+        self.comparison
+    }
+}
+
+/// Tiny bounded original checkout labels only, not entries, a Workspace,
+/// observed fingerprints, body copies, or fresh mutation authority.
+pub(crate) fn original_diff_checkout_labels_v1(
+    workspace: &Workspace,
+) -> Result<crate::git::RepoStatus, String> {
+    let mut budget = Rows::default();
+    preflight(&MetadataViewV1::workspace(workspace), &mut budget)?;
+    let status = &workspace.status;
+    Ok(crate::git::RepoStatus {
+        head: status.head.clone(),
+        branch: status.branch.clone(),
+        raw_branch: status.raw_branch.clone(),
+        detached: status.detached,
+        upstream: status.upstream.clone(),
+        raw_upstream: status.raw_upstream.clone(),
+        ahead: status.ahead,
+        behind: status.behind,
+        shallow: status.shallow,
+        sparse: status.sparse,
+        replacement_refs: status.replacement_refs,
+        grafted: status.grafted,
+        ..Default::default()
+    })
+}
+
 const MAX_FIELD_BYTES: usize = 4096;
 const MAX_RAW_BYTES: usize = 32 * 1024;
 const MAX_PREPARED_BYTES: usize = 32 * 1024;
@@ -130,7 +184,7 @@ impl Rows {
         }
     }
 }
-fn preflight(workspace: &Workspace, rows: &mut Rows) -> Result<(), String> {
+fn preflight(workspace: &MetadataViewV1<'_>, rows: &mut Rows) -> Result<(), String> {
     rows.raw(workspace.directory.as_os_str().as_bytes())?;
     rows.raw(workspace.revision.as_bytes())?;
     for value in [
@@ -155,7 +209,7 @@ fn preflight(workspace: &Workspace, rows: &mut Rows) -> Result<(), String> {
     if let Some(preview) = workspace.file_preview_v1() {
         rows.raw(preview.revision.as_bytes())?;
     }
-    if let Some(comparison) = &workspace.comparison {
+    if let Some(comparison) = workspace.comparison_v1() {
         for value in [
             &comparison.base,
             &comparison.head,
@@ -190,6 +244,24 @@ fn preflight(workspace: &Workspace, rows: &mut Rows) -> Result<(), String> {
 }
 impl PreparedRepositorySourceIdentity {
     pub fn prepare(workspace: &Workspace) -> Result<Self, String> {
+        Self::prepare_metadata_v1(&MetadataViewV1::workspace(workspace))
+    }
+    pub(crate) fn prepare_original_diff_v1(
+        status: &crate::git::RepoStatus,
+        source: &crate::git::OriginalComparisonSourceV1,
+        side: Option<&crate::workspace::PreparedOriginalDiffSideV1>,
+    ) -> Result<Self, String> {
+        Self::prepare_metadata_v1(&MetadataViewV1 {
+            directory: source.intent().origin().source().root(),
+            revision: side.map_or(source.intent().head(), |side| side.sha()),
+            status,
+            mode: side.map_or(source.intent().mode(), |_| RepositoryMode::Tree),
+            selected_commit: Some(side.map_or(source.head_commit(), |side| side.commit_v1())),
+            preview: side.map(|side| side.preview()),
+            comparison: side.is_none().then_some(source.result()),
+        })
+    }
+    fn prepare_metadata_v1(workspace: &MetadataViewV1<'_>) -> Result<Self, String> {
         let mut details = Rows::default();
         preflight(workspace, &mut details)?;
         let checkout_head = workspace
@@ -204,9 +276,7 @@ impl PreparedRepositorySourceIdentity {
             .filter(|id| full_object(id));
         let viewed_revision = workspace
             .file_preview_v1()
-            .map_or(workspace.revision.as_str(), |preview| {
-                preview.revision.as_str()
-            });
+            .map_or(workspace.revision, |preview| preview.revision.as_str());
         let viewed_revision = full_object(viewed_revision).then_some(viewed_revision);
         let working_preview = workspace
             .file_preview_v1()
@@ -216,7 +286,7 @@ impl PreparedRepositorySourceIdentity {
                 workspace.mode,
                 RepositoryMode::Overview | RepositoryMode::Working | RepositoryMode::Staged
             )
-            || workspace.comparison.as_ref().is_some_and(|comparison| {
+            || workspace.comparison_v1().is_some_and(|comparison| {
                 matches!(
                     comparison.comparison,
                     Comparison::Working | Comparison::Uncommitted | Comparison::Staged
@@ -229,7 +299,7 @@ impl PreparedRepositorySourceIdentity {
         compact.object("Saved", actor_commit, SemanticToken::Reference)?;
         let content = if working_preview {
             "working file; mutable"
-        } else if let Some(comparison) = &workspace.comparison {
+        } else if let Some(comparison) = workspace.comparison_v1() {
             match comparison.comparison {
                 Comparison::Working => "working files vs index; mutable",
                 Comparison::Uncommitted => "working files vs HEAD; mutable",
@@ -289,7 +359,7 @@ impl PreparedRepositorySourceIdentity {
             viewed_revision,
             SemanticToken::Reference,
         )?;
-        if !full_object(&workspace.revision) {
+        if !full_object(workspace.revision) {
             details.text(
                 &format!(
                     "Original unresolved/mutable revision label: {}",
@@ -310,7 +380,7 @@ impl PreparedRepositorySourceIdentity {
             details.text("Saved-commit author/committer metadata is unavailable; this does not prove the repository has no saved versions.",SemanticToken::Muted)?;
         }
         details.text("Author wrote the saved change; committer recorded it. Neither role identifies who made current working/index edits.",SemanticToken::Actor)?;
-        if let Some(comparison) = &workspace.comparison {
+        if let Some(comparison) = workspace.comparison_v1() {
             match &comparison.comparison {
                 Comparison::Working=>details.text("Working: index (next-commit contents) to current working files. Both are mutable; neither is a saved commit.",SemanticToken::Changed)?,
                 Comparison::Uncommitted=>details.text("Uncommitted: observed saved HEAD to working files. The target is mutable, not a saved snapshot.",SemanticToken::Changed)?,

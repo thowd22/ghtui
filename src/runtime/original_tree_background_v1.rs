@@ -54,6 +54,7 @@ impl Background {
             remote_repository_owner: None,
             local_navigation_owner: None,
             original_tree_owner_v1: Some(owner.clone()),
+            original_diff_owner_v1: None,
             work: Box::new(move |_| {
                 worker_owner.prepare().map(|result| PreparedView {
                     original_tree_result_v1: Some(result),
@@ -126,6 +127,8 @@ impl Background {
 /// Must run before generic loading/status/private/identity/model effects.
 pub(super) fn original_tree_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.original_tree_result_v1.is_some()
+        && prepared.related_pr_v1.is_none()
+        && prepared.original_diff_result_v1.is_none()
         && prepared.workspace.is_none()
         && prepared.graph_reread_retention_v3.is_none()
         && prepared.lines.is_empty()
@@ -181,6 +184,10 @@ pub(super) fn publish_original_tree_v1(
         || app.repository_action.is_some()
         || app.original_tree_work_v1.is_some()
         || app.original_tree_cancel_v1
+        || app.original_diff_work_v1.is_some()
+        || app.original_diff_cancel_v1
+        || app.related_pr_requested_v1
+        || app.related_pr_cancel_v1
         || app.cancel_requested
         || (app.refresh_requested && app.view == View::Repository)
         || !crate::repository_tree_viewport_native_v2::work_current(app, owner.work())

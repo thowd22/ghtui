@@ -35,6 +35,7 @@ impl Background {
             local_actor_owner: None,
             local_navigation_owner: None,
             original_tree_owner_v1: None,
+            original_diff_owner_v1: None,
             remote_repository_owner: Some(owner),
             work: Box::new(work),
         };

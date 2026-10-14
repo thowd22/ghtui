@@ -88,6 +88,8 @@ impl Workspace {
         self.tree = None;
         self.tree_navigation_v1 = None;
         self.tree_breadcrumbs_v2 = None;
+        self.original_comparison_v1 = None;
+        self.original_diff_side_v1 = None;
         self.comparison = None;
         // Current Main clones Workspace metadata, never these old graph bodies.
         self.rows.clear();

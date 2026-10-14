@@ -10,7 +10,7 @@ use ratatui::layout::Rect;
 use std::time::Duration;
 
 fn completion_before_new_intent(kind: u8) {
-    for input in 0..6 {
+    for input in 0..7 {
         let real = Real::new("sha256");
         let workspace = Workspace::load(&real.root, RepositoryMode::Tree, &real.original, None)
             .unwrap()
@@ -57,6 +57,7 @@ fn completion_before_new_intent(kind: u8) {
                 remote_repository_owner: None,
                 local_navigation_owner: None,
                 original_tree_owner_v1: Some(owner.clone()),
+                original_diff_owner_v1: None,
                 work: Box::new(move |_| {
                     let prepared = captured.prepare()?;
                     match kind {
@@ -83,7 +84,8 @@ fn completion_before_new_intent(kind: u8) {
             2 => app.original_tree_work_v1 = Some(work.clone()),
             3 => app.original_tree_cancel_v1 = true,
             4 => app.cancel_requested = true,
-            _ => app.refresh_requested = true,
+            5 => app.refresh_requested = true,
+            _ => app.original_diff_cancel_v1 = true,
         }
         app.status = "new input owns status".into();
         app.loading[View::Repository.index()] = true;
@@ -345,6 +347,7 @@ fn original_tree_viewport_actual_member_completion_width_and_field_are_owned_at_
                     remote_repository_owner: None,
                     local_navigation_owner: None,
                     original_tree_owner_v1: Some(owner.clone()),
+                    original_diff_owner_v1: None,
                     work: Box::new(move |_| {
                         let result = captured.prepare()?;
                         match kind {

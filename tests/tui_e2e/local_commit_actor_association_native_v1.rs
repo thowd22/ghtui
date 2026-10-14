@@ -1,6 +1,8 @@
 //! SOURCE-ONLY genuine binary journeys, child of identity::git_actor_labels_v1.
 //! ABI/protocol requires unapplied native hooks; six declarations are UNRUN.
 use super::*;
+#[path = "related_pr_v1.rs"]
+mod related_pr_v1;
 use crate::support::GhStep;
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use std::{io::Cursor, os::unix::fs::PermissionsExt};

@@ -96,6 +96,9 @@ pub struct OriginalLocalCommitActors {
     cancellation: CancellationToken,
     raw_bytes: usize,
     reserved_capture_bytes: usize,
+    operation: Option<
+        std::sync::Arc<crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1>,
+    >,
 }
 impl fmt::Debug for OriginalLocalCommitActors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -103,6 +106,42 @@ impl fmt::Debug for OriginalLocalCommitActors {
     }
 }
 impl OriginalLocalCommitActors {
+    /// Exact producing operation, not merely a matching SHA/source/deadline.
+    pub(crate) fn matches_navigation_operation_v1(
+        &self,
+        operation: &std::sync::Arc<
+            crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+        >,
+    ) -> bool {
+        self.operation
+            .as_ref()
+            .is_some_and(|producing| std::sync::Arc::ptr_eq(producing, operation))
+    }
+    pub(super) fn read_under_navigation_operation_v1(
+        repo: &GitRepository,
+        sha: &str,
+        limits: &LocalCommitActorLimits,
+        operation: &std::sync::Arc<
+            crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+        >,
+    ) -> GitResult<Self> {
+        operation.check().map_err(GitError)?;
+        let bounded = repo
+            .clone()
+            .with_cancellation(operation.cancellation().clone())
+            .strip_navigation_read_window_v1()?
+            .with_navigation_read_window_v1(operation.window());
+        let mut result = Self::read_under_deadline(
+            &bounded,
+            sha,
+            limits,
+            operation.deadline(),
+            operation.cancellation(),
+        )?;
+        operation.check().map_err(GitError)?;
+        result.operation = Some(operation.clone());
+        Ok(result)
+    }
     pub fn sha(&self) -> &str {
         &self.sha
     }
@@ -250,6 +289,7 @@ impl OriginalLocalCommitActors {
             cancellation: cancel.clone(),
             raw_bytes: raw.len() + size_response.len(),
             reserved_capture_bytes: ENVELOPE_BYTES + output_cap,
+            operation: None,
         })
     }
 }

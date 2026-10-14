@@ -94,6 +94,9 @@ impl PreparedOriginalDiffSideV1 {
     pub fn sha(&self) -> &str {
         &self.sha
     }
+    pub(crate) fn commit_v1(&self) -> &Commit {
+        &self.commit
+    }
     pub fn entry(&self) -> &TreeEntry {
         &self.entry
     }
@@ -160,6 +163,7 @@ impl PreparedOriginalDiffSideV1 {
         workspace.preview = None;
         workspace.comparison = None;
         workspace.tree_navigation_v1 = None;
+        workspace.tree_breadcrumbs_v2 = None;
         workspace.graph_state_v1 = None;
         workspace.graph_display_v1 = None;
         workspace.revision = self.sha.clone();
@@ -184,10 +188,17 @@ impl PreparedOriginalDiffSideV1 {
             .intent()
             .origin()
             .with_saved_navigation_read_v1(operation, |_| {
+                let mut focus=0;
+                for (index,row) in self.source.rows().iter().enumerate() {
+                    if index%64==0 {operation.check()?;}
+                    if matches!(&row.action,Some(RowAction::DiffLine(anchor)) if anchor.file_index==self.index) {focus=index;break;}
+                }
+                operation.check()?;
                 Ok(PreparedOriginalDiffBackV1 {
                     original: self.clone(),
                     commit: self.source.head_commit().clone(),
                     head: self.source.intent().head().into(),
+                    focus,
                 })
             })
     }
@@ -240,6 +251,7 @@ pub struct PreparedOriginalDiffBackV1 {
     original: Arc<PreparedOriginalDiffSideV1>,
     commit: Commit,
     head: String,
+    focus: usize,
 }
 impl PreparedOriginalDiffBackV1 {
     pub fn install(self, workspace: &mut Workspace) -> Result<usize, String> {
@@ -258,11 +270,12 @@ impl PreparedOriginalDiffBackV1 {
         workspace.preview = None;
         workspace.comparison = None;
         workspace.tree_navigation_v1 = None;
+        workspace.tree_breadcrumbs_v2 = None;
         workspace.graph_state_v1 = None;
         workspace.graph_display_v1 = None;
         workspace.original_diff_side_v1 = None;
         workspace.original_comparison_v1 = Some(source.clone());
-        Ok(source.rows().iter().position(|row|row.action.as_ref().is_some_and(|action|matches!(action,RowAction::DiffLine(anchor) if anchor.file_index==self.original.index))).unwrap_or(0))
+        Ok(self.focus)
     }
 }
 impl OriginalComparisonSourceV1 {
@@ -284,6 +297,7 @@ impl OriginalComparisonSourceV1 {
         workspace.preview = None;
         workspace.graph = CommitGraph::default();
         workspace.tree_navigation_v1 = None;
+        workspace.tree_breadcrumbs_v2 = None;
         workspace.graph_state_v1 = None;
         workspace.graph_display_v1 = None;
         workspace.original_diff_side_v1 = None;

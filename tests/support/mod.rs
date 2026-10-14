@@ -269,22 +269,24 @@ impl Session {
             );
         }
         let deadline = std::time::Instant::now() + timeout;
-        loop {
+        let opened_after = loop {
             self.poll_output(std::time::Duration::from_millis(1));
             let location = self
                 .completed_cursorless_screen()
                 .and_then(|frame| locate_screen(frame, subject));
             if let Some((column, row)) = location {
                 if mouse {
+                    let previous = self.completed_cursorless_end();
                     self.click(column, row);
-                    break;
+                    break previous;
                 }
                 if self
                     .completed_cursorless_screen()
                     .is_some_and(|frame| frame.cell(row, column).is_some_and(|cell| cell.inverse()))
                 {
+                    let previous = self.completed_cursorless_end();
                     self.send_key(b"\r");
-                    break;
+                    break previous;
                 }
             }
             assert!(
@@ -307,6 +309,13 @@ impl Session {
                     "No completed frame after actual graph navigation"
                 );
             }
+        };
+        while self.completed_cursorless_end() <= opened_after {
+            self.poll_output(std::time::Duration::from_millis(5));
+            assert!(
+                std::time::Instant::now() < deadline,
+                "No new complete frame after opening the actual graph member"
+            );
         }
         let saved = format!("Saved: {revision}");
         let selected = format!("▶ selected {}", &revision[..8]);
@@ -315,6 +324,9 @@ impl Session {
                 frame.contents().contains(&saved)
                     && frame.contents().contains(&selected)
                     && frame.contents().contains(subject)
+                    && frame
+                        .contents()
+                        .contains("Repository loaded • read-only exploration")
                     && !frame.contents().contains("[Esc Cancel]")
                     && locate_screen(frame, "[g Graph]").is_some_and(|(column, row)| {
                         frame.cell(row, column).is_some_and(|cell| cell.inverse())

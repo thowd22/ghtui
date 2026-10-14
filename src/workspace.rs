@@ -1,5 +1,10 @@
 //! Local workspace state retains Git identities even when labels are simplified.
 mod file_history;
+pub(crate) mod original_diff_sides_route_v1;
+mod original_diff_sides_v1;
+pub use original_diff_sides_v1::{
+    OriginalDiffReturnTicketV1, PreparedOriginalDiffBackV1, PreparedOriginalDiffSideV1,
+};
 pub(crate) mod tree_jump_route_v1;
 mod tree_jump_v1;
 pub use tree_jump_v1::{
@@ -286,6 +291,7 @@ impl RepositoryMode {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowAction {
+    OriginalDiffReturn(OriginalDiffReturnTicketV1),
     FileProvenance(FileAction),
     Tree(OriginalTreeNavigationActionV1),
     Commit(String),
@@ -323,6 +329,8 @@ pub struct Workspace {
     pub tree_navigation_v1: Option<Arc<PreparedOriginalTreeNavigationV1>>,
     pub tree_breadcrumbs_v2: Option<Arc<crate::repository_tree_viewport_v2::TreeBreadcrumbStripV2>>,
     pub comparison: Option<ComparisonResult>,
+    pub original_comparison_v1: Option<Arc<crate::git::OriginalComparisonSourceV1>>,
+    pub original_diff_side_v1: Option<Arc<PreparedOriginalDiffSideV1>>,
     pub preview: Option<FilePreview>,
     pub file_provenance: Option<FileProvenance>,
     pub selected_commit: Option<Commit>,
@@ -356,6 +364,20 @@ impl Workspace {
             .filter(|tree| tree.visible_for(self))
         {
             return tree.rows();
+        }
+        if let Some(side) = self
+            .original_diff_side_v1
+            .as_ref()
+            .filter(|side| side.visible_for(self))
+        {
+            return side.rows();
+        }
+        if let Some(source) = self
+            .original_comparison_v1
+            .as_ref()
+            .filter(|source| source.visible_for(self))
+        {
+            return source.rows();
         }
         &self.rows
     }
@@ -551,6 +573,8 @@ impl Workspace {
             tree_navigation_v1: None,
             tree_breadcrumbs_v2: None,
             comparison: None,
+            original_comparison_v1: None,
+            original_diff_side_v1: None,
             preview: None,
             file_provenance: None,
             selected_commit: None,
@@ -788,6 +812,9 @@ impl Workspace {
     }
 
     pub fn open(&mut self, action: RowAction) -> Result<(), String> {
+        if matches!(action, RowAction::OriginalDiffReturn(_)) {
+            return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into());
+        }
         self.open_with_cancellation(action, CancellationToken::default())
     }
 
@@ -796,6 +823,9 @@ impl Workspace {
         action: RowAction,
         cancellation: CancellationToken,
     ) -> Result<(), String> {
+        if matches!(action, RowAction::OriginalDiffReturn(_)) {
+            return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into());
+        }
         let pure = matches!(&action, RowAction::Graph(action) if !matches!(action, crate::repository_graph_v1::GraphActionV1::More | crate::repository_graph_v1::GraphActionV1::CompareParent(_)))
             || matches!(
                 &action,
@@ -832,9 +862,13 @@ impl Workspace {
         cancellation: CancellationToken,
         repository: Option<&GitRepository>,
     ) -> Result<(), String> {
+        if matches!(action, RowAction::OriginalDiffReturn(_)) {
+            return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into());
+        }
         let was_graph = self.graph_visible_v1();
         self.actor_profile = None;
         match action {
+            RowAction::OriginalDiffReturn(_) => return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into()),
             RowAction::Graph(action) => return self.graph_action_v1(action, repository),
             RowAction::FileProvenance(action) => {
                 return self.provenance_action_from_repository_v1(

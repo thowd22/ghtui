@@ -1,4 +1,7 @@
 //! Repository rendering consumes prepared identities, objects and graph rows only.
+#[cfg(test)]
+#[path = "repository_diff_header_v1_tests.rs"]
+mod diff_header_v1_tests;
 mod file_history;
 #[cfg(test)]
 #[path = "repository_toolbar_v2_tests.rs"]
@@ -144,7 +147,35 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .as_ref()
             .is_some_and(|state| state.view == crate::workspace::ProvenanceView::Detail);
         let mut x = area.x;
-        if !detail {
+        let diff_side = workspace
+            .original_diff_side_v1
+            .as_ref()
+            .filter(|side| side.visible_for(workspace));
+        let saved_comparison = workspace.comparison_v1().is_some_and(|comparison| {
+            matches!(
+                comparison.comparison,
+                crate::git::Comparison::Snapshots { .. }
+                    | crate::git::Comparison::BranchChanges { .. }
+                    | crate::git::Comparison::CommitChanges { .. }
+            )
+        }) && workspace.file_provenance.is_none();
+        if let Some(side) = diff_side {
+            let label = "[u Back to comparison]";
+            let rect = Rect::new(area.x, area.y + 2, (label.len() as u16).min(area.width), 1);
+            frame.render_widget(
+                Paragraph::new(label).style(theme.style(SemanticToken::Reference)),
+                rect,
+            );
+            if !rect.is_empty() {
+                app.hits.push(HitRegion {
+                    rect,
+                    action: Action::RepositoryRow(RowAction::OriginalDiffReturn(
+                        side.return_ticket(),
+                    )),
+                });
+            }
+            x = rect.right().saturating_add(1);
+        } else if !detail {
             let rect = Rect::new(area.x, area.y + 2, 11.min(area.width), 1);
             frame.render_widget(
                 Paragraph::new("[C Compare]").style(theme.style(SemanticToken::Changed)),
@@ -156,14 +187,37 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             });
             x = rect.right().saturating_add(1);
         }
+        if saved_comparison {
+            let label = "[f Changed files]";
+            let rect = Rect::new(
+                x.min(area.right()),
+                area.y + 2,
+                (label.len() as u16).min(area.right().saturating_sub(x)),
+                1,
+            );
+            frame.render_widget(
+                Paragraph::new(label).style(theme.style(SemanticToken::Changed)),
+                rect,
+            );
+            if !rect.is_empty() {
+                app.hits.push(HitRegion {
+                    rect,
+                    action: Action::OriginalDiffSidesV1(
+                        crate::repository_diff_sides_v1::OriginalDiffActionV1::Open,
+                    ),
+                });
+            }
+        }
         for control in
             file_history::controls(workspace, app.loading[crate::app::View::Repository.index()])
                 .into_iter()
                 .filter(|_| {
-                    !workspace.graph_retention_visible_v2()
-                        || workspace.graph_view_v1
-                            == crate::repository_graph_v1::GraphViewV1::Timeline
+                    !saved_comparison
+                        && (!workspace.graph_retention_visible_v2()
+                            || workspace.graph_view_v1
+                                == crate::repository_graph_v1::GraphViewV1::Timeline)
                 })
+                .filter(|control| diff_side.is_none() || control.label != "[u File back]")
         {
             let rect = Rect::new(
                 x.min(area.right()),
@@ -380,6 +434,26 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     app.focus
                 },
             );
+        }
+    }
+    // A source-bound title is fixed while its body scrolls. Read a single
+    // already prepared row; never scan/copy the comparison or resolve paths.
+    if (workspace
+        .original_diff_side_v1
+        .as_ref()
+        .is_some_and(|side| side.visible_for(workspace))
+        || workspace
+            .original_comparison_v1
+            .as_ref()
+            .is_some_and(|source| source.visible_for(workspace)))
+        && area.height.saturating_sub(content_offset) > 1
+    {
+        if let Some(title) = workspace.display_rows_v1().first() {
+            frame.render_widget(
+                Paragraph::new(title.label.as_str()).style(theme.style(SemanticToken::Reference)),
+                Rect::new(area.x, area.y + content_offset, area.width, 1),
+            );
+            content_offset += 1;
         }
     }
     let visible_rows = usize::from(area.height.saturating_sub(content_offset));

@@ -19,8 +19,7 @@ impl Workspace {
             .map(|projection| projection.inventory().intent().sha())
             .or_else(|| self.tree.as_ref().map(|tree| tree.revision.as_str()))
             .or_else(|| {
-                self.preview
-                    .as_ref()
+                self.file_preview_v1()
                     .filter(|preview| {
                         preview.revision == self.revision
                             && crate::git::original_actor_saved_sha(&preview.revision)
@@ -29,12 +28,20 @@ impl Workspace {
             })
     }
     pub fn file_preview_v1(&self) -> Option<&crate::repository_view::FilePreview> {
-        self.preview.as_ref().or_else(|| {
-            self.tree_navigation_v1
-                .as_ref()
-                .filter(|projection| projection.visible_for(self))
-                .and_then(|projection| projection.preview())
-        })
+        self.preview
+            .as_ref()
+            .or_else(|| {
+                self.tree_navigation_v1
+                    .as_ref()
+                    .filter(|projection| projection.visible_for(self))
+                    .and_then(|projection| projection.preview())
+            })
+            .or_else(|| {
+                self.original_diff_side_v1
+                    .as_ref()
+                    .filter(|side| side.visible_for(self))
+                    .map(|side| side.preview())
+            })
     }
 }
 pub(super) struct OriginalTreeRowSourceV1 {
@@ -378,6 +385,8 @@ impl PreparedOriginalTreeNavigationV1 {
             return Err("Original saved tree source changed before publication".into());
         }
         workspace.tree_breadcrumbs_v2 = None;
+        workspace.original_comparison_v1 = None;
+        workspace.original_diff_side_v1 = None;
         workspace.rows.clear();
         workspace.tree = None;
         workspace.graph = CommitGraph::default();

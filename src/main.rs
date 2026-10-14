@@ -676,6 +676,7 @@ fn run() -> Result<()> {
         let actor_color_mode = app.theme().mode;
         if app.graph_reread_dialog_v3.is_none()
             && app.original_tree_jump_v1.is_none()
+            && app.original_diff_picker_v1.is_none()
             && !remote_avatar_owned
             && !catalogue_avatar_owned
             && !ghtui::repository_commit_actor_avatars_v1::poll_repository(
@@ -802,6 +803,38 @@ fn run() -> Result<()> {
                     ..PreparedView::default()
                 })
             });
+        }
+        if app.related_pr_cancel_v1 {
+            app.related_pr_cancel_v1 = false;
+            if background.cancel_current_related_pr_v1() {
+                app.loading[ghtui::app::View::Repository.index()] = false;
+            }
+        }
+        if app.related_pr_requested_v1 {
+            app.related_pr_requested_v1 = false;
+            let runner = runner.clone();
+            let database = paths.database.clone();
+            background.submit_related_pr_v1(&mut app, move |owner| {
+                owner.guard()?;
+                let provider = GithubProvider::new(owner.host())
+                    .map_err(|e| e.to_string())?
+                    .with_runner(runner);
+                ghtui::repository_related_pr_v1::read(&owner, &provider, &database).map(|result| {
+                    PreparedView {
+                        related_pr_v1: Some(result),
+                        ..Default::default()
+                    }
+                })
+            });
+        }
+        if app.original_diff_cancel_v1 {
+            app.original_diff_cancel_v1 = false;
+            if background.cancel_current_original_diff_v1() {
+                app.loading[ghtui::app::View::Repository.index()] = false;
+            }
+        }
+        if let Some(work) = app.original_diff_work_v1.take() {
+            background.submit_original_diff_sides_v1(&mut app, work);
         }
         if app.original_tree_cancel_v1 {
             app.original_tree_cancel_v1 = false;

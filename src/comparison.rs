@@ -107,7 +107,7 @@ pub struct CompareIntent {
 }
 impl CompareIntent {
     pub fn from_workspace(workspace: &Workspace) -> Self {
-        if let Some(comparison) = &workspace.comparison {
+        if let Some(comparison) = workspace.comparison_v1() {
             if matches!(
                 comparison.comparison,
                 Comparison::Snapshots { .. } | Comparison::BranchChanges { .. }
@@ -326,6 +326,8 @@ impl ComparisonPlan {
             tree_navigation_v1: None,
             tree_breadcrumbs_v2: None,
             comparison: Some(result),
+            original_comparison_v1: None,
+            original_diff_side_v1: None,
             preview: None,
             file_provenance: None,
             selected_commit: Some(selected_commit),

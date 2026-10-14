@@ -1,6 +1,6 @@
 //! Read-only original comparison members. Constructor performs the genuine
 //! installed-Git comparison on the retained source/runner; no decoded authority.
-//! Parent hooks are UNAPPLIED until Root admission.
+//! Source/member authority is retained separately from display labels.
 use super::*;
 use crate::{
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
@@ -502,7 +502,7 @@ impl GitRepository {
         self.original_bytes_with_capture_limit_v1(["cat-file", "blob", id], None, 2 * 1024 * 1024)
     }
     /// Exact existing runner/spec/pool, only a smaller capture cap. Legacy
-    /// original_bytes forwards32MiB unchanged in the UNAPPLIED parent hook.
+    /// original_bytes retains its existing32MiB default for legacy callers.
     pub(super) fn original_bytes_with_capture_limit_v1<I, S>(
         &self,
         args: I,

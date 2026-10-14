@@ -263,6 +263,38 @@ fn fresh_crumb_restore(
     session.wait_for_screen("Original navigation source restored • read-only");
     no_discovery_delta(native, prior);
 }
+fn exact_blame_back(native: &Native, session: &mut Session, mouse: bool) {
+    let before = session.completed_cursorless_end();
+    choose(session, mouse, "[u File back]", b"u");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while session.completed_cursorless_end() <= before {
+        session.poll_output(Duration::from_millis(5));
+        assert!(
+            Instant::now() < deadline,
+            "No fresh frame after exact File Back"
+        );
+    }
+    let label = "│ saved nested line 102";
+    let saved = format!("Saved: {}", native.chosen);
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            text.contains(label)
+                && text.contains(&saved)
+                && text.contains("Repository loaded • read-only exploration")
+                && !text.contains("Reading original local source")
+                && !text.contains("[Esc Cancel]")
+        },
+        "exact chosen Blame source after Back, before ANY cursor navigation",
+        Duration::from_secs(8),
+    );
+    let (column, row) = session.locate(label).unwrap();
+    assert!(
+        session.cell_inverted(row, column),
+        "File Back must restore the original selected canonical Blame line102 before test navigation\n{}",
+        session.screen()
+    );
+}
 #[test]
 fn original_saved_navigation_keyboard_nested_history_blame_roles_global_back_source_sha() {
     happy(false);
@@ -315,8 +347,7 @@ fn happy(mouse: bool) {
         choose(&mut session, mouse, "[c Committer]", b"c");
         session.wait_for_screen("Actor profile — Git committer");
         session.wait_for_screen("Exact Nested Recorder");
-        choose(&mut session, mouse, "[u File back]", b"u");
-        session.wait_for_screen("Blame lines 101–145");
+        exact_blame_back(&native, &mut session, mouse);
         session.wait_for_screen(&native.chosen);
         provenance_row(&mut session, mouse, "saved nested line 102");
         choose(&mut session, mouse, "[G Responsible graph]", b"G");
@@ -331,8 +362,7 @@ fn happy(mouse: bool) {
         );
         session.wait_for_screen("● saved version");
         session.wait_for_screen(&native.responsible);
-        choose(&mut session, mouse, "[u File back]", b"u");
-        session.wait_for_screen("Blame lines 101–145");
+        exact_blame_back(&native, &mut session, mouse);
         provenance_row(&mut session, mouse, "saved nested line 102");
         choose(&mut session, mouse, "[F Original file]", b"F");
         session.wait_for_screen("Original immutable file");

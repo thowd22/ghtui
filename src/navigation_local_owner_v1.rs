@@ -22,6 +22,8 @@ pub struct OriginalLocalNavigationOwnerV1 {
     graph_projection_start: usize,
     graph_comparison_parent_v3: Option<usize>,
     tree_projection: Option<Arc<crate::workspace::PreparedOriginalTreeNavigationV1>>,
+    comparison_source: Option<Arc<crate::git::OriginalComparisonSourceV1>>,
+    comparison_side: Option<Arc<crate::workspace::PreparedOriginalDiffSideV1>>,
     operation: Arc<LocalGitNavigationReadV1>,
 }
 impl std::fmt::Debug for OriginalLocalNavigationOwnerV1 {
@@ -80,6 +82,8 @@ impl OriginalLocalNavigationOwnerV1 {
                 .ok()
                 .and_then(|position| position.comparison_parent),
             tree_projection: workspace.tree_navigation_v1.clone(),
+            comparison_source: workspace.original_comparison_v1.clone(),
+            comparison_side: workspace.original_diff_side_v1.clone(),
             selected: workspace
                 .selected_commit
                 .as_ref()
@@ -127,6 +131,16 @@ impl OriginalLocalNavigationOwnerV1 {
                 _ => false,
             }
             && workspace.revision == self.revision
+            && match (&self.comparison_source, &workspace.original_comparison_v1) {
+                (None, None) => true,
+                (Some(original), Some(current)) => Arc::ptr_eq(original, current),
+                _ => false,
+            }
+            && match (&self.comparison_side, &workspace.original_diff_side_v1) {
+                (None, None) => true,
+                (Some(original), Some(current)) => Arc::ptr_eq(original, current),
+                _ => false,
+            }
             && workspace
                 .selected_commit
                 .as_ref()

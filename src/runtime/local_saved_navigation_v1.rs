@@ -51,6 +51,7 @@ impl Background {
             remote_repository_owner: None,
             local_navigation_owner: Some(owner.clone()),
             original_tree_owner_v1: None,
+            original_diff_owner_v1: None,
             work: Box::new(move |_same_request_token| {
                 worker_owner.operation().check()?;
                 let result = work(worker_owner.clone());
@@ -98,6 +99,7 @@ impl Background {
 
 pub(super) fn original_local_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.workspace.is_some()
+        && prepared.related_pr_v1.is_none()
         && prepared
             .graph_reread_retention_v3
             .as_ref()
@@ -109,6 +111,7 @@ pub(super) fn original_local_prepared_only_v1(prepared: &PreparedView) -> bool {
             })
         && (prepared.graph_reread_retention_v3.is_none() || prepared.navigation_restore.is_none())
         && prepared.original_tree_result_v1.is_none()
+        && prepared.original_diff_result_v1.is_none()
         && prepared.lines.is_empty()
         && prepared.github.is_none()
         && prepared.actions.is_none()

@@ -1,4 +1,4 @@
-//! Small same-action App/controller hook; parent fields/matches remain unapplied.
+//! Small same-action App/controller hook for keyboard and mouse input.
 use crate::{
     app::{Action, App, View},
     repository_diff_sides_v1::{

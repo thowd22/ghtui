@@ -13,6 +13,10 @@ const FIELD_BYTES: usize = 4096;
 const COMMIT_CAPTURE: usize = 1024 * 1024;
 const WHOLE_CAPTURE: usize = 4 * 1024 * 1024;
 
+#[path = "related_pr_v1.rs"]
+mod related_pr_v1;
+pub use related_pr_v1::*;
+
 #[derive(Clone, Debug)]
 pub struct LocalCommitActorReadLimits {
     pub max_duration: Duration,

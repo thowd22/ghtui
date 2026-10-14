@@ -48,6 +48,7 @@ impl OriginalDiffWorkV1 {
 pub struct OriginalDiffWorkerOwnerV1 {
     original: Arc<OriginalLocalNavigationOwnerV1>,
     work: Arc<OriginalDiffWorkV1>,
+    checkout_labels: crate::git::RepoStatus,
 }
 impl std::fmt::Debug for OriginalDiffWorkerOwnerV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,7 +68,13 @@ impl OriginalDiffWorkerOwnerV1 {
             );
         }
         let original = OriginalLocalNavigationOwnerV1::begin(workspace, actual_token)?;
-        Ok(Arc::new(Self { original, work }))
+        let checkout_labels =
+            crate::repository_source_identity::original_diff_checkout_labels_v1(workspace)?;
+        Ok(Arc::new(Self {
+            original,
+            work,
+            checkout_labels,
+        }))
     }
     pub fn work(&self) -> &Arc<OriginalDiffWorkV1> {
         &self.work
@@ -100,11 +107,23 @@ impl OriginalDiffWorkerOwnerV1 {
                 }),
             OriginalDiffWorkV1::Back(side) => side.prepare_back(operation).map(DiffResultV1::Back),
         };
+        let result=result.and_then(|result| {
+            operation.check()?;
+            let (source,side)=match &result {
+                DiffResultV1::Query(frame)=>(frame.source().as_ref(),None),
+                DiffResultV1::Side {side,..}=>(side.source().as_ref(),Some(side.as_ref())),
+                DiffResultV1::Back(_)=>match self.work.as_ref(){OriginalDiffWorkV1::Back(side)=>(side.source().as_ref(),None),_=>return Err("Original comparison Back source unavailable".into())},
+            };
+            let identity=crate::repository_source_identity::PreparedRepositorySourceIdentity::prepare_original_diff_v1(&self.checkout_labels,source,side)?;
+            operation.check()?;
+            Ok((result,Arc::new(identity)))
+        });
         let sealed = operation.seal();
         match (result, sealed) {
-            (Ok(result), Ok(_)) => Ok(PreparedOriginalDiffWorkV1 {
+            (Ok((result, source_identity)), Ok(_)) => Ok(PreparedOriginalDiffWorkV1 {
                 owner: self.clone(),
                 result,
+                source_identity,
             }),
             (Err(error), _) | (_, Err(error)) => Err(error),
         }
@@ -128,8 +147,14 @@ enum DiffResultV1 {
 pub struct PreparedOriginalDiffWorkV1 {
     owner: Arc<OriginalDiffWorkerOwnerV1>,
     result: DiffResultV1,
+    source_identity: Arc<crate::repository_source_identity::PreparedRepositorySourceIdentity>,
 }
 impl PreparedOriginalDiffWorkV1 {
+    pub fn source_identity_v1(
+        &self,
+    ) -> &Arc<crate::repository_source_identity::PreparedRepositorySourceIdentity> {
+        &self.source_identity
+    }
     pub fn matches(&self, owner: &Arc<OriginalDiffWorkerOwnerV1>) -> bool {
         Arc::ptr_eq(&self.owner, owner)
             && owner

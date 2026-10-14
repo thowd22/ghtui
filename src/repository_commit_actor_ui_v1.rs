@@ -68,6 +68,11 @@ impl LocalActorLayoutV1 {
         }
         let controls = [
             (
+                "[P Related PRs]",
+                LocalActorActionV1::RelatedPrs,
+                state.choice().is_none(),
+            ),
+            (
                 "[R Choose repository]",
                 LocalActorActionV1::ChooseRepository,
                 false,
@@ -210,6 +215,7 @@ pub fn profile_key(code: KeyCode, modifiers: KeyModifiers) -> Option<LocalActorA
     }
     match code {
         KeyCode::Char('R') => Some(LocalActorActionV1::ChooseRepository),
+        KeyCode::Char('P') => Some(LocalActorActionV1::RelatedPrs),
         KeyCode::Char('V') => Some(LocalActorActionV1::Verify),
         KeyCode::Char('X') => Some(LocalActorActionV1::Clear),
         KeyCode::F(7) => Some(LocalActorActionV1::Details),

@@ -72,6 +72,31 @@ impl OriginalLocalActorOriginV1 {
             .ok_or_else(|| GitError("Original local actor deadline unavailable".into()))?;
         self.read_original_under_deadline(sha, limits, deadline, cancel)
     }
+    /// New explicit operation; raw Git children use its original producer,
+    /// absolute queued deadline and measured ledger. Never attach a later lease.
+    pub fn read_original_under_navigation_operation_v1(
+        &self,
+        sha: &str,
+        limits: &LocalCommitActorLimits,
+        operation: &Arc<crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1>,
+    ) -> GitResult<OriginalLocalCommitActors> {
+        operation.check().map_err(GitError)?;
+        self.recheck(operation.cancellation())?;
+        let token = OriginalLocalCommitActors::read_under_navigation_operation_v1(
+            &self.repository,
+            sha,
+            limits,
+            operation,
+        )?;
+        if token.source() != &self.source {
+            return Err(GitError(
+                "Raw related-PR token belongs to another Git source".into(),
+            ));
+        }
+        self.recheck(operation.cancellation())?;
+        operation.check().map_err(GitError)?;
+        Ok(token)
+    }
     pub(crate) fn read_original_under_deadline(
         &self,
         sha: &str,

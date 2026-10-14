@@ -454,8 +454,16 @@ pub enum DiffLayout {
 
 /// Changing display layout never changes canonical review/staging coordinates.
 pub fn diff_rows(diff: &Diff, layout: DiffLayout, show_context: bool) -> Vec<DiffDisplayRow> {
+    diff_rows_for_files_v1(diff, layout, show_context, diff.files.iter().enumerate())
+}
+pub(crate) fn diff_rows_for_files_v1<'a>(
+    diff: &'a Diff,
+    layout: DiffLayout,
+    show_context: bool,
+    files: impl IntoIterator<Item = (usize, &'a crate::diff::FileDiff)>,
+) -> Vec<DiffDisplayRow> {
     let mut rows = Vec::new();
-    for (file_index, file) in diff.files.iter().enumerate() {
+    for (file_index, file) in files {
         let old = file
             .old_path
             .as_deref()

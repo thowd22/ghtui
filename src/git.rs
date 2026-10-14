@@ -1,6 +1,11 @@
 //! Installed Git is the semantics authority. Object browsing never checks out a revision.
 
 mod file_history;
+pub(crate) mod original_comparison_sides_v1;
+pub use original_comparison_sides_v1::{
+    OriginalChangedFileV1, OriginalComparisonEndpointV1, OriginalComparisonIntentV1,
+    OriginalComparisonSideV1, OriginalComparisonSourceV1,
+};
 pub(crate) mod original_tree_inventory_v1;
 pub use original_tree_inventory_v1::{
     OriginalTreeIntentV1, OriginalTreeInventoryV1, OriginalTreeKindV1, OriginalTreeMemberV1,
@@ -792,6 +797,18 @@ impl GitRepository {
     }
 
     pub fn log_page(&self, revision: &str, offset: usize, limit: usize) -> GitResult<Vec<Commit>> {
+        self.log_page_with_capture_limit_v1(revision, offset, limit, MAX_OUTPUT)
+    }
+    pub(crate) fn log_page_with_capture_limit_v1(
+        &self,
+        revision: &str,
+        offset: usize,
+        limit: usize,
+        capture_limit: usize,
+    ) -> GitResult<Vec<Commit>> {
+        if capture_limit == 0 || capture_limit > MAX_OUTPUT {
+            return Err(GitError("Invalid original log capture limit".into()));
+        }
         let revision = match self.resolve_original(revision) {
             Ok(revision) => revision,
             Err(_) if revision == "HEAD" && self.status()?.head.is_none() => return Ok(Vec::new()),
@@ -799,7 +816,7 @@ impl GitRepository {
         };
         let limit = format!("--max-count={}", limit.min(10_000));
         let offset = format!("--skip={offset}");
-        let bytes = self.original_bytes(
+        let bytes = self.original_bytes_with_capture_limit_v1(
             [
                 "log",
                 "--topo-order",
@@ -810,6 +827,7 @@ impl GitRepository {
                 "--",
             ],
             None,
+            capture_limit,
         )?;
         self.canonical_parents(parse_commits(&bytes)?)
     }
@@ -1093,6 +1111,16 @@ impl GitRepository {
     }
 
     pub fn compare(&self, comparison: &Comparison) -> GitResult<ComparisonResult> {
+        self.compare_with_capture_limit_v1(comparison, MAX_OUTPUT)
+    }
+    pub(crate) fn compare_with_capture_limit_v1(
+        &self,
+        comparison: &Comparison,
+        capture_limit: usize,
+    ) -> GitResult<ComparisonResult> {
+        if capture_limit == 0 || capture_limit > MAX_OUTPUT {
+            return Err(GitError("Invalid original comparison capture limit".into()));
+        }
         let observed = if matches!(
             comparison,
             Comparison::Working | Comparison::Uncommitted | Comparison::Staged
@@ -1170,7 +1198,7 @@ impl GitRepository {
             Comparison::CommitChanges { commit, parent } => {
                 let head = self.resolve_original(commit)?;
                 let selected = self
-                    .log_page(&head, 0, 1)?
+                    .log_page_with_capture_limit_v1(&head, 0, 1, capture_limit)?
                     .into_iter()
                     .next()
                     .ok_or_else(|| GitError("Selected saved commit is unavailable".into()))?;
@@ -1212,7 +1240,11 @@ impl GitRepository {
                 | Comparison::CommitChanges { .. }
         );
         let patch = if original {
-            self.original_bytes(args.iter().map(OsStr::new), None)?
+            self.original_bytes_with_capture_limit_v1(
+                args.iter().map(OsStr::new),
+                None,
+                capture_limit,
+            )?
         } else {
             self.bytes(args.iter().map(OsStr::new), None)?
         };
@@ -1221,7 +1253,7 @@ impl GitRepository {
         names_args.insert(1, "--name-status".into());
         names_args.insert(2, "-z".into());
         let names = if original {
-            self.original_bytes(names_args.iter(), None)?
+            self.original_bytes_with_capture_limit_v1(names_args.iter(), None, capture_limit)?
         } else {
             self.bytes(names_args.iter(), None)?
         };
