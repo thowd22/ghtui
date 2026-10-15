@@ -88,6 +88,8 @@ pub mod repository_native_diff_native_v1;
 pub mod repository_native_diff_projection_v1;
 pub mod repository_native_diff_ui_v1;
 pub mod repository_native_diff_v1;
+pub mod repository_native_mutable_plan_native_v2;
+pub mod repository_native_mutable_plan_v2;
 pub mod repository_related_pr_v1;
 pub mod repository_source_identity;
 pub mod repository_source_ui;

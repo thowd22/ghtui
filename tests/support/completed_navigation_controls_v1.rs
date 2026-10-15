@@ -203,11 +203,24 @@ pub struct ProgressSelection {
     pub target: (u16, u16),
     pub selected_row: Option<u16>,
 }
+impl ProgressSelection {
+    pub fn acknowledges_change_from(&self, previous: Option<u16>) -> bool {
+        self.selected_row.is_some() && self.selected_row != previous
+    }
+}
 
 /// Observe the actual selected row before deciding whether another arrow is
 /// needed. A missing selection is allowed initially, ambiguity is never guessed.
 pub fn progress_selection(frame: &vt100::Screen, label: &str) -> Option<ProgressSelection> {
-    let bounds = owned_box(frame, "Inbox • focused view")?;
+    progress_selection_in(frame, "Inbox • focused view", label)
+}
+/// One observer/parser, with an explicit owning view, never title guessing.
+pub fn progress_selection_in(
+    frame: &vt100::Screen,
+    title: &str,
+    label: &str,
+) -> Option<ProgressSelection> {
+    let bounds = owned_box(frame, title)?;
     let target = unique_position(
         frame,
         label,

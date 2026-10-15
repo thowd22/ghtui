@@ -869,6 +869,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             ("[{ Previous hunk]", A::Hunk(-1)),
             ("[} Next hunk]", A::Hunk(1)),
             ("[h Select hunk]", A::SelectHunk),
+            ("[Space Select line]", A::Select),
             ("[x Clear range]", A::ClearRange),
             (S::stage_control(), A::Stage),
             ("[I Source]", A::Source),

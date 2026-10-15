@@ -8,8 +8,12 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+#[path = "scoped_pr_inline_native_v1.rs"]
+pub mod native_v1;
 #[path = "scoped_pr_inline_plan_v1.rs"]
 mod plan;
+#[path = "scoped_pr_inline_ui_v1.rs"]
+pub mod ui_v1;
 pub use plan::{
     InlineFailureV1, ScopedInlineDraftV1, ScopedInlinePreviewV1, ScopedInlinePublicationStateV1,
     ScopedInlinePublicationV1,

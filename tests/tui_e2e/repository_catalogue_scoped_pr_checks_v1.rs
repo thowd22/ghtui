@@ -3,6 +3,8 @@
 use super::*;
 #[path = "repository_catalogue_scoped_pr_check_choices_v1.rs"]
 mod choices;
+#[path = "scoped_check_first_selection_v1.rs"]
+mod first_selection;
 #[path = "repository_catalogue_scoped_pr_checks_pending_v1.rs"]
 mod pending;
 
@@ -173,28 +175,22 @@ fn open_run(session: &mut Session, fixture: &Fixture, mouse: bool) {
     assert!(!session.screen().contains("run 999"));
 }
 pub(super) fn select_observed_row(session: &mut Session, mouse: bool, label: &str) {
-    if mouse {
-        session.click_visible_action(label);
-    } else {
-        for _ in 0..20 {
-            if session
-                .screen()
-                .lines()
-                .any(|line| line.contains('>') && line.contains(label))
-            {
-                break;
-            }
-            session.send_key(b"\x1b[B");
-            session.poll_output(Duration::from_millis(20));
-        }
-        assert!(
-            session
-                .screen()
-                .lines()
-                .any(|line| line.contains('>') && line.contains(label)),
-            "keyboard selected the genuine check row, not a notice/status"
-        );
-    }
+    select_observed_row_in(session, mouse, "Inbox • focused view", label);
+}
+pub(super) fn select_observed_row_in(session: &mut Session, mouse: bool, title: &str, label: &str) {
+    // Keep the former20x20ms navigation budget. A ready repaint is not an
+    // acknowledgement of a Down key: inspect the completed selected row,
+    // move once in the actual required direction, then await its result.
+    session.select_completed_row_with_timeout(mouse, title, label, Duration::from_millis(400));
+    assert!(
+        crate::support::completed_navigation_controls_v1::progress_selection_in(
+            session.completed_cursorless_screen().unwrap(),
+            title,
+            label,
+        )
+        .is_some_and(|position| position.selected_row == Some(position.target.1)),
+        "selected the genuine completed check row, not a notice/status"
+    );
 }
 pub(super) fn control(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if !mouse {

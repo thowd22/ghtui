@@ -26,6 +26,11 @@ impl RemoteGitReadWindowV1 {
     pub(crate) fn actual_runner_v1(&self) -> &CommandRunner {
         &self.runner
     }
+    pub(crate) fn same_operation_v2(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.pool, &other.pool)
+            && self.deadline == other.deadline
+            && self.runner.same_instance(&other.runner)
+    }
     pub(crate) fn bounds_completed_v1(&self) -> Result<bool, CommandFailure> {
         Ok(self.pool.accounting()?.sealed())
     }

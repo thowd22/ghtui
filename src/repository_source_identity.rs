@@ -251,10 +251,10 @@ impl PreparedRepositorySourceIdentity {
             directory: source.intent().origin().source().root(),
             revision: status.head.as_deref().unwrap_or("HEAD"),
             status,
-            mode: if source.intent().kind() == crate::git::MutableDiffKindV2::Staged {
-                RepositoryMode::Staged
-            } else {
-                RepositoryMode::Working
+            mode: match source.intent().kind() {
+                crate::git::MutableDiffKindV2::Staged => RepositoryMode::Staged,
+                crate::git::MutableDiffKindV2::Working => RepositoryMode::Working,
+                crate::git::MutableDiffKindV2::Uncommitted => RepositoryMode::Uncommitted,
             },
             selected_commit: None,
             preview: None,
@@ -302,7 +302,10 @@ impl PreparedRepositorySourceIdentity {
         let mutable = working_preview
             || matches!(
                 workspace.mode,
-                RepositoryMode::Overview | RepositoryMode::Working | RepositoryMode::Staged
+                RepositoryMode::Overview
+                    | RepositoryMode::Working
+                    | RepositoryMode::Staged
+                    | RepositoryMode::Uncommitted
             )
             || workspace.comparison_v1().is_some_and(|comparison| {
                 matches!(
@@ -336,6 +339,7 @@ impl PreparedRepositorySourceIdentity {
                 RepositoryMode::Tree => "saved tree at chosen version",
                 RepositoryMode::Working => "working source not loaded; mutable",
                 RepositoryMode::Staged => "index source not loaded; mutable",
+                RepositoryMode::Uncommitted => "all tracked edits source not loaded; mutable",
                 RepositoryMode::Branch => "branch comparison unavailable",
                 RepositoryMode::CommitChanges => "saved comparison unavailable",
             }
@@ -401,7 +405,7 @@ impl PreparedRepositorySourceIdentity {
         if let Some(comparison) = workspace.comparison_v1() {
             match &comparison.comparison {
                 Comparison::Working=>details.text("Working: index (next-commit contents) to current working files. Both are mutable; neither is a saved commit.",SemanticToken::Changed)?,
-                Comparison::Uncommitted=>details.text("Uncommitted: observed saved HEAD to working files. The target is mutable, not a saved snapshot.",SemanticToken::Changed)?,
+                Comparison::Uncommitted=>details.text("Uncommitted: all tracked edits since saved HEAD (staged + unstaged), observed baseline to working files. Untracked files are separate and not included. The target is mutable, not a saved snapshot.",SemanticToken::Changed)?,
                 Comparison::Staged=>details.text("Staged: observed saved HEAD to index (next-commit contents). The index is mutable, not an immutable commit.",SemanticToken::Changed)?,
                 Comparison::Snapshots {base,head}=>{
                     details.text("Saved snapshots: complete A-to-B content comparison, not a commit-list range or checkout.",SemanticToken::Reference)?;
@@ -492,6 +496,7 @@ impl PreparedRepositorySourceIdentity {
             workspace.mode,
             RepositoryMode::Working
                 | RepositoryMode::Staged
+                | RepositoryMode::Uncommitted
                 | RepositoryMode::Branch
                 | RepositoryMode::CommitChanges
         ) {

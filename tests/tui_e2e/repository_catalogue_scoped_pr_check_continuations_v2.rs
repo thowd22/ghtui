@@ -332,7 +332,12 @@ fn journey(mouse: bool, case: Case) {
                     assert!(!session.screen().contains(ANN));
                     assert!(!session.screen().contains("observed source complete"));
                 } else {
-                    select_observed_row(&mut session, mouse, "Reported exact test");
+                    select_observed_row_in(
+                        &mut session,
+                        mouse,
+                        "Actions • focused view",
+                        "Reported exact test",
+                    );
                     control(&mut session, mouse, "[d Reported details]", b"d");
                     overlay_ready(
                         &mut session,

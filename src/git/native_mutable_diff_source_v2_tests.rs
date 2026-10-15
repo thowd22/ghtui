@@ -92,20 +92,12 @@ fn native_mutable_diff_source_sha256_uncommitted_genuine_compare_not_saved_ident
 }
 fn uncommitted(format: &str) {
     let real = Real::new(format);
-    let mut loaded = workspace(&real, RepositoryMode::Working);
-    // Factory-only route fixture: actual installed-Git result on the retained
-    // origin, not a decoded result or a claim that normal UI entry exists.
-    let origin = loaded.actor_origin.as_ref().unwrap();
-    let op = LocalGitNavigationReadV1::begin(origin, Default::default()).unwrap();
-    loaded.comparison = Some(
-        origin
-            .with_saved_navigation_read_v1(&op, |repo| {
-                repo.compare(&Comparison::Uncommitted)
-                    .map_err(|error| error.to_string())
-            })
-            .unwrap(),
+    let loaded = workspace(&real, RepositoryMode::Uncommitted);
+    assert_eq!(loaded.mode, RepositoryMode::Uncommitted);
+    assert_eq!(
+        loaded.comparison.as_ref().unwrap().comparison,
+        Comparison::Uncommitted
     );
-    op.seal().unwrap();
     let intent = MutableDiffIntentV2::capture(&loaded).unwrap();
     let before = real.snapshot();
     real.clear_trace();
@@ -411,18 +403,8 @@ fn native_mutable_diff_source_unborn_uncommitted_uses_actual_git_empty_tree_with
     for format in ["sha1", "sha256"] {
         let real = Real::new(format);
         git(&real.root, &["checkout", "--orphan", "unborn-all"], None);
-        let mut loaded = workspace(&real, RepositoryMode::Working);
-        let origin = loaded.actor_origin.as_ref().unwrap();
-        let load = LocalGitNavigationReadV1::begin(origin, Default::default()).unwrap();
-        loaded.comparison = Some(
-            origin
-                .with_saved_navigation_read_v1(&load, |repo| {
-                    repo.compare(&Comparison::Uncommitted)
-                        .map_err(|error| error.to_string())
-                })
-                .unwrap(),
-        );
-        load.seal().unwrap();
+        let loaded = workspace(&real, RepositoryMode::Uncommitted);
+        assert_eq!(loaded.mode, RepositoryMode::Uncommitted);
         let intent = MutableDiffIntentV2::capture(&loaded).unwrap();
         real.clear_trace();
         let op = operation(&intent);

@@ -282,11 +282,13 @@ fn scoped_corrective_mouse_current_closing_uid_hides_same_completed_frame() {
     journey(true, CorrectiveCase::ClosingUid)
 }
 #[test]
-fn scoped_corrective_keyboard_palette_refresh_uses_genuine_scoped_capture_not_legacy() {
+fn scoped_corrective_keyboard_palette_refresh_uses_genuine_scoped_capture_not_legacy_completed_frame_actions_scoped_checks_v1(
+) {
     journey(false, CorrectiveCase::GlobalRefresh)
 }
 #[test]
-fn scoped_corrective_mouse_global_footer_refresh_uses_genuine_scoped_capture_not_toolbar() {
+fn scoped_corrective_mouse_global_footer_refresh_uses_genuine_scoped_capture_not_toolbar_completed_frame_actions_scoped_checks_v1(
+) {
     journey(true, CorrectiveCase::GlobalRefresh)
 }
 #[test]

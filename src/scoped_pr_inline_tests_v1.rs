@@ -1,5 +1,9 @@
 //! Genuine closed image producers, real divergent Git objects, strict gh/SQL.
 use super::*;
+#[path = "scoped_pr_inline_runtime_tests_v1.rs"]
+mod inline_runtime;
+#[path = "scoped_pr_inline_ui_tests_v1.rs"]
+mod inline_ui;
 use crate::{drafts::DraftWriter, pr_write_journal::PrWriteJournal, storage::Cache};
 #[path = "../tests/support/owned_pty_processes_v1.rs"]
 mod original_process_identity;

@@ -170,19 +170,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         {
             let row_area = Rect::new(area.x, y + offset as u16, area.width, 1);
             let index = app.scroll + offset;
-            let selectable = row.comment.is_some()
-                || page.progress_file_at(index).is_some()
-                || page.check_at(index).is_some()
-                || github
-                    .scoped_pr_resource
-                    .as_ref()
-                    .and_then(|view| view.row(index))
-                    .is_some_and(|target| {
-                        !matches!(
-                            target,
-                            crate::scoped_pr_observed_tabs_v1::resources::PrResourceRowV1::Notice
-                        )
-                    });
+            let selectable = github.pr_row_is_interactive(index);
             let selected = selectable && index == app.selected && app.github_content_focused;
             let marker = if selected { "> " } else { "  " };
             let style = if selected {

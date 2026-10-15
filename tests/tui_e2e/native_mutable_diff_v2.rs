@@ -1,6 +1,10 @@
 //! Genuine current local comparisons through the same native diff controller.
 use super::*;
 const LOCAL_TITLE: &str = "Native local diff • observed snapshot";
+#[path = "native_mutable_plan_v2.rs"]
+mod native_mutable_plan_v2;
+#[path = "native_uncommitted_v3.rs"]
+mod native_uncommitted_v3;
 fn ack(session: &mut Session, after: usize, mut predicate: impl FnMut(&str) -> bool, label: &str) {
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
@@ -60,6 +64,26 @@ fn open_local(native: &Native, session: &mut Session, mouse: bool, staged: bool)
     no_discovery(native, count);
 }
 fn focus(session: &mut Session, mouse: bool, text: &str) {
+    let label = |line: &str| {
+        line.strip_prefix("│>")
+            .or_else(|| line.strip_prefix("│ "))
+            .map(|text| text.trim_end_matches('│').trim().to_owned())
+    };
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let screen = frame.contents();
+            screen.contains(LOCAL_TITLE)
+                && screen.contains("Native local diff ready")
+                && screen.contains("File 1/1: tracked → tracked")
+                && screen
+                    .lines()
+                    .filter_map(label)
+                    .any(|row| row.starts_with("index "))
+                && screen.contains(text)
+        },
+        "complete original native catalogue and actual index/content rows before cursor input",
+        Duration::from_secs(8),
+    );
     let selected = |screen: &str| {
         screen
             .lines()
@@ -78,13 +102,48 @@ fn focus(session: &mut Session, mouse: bool, text: &str) {
             "exact clicked local row must be selected before range action",
         );
     } else {
+        // A newer ready repaint alone is not acknowledgment of Home/Down: it
+        // can have been emitted before that input was consumed. Bind each
+        // step to the actual original row shown by the previous full frame.
+        let original = session.completed_cursorless_screen().unwrap().contents();
+        let original_index = original
+            .lines()
+            .filter_map(label)
+            .find(|row| row.starts_with("index "))
+            .unwrap_or_else(|| {
+                panic!(
+                    "actual original canonical index metadata row missing from captured completed frame:\n{original}"
+                )
+            });
+        let first = original
+            .lines()
+            .find_map(|line| {
+                line.split_once("File 1/1: ")
+                    .map(|(_, name)| name.trim_end_matches('│').trim().to_owned())
+            })
+            .expect("actual original changed-file catalogue label");
+        assert_eq!(
+            first, "tracked → tracked",
+            "independent fixture's canonical raw-path pair"
+        );
+        let selected_label = |screen: &str| {
+            screen.lines().find_map(|line| {
+                line.strip_prefix("│>")
+                    .map(|text| text.trim_end_matches('│').trim().to_owned())
+            })
+        };
         let before = session.completed_cursorless_end();
         session.send_key(b"\x1b[H");
         ack(
             session,
             before,
-            |screen| screen.contains(LOCAL_TITLE) && screen.contains("Native local diff ready"),
-            "completed local Home frame",
+            |screen| {
+                screen.contains(LOCAL_TITLE)
+                    && screen.contains("Native local diff ready")
+                    && screen.contains(&original_index)
+                    && selected_label(screen).as_ref() == Some(&first)
+            },
+            "completed original exact local Home file-header selection",
         );
         for attempt in 0..16 {
             if selected(&session.completed_cursorless_screen().unwrap().contents()) {
@@ -94,13 +153,35 @@ fn focus(session: &mut Session, mouse: bool, text: &str) {
                 attempt < 15,
                 "independently named actual local row must be selected"
             );
+            let screen = session.completed_cursorless_screen().unwrap().contents();
+            let rows = screen.lines().collect::<Vec<_>>();
+            let current = rows
+                .iter()
+                .position(|line| line.starts_with("│>"))
+                .expect("actual selected original native row before Down");
+            let next = rows
+                .get(current + 1)
+                .and_then(|line| label(line))
+                .filter(|next| !next.is_empty() && !next.starts_with('['))
+                .expect("next actual visible original native row, not a guessed target or footer");
+            assert_ne!(
+                selected_label(&screen).as_ref(),
+                Some(&next),
+                "fixture rows must be independently distinguishable"
+            );
             let before = session.completed_cursorless_end();
             session.send_key(b"\x1b[B");
             ack(
                 session,
                 before,
-                |screen| screen.contains(LOCAL_TITLE) && screen.contains("Native local diff ready"),
-                "new complete actual local Down frame",
+                |screen| {
+                    screen.contains(LOCAL_TITLE)
+                        && screen.contains("Native local diff ready")
+                        && screen.contains(&first)
+                        && screen.contains(&original_index)
+                        && selected_label(screen).as_ref() == Some(&next)
+                },
+                "new complete exact predicted next original local row after one Down",
             );
         }
     }

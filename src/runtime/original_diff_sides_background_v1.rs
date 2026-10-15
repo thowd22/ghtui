@@ -8,6 +8,20 @@ impl Background {
         app: &mut App,
         work: Arc<OriginalDiffWorkV1>,
     ) -> bool {
+        if matches!(
+            work.as_ref(),
+            OriginalDiffWorkV1::MutablePreview(_) | OriginalDiffWorkV1::MutableConfirm(_)
+        ) {
+            if app
+                .native_mutable_plan_v2
+                .as_ref()
+                .is_none_or(|plan| !plan.accepts_work(&work, app))
+            {
+                return false;
+            }
+        } else if app.native_mutable_plan_v2.is_some() {
+            return false;
+        }
         if let OriginalDiffWorkV1::Native(request) = work.as_ref() {
             if app.native_diff_v1.as_ref().is_none_or(|state| {
                 !state.accepts(request)
@@ -99,7 +113,16 @@ impl Background {
                 self.current
                     .insert(View::Repository.index(), (generation, cancellation));
                 app.loading[View::Repository.index()] = true;
-                app.status = "Reading original comparison side… • Esc Cancel".into();
+                app.status = match owner.work().as_ref() {
+                    OriginalDiffWorkV1::MutablePreview(_) => {
+                        "Preparing original selected patch preview… • no changes"
+                    }
+                    OriginalDiffWorkV1::MutableConfirm(_) => {
+                        "Confirming selected index change once… • Cancel may not undo a write"
+                    }
+                    _ => "Reading original comparison side… • Esc Cancel",
+                }
+                .into();
                 true
             }
             Err(failure) => {
@@ -114,6 +137,12 @@ impl Background {
                 if let Some(picker) = app.original_diff_picker_v1.as_mut() {
                     owner.failed(picker, reason);
                 }
+                owner.cancellation().cancel();
+                crate::repository_native_mutable_plan_native_v2::submission_failed(
+                    app,
+                    owner.work(),
+                    reason,
+                );
                 app.loading[View::Repository.index()] = false;
                 app.status = reason.into();
                 false
@@ -156,8 +185,12 @@ mod native_diff_before_poll_v1_tests;
 #[cfg(test)]
 #[path = "native_mutable_diff_before_poll_v2_tests.rs"]
 mod native_mutable_diff_before_poll_v2_tests;
+#[cfg(test)]
+#[path = "native_mutable_plan_before_poll_v2_tests.rs"]
+mod native_mutable_plan_before_poll_v2_tests;
 pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.original_diff_result_v1.is_some()
+        && prepared.scoped_inline_v1.is_none()
         && prepared.original_stash_recovery_v1.is_none()
         && prepared.related_pr_v1.is_none()
         && prepared.original_tree_result_v1.is_none()
@@ -210,6 +243,8 @@ pub(super) fn publish_original_diff_sides_v1(
     result: Result<PreparedView, String>,
 ) -> bool {
     if app.repository_load_requested
+        || app.scoped_inline_work_v1.is_some()
+        || app.scoped_inline_cancel_v1
         || app.related_pr_requested_v1
         || app.original_stash_recovery_request_v1.is_some()
         || app.original_stash_recovery_cancel_requested_v1
@@ -246,6 +281,75 @@ pub(super) fn publish_original_diff_sides_v1(
         {
             return false;
         }
+    }
+    if matches!(
+        owner.work().as_ref(),
+        OriginalDiffWorkV1::MutablePreview(_) | OriginalDiffWorkV1::MutableConfirm(_)
+    ) {
+        if app
+            .native_mutable_plan_v2
+            .as_ref()
+            .is_none_or(|plan| !plan.accepts_work(owner.work(), app))
+        {
+            return false;
+        }
+        let confirmed = matches!(owner.work().as_ref(), OriginalDiffWorkV1::MutableConfirm(_));
+        let mut failed = false;
+        match result {
+            Ok(mut prepared) => {
+                let result = prepared
+                    .original_diff_result_v1
+                    .take()
+                    .expect("exact selected result checked");
+                let workspace = app
+                    .workspace
+                    .as_ref()
+                    .expect("original selected workspace checked");
+                let state = app
+                    .native_mutable_diff_v2
+                    .as_ref()
+                    .expect("original selected state checked");
+                let plan = app
+                    .native_mutable_plan_v2
+                    .as_mut()
+                    .expect("exact selected phase checked");
+                if result
+                    .publish_mutable_plan_v2(workspace, state, plan)
+                    .is_err()
+                {
+                    return false;
+                }
+            }
+            Err(reason) => {
+                failed = true;
+                app.native_mutable_plan_v2
+                    .as_mut()
+                    .expect("exact selected phase checked")
+                    .fail(&reason);
+            }
+        }
+        if confirmed || failed {
+            app.native_mutable_diff_v2
+                .as_mut()
+                .expect("selected state checked")
+                .invalidate_after_selected_attempt_v2();
+        }
+        app.retire_command_context();
+        app.loading[View::Repository.index()] = false;
+        app.native_mutable_diff_layout_v2.clear();
+        app.hits.clear();
+        app.status = if confirmed {
+            "Selected attempt finished • reload and inspect before another write"
+        } else if failed {
+            "Selected preview unavailable • reload current state"
+        } else {
+            "Selected patch preview ready • no changes until explicit Confirm"
+        }
+        .into();
+        return true;
+    }
+    if app.native_mutable_plan_v2.is_some() {
+        return false;
     }
     if let OriginalDiffWorkV1::Native(request) = owner.work().as_ref() {
         if app.native_mutable_diff_v2.is_some()

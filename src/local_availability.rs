@@ -15,6 +15,18 @@ pub struct LocalAvailability<'a> {
     comparison: Option<&'a Comparison>,
 }
 impl<'a> LocalAvailability<'a> {
+    pub(crate) fn for_native_selection_v2(
+        status: &'a RepoStatus,
+        anchor: &'a DiffAnchor,
+        comparison: &'a Comparison,
+    ) -> Self {
+        Self {
+            status,
+            path: anchor.new_path.as_ref().or(anchor.old_path.as_ref()),
+            anchor: Some(anchor),
+            comparison: Some(comparison),
+        }
+    }
     pub fn from_context(context: &'a LocalContext) -> Self {
         Self {
             status: &context.status,

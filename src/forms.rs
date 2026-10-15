@@ -1,4 +1,5 @@
 //! Shared native input dialogs. Editing, previewing and closing never publish.
+use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1 as inline_ui;
 use crate::{
     app::{safe_text, Action, App, HitRegion},
     editor::{grapheme_width, TextBuffer},
@@ -86,6 +87,7 @@ pub struct PrActionIntent {
 }
 #[derive(Clone, Debug)]
 pub enum FormPurpose {
+    PrInline(Box<inline_ui::ScopedInlineComposerStateV1>),
     Pr(Box<PrIntent>),
     PrMetadata(Box<crate::pr_metadata_native::PrMetadataIntent>),
     PrAction(Box<PrActionIntent>),
@@ -177,6 +179,8 @@ pub struct Form {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormAction {
+    InlineAnchor,
+    InlineAnchorScroll(i32),
     InspectStashV1,
     Field(usize),
     Preview,
@@ -557,6 +561,7 @@ impl Form {
     }
     pub fn view(&self) -> crate::app::View {
         match self.purpose {
+            FormPurpose::PrInline(_) => crate::app::View::Inbox,
             FormPurpose::Pr(_) | FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_) => {
                 crate::app::View::Inbox
             }
@@ -584,7 +589,7 @@ impl Form {
         self.metadata_preview = None;
         if matches!(
             self.purpose,
-            FormPurpose::Pr(_) | FormPurpose::PrMetadata(_)
+            FormPurpose::Pr(_) | FormPurpose::PrMetadata(_) | FormPurpose::PrInline(_)
         ) && self.uses_prepared_preview()
         {
             self.preview = false;
@@ -593,6 +598,7 @@ impl Form {
             self.submit_requested = false;
         }
         match &mut self.purpose {
+            FormPurpose::PrInline(state) => state.invalidate(),
             FormPurpose::Local(intent) => intent.plan = None,
             FormPurpose::Actions(intent) => intent.plan = None,
             FormPurpose::Compare(intent) => intent.plan = None,
@@ -607,6 +613,7 @@ impl Form {
     }
     pub fn plan_ready(&self) -> bool {
         match &self.purpose {
+            FormPurpose::PrInline(state) => state.ready(),
             FormPurpose::Local(intent) => intent.plan.is_some(),
             FormPurpose::Actions(intent) => intent.plan.is_some(),
             FormPurpose::Pr(_) => {
@@ -630,6 +637,7 @@ impl Form {
             return &self.actions_original_lines;
         }
         match &self.purpose {
+            FormPurpose::PrInline(state) => state.plan_lines(),
             FormPurpose::Local(intent) => intent
                 .plan
                 .as_ref()
@@ -670,6 +678,9 @@ impl Form {
         Ok(())
     }
     fn confirmation_blocked_reason(&self) -> Option<&str> {
+        if matches!(self.purpose, FormPurpose::PrInline(_)) && self.publication.is_some() {
+            return Some("Original inline publication is history, never permission to resend");
+        }
         if self.requires_preview() && !self.plan_ready() {
             Some(
                 self.metadata_preview
@@ -707,6 +718,7 @@ impl Form {
     }
     pub fn resource(&self) -> String {
         match &self.purpose {
+            FormPurpose::PrInline(state) => state.draft_key().into(),
             FormPurpose::Pr(intent) => format!(
                 "{}/pull/{}/composer/{}",
                 intent.target.pr.repository,
@@ -750,6 +762,7 @@ impl Form {
     }
     pub fn scope(&self) -> crate::storage::Scope {
         match &self.purpose {
+            FormPurpose::PrInline(state) => state.intent().scope().clone(),
             FormPurpose::Pr(intent) => crate::storage::Scope {
                 host: intent.identity.host.clone(),
                 login: format!("user-id:{}", intent.identity.account_id.unwrap_or(0)),
@@ -896,7 +909,10 @@ impl Form {
             .collect();
         if matches!(
             self.purpose,
-            FormPurpose::Pr(_) | FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_)
+            FormPurpose::Pr(_)
+                | FormPurpose::PrAction(_)
+                | FormPurpose::PrMetadata(_)
+                | FormPurpose::PrInline(_)
         ) {
             serde_json::to_string(
                 &serde_json::json!({"version":2,"values":values,"publication":self.publication}),
@@ -930,6 +946,9 @@ impl Form {
         }
     }
     pub fn restore_draft(&mut self, body: &str) -> Result<(), String> {
+        if matches!(self.purpose, FormPurpose::PrInline(_)) {
+            return Err("Inline drafts require a fresh original-source draft opener; generic restore cannot adopt fields or approval".into());
+        }
         let parsed: serde_json::Value =
             serde_json::from_str(body).map_err(|error| error.to_string())?;
         let structured = parsed.get("version").is_some();
@@ -1182,6 +1201,8 @@ impl Form {
             return;
         }
         match action {
+            FormAction::InlineAnchor => inline_ui::anchor_action(self, None),
+            FormAction::InlineAnchorScroll(delta) => inline_ui::anchor_action(self, Some(*delta)),
             FormAction::InspectStashV1 => {}
             FormAction::FullInput(index) if self.full_input_available(*index) => {
                 let FormPurpose::Local(intent) = &self.purpose else {
@@ -1391,6 +1412,16 @@ impl Form {
         }
     }
     pub fn key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Option<FormAction> {
+        if inline_ui::anchor_open(self) {
+            return match code {
+                KeyCode::Esc | KeyCode::F(2) => Some(FormAction::InlineAnchor),
+                KeyCode::Up => Some(FormAction::InlineAnchorScroll(-1)),
+                KeyCode::Down => Some(FormAction::InlineAnchorScroll(1)),
+                KeyCode::PageUp => Some(FormAction::InlineAnchorScroll(-10)),
+                KeyCode::PageDown => Some(FormAction::InlineAnchorScroll(10)),
+                _ => None,
+            };
+        }
         let control = modifiers.contains(KeyModifiers::CONTROL);
         let shift = modifiers.contains(KeyModifiers::SHIFT);
         if code == KeyCode::Esc {
@@ -1403,6 +1434,23 @@ impl Form {
             && matches!(&self.purpose, FormPurpose::Local(intent) if intent.failed_stash_v1.is_some())
         {
             return Some(FormAction::InspectStashV1);
+        }
+        if code == KeyCode::F(2) && matches!(self.purpose, FormPurpose::PrInline(_)) {
+            return Some(FormAction::InlineAnchor);
+        }
+        if matches!(self.purpose, FormPurpose::PrInline(_)) {
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter if self.focus == 0 => "\n",
+                _ => "",
+            };
+            if let Err(error) = inline_ui::validate_input(self, incoming) {
+                self.error = error;
+                return None;
+            }
         }
         if code == KeyCode::F(2) && self.full_input_available(self.active_field) {
             return Some(FormAction::FullInput(self.active_field));
@@ -1512,6 +1560,20 @@ impl Form {
         None
     }
     pub fn paste(&mut self, text: &str) {
+        // Same pending-operation boundary as keyboard editing and dispatch.
+        // In particular an in-flight Preview is not yet `preview == true`.
+        if self.submitting {
+            return;
+        }
+        if inline_ui::anchor_open(self) {
+            return;
+        }
+        if matches!(self.purpose, FormPurpose::PrInline(_)) && !self.preview {
+            if let Err(error) = inline_ui::validate_input(self, text) {
+                self.error = error;
+                return;
+            }
+        }
         if !self.preview {
             if let Some(field) = self.fields.get_mut(self.focus) {
                 let before = field.editor.text.clone();
@@ -1592,6 +1654,9 @@ pub(crate) fn editor_line(
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    if inline_ui::retire_invalid_form(app) {
+        return;
+    }
     let theme = app.theme();
     let Some(form) = &mut app.form else {
         return;
@@ -1605,6 +1670,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         width,
         height,
     );
+    if inline_ui::anchor_open(form) {
+        app.hits
+            .extend(inline_ui::draw_anchor(frame, form, rect, theme));
+        return;
+    }
     frame.render_widget(Clear, rect);
     if let Some(picker) = &mut form.metadata_picker {
         form.metadata_picker_hits = picker.draw(frame, rect, theme);
@@ -1639,6 +1709,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         if form.error.is_empty() { 3 } else { 6 } + if form.fields.len() > 1 { 1 } else { 0 };
     let mut y = inner.y;
     let context = match &form.purpose {
+        FormPurpose::PrInline(state) => state.context(),
         FormPurpose::Pr(intent) => format!(
             "@{} on {} • head {}",
             intent.identity.login, intent.identity.host, intent.target.head_sha
@@ -1680,11 +1751,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             intent.intent.directory.display()
         ),
     };
-    frame.render_widget(
-        Paragraph::new(safe_text(&context)).style(theme.style(SemanticToken::Muted)),
-        Rect::new(inner.x, y, inner.width, 1),
-    );
+    if !matches!(form.purpose, FormPurpose::PrInline(_)) {
+        frame.render_widget(
+            Paragraph::new(safe_text(&context)).style(theme.style(SemanticToken::Muted)),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+    }
     let identity = match &form.purpose {
+        FormPurpose::PrInline(state) => Some(state.identity()),
         FormPurpose::Pr(intent) => Some(&intent.identity),
         FormPurpose::PrAction(intent) => Some(&intent.context.identity),
         FormPurpose::PrMetadata(intent) => Some(&intent.identity),
@@ -1738,7 +1812,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         } else if matches!(
             form.purpose,
-            FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_)
+            FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_) | FormPurpose::PrInline(_)
         ) || (matches!(form.purpose, FormPurpose::Pr(_)) && form.uses_prepared_preview())
         {
             if form.preview {
@@ -1769,6 +1843,22 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         Rect::new(inner.x, y, inner.width, 1),
     );
     y += 1;
+    if matches!(form.purpose, FormPurpose::PrInline(_)) {
+        let area = Rect::new(inner.x, y, inner.width.min(26), 1);
+        frame.render_widget(
+            Paragraph::new("[F2 Full anchor details]").style(theme.style(if form.submitting {
+                SemanticToken::Muted
+            } else {
+                SemanticToken::Focus
+            })),
+            area,
+        );
+        app.hits.push(HitRegion {
+            rect: area,
+            action: Action::Form(FormAction::InlineAnchor),
+        });
+        y += 1;
+    }
     if let FormPurpose::PrAction(intent) = &form.purpose {
         if intent.command == crate::pr_actions::PrCommand::Subscription {
             let current = intent.context.current_subscription.as_ref().map_or_else(

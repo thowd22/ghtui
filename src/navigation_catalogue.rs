@@ -156,7 +156,11 @@ impl Builder {
         for (index, (mode, label, _)) in RepositoryMode::ALL.into_iter().enumerate() {
             self.push(
                 format!("repository.mode.{index}"),
-                format!("Show {label}"),
+                if mode == RepositoryMode::Uncommitted {
+                    "Show all tracked edits since saved HEAD (staged + unstaged)".into()
+                } else {
+                    format!("Show {label}")
+                },
                 &["git", "workspace"],
                 if app.workspace.is_some() {
                     Action::RepositoryMode(mode)
@@ -185,7 +189,7 @@ impl Builder {
             && app.workspace.as_ref().is_some_and(|workspace| {
                 crate::git::MutableDiffIntentV2::capture(workspace).is_ok()
             });
-        self.push("repository.native-local-diff".into(),"Explore native working/staged diff".into(),&["native","working","staged","local","diff"],if mutable_native{Action::NativeMutableDiffV2(crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open)}else{Action::Explain("Load an actual local Working or Staged comparison first; a directory or saved version is not mutable-source authority.".into())},true)?;
+        self.push("repository.native-local-diff".into(),"Explore native working/staged/all-tracked diff".into(),&["native","working","staged","uncommitted","local","diff"],if mutable_native{Action::NativeMutableDiffV2(crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open)}else{Action::Explain("Load an actual local Working or Staged comparison, or All tracked edits first; a directory or saved version is not mutable-source authority.".into())},true)?;
         self.push(
             "repository.operations".into(),
             "Open local operations".into(),

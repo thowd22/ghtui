@@ -20,6 +20,8 @@ const TITLE: &str = "Compare saved file sides • original comparison";
 mod native_diff_v1;
 #[path = "native_mutable_diff_v2.rs"]
 mod native_mutable_diff_v2;
+#[path = "readonly_index_v1.rs"]
+mod readonly_index_v1;
 const DRAFT: &str = "original-diff-side-unsent42";
 const INTENT: &str = "original-diff-side-observed42";
 struct Native {

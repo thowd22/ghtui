@@ -11,6 +11,7 @@ pub(crate) fn prepared_only(value: &PreparedView) -> bool {
         return false;
     }
     value.pr_check_continuation_v2.is_some()
+        && value.scoped_inline_v1.is_none()
         && value.related_pr_v1.is_none()
         && value.original_tree_result_v1.is_none()
         && value.original_diff_result_v1.is_none()

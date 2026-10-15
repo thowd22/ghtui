@@ -592,6 +592,53 @@ pub struct GithubWorkspace {
     pub generation: u64,
 }
 impl GithubWorkspace {
+    /// SAME borrowed target predicate for painting, mouse hit regions and key
+    /// traversal. Metadata/notices do not become targets through a cursor.
+    pub fn pr_row_is_interactive(&self, index: usize) -> bool {
+        let Some(page) = self.pr.as_ref() else {
+            return false;
+        };
+        let Some(row) = page.rows.get(index) else {
+            return false;
+        };
+        row.comment.is_some()
+            || page.progress_file_at(index).is_some()
+            || page.check_at(index).is_some()
+            || self
+                .scoped_pr_resource
+                .as_ref()
+                .and_then(|view| view.row(index))
+                .is_some_and(|target| {
+                    !matches!(
+                        target,
+                        crate::scoped_pr_observed_tabs_v1::resources::PrResourceRowV1::Notice
+                    )
+                })
+    }
+    /// A direction chooses only existing interactive rows. At the edge retain
+    /// a real target; a metadata/out-of-range starting cursor clamps to the
+    /// nearest real boundary. None leaves read-only detail scrolling intact.
+    pub fn pr_row_navigation_target(&self, from: usize, down: bool) -> Option<usize> {
+        let length = self.pr.as_ref()?.rows.len();
+        let from = from.min(length.checked_sub(1)?);
+        let next = if down {
+            (from.saturating_add(1)..length).find(|index| self.pr_row_is_interactive(*index))
+        } else {
+            (0..from)
+                .rev()
+                .find(|index| self.pr_row_is_interactive(*index))
+        };
+        next.or_else(|| self.pr_row_is_interactive(from).then_some(from))
+            .or_else(|| {
+                if down {
+                    (0..=from)
+                        .rev()
+                        .find(|index| self.pr_row_is_interactive(*index))
+                } else {
+                    (from..length).find(|index| self.pr_row_is_interactive(*index))
+                }
+            })
+    }
     pub fn empty(
         identity: HostIdentity,
         repositories: Vec<String>,
@@ -1240,6 +1287,9 @@ impl GithubWorkspace {
     }
 }
 
+#[cfg(test)]
+#[path = "github_row_navigation_tests_v1.rs"]
+mod row_navigation_tests_v1;
 #[cfg(test)]
 mod tests {
     use super::*;

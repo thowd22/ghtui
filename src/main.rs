@@ -4,6 +4,9 @@ use ghtui::{app::App, ui};
 use ghtui::{
     cli::{Command as CliCommand, Options},
     config::{Config, Paths, ThemeName},
+    scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::{
+        native_v1 as inline_native, ui_v1 as inline_ui,
+    },
 };
 use ghtui::{
     providers::{
@@ -106,11 +109,10 @@ fn run() -> Result<()> {
             background.cancel(ghtui::app::View::Repository);
         }
         ghtui::remote_scope_gate_v1::enforce_stopped_intent(&mut app, &mut background);
-        if app
-            .form
-            .as_ref()
-            .is_some_and(|form| form.view() != ghtui::app::View::Repository)
-        {
+        if app.form.as_ref().is_some_and(|form| {
+            form.view() != ghtui::app::View::Repository
+                && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
+        }) {
             ghtui::remote_scope_gate_v1::refuse_legacy_request(
                 &mut app,
                 &mut background,
@@ -202,14 +204,46 @@ fn run() -> Result<()> {
                 Err(error) => app.status = format!("Settings error: {error:#}"),
             }
         }
+        if app.scoped_inline_cancel_v1 {
+            app.scoped_inline_cancel_v1 = false;
+            background.cancel_scoped_inline_v1(&mut app);
+        }
+        background.retire_stale_scoped_inline_v1(&mut app);
         background.poll(&mut app);
         app.observe_navigation();
+        inline_ui::retire_invalid_form(&mut app);
         if let Some(form) = &mut app.form {
             if form.dirty && !form.submitting {
                 form.invalidate_plan();
-                match draft_writer.save(form.scope(), form.resource(), form.draft()) {
+                let encoded = if matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)) {
+                    inline_ui::encoded_draft(form)
+                } else {
+                    Ok(form.draft())
+                };
+                match encoded.and_then(|encoded| {
+                    draft_writer
+                        .save(form.scope(), form.resource(), encoded)
+                        .map_err(|error| error.to_string())
+                }) {
                     Ok(()) => form.dirty = false,
                     Err(error) => form.error = format!("Draft error: {error}"),
+                }
+            }
+        }
+        inline_native::capture_form(&mut app);
+        if let Some(work) = app.scoped_inline_work_v1.take() {
+            match GithubProvider::new(&work.intent().scope().host) {
+                Ok(provider) => {
+                    background.submit_scoped_inline_v1(
+                        &mut app,
+                        work,
+                        provider.with_runner(runner.clone()),
+                        paths.database.clone(),
+                        draft_writer.client(),
+                    );
+                }
+                Err(_) => {
+                    app.status = "Original inline provider unavailable • nothing submitted".into();
                 }
             }
         }
@@ -280,7 +314,10 @@ fn run() -> Result<()> {
                 })
             });
         }
-        if app.form.as_ref().is_some_and(|form| form.preview_requested) {
+        if app.form.as_ref().is_some_and(|form| {
+            form.preview_requested
+                && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
+        }) {
             let mut form = app.form.as_ref().unwrap().clone();
             app.form.as_mut().unwrap().preview_requested = false;
             app.form.as_mut().unwrap().submitting = true;
@@ -315,6 +352,7 @@ fn run() -> Result<()> {
                         None
                     };
                 match &mut form.purpose {
+                    ghtui::forms::FormPurpose::PrInline(_) => return Err("Original scoped inline previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrMetadata(_) => unreachable!("metadata worker routed above"),
                     ghtui::forms::FormPurpose::Corpus(intent) => {
                         let provider = GithubProvider::new(&intent.identity.host).map_err(|error|error.to_string())?.with_runner(runner);
@@ -421,29 +459,63 @@ fn run() -> Result<()> {
             }
         }
         if app.form.as_ref().is_some_and(|form| form.editor_requested) {
-            let form = app.form.as_mut().unwrap();
-            form.editor_requested = false;
-            if let Some(field) = form.fields.get_mut(form.active_field) {
-                let before = field.editor.text.clone();
-                let field_key = field.key.clone();
-                let edited = external_editor(&mut guard, &field.editor.text);
-                // Fullscreen re-entry needs a complete repaint, not an external
-                // cursor-position query (which requires a terminal DSR reply).
-                terminal.resize(terminal.size()?.into())?;
-                match edited {
-                    Ok(text) => {
-                        field.editor =
-                            ghtui::editor::TextBuffer::new(text).map_err(anyhow::Error::msg)?;
-                        form.dirty = true;
-                        form.field_edited(&field_key, &before);
-                        form.invalidate_plan();
-                        form.preview = false;
+            if app
+                .form
+                .as_ref()
+                .is_some_and(|form| matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)))
+            {
+                let form = app.form.as_mut().expect("checked inline form");
+                form.editor_requested = false;
+                match inline_ui::validate_input(form, "") {
+                    Err(error) => form.error = error,
+                    Ok(()) => {
+                        let edited = external_editor_bounded(
+                            &mut guard,
+                            &form.fields[0].editor.text,
+                            inline_ui::INLINE_BODY_BYTES_V1,
+                        );
+                        terminal.resize(terminal.size()?.into())?;
+                        match edited {
+                            Ok(text) => {
+                                if let Err(error) = inline_ui::replace_editor_result(form, &text) {
+                                    form.error = error;
+                                }
+                            }
+                            Err(error) => {
+                                form.error = format!("Editor error: {error:#} • draft retained")
+                            }
+                        }
                     }
-                    Err(error) => form.error = format!("Editor error: {error:#} • draft retained"),
+                }
+            } else {
+                let form = app.form.as_mut().unwrap();
+                form.editor_requested = false;
+                if let Some(field) = form.fields.get_mut(form.active_field) {
+                    let before = field.editor.text.clone();
+                    let field_key = field.key.clone();
+                    let edited = external_editor(&mut guard, &field.editor.text);
+                    // Fullscreen re-entry needs a complete repaint, not an external
+                    // cursor-position query (which requires a terminal DSR reply).
+                    terminal.resize(terminal.size()?.into())?;
+                    match edited {
+                        Ok(text) => {
+                            field.editor =
+                                ghtui::editor::TextBuffer::new(text).map_err(anyhow::Error::msg)?;
+                            form.dirty = true;
+                            form.field_edited(&field_key, &before);
+                            form.invalidate_plan();
+                            form.preview = false;
+                        }
+                        Err(error) => {
+                            form.error = format!("Editor error: {error:#} • draft retained")
+                        }
+                    }
                 }
             }
         }
-        if app.form.as_ref().is_some_and(|form| form.submit_requested) {
+        if app.form.as_ref().is_some_and(|form| {
+            form.submit_requested && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
+        }) {
             let mut form = app.form.as_mut().unwrap().clone();
             app.form.as_mut().unwrap().submit_requested = false;
             app.form.as_mut().unwrap().submitting = true;
@@ -2413,7 +2485,13 @@ fn verify_search_identity(
 }
 
 fn external_editor(guard: &mut TerminalGuard, text: &str) -> Result<String> {
+    external_editor_bounded(guard, text, ghtui::editor::MAX_TEXT_BYTES)
+}
+fn external_editor_bounded(guard: &mut TerminalGuard, text: &str, limit: usize) -> Result<String> {
     use std::io::{Read, Write};
+    if text.len() > limit {
+        bail!("Editor input exceeds {limit} UTF8 bytes; draft retained")
+    }
     let editor = std::env::var("VISUAL")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -2444,10 +2522,13 @@ fn external_editor(guard: &mut TerminalGuard, text: &str) -> Result<String> {
     }
     let mut bytes = Vec::new();
     std::fs::File::open(draft.path())?
-        .take(ghtui::editor::MAX_TEXT_BYTES as u64 + 1)
+        .take(limit as u64 + 1)
         .read_to_end(&mut bytes)?;
-    if bytes.len() > ghtui::editor::MAX_TEXT_BYTES {
-        bail!("Editor output exceeds 256 KiB");
+    if bytes.len() > limit {
+        if limit == ghtui::editor::MAX_TEXT_BYTES {
+            bail!("Editor output exceeds 256 KiB");
+        }
+        bail!("Editor output exceeds {limit} UTF8 bytes; original inline draft retained");
     }
     String::from_utf8(bytes).map_err(Into::into)
 }

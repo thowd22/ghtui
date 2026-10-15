@@ -59,7 +59,7 @@ impl MutableDiffIntentV2 {
         let result = workspace
             .comparison
             .as_ref()
-            .ok_or("Load a Working or Staged comparison first")?;
+            .ok_or("Load a Working, Staged or All tracked edits comparison first")?;
         let kind = MutableDiffKindV2::from_comparison(&result.comparison)
             .ok_or("Saved versions are not a mutable comparison")?;
         let observed = result
@@ -73,10 +73,12 @@ impl MutableDiffIntentV2 {
             || workspace.original_diff_side_v1.is_some()
             || !matches!(
                 workspace.mode,
-                RepositoryMode::Working | RepositoryMode::Staged
+                RepositoryMode::Working | RepositoryMode::Staged | RepositoryMode::Uncommitted
             )
             || (kind == MutableDiffKindV2::Working && workspace.mode != RepositoryMode::Working)
             || (kind == MutableDiffKindV2::Staged && workspace.mode != RepositoryMode::Staged)
+            || (kind == MutableDiffKindV2::Uncommitted
+                && workspace.mode != RepositoryMode::Uncommitted)
         {
             return Err("Mutable comparison source or active scope is unavailable".into());
         }

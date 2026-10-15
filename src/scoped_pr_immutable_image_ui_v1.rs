@@ -29,6 +29,7 @@ pub enum PrImageUiActionV1 {
     Layout,
     Context,
     Range,
+    Comment,
     Close,
     Back,
     Quit,
@@ -82,6 +83,13 @@ impl std::fmt::Debug for PrImageViewerV1 {
     }
 }
 impl PrImageViewerV1 {
+    pub(crate) fn inline_notice(&mut self, message: &str) {
+        self.notice = if message.len() <= 1024 {
+            crate::app::safe_text(message)
+        } else {
+            "Original inline notice exceeds display bound".into()
+        };
+    }
     /// Worker-only bounded preparation after genuine closure, not a raw DTO.
     pub fn prepare(proof: Arc<ClosedPrFileImagesV1>) -> Result<Self, ObservedPrTabFailureV1> {
         let read = proof.observed();
@@ -272,7 +280,7 @@ impl PrImageViewerV1 {
         let before_scroll = self.scroll;
         let layout_changes = matches!(action, Old | New | Both | Layout | Context | Scroll(_));
         match action {
-            Close | Back | Quit => return Some(action),
+            Close | Back | Quit | Comment => return Some(action),
             Old | New | Both => {
                 self.visible = match action {
                     Old => ImageVisibleSideV1::Old,
@@ -384,13 +392,14 @@ impl PrImageViewerV1 {
         None
     }
 }
-const CONTROLS: [(PrImageUiActionV1, &str, char); 11] = [
+const CONTROLS: [(PrImageUiActionV1, &str, char); 12] = [
     (PrImageUiActionV1::Old, "Old", 'O'),
     (PrImageUiActionV1::New, "New", 'N'),
     (PrImageUiActionV1::Both, "Both", 'A'),
     (PrImageUiActionV1::Layout, "Layout", 'L'),
     (PrImageUiActionV1::Context, "Context", 'C'),
     (PrImageUiActionV1::Range, "Range", 'R'),
+    (PrImageUiActionV1::Comment, "Comment", 'P'),
     (PrImageUiActionV1::Horizontal(-8), "Left", '<'),
     (PrImageUiActionV1::Horizontal(8), "Right", '>'),
     (PrImageUiActionV1::Close, "Close", '\u{1b}'),

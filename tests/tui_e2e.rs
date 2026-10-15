@@ -34,6 +34,8 @@ mod metrics;
 mod navigation_local_palette;
 #[path = "tui_e2e/owned_pty_cleanup_v1.rs"]
 mod owned_pty_cleanup_v1;
+#[path = "support/positive_pid_publication_v1.rs"]
+mod positive_pid_publication_v1;
 #[path = "tui_e2e/pr_actions.rs"]
 mod pr_actions;
 #[path = "tui_e2e/project.rs"]

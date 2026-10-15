@@ -131,7 +131,7 @@ fn normalized(source: &PreparedRepositorySourceIdentity) -> String {
 }
 
 #[test]
-fn repository_source_identity_all_seven_real_modes_distinguish_checkout_and_chosen_source() {
+fn repository_source_identity_all_eight_real_modes_distinguish_checkout_and_chosen_source() {
     let real = real("sha1");
     for (mode, _, _) in RepositoryMode::ALL {
         let workspace = load(&real, mode, &real.old);
@@ -153,7 +153,10 @@ fn repository_source_identity_all_seven_real_modes_distinguish_checkout_and_chos
             source.mutable(),
             matches!(
                 mode,
-                RepositoryMode::Overview | RepositoryMode::Working | RepositoryMode::Staged
+                RepositoryMode::Overview
+                    | RepositoryMode::Working
+                    | RepositoryMode::Staged
+                    | RepositoryMode::Uncommitted
             )
         );
         assert!(source

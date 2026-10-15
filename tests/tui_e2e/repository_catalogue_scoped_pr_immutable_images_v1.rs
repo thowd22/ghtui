@@ -3,6 +3,8 @@
 use super::*;
 #[path = "../support/immutable_git_v1.rs"]
 pub(super) mod history;
+#[path = "scoped_inline_comments_v1.rs"]
+mod inline_comments;
 
 pub(super) fn fixture_and_steps(
     alter: impl FnOnce(&mut Vec<GhStep>),

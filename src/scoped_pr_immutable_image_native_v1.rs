@@ -24,6 +24,23 @@ pub fn action(app: &mut App, action: ui::PrImageUiActionV1) {
     if retire_invalid(app) {
         return;
     }
+    if app.scoped_inline_owner_v1.is_some() {
+        match action {
+            ui::PrImageUiActionV1::Close | ui::PrImageUiActionV1::Back => {
+                app.scoped_inline_cancel_v1 = true;
+            }
+            ui::PrImageUiActionV1::Quit => app.dispatch(Action::Quit),
+            _ => {
+                app.status =
+                    "Original inline read pending • Esc Close cancels original operation".into();
+            }
+        }
+        return;
+    }
+    if action == ui::PrImageUiActionV1::Comment {
+        super::inline_v1::native_v1::open(app);
+        return;
+    }
     let Some(view) = app.pr_file_images.as_mut() else {
         return;
     };
@@ -74,6 +91,9 @@ pub fn draw(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Re
     if let Some(view) = app.pr_file_images.as_mut() {
         frame.render_widget(ratatui::widgets::Clear, area);
         ui::draw(frame, area, view, theme);
+        if app.scoped_inline_owner_v1.is_some() && area.height >= 3 {
+            frame.render_widget(ratatui::widgets::Paragraph::new("Inline read pending • [Esc Close] cancels original operation • draft preserved").style(theme.style(crate::theme::SemanticToken::Pending)),ratatui::layout::Rect::new(area.x+1,area.bottom()-3,area.width.saturating_sub(2),1));
+        }
     }
 }
 /// Called only after Runtime's existing original owner + operation generation

@@ -123,10 +123,16 @@ impl Diff {
             } else if line.starts_with(b"Binary files ") || line == b"GIT binary patch" {
                 file.binary = true;
                 file.metadata.push(line.to_vec());
-            } else if let Some(path) = line.strip_prefix(b"rename from ") {
+            } else if let Some(path) = line
+                .strip_prefix(b"rename from ")
+                .or_else(|| line.strip_prefix(b"copy from "))
+            {
                 file.old_path = Some(decode_quoted_path(path)?);
                 file.metadata.push(line.to_vec());
-            } else if let Some(path) = line.strip_prefix(b"rename to ") {
+            } else if let Some(path) = line
+                .strip_prefix(b"rename to ")
+                .or_else(|| line.strip_prefix(b"copy to "))
+            {
                 file.new_path = Some(decode_quoted_path(path)?);
                 file.metadata.push(line.to_vec());
             } else if !line.is_empty() {

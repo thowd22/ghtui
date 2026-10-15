@@ -14,6 +14,7 @@ use std::sync::Arc;
 // Private concrete App adapters. The controller algorithm is shared; its typed
 // state/tickets and closed result variants are not interchangeable.
 trait NativeAppV2: NativeDiffPurposeV2 {
+    fn preview(app: &mut App);
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>>;
     fn parts(
         app: &mut App,
@@ -26,6 +27,11 @@ trait NativeAppV2: NativeDiffPurposeV2 {
     ) -> OriginalDiffWorkV1;
 }
 impl NativeAppV2 for OriginalComparisonSourceV1 {
+    fn preview(app: &mut App) {
+        if let Some(state) = app.native_diff_v1.as_mut() {
+            state.status = Self::stage_unavailable().into();
+        }
+    }
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>> {
         app.native_diff_v1.as_ref()
     }
@@ -44,6 +50,9 @@ impl NativeAppV2 for OriginalComparisonSourceV1 {
     }
 }
 impl NativeAppV2 for MutableDiffSourceV2 {
+    fn preview(app: &mut App) {
+        crate::repository_native_mutable_plan_native_v2::begin(app);
+    }
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>> {
         app.native_mutable_diff_v2.as_ref()
     }
@@ -90,15 +99,20 @@ pub fn dispatch_mutable(app: &mut App, action: A<MutableDiffSourceV2>) {
     dispatch_for::<MutableDiffSourceV2>(app, action);
 }
 pub fn retire(app: &mut App) {
+    crate::repository_native_mutable_plan_native_v2::retire(app);
     retire_for::<OriginalComparisonSourceV1>(app);
     retire_for::<MutableDiffSourceV2>(app);
 }
 pub fn synchronize(app: &mut App) {
+    crate::repository_native_mutable_plan_native_v2::synchronize(app);
     synchronize_for::<OriginalComparisonSourceV1>(app);
     synchronize_for::<MutableDiffSourceV2>(app);
 }
 pub fn capture(app: &mut App, event: &Event) -> bool {
     synchronize(app);
+    if crate::repository_native_mutable_plan_native_v2::capture(app, event) {
+        return true;
+    }
     if app.native_mutable_diff_v2.is_some() {
         capture_for::<MutableDiffSourceV2>(app, event)
     } else {
@@ -107,6 +121,9 @@ pub fn capture(app: &mut App, event: &Event) -> bool {
 }
 pub fn draw(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Rect) -> bool {
     synchronize(app);
+    if crate::repository_native_mutable_plan_native_v2::draw(frame, app, area) {
+        return true;
+    }
     if app.native_mutable_diff_v2.is_some() {
         draw_for::<MutableDiffSourceV2>(frame, app, area)
     } else {
@@ -209,6 +226,13 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
         return;
     }
     if S::state(app).is_none() {
+        return;
+    }
+    if app.native_mutable_plan_v2.is_some() {
+        return;
+    }
+    if action == A::Stage {
+        S::preview(app);
         return;
     }
     if action == A::Source {
@@ -414,6 +438,8 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
             }
         }
         A::Select => {
+            layout.controls = false;
+            layout.focus = None;
             if let Some(ticket) = state
                 .current_frame()
                 .and_then(|frame| frame.ticket(state.selected, state.right))
@@ -444,7 +470,6 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
             state.clear_selection();
             prepare = true;
         }
-        A::Stage => state.status = S::stage_unavailable().into(),
         _ => {}
     }
     if let Some(reason) = error {

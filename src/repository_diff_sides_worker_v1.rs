@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum OriginalDiffWorkV1 {
+    MutablePreview(Arc<crate::repository_native_mutable_plan_v2::NativeMutablePreviewRequestV2>),
+    MutableConfirm(Arc<crate::repository_native_mutable_plan_v2::NativeMutableConfirmRequestV2>),
     Native(Arc<crate::repository_native_diff_v1::NativeDiffRequestV1>),
     MutableNative(
         Arc<crate::repository_native_diff_v1::NativeDiffRequestV1<crate::git::MutableDiffSourceV2>>,
@@ -27,6 +29,8 @@ impl std::fmt::Debug for OriginalDiffWorkV1 {
 impl OriginalDiffWorkV1 {
     pub fn owns(&self, workspace: &Workspace, picker: Option<&OriginalDiffPickerV1>) -> bool {
         match self {
+            Self::MutablePreview(request) => request.owns(workspace),
+            Self::MutableConfirm(request) => request.owns(workspace),
             Self::Native(request) => request.owns(workspace),
             Self::MutableNative(request) => request.owns(workspace),
             Self::Query(request) => {
@@ -74,6 +78,9 @@ impl OriginalDiffWorkerOwnerV1 {
             );
         }
         let original = OriginalLocalNavigationOwnerV1::begin(workspace, actual_token)?;
+        if let OriginalDiffWorkV1::MutableConfirm(request) = work.as_ref() {
+            request.bind_original_operation_v2(original.operation())?;
+        }
         let checkout_labels =
             crate::repository_source_identity::original_diff_checkout_labels_v1(workspace)?;
         Ok(Arc::new(Self {
@@ -103,6 +110,12 @@ impl OriginalDiffWorkerOwnerV1 {
         let operation = self.original.operation();
         operation.check()?;
         let result = match self.work.as_ref() {
+            OriginalDiffWorkV1::MutablePreview(request) => {
+                request.prepare(operation).map(DiffResultV1::MutablePreview)
+            }
+            OriginalDiffWorkV1::MutableConfirm(request) => {
+                request.prepare(operation).map(DiffResultV1::MutableConfirm)
+            }
             OriginalDiffWorkV1::Native(request) => {
                 request.prepare(operation).map(DiffResultV1::Native)
             }
@@ -121,13 +134,19 @@ impl OriginalDiffWorkerOwnerV1 {
         };
         let result=result.and_then(|result| {
             operation.check()?;
-            if let DiffResultV1::MutableNative(prepared)=&result{
-                let identity=crate::repository_source_identity::PreparedRepositorySourceIdentity::prepare_native_mutable_v2(&self.checkout_labels,prepared.source())?;
+            let mutable_source=match &result {
+                DiffResultV1::MutableNative(prepared)=>Some(prepared.source()),
+                DiffResultV1::MutablePreview(prepared)=>Some(prepared.request().source()),
+                DiffResultV1::MutableConfirm(prepared)=>Some(prepared.request().source()),
+                _=>None,
+            };
+            if let Some(source)=mutable_source{
+                let identity=crate::repository_source_identity::PreparedRepositorySourceIdentity::prepare_native_mutable_v2(&self.checkout_labels,source)?;
                 operation.check()?;
                 return Ok((result,Arc::new(identity)));
             }
             let (source,side)=match &result {
-                DiffResultV1::MutableNative(_)=>return Err("Mutable content cannot use saved identity preparation".into()),
+                DiffResultV1::MutableNative(_)|DiffResultV1::MutablePreview(_)|DiffResultV1::MutableConfirm(_)=>return Err("Mutable content cannot use saved identity preparation".into()),
                 DiffResultV1::Native(prepared)=>(prepared.source().as_ref(),None),
                 DiffResultV1::Query(frame)=>(frame.source().as_ref(),None),
                 DiffResultV1::Side {side,..}=>(side.source().as_ref(),Some(side.as_ref())),
@@ -156,6 +175,8 @@ impl OriginalDiffWorkerOwnerV1 {
     }
 }
 enum DiffResultV1 {
+    MutablePreview(Arc<crate::repository_native_mutable_plan_v2::PreparedNativeMutablePlanV2>),
+    MutableConfirm(crate::repository_native_mutable_plan_v2::PreparedNativeSelectedOutcomeV2),
     Native(crate::repository_native_diff_v1::PreparedNativeDiffV1),
     MutableNative(
         crate::repository_native_diff_v1::PreparedNativeDiffV1<crate::git::MutableDiffSourceV2>,
@@ -181,6 +202,14 @@ impl PreparedOriginalDiffWorkV1 {
     pub fn matches(&self, owner: &Arc<OriginalDiffWorkerOwnerV1>) -> bool {
         Arc::ptr_eq(&self.owner, owner)
             && match (&self.result, owner.work().as_ref()) {
+                (
+                    DiffResultV1::MutablePreview(prepared),
+                    OriginalDiffWorkV1::MutablePreview(request),
+                ) => Arc::ptr_eq(prepared.request(), request),
+                (
+                    DiffResultV1::MutableConfirm(prepared),
+                    OriginalDiffWorkV1::MutableConfirm(request),
+                ) => prepared.matches(request),
                 (DiffResultV1::Native(prepared), OriginalDiffWorkV1::Native(request)) => {
                     Arc::ptr_eq(prepared.request(), request)
                 }
@@ -188,10 +217,20 @@ impl PreparedOriginalDiffWorkV1 {
                     DiffResultV1::MutableNative(prepared),
                     OriginalDiffWorkV1::MutableNative(request),
                 ) => Arc::ptr_eq(prepared.request(), request),
-                (DiffResultV1::Native(_) | DiffResultV1::MutableNative(_), _)
-                | (_, OriginalDiffWorkV1::Native(_) | OriginalDiffWorkV1::MutableNative(_)) => {
-                    false
-                }
+                (
+                    DiffResultV1::Native(_)
+                    | DiffResultV1::MutableNative(_)
+                    | DiffResultV1::MutablePreview(_)
+                    | DiffResultV1::MutableConfirm(_),
+                    _,
+                )
+                | (
+                    _,
+                    OriginalDiffWorkV1::Native(_)
+                    | OriginalDiffWorkV1::MutableNative(_)
+                    | OriginalDiffWorkV1::MutablePreview(_)
+                    | OriginalDiffWorkV1::MutableConfirm(_),
+                ) => false,
                 _ => true,
             }
             && owner
@@ -209,7 +248,10 @@ impl PreparedOriginalDiffWorkV1 {
             return Err("Original comparison request retired; no prepared result admitted".into());
         }
         match self.result {
-            DiffResultV1::Native(_) | DiffResultV1::MutableNative(_) => {
+            DiffResultV1::Native(_)
+            | DiffResultV1::MutableNative(_)
+            | DiffResultV1::MutablePreview(_)
+            | DiffResultV1::MutableConfirm(_) => {
                 Err("Native projection needs its exact capturing controller".into())
             }
             DiffResultV1::Query(frame) => {
@@ -278,6 +320,41 @@ impl PreparedOriginalDiffWorkV1 {
             return Err("Original mutable controller changed before publication".into());
         }
         Ok(())
+    }
+    pub fn publish_mutable_plan_v2(
+        self,
+        workspace: &Workspace,
+        state: &crate::repository_native_diff_v1::NativeDiffStateV1<
+            crate::git::MutableDiffSourceV2,
+        >,
+        plan: &mut crate::repository_native_mutable_plan_native_v2::NativeMutablePlanUiV2,
+    ) -> Result<(), String> {
+        if !self.owner.can_admit(workspace, None, true) || !self.matches(&self.owner) {
+            return Err("Original selected plan owner retired".into());
+        }
+        match (self.result, self.owner.work().as_ref()) {
+            (
+                DiffResultV1::MutablePreview(prepared),
+                OriginalDiffWorkV1::MutablePreview(request),
+            ) if prepared.matches(request, state, workspace) => {
+                if plan.accept_preview(prepared) {
+                    Ok(())
+                } else {
+                    Err("Exact preview phase retired".into())
+                }
+            }
+            (
+                DiffResultV1::MutableConfirm(prepared),
+                OriginalDiffWorkV1::MutableConfirm(request),
+            ) if request.accepts(state) && prepared.matches(request) => {
+                if plan.accept_outcome(prepared) {
+                    Ok(())
+                } else {
+                    Err("Exact confirmed phase retired".into())
+                }
+            }
+            _ => Err("Selected plan returned a different purpose/result kind".into()),
+        }
     }
 }
 

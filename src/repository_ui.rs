@@ -33,10 +33,23 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let mut x = area.x;
     for (mode, label, key) in RepositoryMode::ALL {
-        let label = format!(
-            "[{key} {}]",
-            label.split_whitespace().next().unwrap_or(label)
-        );
+        let label = if mode == RepositoryMode::Uncommitted {
+            let available = area.right().saturating_sub(x);
+            if available >= 13 {
+                "[e All edits]".into()
+            } else if available >= 9 {
+                "[e Edits]".into()
+            } else {
+                // Commands retains the complete clickable/keyboard route at
+                // narrow widths; do not paint a misleading partial new action.
+                continue;
+            }
+        } else {
+            format!(
+                "[{key} {}]",
+                label.split_whitespace().next().unwrap_or(label)
+            )
+        };
         let rect = Rect::new(
             x.min(area.right()),
             area.y,

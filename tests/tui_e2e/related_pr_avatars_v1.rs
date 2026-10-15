@@ -2,8 +2,7 @@
 use super::*;
 #[path = "../support/asset_metadata_publication_v1.rs"]
 mod metadata_publication_v1;
-#[path = "../support/positive_pid_publication_v1.rs"]
-mod pid_publication_v1;
+use crate::positive_pid_publication_v1 as pid_publication_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession, ProcessIdentity};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use std::io::{Cursor, Read};

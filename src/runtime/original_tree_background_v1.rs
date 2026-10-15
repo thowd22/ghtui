@@ -127,6 +127,9 @@ impl Background {
 }
 /// Must run before generic loading/status/private/identity/model effects.
 pub(super) fn original_tree_prepared_only_v1(prepared: &PreparedView) -> bool {
+    if prepared.scoped_inline_v1.is_some() {
+        return false;
+    }
     if prepared.original_stash_recovery_v1.is_some() {
         return false;
     }
@@ -185,6 +188,8 @@ pub(super) fn publish_original_tree_v1(
     result: Result<PreparedView, String>,
 ) -> bool {
     if app.repository_load_requested
+        || app.scoped_inline_work_v1.is_some()
+        || app.scoped_inline_cancel_v1
         || app.repository_action.is_some()
         || app.original_tree_work_v1.is_some()
         || app.original_tree_cancel_v1

@@ -57,6 +57,7 @@ fn mode_number(mode: RepositoryMode) -> u8 {
         RepositoryMode::Staged => 4,
         RepositoryMode::Branch => 5,
         RepositoryMode::CommitChanges => 6,
+        RepositoryMode::Uncommitted => 7,
     }
 }
 fn full_revision(value: &str) -> bool {
@@ -314,6 +315,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
         match &comparison.comparison {
             Comparison::Working if workspace.mode == RepositoryMode::Working => {}
             Comparison::Staged if workspace.mode == RepositoryMode::Staged => {}
+            Comparison::Uncommitted if workspace.mode == RepositoryMode::Uncommitted => {}
             Comparison::BranchChanges { .. } if workspace.mode == RepositoryMode::Branch => {
                 nested = true;
             }

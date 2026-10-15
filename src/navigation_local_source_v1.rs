@@ -338,6 +338,7 @@ impl OriginalSavedVisitV1 {
             3 => "Repository • Working diff",
             4 => "Repository • Staged diff",
             5 => "Repository • Branch changes",
+            7 => "Repository • All tracked edits",
             _ => "Repository • Commit changes",
         }
     }
@@ -407,6 +408,7 @@ pub(crate) fn mode_number(mode: RepositoryMode) -> u8 {
         RepositoryMode::Staged => 4,
         RepositoryMode::Branch => 5,
         RepositoryMode::CommitChanges => 6,
+        RepositoryMode::Uncommitted => 7,
     }
 }
 pub(crate) fn decode_mode(number: u8) -> Result<RepositoryMode, String> {
@@ -418,6 +420,7 @@ pub(crate) fn decode_mode(number: u8) -> Result<RepositoryMode, String> {
         4 => RepositoryMode::Staged,
         5 => RepositoryMode::Branch,
         6 => RepositoryMode::CommitChanges,
+        7 => RepositoryMode::Uncommitted,
         _ => return Err("Original local mode unavailable".into()),
     })
 }

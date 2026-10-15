@@ -12,6 +12,186 @@ const WATCH: &str = "[[w Watch] unavailable:";
 const PROGRESS_FILE: &str = "UNVIEWED • src/α file.rs";
 const CATALOGUE: &str = "Repositories • explicit discovery";
 
+const SCOPED_CHECK: &str = "Exact observed build";
+#[test]
+fn completed_frame_actions_explicit_actions_owner_not_inbox_title_guess() {
+    for (height, width) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = box_bytes("Actions • focused view", height, width);
+        bytes.extend_from_slice(b"\x1b[12;2H> Reported exact test");
+        complete(&mut parser, &mut frames, &bytes);
+        let screen = frames.last.as_ref().unwrap();
+        assert!(controls::progress_selection(screen, "Reported exact test").is_none());
+        assert!(controls::progress_selection_in(
+            screen,
+            "Repository • focused view",
+            "Reported exact test"
+        )
+        .is_none());
+        let selection = controls::progress_selection_in(
+            screen,
+            "Actions • focused view",
+            "Reported exact test",
+        )
+        .unwrap();
+        assert_eq!(selection.selected_row, Some(selection.target.1));
+        bytes.extend_from_slice(b"\x1b[14;2HReported exact test");
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(controls::progress_selection_in(
+            frames.last.as_ref().unwrap(),
+            "Actions • focused view",
+            "Reported exact test"
+        )
+        .is_none());
+    }
+}
+
+#[test]
+fn completed_frame_actions_none_to_none_is_not_an_arrow_acknowledgement() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &progress_bytes(None));
+    let before = frames.end;
+    complete(&mut parser, &mut frames, &progress_bytes(None));
+    assert!(
+        frames.end > before,
+        "A genuinely new completed frame is still not selection evidence"
+    );
+    let none = controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    assert!(!none.acknowledges_change_from(None));
+    assert!(!none.acknowledges_change_from(Some(5)));
+    complete(&mut parser, &mut frames, &progress_bytes(Some(9)));
+    let selected =
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    assert!(selected.acknowledges_change_from(None));
+    assert!(selected.acknowledges_change_from(Some(5)));
+    assert!(!selected.acknowledges_change_from(selected.selected_row));
+}
+
+#[test]
+fn completed_frame_actions_explicit_owner_partial_selected_frame_cannot_acknowledge() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = box_bytes("Actions • focused view", 24, 80);
+    bytes.extend_from_slice(b"\x1b[12;2HReported exact test");
+    complete(&mut parser, &mut frames, &bytes);
+    let before = frames.end;
+    let partial = b"\x1b[12;2H> Reported exact test";
+    frames.process(&mut parser, partial, before);
+    let position = controls::progress_selection_in(
+        frames.last.as_ref().unwrap(),
+        "Actions • focused view",
+        "Reported exact test",
+    )
+    .unwrap();
+    assert!(!position.acknowledges_change_from(None));
+    assert_eq!(frames.end, before);
+    frames.process(&mut parser, b"\x1b[?25l", before + partial.len());
+    let position = controls::progress_selection_in(
+        frames.last.as_ref().unwrap(),
+        "Actions • focused view",
+        "Reported exact test",
+    )
+    .unwrap();
+    assert!(position.acknowledges_change_from(None));
+    frames.invalidate_size();
+    assert!(frames.last.is_none());
+}
+
+fn scoped_check_bytes(height: u16, width: u16, selected: u16) -> Vec<u8> {
+    let mut bytes = box_bytes("Inbox • focused view", height, width);
+    bytes.extend_from_slice(format!("\x1b[6;3H[Enter Open check]\x1b[9;3HRequired rules unavailable\x1b[12;2H{}[CA]@ci-actor Check#600 • {SCOPED_CHECK}\x1b[13;2H{}[SA]@status-actor Status#700 • external-lint", if selected == 12 {"> "} else {"  "}, if selected == 13 {"> "} else {"  "}).as_bytes());
+    bytes
+}
+
+#[test]
+fn completed_frame_actions_scoped_checks_v1_overshot_status_requires_up_to_genuine_check() {
+    for (height, width) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        complete(
+            &mut parser,
+            &mut frames,
+            &scoped_check_bytes(height, width, 13),
+        );
+        let selection =
+            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).unwrap();
+        assert_eq!(selection.target.1, 11);
+        assert_eq!(selection.selected_row, Some(12));
+        assert!(
+            selection.selected_row.unwrap() > selection.target.1,
+            "More Down would remain on the unrelated status, not select the original check"
+        );
+    }
+}
+
+#[test]
+fn completed_frame_actions_scoped_checks_v1_already_selected_and_duplicate_labels_are_not_guessed()
+{
+    for (height, width) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        complete(
+            &mut parser,
+            &mut frames,
+            &scoped_check_bytes(height, width, 12),
+        );
+        let selection =
+            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).unwrap();
+        assert_eq!(
+            selection.selected_row,
+            Some(selection.target.1),
+            "An already selected check must not receive an extra Down"
+        );
+        let mut duplicate = scoped_check_bytes(height, width, 12);
+        duplicate.extend_from_slice(format!("\x1b[15;3H{SCOPED_CHECK}").as_bytes());
+        complete(&mut parser, &mut frames, &duplicate);
+        assert!(
+            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).is_none()
+        );
+    }
+}
+
+#[test]
+fn completed_frame_actions_scoped_checks_v1_partial_selection_and_resize_cannot_supply_ack() {
+    for (height, width) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        complete(
+            &mut parser,
+            &mut frames,
+            &scoped_check_bytes(height, width, 13),
+        );
+        let old_end = frames.end;
+        let next = scoped_check_bytes(height, width, 12);
+        frames.process(&mut parser, &next, old_end);
+        assert_eq!(
+            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK)
+                .unwrap()
+                .selected_row,
+            Some(12)
+        );
+        assert_eq!(
+            controls::progress_selection(parser.screen(), SCOPED_CHECK)
+                .unwrap()
+                .selected_row,
+            Some(11)
+        );
+        assert_eq!(frames.end, old_end);
+        frames.process(&mut parser, b"\x1b[?25l", old_end + next.len());
+        assert!(frames.end > old_end);
+        assert_eq!(
+            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK)
+                .unwrap()
+                .selected_row,
+            Some(11)
+        );
+        frames.invalidate_size();
+        assert!(frames.last.is_none());
+    }
+}
+
 #[test]
 fn completed_frame_actions_focused_cell_marker_all_splits_keep_cursorless_proof_distinct() {
     let mut parent = box_bytes(CATALOGUE, 24, 80);

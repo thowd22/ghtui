@@ -14,6 +14,7 @@ use std::{
 
 #[derive(Default)]
 pub struct PreparedView {
+    pub scoped_inline_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::PreparedScopedInlineV1>,
     pub original_stash_recovery_v1: Option<crate::repository_stash_recovery_v1::PreparedStashRecoveryV1>,
     pub original_diff_result_v1:
         Option<crate::repository_diff_sides_worker_v1::PreparedOriginalDiffWorkV1>,
@@ -95,10 +96,16 @@ mod original_tree_background_v1;
 pub(crate) mod pr_check_continuation_corrective_v3_test_support;
 #[path = "runtime/related_pr_background_v1.rs"]
 mod related_pr_background_v1;
+#[path = "runtime/scoped_inline_background_v1.rs"]
+mod scoped_inline_background_v1;
+#[cfg(test)]
+#[path = "runtime/scoped_inline_test_support_v1.rs"]
+pub(crate) mod scoped_inline_test_support_v1;
 
 type Work = Box<dyn FnOnce(CancellationToken) -> Result<PreparedView, String> + Send>;
 
 struct ScopedRemoteOwner {
+    inline_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     scope: Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
     source: Arc<crate::storage::CatalogueIntentSource>,
     navigation: Option<Arc<crate::scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>>,
@@ -109,9 +116,11 @@ struct ScopedRemoteOwner {
 }
 impl ScopedRemoteOwner {
     fn owns(&self, app: &App) -> bool {
-        app.remote_scope
-            .as_ref()
-            .is_some_and(|scope| Arc::ptr_eq(scope, &self.scope))
+        self.inline_v1.as_ref().is_none_or(|owner| owner.owns(app))
+            && app
+                .remote_scope
+                .as_ref()
+                .is_some_and(|scope| Arc::ptr_eq(scope, &self.scope))
             && app
                 .remote_scope_source
                 .as_ref()
@@ -175,6 +184,10 @@ struct Completion {
 }
 
 pub struct Background {
+    #[cfg(test)]
+    inline_completion_sender_v1: SyncSender<Completion>,
+    current_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
+    current_inline_generation_v1: Option<u64>,
     current_stash_recovery_v1: Option<(
         u64,
         Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryOwnerV1>,
@@ -248,6 +261,10 @@ impl Background {
             }));
         }
         Self {
+            #[cfg(test)]
+            inline_completion_sender_v1: sender,
+            current_inline_owner_v1: None,
+            current_inline_generation_v1: None,
             current_stash_recovery_v1: None,
             current_related_pr_v1: None,
             current_related_pr_generation_v1: None,
@@ -292,6 +309,7 @@ impl Background {
             navigation: None,
             check_origin: None,
             continuation_v2: None,
+            inline_v1: None,
         };
         if !owner.owns(app) {
             return false;
@@ -318,6 +336,7 @@ impl Background {
             navigation: Some(navigation),
             check_origin: None,
             continuation_v2: None,
+            inline_v1: None,
         };
         if !owner.owns(app) {
             return false;
@@ -348,6 +367,7 @@ impl Background {
             navigation: Some(navigation.clone()),
             check_origin: Some(origin),
             continuation_v2: None,
+            inline_v1: None,
         };
         if !owner.owns(app) {
             return false;
@@ -381,6 +401,7 @@ impl Background {
             navigation: Some(navigation.clone()),
             check_origin: Some(origin),
             continuation_v2: Some(continuation),
+            inline_v1: None,
         };
         if !owner.owns(app) {
             return false;
@@ -502,6 +523,10 @@ impl Background {
         }
     }
     pub fn cancel(&mut self, view: View) {
+        if view == View::Inbox {
+            self.current_inline_owner_v1 = None;
+            self.current_inline_generation_v1 = None;
+        }
         if view == View::Repository {
             self.current_stash_recovery_v1 = None;
             self.current_related_pr_v1 = None;
@@ -796,6 +821,70 @@ impl Background {
             {
                 continue; // New original stash intent precedes every old success/error/panic effect.
             }
+            if slot == View::Inbox.index()
+                && self.current_inline_owner_v1.is_some()
+                && completion
+                    .remote_scope_owner
+                    .as_ref()
+                    .is_none_or(|remote| remote.inline_v1.is_none())
+            {
+                continue;
+            }
+            if let Some(owner) = completion
+                .remote_scope_owner
+                .as_ref()
+                .and_then(|remote| remote.inline_v1.as_ref())
+                .cloned()
+            {
+                let remote = completion.remote_scope_owner.as_ref().expect("same owner");
+                if slot != View::Inbox.index()
+                    || completion.view != View::Inbox
+                    || completion.catalogue_owner.is_some()
+                    || completion.catalogue_recovery.is_some()
+                    || completion.local_actor_owner.is_some()
+                    || completion.remote_repository_owner.is_some()
+                    || completion.local_navigation_owner.is_some()
+                    || completion.original_tree_owner_v1.is_some()
+                    || completion.original_diff_owner_v1.is_some()
+                    || remote.check_origin.is_some()
+                    || completion.original_stash_recovery_owner_v1.is_some()
+                    || remote.continuation_v2.is_some()
+                    || self.current_inline_generation_v1 != Some(completion.generation)
+                    || self
+                        .current_inline_owner_v1
+                        .as_ref()
+                        .is_none_or(|current| !Arc::ptr_eq(current, &owner))
+                    || !remote.owns(app)
+                    || completion.result.as_ref().is_ok_and(|prepared| {
+                        !scoped_inline_background_v1::only_inline(prepared)
+                            || prepared
+                                .scoped_inline_v1
+                                .as_ref()
+                                .is_none_or(|result| !result.matches(&owner))
+                    })
+                {
+                    continue;
+                }
+                // ALL original/mixed/newer-intent gates precede slot removal
+                // and success, error, panic, status, principal/privacy effects.
+                self.current.remove(&slot);
+                self.current_inline_owner_v1 = None;
+                self.current_inline_generation_v1 = None;
+                if owner.expired() {
+                    crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::fail(app,self);
+                } else {
+                    match completion.result {Ok(mut prepared)=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::publish(app,self,&owner,prepared.scoped_inline_v1.take().expect("checked closed facet")),Err(_)=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::fail(app,self)}
+                }
+                changed = true;
+                continue;
+            }
+            if completion
+                .result
+                .as_ref()
+                .is_ok_and(|prepared| prepared.scoped_inline_v1.is_some())
+            {
+                continue;
+            }
             if let Some(owner) = &completion.original_tree_owner_v1 {
                 if completion.original_stash_recovery_owner_v1.is_some() {
                     continue;
@@ -1048,6 +1137,8 @@ impl Background {
                 // A remaining flag/action therefore belongs to newer input;
                 // the old result must not reset its desired mode or status.
                 if app.repository_load_requested
+                    || app.scoped_inline_work_v1.is_some()
+                    || app.scoped_inline_cancel_v1
                     || app.original_stash_recovery_request_v1.is_some()
                     || app.original_stash_recovery_cancel_requested_v1
                     || app.repository_action.is_some()

@@ -17,6 +17,7 @@ use remote_handoff_read_v1::{run_git_with_window_v1, GitReadPolicyV1};
 mod local_commit_actor_origin_v1;
 mod local_saved_navigation_origin_v1;
 mod native_mutable_diff_source_v2;
+mod readonly_diff_paths_v1;
 pub(crate) use local_commit_actor_origin_v1::original_saved_sha as original_actor_saved_sha;
 pub use local_commit_actor_origin_v1::OriginalLocalActorOriginV1;
 #[cfg(test)]
@@ -57,6 +58,10 @@ const MAX_OUTPUT: usize = 32 * 1024 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 static RUNNER: OnceLock<CommandRunner> = OnceLock::new();
 static MUTATION_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+type NativeSelectedExecutionV2<'a> = (
+    &'a crate::repository_native_mutable_plan_v2::NativeMutableConfirmRequestV2,
+    &'a crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitError(pub String);
@@ -1261,12 +1266,18 @@ impl GitRepository {
         let mut names_args = args.clone();
         names_args.insert(1, "--name-status".into());
         names_args.insert(2, "-z".into());
-        let names = if original {
-            self.original_bytes_with_capture_limit_v1(names_args.iter(), None, capture_limit)?
+        let paths = if original {
+            let names =
+                self.original_bytes_with_capture_limit_v1(names_args.iter(), None, capture_limit)?;
+            parse_diff_paths(&names)?
         } else {
-            self.bytes_with_capture_limit_v2(names_args.iter(), None, capture_limit)?
+            // Unlike name-status, numstat checks actual contents even with
+            // automatic index refreshing disabled and external helpers denied.
+            // It exits zero normally: failed runner stdout is never raw IDs.
+            names_args[1] = "--numstat".into();
+            let names = self.bytes_with_capture_limit_v2(names_args.iter(), None, capture_limit)?;
+            readonly_diff_paths_v1::paths(&diff, &names, capture_limit)?
         };
-        let paths = parse_diff_paths(&names)?;
         if diff.files.len() != paths.len() {
             return Err(GitError("Diff paths and patch disagree; conflict or combined diffs need the conflict viewer".into()));
         }
@@ -1690,7 +1701,47 @@ impl GitRepository {
 
     /// Call only after the UI's explicit target/effect confirmation. Reject stale previews.
     pub fn execute(&self, plan: &MutationPlan, confirmed: bool) -> GitResult<String> {
-        if self.navigation_read_window.is_some() {
+        self.execute_checked_v2(plan, confirmed, None)
+    }
+    pub(crate) fn execute_native_selected_v2(
+        &self,
+        purpose: &crate::repository_native_mutable_plan_v2::NativeMutableConfirmRequestV2,
+        operation: &crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+    ) -> GitResult<String> {
+        operation.check().map_err(GitError)?;
+        let original = purpose.source().intent().origin().original_repository_v1();
+        if self.root != original.root
+            || self.git_dir != original.git_dir
+            || self.common_dir != original.common_dir
+            || !self
+                .actual_read_runner_v1()
+                .same_instance(original.actual_read_runner_v1())
+            || !self
+                .navigation_read_window
+                .as_ref()
+                .is_some_and(|window| window.same_operation_v2(&operation.window()))
+        {
+            return Err(GitError("Confirmed selected purpose does not own the exact original repository/runner/read operation".into()));
+        }
+        if !matches!(&purpose.plan().mutation.operation,Operation::ApplyPatch{patch,reverse:false}if !patch.is_empty()&&patch.len()<=2*1024*1024)
+        {
+            return Err(GitError(
+                "Native confirmation accepts only its exact bounded selected ApplyPatch".into(),
+            ));
+        }
+        purpose
+            .bind_original_operation_v2(operation)
+            .map_err(GitError)?;
+        purpose.reserve_attempt().map_err(GitError)?;
+        self.execute_checked_v2(&purpose.plan().mutation, true, Some((purpose, operation)))
+    }
+    fn execute_checked_v2(
+        &self,
+        plan: &MutationPlan,
+        confirmed: bool,
+        native: Option<NativeSelectedExecutionV2<'_>>,
+    ) -> GitResult<String> {
+        if self.navigation_read_window.is_some() && native.is_none() {
             return Err(GitError(
                 "Read-only remote navigation cannot execute local mutations".into(),
             ));
@@ -1698,14 +1749,50 @@ impl GitRepository {
         if !confirmed {
             return Err(GitError("Operation was not confirmed".into()));
         }
-        let lock = MUTATION_LOCKS
-            .get_or_init(Mutex::default)
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        let map = MUTATION_LOCKS.get_or_init(Mutex::default);
+        let mut map_guard = if let Some((_, operation)) = native {
+            loop {
+                operation.check().map_err(GitError)?;
+                match map.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(Duration::from_millis(2))
+                    }
+                }
+            }
+        } else {
+            map.lock().unwrap_or_else(|error| error.into_inner())
+        };
+        let lock = map_guard
             .entry(self.common_dir.clone())
             .or_default()
             .clone();
-        let _write_guard = lock.lock().unwrap_or_else(|error| error.into_inner());
+        drop(map_guard);
+        let _write_guard = if let Some((purpose, operation)) = native {
+            if !std::ptr::eq(plan, &purpose.plan().mutation) {
+                return Err(GitError("Confirmed selected plan pointer changed".into()));
+            }
+            loop {
+                operation.check().map_err(GitError)?;
+                match lock.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(Duration::from_millis(2))
+                    }
+                }
+            }
+        } else {
+            lock.lock().unwrap_or_else(|error| error.into_inner())
+        };
+        if let Some((purpose, operation)) = native {
+            operation.check().map_err(GitError)?;
+            purpose
+                .source()
+                .validate_current(operation)
+                .map_err(GitError)?;
+        }
         if self.fingerprint()? != plan.observed {
             return Err(GitError(
                 "Repository changed since the preview. Refresh and confirm a new preview.".into(),
@@ -1718,7 +1805,29 @@ impl GitRepository {
             Operation::Commit { message, .. } => Some(message.as_bytes()),
             _ => None,
         };
-        let result = run_git_with_kind(&self.root, args.iter(), stdin, true, &self.cancellation)?;
+        let result = if let Some((_, operation)) = native {
+            operation.check().map_err(GitError)?;
+            run_git_bounded_policy_deadline_v2(
+                &self.root,
+                args.iter(),
+                stdin,
+                true,
+                &self.cancellation,
+                GitReadPolicyV1 {
+                    timeout: COMMAND_TIMEOUT.min(
+                        operation
+                            .deadline()
+                            .saturating_duration_since(std::time::Instant::now()),
+                    ),
+                    output_limit: 2 * 1024 * 1024,
+                    window: None,
+                    runner: Some(self.actual_read_runner_v1()),
+                },
+                Some(operation.deadline()),
+            )?
+        } else {
+            run_git_with_kind(&self.root, args.iter(), stdin, true, &self.cancellation)?
+        };
         if !result.success {
             return Err(result.error("Git operation"));
         }
@@ -2684,6 +2793,21 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    run_git_bounded_policy_deadline_v2(directory, args, stdin, write, cancellation, policy, None)
+}
+fn run_git_bounded_policy_deadline_v2<I, S>(
+    directory: &Path,
+    args: I,
+    stdin: Option<&[u8]>,
+    write: bool,
+    cancellation: &CancellationToken,
+    policy: GitReadPolicyV1<'_>,
+    absolute_deadline: Option<std::time::Instant>,
+) -> GitResult<GitOutput>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let args = args
         .into_iter()
         .map(|arg| arg.as_ref().to_owned())
@@ -2695,6 +2819,15 @@ where
     let explicit_transport = write || args.first().is_some_and(|arg| arg == "ls-remote");
     let mut spec = CommandSpec::new("git")
         .args(["--no-pager", "--literal-pathspecs", "-c", "color.ui=false"])
+        // GIT_OPTIONAL_LOCKS alone does not prevent porcelain diff from
+        // refreshing stat-cache entries after a cached apply. Read-only
+        // browsing must preserve raw index bytes as well as staged contents.
+        // Keep explicit writes on their unchanged policy/argv.
+        .args(if write {
+            &[][..]
+        } else {
+            &["-c", "diff.autoRefreshIndex=false"][..]
+        })
         // Original-object reads deliberately neutralize graft files below.
         // Suppress only the resulting advice, not stderr/errors or capture
         // limits: even a valid full-SHA read must fit its small raw envelope.
@@ -2723,6 +2856,7 @@ where
         .input(stdin.unwrap_or_default())
         .timeout(COMMAND_TIMEOUT.min(policy.timeout));
     spec.output_limit = MAX_OUTPUT.min(policy.output_limit);
+    spec.absolute_deadline_v1 = absolute_deadline;
     #[cfg(test)]
     local_commit_actor_origin_v1::trace_spec_for_tests(&mut spec, directory);
     if original_objects {
@@ -2761,6 +2895,10 @@ where
         Err(error) => Err(GitError(error.to_string())),
     }
 }
+
+#[cfg(test)]
+#[path = "git/readonly_index_v1_tests.rs"]
+mod readonly_index_v1_tests;
 
 #[cfg(test)]
 mod tests {

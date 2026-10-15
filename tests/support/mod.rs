@@ -567,11 +567,30 @@ impl Session {
     }
 
     pub fn select_completed_progress_file(&mut self, mouse: bool, label: &str) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        self.select_completed_progress_file_with_timeout(mouse, label, Duration::from_secs(5));
+    }
+
+    pub fn select_completed_progress_file_with_timeout(
+        &mut self,
+        mouse: bool,
+        label: &str,
+        timeout: Duration,
+    ) {
+        self.select_completed_row_with_timeout(mouse, "Inbox • focused view", label, timeout);
+    }
+
+    pub fn select_completed_row_with_timeout(
+        &mut self,
+        mouse: bool,
+        title: &str,
+        label: &str,
+        timeout: Duration,
+    ) {
+        let deadline = Instant::now() + timeout;
         loop {
             self.poll_output(Duration::from_millis(1));
             let Some(position) = self.completed_cursorless_screen().and_then(|frame| {
-                completed_navigation_controls_v1::progress_selection(frame, label)
+                completed_navigation_controls_v1::progress_selection_in(frame, title, label)
             }) else {
                 assert!(
                     Instant::now() < deadline,
@@ -597,13 +616,8 @@ impl Session {
             self.wait_for_new_cursorless_condition(
                 before,
                 |frame| {
-                    completed_navigation_controls_v1::progress_selection(frame, label).is_some_and(
-                        |new| {
-                            position.selected_row.is_none()
-                                || (new.selected_row.is_some()
-                                    && new.selected_row != position.selected_row)
-                        },
-                    )
+                    completed_navigation_controls_v1::progress_selection_in(frame, title, label)
+                        .is_some_and(|new| new.acknowledges_change_from(position.selected_row))
                 },
                 "one actual progress selection result before another input",
                 deadline.saturating_duration_since(Instant::now()),

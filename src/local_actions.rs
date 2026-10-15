@@ -294,7 +294,128 @@ pub struct LocalPlan {
     pub mutation: MutationPlan,
     pub preview: Vec<String>,
 }
+fn preview_header_v2(command: LocalCommand, mutation: &MutationPlan) -> Vec<String> {
+    vec![
+        format!("{} — no changes until confirmation", command.label()),
+        format!("Target: {}", redact_remote_credentials(&mutation.target)),
+        format!("Git effect: {}", sanitize_terminal(&mutation.effect)),
+    ]
+}
+fn append_selected_patch_preview_v2(preview: &mut Vec<String>, mutation: &MutationPlan) {
+    if let Operation::ApplyPatch { patch, .. } = &mutation.operation {
+        preview.extend(
+            String::from_utf8_lossy(patch)
+                .lines()
+                .map(sanitize_terminal),
+        );
+    }
+}
 impl LocalPlan {
+    /// Native-only borrowed canonical selection. No Workspace/context body is
+    /// cloned, and the existing installed-Git selected-patch planner is reused.
+    pub(crate) fn prepare_native_selection_v2(
+        repo: &GitRepository,
+        comparison: &ComparisonResult,
+        file_index: usize,
+        selected: &[(usize, usize)],
+        reverse: bool,
+    ) -> Result<Self, String> {
+        if selected.is_empty() || selected.len() > 10_000 {
+            return Err("Select between1 and10000 original changed lines".into());
+        }
+        let command = if reverse {
+            LocalCommand::UnstageSelection
+        } else {
+            LocalCommand::StageSelection
+        };
+        let file = comparison
+            .diff
+            .files
+            .get(file_index)
+            .ok_or("Selected original file unavailable")?;
+        let (hunk, line) = selected[0];
+        let original = file
+            .hunks
+            .get(hunk)
+            .and_then(|hunk| hunk.lines.get(line))
+            .ok_or("Selected original changed line unavailable")?;
+        if !matches!(
+            original.kind,
+            crate::diff::LineKind::Added | crate::diff::LineKind::Removed
+        ) {
+            return Err("Only genuine changed lines can be previewed".into());
+        }
+        let anchor = DiffAnchor {
+            base: comparison.base.clone(),
+            head: comparison.head.clone(),
+            old_path: file.old_path.clone().map(RawPath::new),
+            new_path: file.new_path.clone().map(RawPath::new),
+            old_line: original.old_line,
+            new_line: original.new_line,
+            side: if original.kind == crate::diff::LineKind::Added {
+                crate::repository_view::DiffSide::New
+            } else {
+                crate::repository_view::DiffSide::Old
+            },
+            file_index,
+            hunk_index: hunk,
+            line_index: line,
+        };
+        let status = repo.status().map_err(|error| error.to_string())?;
+        if let Some(reason) = crate::local_availability::LocalAvailability::for_native_selection_v2(
+            &status,
+            &anchor,
+            &comparison.comparison,
+        )
+        .disabled_reason(command)
+        {
+            return Err(reason);
+        }
+        if status.entries.iter().any(|entry| {
+            entry.conflict
+                && (Some(&entry.path) == anchor.old_path.as_ref()
+                    || Some(&entry.path) == anchor.new_path.as_ref())
+        }) {
+            return Err(
+                "Selected file is conflicted; inspect the explicit conflict viewer instead".into(),
+            );
+        }
+        let mutation = repo
+            .plan_selected_patch(comparison, file_index, selected, reverse)
+            .map_err(|error| error.to_string())?;
+        let Operation::ApplyPatch { patch, .. } = &mutation.operation else {
+            return Err("Selected preview did not produce the shared ApplyPatch plan".into());
+        };
+        if patch.len() > 2 * 1024 * 1024 {
+            return Err("Selected patch exceeds the2MiB native confirmation envelope; no write was prepared".into());
+        }
+        let mut preview = preview_header_v2(command, &mutation);
+        append_selected_patch_preview_v2(&mut preview, &mutation);
+        let bytes = preview.iter().map(String::len).sum::<usize>();
+        if bytes > 8 * 1024 * 1024 || preview.len() > 50_000 {
+            return Err("Selected native preview exceeds bounded display material".into());
+        }
+        if repo.fingerprint().map_err(|error| error.to_string())? != mutation.observed {
+            return Err(
+                "Repository changed while preparing selected preview; no write was prepared".into(),
+            );
+        }
+        let context = LocalContext {
+            directory: repo.root.clone(),
+            revision: status.head.clone().unwrap_or_else(|| "HEAD".into()),
+            status,
+            selected_path: anchor.new_path.clone().or_else(|| anchor.old_path.clone()),
+            comparison: None,
+            selected_anchor: Some(anchor),
+            selected_lines: selected.to_vec(),
+        };
+        Ok(Self {
+            command,
+            context,
+            mutation,
+            preview,
+        })
+    }
     pub fn execute_stash_with_inspection_v1(
         &self,
         confirmed: bool,
@@ -468,11 +589,7 @@ impl LocalPlan {
         {
             return Err("Repository changed while preparing the selected-file preview. Refresh and try again.".into());
         }
-        let mut preview = vec![
-            format!("{} — no changes until confirmation", command.label()),
-            format!("Target: {}", redact_remote_credentials(&mutation.target)),
-            format!("Git effect: {}", sanitize_terminal(&mutation.effect)),
-        ];
+        let mut preview = preview_header_v2(command, &mutation);
         if mutation.destructive {
             preview.push("Warning: this can replace or remove existing history/files. Inspect the target before confirming.".into());
         }
@@ -524,7 +641,7 @@ impl LocalPlan {
             }
             Operation::ResolveConflict { path, stage } => preview.push(format!("Exact file: {} — replaces working bytes with stage {stage}; stage separately after inspection.", path.display())),
             Operation::ForcePushLease { expected_remote, .. } => preview.push(format!("Will refuse if remote branch is not exactly {expected_remote}. Never uses unrestricted --force.")),
-            Operation::ApplyPatch { patch, .. } => preview.extend(String::from_utf8_lossy(patch).lines().map(sanitize_terminal)),
+            Operation::ApplyPatch { .. } => append_selected_patch_preview_v2(&mut preview,&mutation),
             _ => {}
         }
         if let Some(staged) = staged {

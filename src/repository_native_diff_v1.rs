@@ -434,7 +434,58 @@ pub struct NativeDiffStateV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1
     pub width: u16,
     pub status: String,
 }
+/// Read-only original-selection binding, not mutation permission. Its private
+/// session/frame/range pointers cannot be reconstructed from displayed rows.
+pub struct NativeCurrentRangeV2<S: NativeDiffPurposeV2> {
+    session: Arc<()>,
+    frame: Arc<NativeDiffProjectionV1<S>>,
+    source: Arc<S>,
+    range: Arc<NativeDiffRangeV1<S>>,
+}
+impl<S: NativeDiffPurposeV2> NativeCurrentRangeV2<S> {
+    pub fn source(&self) -> &Arc<S> {
+        &self.source
+    }
+    pub fn range(&self) -> &Arc<NativeDiffRangeV1<S>> {
+        &self.range
+    }
+    pub fn matches(&self, state: &NativeDiffStateV1<S>) -> bool {
+        Arc::ptr_eq(&self.session, &state.session)
+            && state
+                .current_frame()
+                .is_some_and(|frame| Arc::ptr_eq(frame, &self.frame))
+            && state
+                .source()
+                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+            && state
+                .range()
+                .is_some_and(|range| Arc::ptr_eq(range, &self.range))
+    }
+}
 impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
+    pub fn capture_current_range_v2(&self) -> Result<Arc<NativeCurrentRangeV2<S>>, String> {
+        let frame = self
+            .current_frame()
+            .ok_or("Wait for the current source/query/layout before previewing a selection")?;
+        let source = self.source().ok_or("Original native source unavailable")?;
+        let range = self
+            .range()
+            .ok_or("Select original changed lines or a hunk before previewing")?;
+        if !Arc::ptr_eq(source, frame.source())
+            || !Arc::ptr_eq(source, range.source())
+            || range.changed().is_empty()
+            || range.changed().len() > 10_000
+            || range.file() >= source.member_count()
+        {
+            return Err("Selection is outside the original bounded changed membership".into());
+        }
+        Ok(Arc::new(NativeCurrentRangeV2 {
+            session: self.session.clone(),
+            frame: frame.clone(),
+            source: source.clone(),
+            range: range.clone(),
+        }))
+    }
     pub fn open_source(workspace: &Workspace, width: u16) -> Result<Self, String> {
         let (intent, source) = S::capture(workspace)?;
         Ok(Self {
@@ -481,6 +532,15 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
     }
     pub fn metadata_note(&self) -> Option<&str> {
         self.metadata_note.as_deref()
+    }
+    pub(crate) fn invalidate_after_selected_attempt_v2(&mut self) {
+        self.projection_available = false;
+        self.pending = None;
+        self.range = None;
+        self.range_edit = None;
+        self.anchor = None;
+        self.changes.clear();
+        self.status="Selected attempt retired this observed diff. Reload and inspect current state before another write.".into();
     }
     pub fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         self.frame.as_ref()

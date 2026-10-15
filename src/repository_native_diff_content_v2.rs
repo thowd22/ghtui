@@ -190,7 +190,7 @@ impl NativeDiffPurposeV2 for MutableDiffSourceV2 {
         "[a Preview selected]"
     }
     fn stage_unavailable() -> &'static str {
-        "Selected preview is unavailable until its current-state confirmation workflow is connected; no write was created"
+        "Choose a current nonempty Working/Staged changed-line range, then preview its exact patch and explicitly confirm; no write occurs on selection"
     }
     fn selection_help() -> &'static str {
         "Space selects original line; Shift+↑/↓ extends. Drag keeps exact observed membership. A separate current-state preview and confirmation is required before any write."

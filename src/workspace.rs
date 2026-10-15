@@ -46,6 +46,8 @@ pub enum RepositoryMode {
     Staged,
     Branch,
     CommitChanges,
+    /// All tracked index/working edits relative to the observed saved baseline.
+    Uncommitted,
 }
 
 #[cfg(test)]
@@ -277,8 +279,12 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "workspace/native_uncommitted_v3_tests.rs"]
+mod native_uncommitted_v3_tests;
+
 impl RepositoryMode {
-    pub const ALL: [(Self, &'static str, char); 7] = [
+    pub const ALL: [(Self, &'static str, char); 8] = [
         (Self::Overview, "Overview", 'o'),
         (Self::Graph, "Graph", 'g'),
         (Self::Tree, "Tree", 't'),
@@ -286,6 +292,7 @@ impl RepositoryMode {
         (Self::Staged, "Staged diff", 'i'),
         (Self::Branch, "Branch changes", 'b'),
         (Self::CommitChanges, "Changes", 'd'),
+        (Self::Uncommitted, "All edits", 'e'),
     ];
 }
 
@@ -654,7 +661,10 @@ impl Workspace {
                     workspace.set_commit_changes(repo, 0)?;
                 }
             }
-            RepositoryMode::Working | RepositoryMode::Staged | RepositoryMode::Branch => {
+            RepositoryMode::Working
+            | RepositoryMode::Staged
+            | RepositoryMode::Uncommitted
+            | RepositoryMode::Branch => {
                 if workspace.status.head.is_none() && mode == RepositoryMode::Branch {
                     workspace.push(
                         "No saved versions yet. Commit files before comparing branch history.",
@@ -666,6 +676,7 @@ impl Workspace {
                 let comparison = match mode {
                     RepositoryMode::Working => Comparison::Working,
                     RepositoryMode::Staged => Comparison::Staged,
+                    RepositoryMode::Uncommitted => Comparison::Uncommitted,
                     RepositoryMode::Branch => Comparison::BranchChanges {
                         base: workspace
                             .status
@@ -681,6 +692,17 @@ impl Workspace {
                 }
                 let result = repo.compare(&comparison).map_err(|e| e.to_string())?;
                 workspace.push(&result.description, SemanticRole::Reference, None);
+                if mode == RepositoryMode::Uncommitted {
+                    workspace.push(
+                        if workspace.status.head.is_some() {
+                            "All tracked edits since saved HEAD (staged + unstaged); untracked files are separate and not included."
+                        } else {
+                            "All tracked edits before the first saved HEAD; untracked files are separate and not included."
+                        },
+                        SemanticRole::Reference,
+                        None,
+                    );
+                }
                 if result.diff.files.is_empty() {
                     workspace.push("No changes in this comparison.", SemanticRole::Normal, None);
                 }

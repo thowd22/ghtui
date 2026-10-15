@@ -63,6 +63,7 @@ pub enum Action {
     NativeMutableDiffV2(
         crate::repository_native_diff_ui_v1::NativeDiffActionV1<crate::git::MutableDiffSourceV2>,
     ),
+    NativeMutablePlanV2(crate::repository_native_mutable_plan_native_v2::NativeMutablePlanActionV2),
     OriginalTreeV1(crate::repository_tree_jump_v1::OriginalTreeJumpActionV1),
     OriginalTreeViewportV2(crate::repository_tree_viewport_v2::TreeViewportActionV2),
     GraphRereadV3(crate::repository_graph_reread_native_v3::GraphRereadActionV3),
@@ -164,6 +165,9 @@ impl DiffSelection {
 
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
+    pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
+    pub scoped_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
+    pub scoped_inline_cancel_v1: bool,
     pub original_stash_recovery_request_v1:
         Option<std::sync::Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryIntentV1>>,
     pub original_stash_recovery_cancel_requested_v1: bool,
@@ -198,6 +202,8 @@ pub struct App {
     >,
     pub native_mutable_diff_layout_v2:
         crate::repository_native_diff_ui_v1::NativeDiffLayoutV1<crate::git::MutableDiffSourceV2>,
+    pub native_mutable_plan_v2:
+        Option<crate::repository_native_mutable_plan_native_v2::NativeMutablePlanUiV2>,
     pub original_diff_work_v1:
         Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkV1>>,
     pub original_diff_layout_v1: crate::repository_diff_sides_ui_v1::OriginalDiffLayoutV1,
@@ -339,6 +345,9 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            scoped_inline_work_v1: None,
+            scoped_inline_owner_v1: None,
+            scoped_inline_cancel_v1: false,
             original_stash_recovery_request_v1: None,
             original_stash_recovery_cancel_requested_v1: false,
             original_stash_recovery_v1: None,
@@ -390,6 +399,7 @@ impl Default for App {
             native_diff_v1: None,
             native_diff_layout_v1: Default::default(),
             native_mutable_diff_v2: None,
+            native_mutable_plan_v2: None,
             native_mutable_diff_layout_v2: Default::default(),
             original_diff_work_v1: None,
             original_diff_layout_v1: Default::default(),
@@ -878,6 +888,9 @@ impl App {
             }
             Action::NativeMutableDiffV2(action) => {
                 crate::repository_native_diff_native_v1::dispatch_mutable(self, action)
+            }
+            Action::NativeMutablePlanV2(action) => {
+                crate::repository_native_mutable_plan_native_v2::dispatch(self, action)
             }
             Action::RelatedPrV1(_) => (), // Handled before global dispatch.
             Action::OriginalTreeViewportV2(action) => {
@@ -1468,6 +1481,16 @@ impl App {
             }
             Action::Form(action) => {
                 if action == crate::forms::FormAction::Close
+                    && self.form.as_ref().is_some_and(|form| {
+                        matches!(form.purpose, crate::forms::FormPurpose::PrInline(_))
+                            && form.submitting
+                    })
+                {
+                    self.scoped_inline_cancel_v1 = true;
+                    self.status="Canceling original inline operation • awaiting owned cleanup; effects may exist".into();
+                    return;
+                }
+                if action == crate::forms::FormAction::Close
                     && self.form.as_ref().is_some_and(|form| form.submitting)
                 {
                     self.cancel_requested = true;
@@ -1619,6 +1642,7 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1::retire_invalid_form(self);
         if crate::repository_stash_recovery_v1::event(self, event.clone()) {
             return;
         }
@@ -1953,6 +1977,10 @@ impl App {
                     ) =>
                 {
                     if let Some(form) = &mut self.form {
+                        if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1::anchor_open(form) {
+                            form.dispatch(&crate::forms::FormAction::InlineAnchorScroll(if mouse.kind==MouseEventKind::ScrollDown {3}else{-3}));
+                            return;
+                        }
                         if !form.error.is_empty()
                             && form.error_rect.contains((mouse.column, mouse.row).into())
                         {
@@ -2487,11 +2515,11 @@ impl App {
                     if self.github_content_focused && pr_open {
                         match key.code {
                             KeyCode::Up => {
-                                self.dispatch(Action::GithubRow(self.selected.saturating_sub(1)));
+                                self.move_github_pr_row(false);
                                 return;
                             }
                             KeyCode::Down => {
-                                self.dispatch(Action::GithubRow(self.selected.saturating_add(1)));
+                                self.move_github_pr_row(true);
                                 return;
                             }
                             KeyCode::Enter => {
@@ -2832,6 +2860,18 @@ impl App {
             } else if next >= self.scroll + self.github_visible_rows {
                 self.scroll = next + 1 - self.github_visible_rows.max(1);
             }
+        }
+    }
+
+    fn move_github_pr_row(&mut self, down: bool) {
+        if let Some(next) = self
+            .github
+            .as_ref()
+            .and_then(|github| github.pr_row_navigation_target(self.selected, down))
+        {
+            self.dispatch(Action::GithubRow(next));
+        } else {
+            self.dispatch(Action::Scroll(if down { 1 } else { -1 }));
         }
     }
 

@@ -52,7 +52,7 @@ fn completion(
     (background, completion, owner)
 }
 fn newer_intents(kind: u8) {
-    for input in 0..10 {
+    for input in 0..11 {
         let mut real = Real::new();
         let graph_request = if input == 5 {
             let origin = real
@@ -104,7 +104,8 @@ fn newer_intents(kind: u8) {
             6 => real.app.cancel_requested = true,
             7 => real.app.refresh_requested = true,
             8 => real.app.local_actor_requested = true,
-            _ => real.app.compare_requested = true,
+            9 => real.app.compare_requested = true,
+            _ => real.app.scoped_inline_cancel_v1 = true,
         }
         real.app.status = "New intent owns visible state".into();
         real.app.loading[View::Repository.index()] = true;
