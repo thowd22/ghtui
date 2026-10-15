@@ -8,6 +8,7 @@ pub mod fixture_shell_publication_v1;
 #[cfg(target_os = "linux")]
 pub mod inherited_fixture_writer_v1;
 pub mod owned_pty_processes_v1;
+pub mod receiver_delivery_gate_v1;
 use std::{
     fs,
     io::{Read, Write},
@@ -230,6 +231,7 @@ pub struct Session {
     pub input_paths: Vec<&'static str>,
     exited: bool,
     owned_processes: owned_pty_processes_v1::OwnedPtySession,
+    receiver_delivery_gate_v1: Option<receiver_delivery_gate_v1::ReceiverDeliveryGateV1>,
 }
 
 impl Session {
@@ -522,6 +524,7 @@ impl Session {
             input_paths: Vec::new(),
             exited: false,
             owned_processes,
+            receiver_delivery_gate_v1: None,
         }
     }
 
@@ -794,6 +797,56 @@ impl Session {
     fn write(&mut self, bytes: &[u8]) {
         self.writer.write_all(bytes).unwrap();
         self.writer.flush().unwrap();
+        if let Some(gate) = &mut self.receiver_delivery_gate_v1 {
+            gate.flushed(bytes, self.cursorless_frames.cells_end, Instant::now())
+                .unwrap();
+        }
+    }
+
+    pub fn hold_observed_output_after_next_write_v1(&mut self, duration: Duration) {
+        assert!(self.receiver_delivery_gate_v1.is_none());
+        self.receiver_delivery_gate_v1 = Some(
+            receiver_delivery_gate_v1::ReceiverDeliveryGateV1::new(
+                duration,
+                self.cursorless_frames.cells_end,
+            )
+            .unwrap(),
+        );
+    }
+    pub fn hold_observed_output_after_literal_v1(&mut self, literal: &str) {
+        assert!(self.receiver_delivery_gate_v1.is_none());
+        self.receiver_delivery_gate_v1 = Some(
+            receiver_delivery_gate_v1::ReceiverDeliveryGateV1::after_literal(
+                literal.as_bytes(),
+                self.cursorless_frames.cells_end,
+            )
+            .unwrap(),
+        );
+    }
+    pub fn observed_output_write_count_v1(&self) -> usize {
+        self.receiver_delivery_gate_v1
+            .as_ref()
+            .unwrap()
+            .writes()
+            .len()
+    }
+    pub fn finish_observed_output_hold_v1(
+        &mut self,
+    ) -> Vec<receiver_delivery_gate_v1::ActualWriteV1> {
+        while let Some(remaining) = self
+            .receiver_delivery_gate_v1
+            .as_ref()
+            .and_then(|gate| gate.remaining(Instant::now()))
+        {
+            self.poll_output(remaining);
+        }
+        self.poll_output(Duration::from_millis(1));
+        self.receiver_delivery_gate_v1
+            .as_ref()
+            .unwrap()
+            .ensure_triggered()
+            .unwrap();
+        self.receiver_delivery_gate_v1.take().unwrap().into_writes()
     }
 
     pub fn paste(&mut self, text: &str) {
@@ -910,15 +963,23 @@ impl Session {
 
     /// Drain actual terminal output, then wait briefly for a redraw; no application state access.
     pub fn poll_output(&mut self, duration: Duration) {
+        if let Some(remaining) = self
+            .receiver_delivery_gate_v1
+            .as_ref()
+            .and_then(|gate| gate.remaining(Instant::now()))
+        {
+            thread::sleep(duration.min(remaining));
+            return;
+        }
         let deadline = Instant::now() + duration;
         loop {
-            while let Ok(bytes) = self.receiver.try_recv() {
+            while let Ok(bytes) = self.observed_try_recv_v1() {
                 self.process(&bytes);
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return;
             };
-            match self.receiver.recv_timeout(remaining) {
+            match self.observed_recv_timeout_v1(remaining) {
                 Ok(bytes) => self.process(&bytes),
                 Err(_) => return,
             }
@@ -926,6 +987,121 @@ impl Session {
     }
 
     /// Traverse only with Tab and prove focus from the terminal's visible underline attribute.
+    pub fn focus_completed_owned_action_v1(
+        &mut self,
+        title: &str,
+        label: &str,
+        attribute: completed_navigation_controls_v1::FocusAttributeV1,
+        controls: &[&str],
+        notices: &[&str],
+    ) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            let Some(previous) = self
+                .cursorless_frames
+                .last_cells
+                .as_ref()
+                .and_then(|frame| {
+                    completed_navigation_controls_v1::owned_focus_v1(
+                        frame, title, label, attribute, controls, notices,
+                    )
+                })
+            else {
+                assert!(
+                    Instant::now() < deadline,
+                    "No completed topmost owned focus for {title} / {label}\n{}",
+                    self.screen()
+                );
+                continue;
+            };
+            if previous.target_focused {
+                return;
+            }
+            let after = self.cursorless_frames.cells_end;
+            self.send_key(b"\t");
+            loop {
+                self.poll_output(Duration::from_millis(1));
+                if self.cursorless_frames.cells_end > after
+                    && self
+                        .cursorless_frames
+                        .last_cells
+                        .as_ref()
+                        .and_then(|frame| {
+                            completed_navigation_controls_v1::owned_focus_v1(
+                                frame, title, label, attribute, controls, notices,
+                            )
+                        })
+                        .is_some_and(|current| current.acknowledges_change_from(&previous))
+                {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "No genuine completed owned focus change after ONE Tab for {title} / {label}\n{}",self.screen());
+            }
+        }
+    }
+    pub fn scroll_owned_details_v1(
+        &mut self,
+        mouse: bool,
+        title: &str,
+        selected: &str,
+        down: bool,
+        goal: &[&str],
+    ) {
+        assert!(!goal.is_empty());
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            let Some(previous) = self
+                .cursorless_frames
+                .last_cells
+                .as_ref()
+                .and_then(|frame| {
+                    completed_navigation_controls_v1::owned_details_v1(frame, title, selected)
+                })
+            else {
+                assert!(
+                    Instant::now() < deadline,
+                    "No completed owned detail viewport for {selected}\n{}",
+                    self.screen()
+                );
+                continue;
+            };
+            if goal.iter().all(|label| previous.contains(label)) {
+                return;
+            }
+            let after = self.cursorless_frames.cells_end;
+            if mouse {
+                self.wheel(previous.point.0, previous.point.1, down);
+            } else {
+                self.send_key(if down { b"\x1b[6;5~" } else { b"\x1b[5;5~" });
+            }
+            loop {
+                self.poll_output(Duration::from_millis(1));
+                if self.cursorless_frames.cells_end > after
+                    && self
+                        .cursorless_frames
+                        .last_cells
+                        .as_ref()
+                        .and_then(|frame| {
+                            completed_navigation_controls_v1::owned_details_v1(
+                                frame, title, selected,
+                            )
+                        })
+                        .is_some_and(|current| current.acknowledges_change_from(&previous))
+                {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "ONE owned detail scroll produced no genuine completed viewport change\n{}",
+                    self.screen()
+                );
+            }
+        }
+    }
+
+    /// Legacy callers are not silently assigned a guessed owning title.
     pub fn focus_visible_action(&mut self, label: &str) {
         self.wait_for_screen(label);
         let deadline = Instant::now() + Duration::from_secs(8);
@@ -1037,7 +1213,7 @@ impl Session {
         let footer_cursor = format!("\x1b[{rows};1H");
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
-            while let Ok(bytes) = self.receiver.try_recv() {
+            while let Ok(bytes) = self.observed_try_recv_v1() {
                 self.process(&bytes);
             }
             let footer = self
@@ -1070,10 +1246,7 @@ impl Session {
                 self.save_artifacts();
                 panic!("Actual binary did not redraw {cols}x{rows} frame and bottom toolbar\n{}; artifacts: {}", self.screen(), self.artifact_dir.display());
             };
-            match self
-                .receiver
-                .recv_timeout(remaining.min(Duration::from_millis(50)))
-            {
+            match self.observed_recv_timeout_v1(remaining.min(Duration::from_millis(50))) {
                 Ok(bytes) => self.process(&bytes),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -1099,7 +1272,7 @@ impl Session {
     ) -> Result<(), String> {
         let deadline = Instant::now() + timeout;
         loop {
-            while let Ok(bytes) = self.receiver.try_recv() {
+            while let Ok(bytes) = self.observed_try_recv_v1() {
                 self.process(&bytes);
             }
             if condition(&self.screen()) {
@@ -1108,10 +1281,7 @@ impl Session {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(format!("missing {description:?}\n{}", self.screen()));
             };
-            match self
-                .receiver
-                .recv_timeout(remaining.min(Duration::from_millis(50)))
-            {
+            match self.observed_recv_timeout_v1(remaining.min(Duration::from_millis(50))) {
                 Ok(bytes) => self.process(&bytes),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -1153,6 +1323,50 @@ impl Session {
     }
 
     fn process(&mut self, bytes: &[u8]) {
+        let delivered = self
+            .receiver_delivery_gate_v1
+            .as_mut()
+            .map_or(bytes.len(), |gate| {
+                gate.receiver_chunk(bytes, Instant::now()).unwrap()
+            });
+        self.process_delivered_v1(&bytes[..delivered]);
+    }
+    fn release_receiver_tail_v1(&mut self) {
+        if let Some(tail) = self
+            .receiver_delivery_gate_v1
+            .as_mut()
+            .and_then(|gate| gate.release_tail(Instant::now()))
+        {
+            self.process_delivered_v1(&tail);
+        }
+    }
+    fn observed_try_recv_v1(&mut self) -> Result<Vec<u8>, mpsc::TryRecvError> {
+        if self
+            .receiver_delivery_gate_v1
+            .as_ref()
+            .is_some_and(|gate| gate.remaining(Instant::now()).is_some())
+        {
+            return Err(mpsc::TryRecvError::Empty);
+        }
+        self.release_receiver_tail_v1();
+        self.receiver.try_recv()
+    }
+    fn observed_recv_timeout_v1(
+        &mut self,
+        duration: Duration,
+    ) -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
+        if let Some(remaining) = self
+            .receiver_delivery_gate_v1
+            .as_ref()
+            .and_then(|gate| gate.remaining(Instant::now()))
+        {
+            thread::sleep(duration.min(remaining));
+            return Err(mpsc::RecvTimeoutError::Timeout);
+        }
+        self.release_receiver_tail_v1();
+        self.receiver.recv_timeout(duration)
+    }
+    fn process_delivered_v1(&mut self, bytes: &[u8]) {
         let base = self.transcript.len();
         self.transcript.extend_from_slice(bytes);
         self.cursorless_frames
@@ -1190,7 +1404,7 @@ impl Session {
                 Instant::now() < deadline,
                 "expected {count} fixture commands"
             );
-            if let Ok(bytes) = self.receiver.recv_timeout(Duration::from_millis(20)) {
+            if let Ok(bytes) = self.observed_recv_timeout_v1(Duration::from_millis(20)) {
                 self.process(&bytes);
             }
         }
@@ -1262,7 +1476,7 @@ impl Session {
     fn assert_exit_state(&mut self, success: bool, initialized: bool) {
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
-            while let Ok(bytes) = self.receiver.try_recv() {
+            while let Ok(bytes) = self.observed_try_recv_v1() {
                 self.process(&bytes);
             }
             if let Some(status) = self.child.try_wait().unwrap() {
@@ -1271,12 +1485,12 @@ impl Session {
                 break;
             }
             assert!(Instant::now() < deadline, "child failed to exit");
-            if let Ok(bytes) = self.receiver.recv_timeout(Duration::from_millis(20)) {
+            if let Ok(bytes) = self.observed_recv_timeout_v1(Duration::from_millis(20)) {
                 self.process(&bytes);
             }
         }
         // The PTY reader may deliver final bytes after wait observes process exit.
-        while let Ok(bytes) = self.receiver.recv_timeout(Duration::from_millis(100)) {
+        while let Ok(bytes) = self.observed_recv_timeout_v1(Duration::from_millis(100)) {
             self.process(&bytes);
         }
         let raw = String::from_utf8_lossy(&self.transcript);

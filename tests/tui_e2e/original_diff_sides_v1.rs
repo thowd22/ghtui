@@ -18,6 +18,8 @@ use std::{
 const TITLE: &str = "Compare saved file sides • original comparison";
 #[path = "native_diff_v1.rs"]
 mod native_diff_v1;
+#[path = "native_full_side_v3.rs"]
+mod native_full_side_v3;
 #[path = "native_mutable_diff_v2.rs"]
 mod native_mutable_diff_v2;
 #[path = "readonly_index_v1.rs"]

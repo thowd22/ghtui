@@ -318,6 +318,33 @@ fn run() -> Result<()> {
             form.preview_requested
                 && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
         }) {
+            // Capture one original clock and accepted autosave cutoff BEFORE
+            // queueing. The worker waits for acknowledgements only: it never
+            // resends pending bodies or renews private-cache preparation.
+            let corpus_fence = if let Some(form) = app
+                .form
+                .as_ref()
+                .filter(|form| matches!(form.purpose, ghtui::forms::FormPurpose::Corpus(_)))
+            {
+                let deadline = Instant::now() + Duration::from_secs(30);
+                match draft_writer.capture_corpus_preview_v4(
+                    form.scope(),
+                    form.resource(),
+                    form.draft(),
+                    &paths.database,
+                    deadline,
+                ) {
+                    Ok(fence) => Some(fence),
+                    Err(error) => {
+                        let form = app.form.as_mut().expect("original corpus form");
+                        form.preview_requested = false;
+                        form.error = error;
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             let mut form = app.form.as_ref().unwrap().clone();
             app.form.as_mut().unwrap().preview_requested = false;
             app.form.as_mut().unwrap().submitting = true;
@@ -326,6 +353,8 @@ fn run() -> Result<()> {
             let view = form.view();
             let runner = runner.clone();
             let database = paths.database.clone();
+            let draft_client = draft_writer.client();
+            let waiting_corpus = corpus_fence.is_some();
             background.submit(&mut app, view, move |cancel| {
                 if let ghtui::forms::FormPurpose::PrMetadata(intent)=&form.purpose {
                     if form.publication.is_some() {
@@ -355,8 +384,13 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrInline(_) => return Err("Original scoped inline previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrMetadata(_) => unreachable!("metadata worker routed above"),
                     ghtui::forms::FormPurpose::Corpus(intent) => {
-                        let provider = GithubProvider::new(&intent.identity.host).map_err(|error|error.to_string())?.with_runner(runner);
+                        let fence = corpus_fence.as_ref().ok_or("Original repository preview draft cutoff unavailable")?;
+                        draft_client.wait_corpus_preview_v4(fence, &cancel)?;
+                        fence.check_current(&cancel)?;
+                        let provider = GithubProvider::new(&intent.identity.host).map_err(|error|error.to_string())?.with_runner(runner)
+                            .with_scoped_read_window(fence.deadline(), 1024 * 1024).map_err(|error|error.to_string())?;
                         let cache = ghtui::storage::Cache::open(&database).map_err(|error|error.to_string())?;
+                        fence.check_current(&cancel)?;
                         match ghtui::corpus_ui::preview(intent,&values,&cache,&provider,&cancel) {
                             Ok(()) => {},
                             Err(error) if ghtui::pr_ui::account_failure(&error) => return Ok(PreparedView {clear_private:true,status:format!("Repository account verification failed • private selections hidden: {error}"),..Default::default()}),
@@ -367,7 +401,7 @@ fn run() -> Result<()> {
                         comparison.intent = compare_intent.unwrap();
                         comparison.plan = Some(ghtui::comparison::ComparisonPlan::prepare(
                             &comparison.intent,
-                            cancel,
+                            cancel.clone(),
                         )?);
                     }
                     ghtui::forms::FormPurpose::Local(intent) => {
@@ -376,7 +410,7 @@ fn run() -> Result<()> {
                             &intent.context,
                             &values,
                             &intent.selections,
-                            cancel,
+                            cancel.clone(),
                         )?);
                     }
                     ghtui::forms::FormPurpose::Actions(intent) => {
@@ -424,6 +458,7 @@ fn run() -> Result<()> {
                 form.preview = true;
                 form.preview_scroll = 0;
                 form.submitting = false;
+                if let Some(fence) = &corpus_fence { fence.check_current(&cancel)?; }
                 Ok(PreparedView {
                     lines: vec![],
                     context: None,
@@ -440,6 +475,11 @@ fn run() -> Result<()> {
                     ..PreparedView::default()
                 })
             });
+            if waiting_corpus {
+                app.status =
+                    "Waiting for accepted local draft saves • Preview has not queried GitHub"
+                        .into();
+            }
         }
         for ack in draft_writer.poll() {
             if let Some(form) = &mut app.form {

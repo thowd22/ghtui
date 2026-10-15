@@ -5,7 +5,7 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy)]
-pub(super) enum Language {
+pub(crate) enum Language {
     Rust,
     Json,
     Toml,
@@ -13,7 +13,7 @@ pub(super) enum Language {
     Plain,
 }
 impl Language {
-    pub(super) fn for_path(path: Option<&[u8]>) -> Self {
+    pub(crate) fn for_path(path: Option<&[u8]>) -> Self {
         match path.and_then(|path| path.rsplit(|byte| *byte == b'.').next()) {
             Some(b"rs") => Self::Rust,
             Some(b"json") => Self::Json,
@@ -31,14 +31,23 @@ impl Language {
             Self::Plain => "Plain text: unsupported syntax; original patch text",
         }
     }
+    pub(crate) fn full_side_label(self) -> &'static str {
+        match self {
+            Self::Rust => "Shared bounded Rust lexer • full-file prefix; partial syntax",
+            Self::Json => "Shared bounded JSON lexer • full-file prefix; partial syntax",
+            Self::Toml => "Shared bounded TOML lexer • full-file prefix; partial syntax",
+            Self::Shell => "Shared bounded shell lexer • full-file prefix; partial syntax",
+            Self::Plain => "Plain text • unsupported syntax; genuine full-file content",
+        }
+    }
 }
 #[derive(Default)]
-pub(super) struct Lexer {
+pub(crate) struct Lexer {
     block_comment: bool,
     quote: Option<u8>,
 }
 impl Lexer {
-    pub(super) fn spans(
+    pub(crate) fn spans(
         &mut self,
         raw: &[u8],
         language: Language,
@@ -254,7 +263,7 @@ fn fallback(
 /// Escape once while mapping only requested paint endpoints, not an unbounded
 /// byte->display table. Ranges touching a Unicode/control unit paint that whole
 /// safe unit, and never change raw canonical bytes or click identity.
-pub(super) fn escape(
+pub(crate) fn escape(
     raw: &[u8],
     spans: &[(Range<usize>, Role)],
     mark: bool,

@@ -13,6 +13,341 @@ const PROGRESS_FILE: &str = "UNVIEWED • src/α file.rs";
 const CATALOGUE: &str = "Repositories • explicit discovery";
 
 const SCOPED_CHECK: &str = "Exact observed build";
+const FORM: &str = "Change base branch • example/repo#7";
+const DETAIL_ROW: &str = "◆ repository · example/repo0000";
+const DETAIL_LINES: &[&str] = &[
+    "Full repository name: example/repo0000",
+    "Repository ID: 10000",
+    "Repository node: genuine-node",
+    "Pull permission: true",
+    "Archive state: false",
+    "Fork state: false",
+    "Owner: @example [organization]",
+    "Language: Rust",
+    "Description: observed metadata",
+];
+fn detail_bytes(height: u16, width: u16, offset: usize) -> Vec<u8> {
+    let mut bytes = box_bytes(CATALOGUE, height, width);
+    bytes.extend_from_slice(
+        format!(
+            "\x1b[10;3H{DETAIL_ROW}\x1b[{};3H[Ctrl-PgUp Detail] [Ctrl-PgDn Detail]",
+            height - 8
+        )
+        .as_bytes(),
+    );
+    for (row, line) in DETAIL_LINES.iter().skip(offset).take(4).enumerate() {
+        bytes.extend_from_slice(
+            format!("\x1b[{};3H{line}", usize::from(height - 7) + row).as_bytes(),
+        );
+    }
+    bytes
+}
+fn observe_details(frame: &vt100::Screen) -> Option<controls::OwnedDetailsV1> {
+    controls::owned_details_v1(frame, CATALOGUE, DETAIL_ROW)
+}
+#[test]
+fn owned_input_frames_v1_detail_goal_and_real_field_movement_are_observed() {
+    for (height, width) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        complete(&mut parser, &mut frames, &detail_bytes(height, width, 0));
+        let before = observe_details(frames.last_cells.as_ref().unwrap()).unwrap();
+        assert!(before.contains(DETAIL_LINES[0]) && before.contains(DETAIL_LINES[1]));
+        assert!(!before.contains(DETAIL_LINES[6]));
+        complete(&mut parser, &mut frames, &detail_bytes(height, width, 3));
+        let owner = observe_details(frames.last_cells.as_ref().unwrap()).unwrap();
+        assert!(owner.contains(DETAIL_LINES[6]));
+        assert!(owner.acknowledges_change_from(&before));
+        complete(&mut parser, &mut frames, &detail_bytes(height, width, 0));
+        let returned = observe_details(frames.last_cells.as_ref().unwrap()).unwrap();
+        assert!(returned.acknowledges_change_from(&owner));
+        assert!(returned.contains(DETAIL_LINES[0]) && returned.contains(DETAIL_LINES[1]));
+        assert_eq!(returned.point.1, height - 8);
+    }
+}
+#[test]
+fn owned_input_frames_v1_detail_ready_repaint_color_and_same_field_value_change_do_not_ack() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &detail_bytes(24, 80, 0));
+    let before = observe_details(frames.last_cells.as_ref().unwrap()).unwrap();
+    let mut ready = detail_bytes(24, 80, 0);
+    ready.extend_from_slice(
+        "\x1b[10;70H\x1b[38;2;255;0;0m▀\x1b[0m\x1b[18;3HRepository ID: 10001".as_bytes(),
+    );
+    complete(&mut parser, &mut frames, &ready);
+    assert!(!observe_details(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+}
+#[test]
+fn owned_input_frames_v1_detail_duplicate_lines_cannot_forge_motion_from_value_only_change() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut before = detail_bytes(24, 80, 0);
+    before.extend_from_slice(
+        b"\x1b[19;3Hsame duplicate body line          \x1b[20;3Hsame duplicate body line          ",
+    );
+    complete(&mut parser, &mut frames, &before);
+    let before = observe_details(frames.last_cells.as_ref().unwrap()).unwrap();
+    let mut after = detail_bytes(24, 80, 0);
+    after.extend_from_slice(b"\x1b[18;3HRepository ID: 10001\x1b[19;3Hsame duplicate body line          \x1b[20;3Hsame duplicate body line          ");
+    complete(&mut parser, &mut frames, &after);
+    assert!(!observe_details(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+}
+#[test]
+fn owned_input_frames_v1_detail_partial_and_resize_retire_old_viewport_geometry() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &detail_bytes(24, 80, 0));
+    let before = observe_details(frames.last_cells.as_ref().unwrap()).unwrap();
+    let end = frames.cells_end;
+    let next = detail_bytes(24, 80, 3);
+    frames.process(&mut parser, &next, end);
+    assert!(!observe_details(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+    frames.process(&mut parser, b"\x1b[?25l", end + next.len());
+    assert!(observe_details(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+    frames.invalidate_size();
+    assert!(frames.last_cells.is_none());
+    parser.set_size(40, 120);
+    complete(&mut parser, &mut frames, &detail_bytes(40, 120, 3));
+    assert!(!observe_details(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+}
+#[test]
+fn owned_input_frames_v1_detail_foreign_selected_row_duplicate_control_and_nested_overlay_refuse() {
+    for case in 0..3 {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = detail_bytes(24, 80, 0);
+        bytes.extend_from_slice(
+            match case {
+                0 => "\x1b[10;3H◆ repository · example/repo0001",
+                1 => "\x1b[12;3H[Ctrl-PgDn Detail]",
+                _ => "\x1b[8;5H┌Current nested overlay\x1b[8;70H┐\x1b[14;5H└\x1b[14;70H┘",
+            }
+            .as_bytes(),
+        );
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(observe_details(frames.last_cells.as_ref().unwrap()).is_none());
+    }
+}
+#[test]
+fn owned_input_frames_v1_catalogue_close_underlined_owner_not_unrelated_body_focus() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let observe = |screen: &vt100::Screen| {
+        controls::owned_focus_v1(
+            screen,
+            CATALOGUE,
+            "[Esc Close]",
+            controls::FocusAttributeV1::Underline,
+            &["[Esc Close]", "[q Quit]"],
+            &[],
+        )
+    };
+    let mut quit = box_bytes(CATALOGUE, 24, 80);
+    quit.extend_from_slice(b"\x1b[20;3H[Esc Close] \x1b[4m[q Quit]\x1b[0m");
+    complete(&mut parser, &mut frames, &quit);
+    let before = observe(frames.last_cells.as_ref().unwrap()).unwrap();
+    assert!(!before.target_focused);
+    let mut body = quit.clone();
+    body.extend_from_slice(b"\x1b[9;3H\x1b[4mFocused unrelated detail row\x1b[0m");
+    complete(&mut parser, &mut frames, &body);
+    assert!(!observe(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+    let mut close = box_bytes(CATALOGUE, 24, 80);
+    close.extend_from_slice(b"\x1b[20;3H\x1b[4m[Esc Close]\x1b[0m [q Quit]");
+    complete(&mut parser, &mut frames, &close);
+    let close = observe(frames.last_cells.as_ref().unwrap()).unwrap();
+    assert!(close.target_focused);
+    assert!(close.acknowledges_change_from(&before));
+}
+const FORM_CONTROLS: &[&str] = &[
+    "[Preview]",
+    "[External editor]",
+    "[Confirm action]",
+    "[Keep draft / Close]",
+];
+fn form_focus_bytes(height: u16, width: u16, selected: Option<usize>) -> Vec<u8> {
+    let mut bytes = box_bytes(FORM, height, width);
+    bytes.extend_from_slice(format!("\x1b[{};3H", height - 4).as_bytes());
+    for (index, label) in FORM_CONTROLS.iter().enumerate() {
+        bytes.extend_from_slice(if selected == Some(index) {
+            b"\x1b[7m"
+        } else {
+            b"\x1b[0m"
+        });
+        bytes.extend_from_slice(label.as_bytes());
+        bytes.extend_from_slice(b"\x1b[0m ");
+    }
+    bytes
+}
+fn form_focus(frame: &vt100::Screen) -> Option<controls::OwnedFocusV1> {
+    controls::owned_focus_v1(
+        frame,
+        FORM,
+        "[Confirm action]",
+        controls::FocusAttributeV1::Inverse,
+        FORM_CONTROLS,
+        &[],
+    )
+}
+#[test]
+fn owned_input_frames_v1_form_focus_requires_actual_declared_control_change() {
+    for (height, width) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        complete(
+            &mut parser,
+            &mut frames,
+            &form_focus_bytes(height, width, None),
+        );
+        let mut before = form_focus(frames.last_cells.as_ref().unwrap()).unwrap();
+        for selected in 0..=2 {
+            complete(
+                &mut parser,
+                &mut frames,
+                &form_focus_bytes(height, width, Some(selected)),
+            );
+            let current = form_focus(frames.last_cells.as_ref().unwrap()).unwrap();
+            assert!(current.acknowledges_change_from(&before));
+            assert_eq!(current.target_focused, selected == 2);
+            before = current;
+        }
+        assert_eq!(
+            frames
+                .last_cells
+                .as_ref()
+                .unwrap()
+                .cell(before.target.1, before.target.0)
+                .unwrap()
+                .contents(),
+            "["
+        );
+    }
+}
+#[test]
+fn owned_input_frames_v1_body_text_avatar_color_and_selected_row_cannot_acknowledge_tab() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &form_focus_bytes(24, 80, Some(0)));
+    let before = form_focus(frames.last_cells.as_ref().unwrap()).unwrap();
+    let old_end = frames.cells_end;
+    let mut repaint = form_focus_bytes(24, 80, Some(0));
+    repaint.extend_from_slice("\x1b[8;3Hnew unrelated ready text\x1b[9;3H\x1b[7m> unrelated selected row\x1b[0m\x1b[10;3H\x1b[38;2;255;0;0m▀\x1b[0m".as_bytes());
+    complete(&mut parser, &mut frames, &repaint);
+    assert!(frames.cells_end > old_end);
+    assert!(!form_focus(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+}
+#[test]
+fn owned_input_frames_v1_duplicate_target_or_multiple_focused_controls_refuse() {
+    for duplicate in [true, false] {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = form_focus_bytes(24, 80, Some(0));
+        bytes.extend_from_slice(if duplicate {
+            b"\x1b[10;3H[Confirm action]"
+        } else {
+            b"\x1b[20;13H\x1b[7m[External editor]\x1b[0m"
+        });
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(form_focus(frames.last_cells.as_ref().unwrap()).is_none());
+    }
+}
+#[test]
+fn owned_input_frames_v1_nested_complete_overlay_refuses_underlying_form_focus() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = form_focus_bytes(24, 80, Some(2));
+    bytes.extend_from_slice(
+        "\x1b[8;5H┌Action unavailable\x1b[8;70H┐\x1b[15;5H└\x1b[15;70H┘".as_bytes(),
+    );
+    complete(&mut parser, &mut frames, &bytes);
+    assert!(form_focus(frames.last_cells.as_ref().unwrap()).is_none());
+}
+#[test]
+fn owned_input_frames_v1_focused_cells_partial_and_resize_do_not_renew_focus_proof() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = form_focus_bytes(24, 80, None);
+    bytes.extend_from_slice(b"\x1b[?25h");
+    frames.process(&mut parser, &bytes, 0);
+    assert!(frames.last.is_none());
+    let before = form_focus(frames.last_cells.as_ref().unwrap()).unwrap();
+    let end = frames.cells_end;
+    let target = form_focus_bytes(24, 80, Some(2));
+    frames.process(&mut parser, &target, end);
+    assert_eq!(frames.cells_end, end);
+    assert!(!form_focus(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+    frames.process(&mut parser, b"\x1b[?25h", end + target.len());
+    assert!(form_focus(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+    assert!(
+        frames.last.is_none(),
+        "Focused cell proof is not cursorless/caret proof"
+    );
+    frames.invalidate_size();
+    assert!(frames.last_cells.is_none());
+    parser.set_size(40, 120);
+    complete(
+        &mut parser,
+        &mut frames,
+        &form_focus_bytes(40, 120, Some(2)),
+    );
+    assert!(!form_focus(frames.last_cells.as_ref().unwrap())
+        .unwrap()
+        .acknowledges_change_from(&before));
+}
+#[test]
+fn owned_input_frames_v1_picker_query_rows_and_choose_are_explicit_unique_focus_identities() {
+    const PICKER: &str = "PR metadata choices · Base branch";
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let observe = |frame: &vt100::Screen| {
+        controls::owned_focus_v1(
+            frame,
+            PICKER,
+            "[Enter Choose]",
+            controls::FocusAttributeV1::Inverse,
+            &["[Enter Choose]", "[Esc Back]"],
+            &["Filter focused:", "· Rows focused"],
+        )
+    };
+    let mut query = box_bytes(PICKER, 24, 80);
+    query
+        .extend_from_slice(b"\x1b[8;3HFilter focused: original\x1b[10;3H[Enter Choose] [Esc Back]");
+    complete(&mut parser, &mut frames, &query);
+    let query = observe(frames.last_cells.as_ref().unwrap()).unwrap();
+    let mut rows = box_bytes(PICKER, 24, 80);
+    rows.extend_from_slice("\x1b[4;40H· Rows focused\x1b[8;3HFilter: original\x1b[10;3H[Enter Choose] [Esc Back]\x1b[12;3H\x1b[7m> genuine selected row\x1b[0m".as_bytes());
+    complete(&mut parser, &mut frames, &rows);
+    let rows = observe(frames.last_cells.as_ref().unwrap()).unwrap();
+    assert!(rows.acknowledges_change_from(&query));
+    assert!(!rows.target_focused);
+    let mut choose = box_bytes(PICKER, 24, 80);
+    choose.extend_from_slice(
+        b"\x1b[8;3HFilter: original\x1b[10;3H\x1b[7m[Enter Choose]\x1b[0m [Esc Back]",
+    );
+    complete(&mut parser, &mut frames, &choose);
+    let choose = observe(frames.last_cells.as_ref().unwrap()).unwrap();
+    assert!(choose.acknowledges_change_from(&rows));
+    assert!(choose.target_focused);
+}
+
 #[test]
 fn completed_frame_actions_explicit_actions_owner_not_inbox_title_guess() {
     for (height, width) in [(24, 80), (40, 120)] {

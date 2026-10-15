@@ -1,6 +1,25 @@
 mod support;
 
 #[test]
+fn test_framework_git_maintenance_environment_and_actual_git_contracts() {
+    let result = std::process::Command::new("node")
+        .args(["--test", "tests/test_env.test.mjs"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = String::from_utf8(result.stdout).unwrap();
+    assert!(output.contains("# pass 5"), "{output}");
+    assert!(output.contains("# fail 0"), "{output}");
+    assert!(output.contains("# skipped 0"), "{output}");
+}
+
+#[test]
 fn test_framework_form_field_locator_requires_owned_phase_column_and_footer() {
     let mut terminal = vt100::Parser::new(24, 120, 0);
     terminal.process(b"\x1b[2J\x1b[HDecision explanation: old history\x1b[4;13HACTIONS INTENT\x1b[9;1HDecision explanation: underlying history");

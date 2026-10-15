@@ -2,6 +2,7 @@
 //! never invokes this module. Current observations are not historical trends.
 use crate::{
     app::View,
+    dashboard_profile_v1::SavedDashboardV1,
     metrics::{dashboard, MetricTarget, MetricsAction, UtcWindow},
     metrics_repository::{repository_evidence, MetricsReadGuard},
     metrics_workspace::MetricsWorkspace,
@@ -10,7 +11,7 @@ use crate::{
         runner::CancellationToken,
     },
     runtime::PreparedView,
-    storage::Scope,
+    storage::{Cache, Scope},
 };
 use std::{
     collections::BTreeSet,
@@ -148,14 +149,53 @@ pub fn prepare(
     }
     let action = request.action.take();
     let start = Instant::now();
-    let result = match action {
-        Some(MetricsAction::Window(window)) => {
-            cached_window(&request, &identity, window, provider, cancel, start)
+    let original_declared = request.declared.clone();
+    let preference_result = constrain_saved_scope(&mut request, action.as_ref());
+    let mut save_after_identity = None;
+    let mut restored_profile = None;
+    let result = match (preference_result, action.as_ref()) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Some(MetricsAction::SaveDashboard)) => (|| {
+            let previous = request.previous.as_ref().ok_or_else(|| {
+                Failure::Invalid("Load Dashboard evidence before saving preferences".into())
+            })?;
+            let profile = SavedDashboardV1::capture(previous)?;
+            let prepared = cached_window(
+                &request,
+                &identity,
+                previous.snapshot.window,
+                provider,
+                cancel,
+                start,
+            )?;
+            save_after_identity = Some(profile);
+            Ok(prepared)
+        })(),
+        (Ok(()), Some(MetricsAction::RestoreDashboard)) => (|| {
+            let scope = Scope::github(&identity.host, identity.account_id)
+                .map_err(|error| Failure::Invalid(error.to_string()))?;
+            let cache = Cache::open(&request.database)
+                .map_err(|error| Failure::Invalid(error.to_string()))?;
+            let profile = SavedDashboardV1::load(&cache, &scope, &original_declared)?;
+            request.declared = profile.repositories().to_vec();
+            request.selected_repository = None;
+            request.window_days = profile.window_days();
+            let prepared = load(&request, &identity, None, provider, cancel, start)?;
+            restored_profile = Some(profile);
+            Ok(prepared)
+        })(),
+        (Ok(()), Some(MetricsAction::DefaultDashboard)) => {
+            request.selected_repository = None;
+            request.window_days = 7;
+            load(&request, &identity, None, provider, cancel, start)
         }
-        Some(MetricsAction::Open(target)) => {
-            open(&request, &identity, &target, provider, cancel, start)
+        (Ok(()), Some(MetricsAction::Window(window))) => {
+            cached_window(&request, &identity, *window, provider, cancel, start)
         }
-        other => load(&request, &identity, other.as_ref(), provider, cancel, start),
+        (Ok(()), Some(MetricsAction::Open(target))) => {
+            open(&request, &identity, target, provider, cancel, start)
+        }
+        (Ok(()), other) => load(&request, &identity, other, provider, cancel, start),
     };
     // Even failed repository reads get a current final principal bracket. A
     // failure cannot restore another numeric account's private observations.
@@ -192,6 +232,63 @@ pub fn prepare(
                     }
                 }
             }
+            if let Some(metrics) = &mut prepared.metrics {
+                if let Some(profile) = restored_profile {
+                    metrics
+                        .apply_layout(profile.layout().clone())
+                        .map_err(|error| error.to_string())?;
+                    metrics.restored_scope = Some(Arc::from(profile.repositories().to_vec()));
+                    metrics.scope_label = format!("Saved scope • {}", metrics.scope_label);
+                    prepared.status = "Saved dashboard restored • fresh repository evidence • preferences are not access authority".into();
+                } else if action != Some(MetricsAction::DefaultDashboard) {
+                    if let Some(previous) = &request.previous {
+                        metrics
+                            .apply_layout(previous.layout.clone())
+                            .map_err(|error| error.to_string())?;
+                        metrics.restored_scope = previous.restored_scope.clone();
+                        if metrics.restored_scope.is_some()
+                            && !metrics.scope_label.starts_with("Saved scope")
+                        {
+                            metrics.scope_label = format!("Saved scope • {}", metrics.scope_label);
+                        }
+                    }
+                } else {
+                    prepared.status = "Dashboard defaults • all configured repositories • last7 days • all widgets • saved profile preserved".into();
+                }
+                if let Some(profile) = save_after_identity {
+                    if cancel.is_cancelled() || limits(start).is_err() {
+                        return Ok(hidden(
+                            "Dashboard preference save cancelled or expired • no profile written",
+                            false,
+                        ));
+                    }
+                    let saved = (|| -> Result<(), String> {
+                        let cache =
+                            Cache::open(&request.database).map_err(|error| error.to_string())?;
+                        if let Some(guard) = &metrics.read_guard {
+                            guard.validate_parents(&metrics.observations)?;
+                        }
+                        if cancel.is_cancelled() || limits(start).is_err() {
+                            return Err(
+                                "Dashboard save cancelled or expired before local preference write"
+                                    .into(),
+                            );
+                        }
+                        profile.save(&cache)?;
+                        if let Some(guard) = &metrics.read_guard {
+                            guard.validate_parents(&metrics.observations)?;
+                        }
+                        Ok(())
+                    })();
+                    if let Err(error) = saved {
+                        return Ok(hidden(
+                            format!("Dashboard preferences unavailable: {error}"),
+                            false,
+                        ));
+                    }
+                    prepared.status = "Default dashboard saved • account-scoped preferences only • original evidence as-of retained".into();
+                }
+            }
             prepared.verified_identity = Some(final_identity.clone());
             if let Some(metrics) = prepared
                 .metrics
@@ -226,6 +323,36 @@ pub fn prepare(
             false,
         )),
     }
+}
+
+/// A restored profile is navigation intent, never permission to leave the
+/// current explicit set. Only explicit Restore/Defaults replace that intent.
+fn constrain_saved_scope(
+    request: &mut MetricsRequest,
+    action: Option<&MetricsAction>,
+) -> Result<(), Failure> {
+    if matches!(
+        action,
+        Some(MetricsAction::RestoreDashboard | MetricsAction::DefaultDashboard)
+    ) {
+        return Ok(());
+    }
+    if let Some(scope) = request
+        .previous
+        .as_ref()
+        .and_then(|previous| previous.restored_scope.as_ref())
+    {
+        if scope.is_empty()
+            || scope.len() > 64
+            || scope
+                .iter()
+                .any(|name| !request.declared.iter().any(|declared| declared == name))
+        {
+            return Err(Failure::Invalid("Saved dashboard scope is no longer declared or is excluded; restore a valid profile or explicitly choose Defaults".into()));
+        }
+        request.declared = scope.to_vec();
+    }
+    Ok(())
 }
 
 fn load(

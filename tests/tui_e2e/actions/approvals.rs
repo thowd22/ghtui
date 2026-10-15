@@ -22,7 +22,16 @@ fn confirm_visible(session: &mut Session, mouse: bool) {
     }
 }
 fn close_notice(session: &mut Session, mouse: bool) {
-    choose(session, mouse, "[Esc Close]", b"\x1b");
+    let point = session.wait_for_owned_completed_action(
+        "Action unavailable • explanation only",
+        "[Esc Close]",
+        &[],
+    );
+    if mouse {
+        session.click(point.0, point.1);
+    } else {
+        session.send_key(b"\x1b");
+    }
     session
         .try_wait_for_condition(
             |screen| !screen.contains("Action unavailable"),
@@ -230,6 +239,17 @@ fn actions_approvals_mouse_fork_approval_cancel_preview_and_confirm_exact_run() 
     fork_approval(true)
 }
 fn fork_approval(mouse: bool) {
+    fork_approval_observed_footer(mouse, false);
+}
+#[test]
+fn owned_input_frames_v1_keyboard_approval_actual_partial_footer_no_underlay_input() {
+    fork_approval_observed_footer(false, true);
+}
+#[test]
+fn owned_input_frames_v1_mouse_approval_actual_partial_footer_no_underlay_input() {
+    fork_approval_observed_footer(true, true);
+}
+fn fork_approval_observed_footer(mouse: bool, controlled: bool) {
     let fixture = fixture();
     let mut awaiting = raw_run();
     awaiting["status"] = json!("completed");
@@ -303,6 +323,9 @@ fn fork_approval(mouse: bool) {
     assert!(rows
         .iter()
         .any(|row| row["args"][1] == "repos/example/repo/actions/runs/123/approve"));
+    if controlled {
+        session.hold_observed_output_after_literal_v1("Action unavailable • explanation only");
+    }
     command(&mut session, mouse, "Approve fork run");
     session.wait_for_screen("Action unavailable");
     session.wait_for_screen("Original attempt #1");
@@ -318,7 +341,30 @@ fn fork_approval(mouse: bool) {
         durable[0].receipt.as_ref().unwrap()["kind"],
         "run_transition"
     );
-    close_notice(&mut session, mouse);
+    let close_started_after = session.completed_cursorless_end();
+    let writes_before_close = controlled.then(|| session.observed_output_write_count_v1());
+    let closed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        close_notice(&mut session, mouse)
+    }));
+    if controlled {
+        let writes = session.finish_observed_output_hold_v1();
+        let closing = &writes[writes_before_close.unwrap()..];
+        eprintln!("Actual post-title closing journal after completed endpoint{close_started_after}: {closing:?}");
+        if let Err(payload) = closed {
+            std::panic::resume_unwind(payload);
+        }
+        assert_eq!(
+            closing.len(),
+            1,
+            "Partial-title/footer wait must never page underlay"
+        );
+        assert!(
+            closing[0].completed_cells_end > close_started_after,
+            "Close requires the genuine completed overlay, not its partial title"
+        );
+    } else if let Err(payload) = closed {
+        std::panic::resume_unwind(payload);
+    }
     session.resize(80, 24);
     session.wait_for_screen("Run 123 • attempt 2");
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");

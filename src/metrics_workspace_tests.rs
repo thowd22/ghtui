@@ -1,4 +1,6 @@
 //! Staged Dashboard code/widget contracts, not native PTY evidence.
+#[path = "dashboard_layout_v1_tests.rs"]
+mod dashboard_layout_v1;
 use super::*;
 use crate::{
     metrics::{

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { testEnvironment } from './test-env.mjs';
 
 export function selectedNames(listing, key) {
   return listing.split('\n').flatMap(line => {
@@ -28,7 +29,7 @@ export function verifyExecuted(output, expected) {
 }
 
 function cargo(args, options = {}) {
-  const result = spawnSync('cargo', ['test', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, ...options.env }, maxBuffer: 16 * 1024 * 1024 });
+  const result = spawnSync('cargo', ['test', ...args], { cwd: root, encoding: 'utf8', env: testEnvironment({ ...process.env, ...options.env }), maxBuffer: 16 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`cargo test ${args.join(' ')} failed\n${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   return result.stdout;
 }

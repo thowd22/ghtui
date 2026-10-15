@@ -139,6 +139,9 @@ fn same_options(a: &NativeDiffOptionsV1, b: &NativeDiffOptionsV1) -> bool {
 
 /// No public field/serde constructor can turn display coordinates into a source.
 pub struct NativeDiffRequestV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    purpose: NativeDiffPurposeV3,
+    retained_full: Option<Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>>,
+    full_selected: usize,
     session: Arc<()>,
     intent: Arc<S::Intent>,
     source: Option<Arc<S>>,
@@ -210,10 +213,19 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
                 NativeDiffOptionChangeV1::Wrap => options.wrap = !options.wrap,
                 NativeDiffOptionChangeV1::Context => options.show_context = !options.show_context,
                 NativeDiffOptionChangeV1::Whitespace => {
-                    options.whitespace = match options.whitespace {
-                        NativeDiffWhitespaceV1::Show => NativeDiffWhitespaceV1::Mark,
-                        NativeDiffWhitespaceV1::Mark => NativeDiffWhitespaceV1::HideAsciiPaired,
-                        NativeDiffWhitespaceV1::HideAsciiPaired => NativeDiffWhitespaceV1::Show,
+                    options.whitespace = if matches!(self.purpose, NativeDiffPurposeV3::FullSide(_))
+                    {
+                        if options.whitespace == NativeDiffWhitespaceV1::Mark {
+                            NativeDiffWhitespaceV1::Show
+                        } else {
+                            NativeDiffWhitespaceV1::Mark
+                        }
+                    } else {
+                        match options.whitespace {
+                            NativeDiffWhitespaceV1::Show => NativeDiffWhitespaceV1::Mark,
+                            NativeDiffWhitespaceV1::Mark => NativeDiffWhitespaceV1::HideAsciiPaired,
+                            NativeDiffWhitespaceV1::HideAsciiPaired => NativeDiffWhitespaceV1::Show,
+                        }
                     };
                 }
                 NativeDiffOptionChangeV1::Syntax => options.syntax = !options.syntax,
@@ -258,7 +270,23 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
             Some(RangeEditV1::Clear) => None,
             None => self.retained_range.clone(),
         };
-        let mut view = if source.member_count() == 0 {
+        let mut view = if let NativeDiffPurposeV3::FullSide(side) = self.purpose {
+            match crate::repository_native_full_side_v3::NativeFullSideV3::prepare(
+                source.clone(),
+                (self.file, side),
+                self.retained_full.as_ref(),
+                options.clone(),
+                self.query.clone(),
+                self.width,
+                operation,
+            ) {
+                Ok(frame) => NativePreparedViewV1::FullSide(frame),
+                Err(reason) => {
+                    operation.check()?;
+                    NativePreparedViewV1::SourceOnly(Arc::from(format!("Error: {} • full-file context unavailable; original patch/range retained; no full-side row/staging authority",crate::providers::runner::sanitize_terminal(&reason))))
+                }
+            }
+        } else if source.member_count() == 0 {
             NativePreparedViewV1::SourceOnly(Arc::from(
                 if source.complete() && source.observed_members() == 0 {
                     "No changed files in this complete original comparison • read-only; no row/range authority"
@@ -303,11 +331,14 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
         {
             view=NativePreparedViewV1::SourceOnly(Arc::from("Error: native model plus actor display material exceeds8MiB • original catalogue retained; no current row/range authority"));
         }
-        let focus = self
-            .focused
-            .as_ref()
-            .and_then(|key| view.frame().and_then(|frame| frame.rows_for(key)))
-            .map_or(0, |rows| rows.start);
+        let focus = if let NativePreparedViewV1::FullSide(frame) = &view {
+            self.full_selected.min(frame.rows().len().saturating_sub(1))
+        } else {
+            self.focused
+                .as_ref()
+                .and_then(|key| view.frame().and_then(|frame| frame.rows_for(key)))
+                .map_or(0, |rows| rows.start)
+        };
         source.validate_current(operation)?;
         operation.check()?;
         Ok(PreparedNativeDiffV1::<S> {
@@ -330,6 +361,7 @@ pub struct PreparedNativeDiffV1<S: NativeDiffPurposeV2 = OriginalComparisonSourc
     focus: usize,
 }
 enum NativePreparedViewV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    FullSide(Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>),
     Rows(Arc<NativeDiffProjectionV1<S>>),
     // No synthetic cells, keys or changed membership can be constructed here.
     SourceOnly(Arc<str>),
@@ -338,12 +370,13 @@ impl<S: NativeDiffPurposeV2> NativePreparedViewV1<S> {
     fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         match self {
             Self::Rows(frame) => Some(frame),
-            Self::SourceOnly(_) => None,
+            Self::SourceOnly(_) | Self::FullSide(_) => None,
         }
     }
     fn prepared_bytes(&self) -> usize {
         match self {
             Self::Rows(frame) => frame.prepared_bytes(),
+            Self::FullSide(frame) => frame.prepared_bytes(),
             Self::SourceOnly(note) => note.len() + std::mem::size_of::<Self>() + 64,
         }
     }
@@ -409,7 +442,22 @@ impl<S: NativeDiffPurposeV2> PreparedNativeDiffV1<S> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeDiffPurposeV3 {
+    Patch,
+    FullSide(DiffSide),
+}
+#[derive(Clone, Copy)]
+struct NativePatchPositionV3 {
+    selected: usize,
+    scroll: usize,
+    right: bool,
+    horizontal: u16,
+}
 pub struct NativeDiffStateV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    purpose: NativeDiffPurposeV3,
+    full_side: Option<Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>>,
+    patch_position: Option<NativePatchPositionV3>,
     session: Arc<()>,
     intent: Arc<S::Intent>,
     source: Option<Arc<S>>,
@@ -489,6 +537,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
     pub fn open_source(workspace: &Workspace, width: u16) -> Result<Self, String> {
         let (intent, source) = S::capture(workspace)?;
         Ok(Self {
+            purpose: NativeDiffPurposeV3::Patch,
+            full_side: None,
+            patch_position: None,
             session: Arc::new(()),
             intent,
             source,
@@ -548,7 +599,8 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
     /// A retained preview is not an interactive frame after newer input.
     pub fn current_frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         self.frame.as_ref().filter(|frame| {
-            self.projection_available
+            self.purpose == NativeDiffPurposeV3::Patch
+                && self.projection_available
                 && self.pending.is_none()
                 && self.regex == self.admitted_regex
                 && self.changes.is_empty()
@@ -570,7 +622,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         self.range.as_ref()
     }
     pub fn accepts(&self, request: &Arc<NativeDiffRequestV1<S>>) -> bool {
-        Arc::ptr_eq(&self.session, &request.session)
+        self.purpose == request.purpose
+            && same_arc(&self.full_side, &request.retained_full)
+            && Arc::ptr_eq(&self.session, &request.session)
             && Arc::ptr_eq(&self.intent, &request.intent)
             && self
                 .pending
@@ -612,9 +666,18 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         let focused = self
             .frame
             .as_ref()
-            .and_then(|frame| frame.ticket(self.selected, self.right))
+            .and_then(|frame| {
+                let position = self.patch_position;
+                frame.ticket(
+                    position.map_or(self.selected, |position| position.selected),
+                    position.map_or(self.right, |position| position.right),
+                )
+            })
             .map(|ticket| ticket.key().clone());
         let request = Arc::new(NativeDiffRequestV1::<S> {
+            purpose: self.purpose,
+            retained_full: self.full_side.clone(),
+            full_selected: self.selected,
             session: self.session.clone(),
             intent: self.intent.clone(),
             source: self.source.clone(),
@@ -656,6 +719,16 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         self.actors = Some(prepared.actors);
         self.options = prepared.options;
         match prepared.view {
+            NativePreparedViewV1::FullSide(frame) => {
+                self.projection_available = true;
+                self.metadata_note = None;
+                self.selected = prepared.focus;
+                self.scroll = self.selected.saturating_sub(2);
+                self.full_side = Some(frame);
+                self.status =
+                    "Full-file context ready • read-only rows; patch range retained behind Back"
+                        .into();
+            }
             NativePreparedViewV1::Rows(frame) => {
                 self.projection_available = true;
                 self.metadata_note = None;
@@ -665,6 +738,21 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
                 self.range = frame.range().cloned();
                 self.selected = prepared.focus;
                 self.scroll = self.selected.saturating_sub(2);
+                if let Some(position) = self.patch_position.take() {
+                    self.right = position.right;
+                    self.horizontal = position.horizontal;
+                    // Keep the canonical focus located in the newly projected
+                    // patch; exact old scroll is valid only unchanged geometry.
+                    if self.frame.as_ref().is_some_and(|old| {
+                        old.width() == frame.width()
+                            && old.query() == frame.query()
+                            && old.options() == frame.options()
+                            && old.file() == frame.file()
+                    }) {
+                        self.selected = position.selected.min(frame.rows().len().saturating_sub(1));
+                        self.scroll = position.scroll;
+                    }
+                }
                 self.frame = Some(frame);
                 self.status = S::ready_status().into();
             }
@@ -704,6 +792,67 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         } else {
             "Error: Native diff unavailable; diagnostic omitted".into()
         };
+        true
+    }
+    pub fn full_side(
+        &self,
+    ) -> Option<&Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>> {
+        self.full_side.as_ref()
+    }
+    pub fn is_full_side(&self) -> bool {
+        matches!(self.purpose, NativeDiffPurposeV3::FullSide(_))
+    }
+    pub fn current_full_side(
+        &self,
+    ) -> Option<&Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>> {
+        self.full_side.as_ref().filter(|frame| {
+            self.purpose == NativeDiffPurposeV3::FullSide(frame.side())
+                && self.projection_available
+                && self.pending.is_none()
+                && self.regex == self.admitted_regex
+                && self.changes.is_empty()
+                && self.range_edit.is_none()
+                && frame.file() == self.file
+                && frame.width() == self.width
+                && frame.query().text() == self.query.text
+        })
+    }
+    pub fn open_full_side(&mut self, side: DiffSide) -> Result<(), String> {
+        if side == DiffSide::Both
+            || self
+                .source
+                .as_ref()
+                .is_none_or(|source| self.file >= source.member_count())
+            || !self.is_full_side() && (self.pending.is_some() || !self.projection_available)
+        {
+            return Err(
+                "Wait for a current admitted file before opening explicit Old/New full content"
+                    .into(),
+            );
+        }
+        if !self.is_full_side() {
+            self.patch_position = Some(NativePatchPositionV3 {
+                selected: self.selected,
+                scroll: self.scroll,
+                right: self.right,
+                horizontal: self.horizontal,
+            });
+        }
+        self.purpose = NativeDiffPurposeV3::FullSide(side);
+        self.projection_available = false;
+        self.selected = 0;
+        self.scroll = 0;
+        self.horizontal = 0;
+        self.anchor = None;
+        Ok(())
+    }
+    pub fn back_to_patch(&mut self) -> bool {
+        if !self.is_full_side() {
+            return false;
+        }
+        self.purpose = NativeDiffPurposeV3::Patch;
+        self.projection_available = false;
+        self.anchor = None;
         true
     }
     pub fn select(

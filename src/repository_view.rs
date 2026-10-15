@@ -239,33 +239,13 @@ pub fn file_preview(
     content: Vec<u8>,
     max_lines: usize,
 ) -> FilePreview {
-    let kind = if entry.kind == "commit" {
-        BlobPreviewKind::Submodule
-    } else if entry.mode == "120000" {
-        BlobPreviewKind::Symlink
-    } else if let Some((object, size)) = lfs_pointer(&content) {
-        BlobPreviewKind::LfsPointer { object, size }
-    } else if content.contains(&0) || std::str::from_utf8(&content).is_err() {
-        BlobPreviewKind::Binary
-    } else {
-        BlobPreviewKind::Text
-    };
-    let mut truncated = false;
-    let rows=match &kind{
-        BlobPreviewKind::Text=>{
-            let max_lines=max_lines.clamp(1,10_000);
-            let mut lines=content.split(|byte|*byte==b'\n').peekable();let mut rows=Vec::new();
-            while let Some(line)=lines.next(){
-                if line.is_empty()&&lines.peek().is_none()&&content.ends_with(b"\n"){break;}
-                if rows.len()>=max_lines{truncated=true;break;}
-                rows.push(FilePreviewLine{line:Some(rows.len()as u32+1),label:display_bytes(line)});
-            }rows
-        }
-        BlobPreviewKind::Binary=>vec![FilePreviewLine{line:None,label:format!("Binary file: {} bytes; saved object {}",content.len(),entry.id)}],
-        BlobPreviewKind::Symlink=>vec![FilePreviewLine{line:None,label:format!("Symbolic link pointing to {}",display_path_bytes(&content))}],
-        BlobPreviewKind::Submodule=>vec![FilePreviewLine{line:None,label:format!("Submodule: another repository at saved version {}",entry.id)}],
-        BlobPreviewKind::LfsPointer{object,size}=>vec![FilePreviewLine{line:None,label:format!("Git LFS pointer: {size} bytes, sha256:{object}. Actual content has not been fetched.")}],
-    };
+    let kind = file_content_kind_v3(&entry.mode, entry.kind == "commit", &content);
+    let (rows, truncated) = content_preview_rows_v3(
+        &kind,
+        &content,
+        max_lines,
+        FilePreviewSourceV3::Saved(&entry.id),
+    );
     FilePreview {
         revision,
         path: entry.path.clone(),
@@ -275,6 +255,114 @@ pub fn file_preview(
         rows,
         truncated,
     }
+}
+
+/// Content classification is shared by saved files and explicitly unsaved
+/// native full-side snapshots. It does not assign a Git object identity.
+pub(crate) fn file_content_kind_v3(mode: &str, gitlink: bool, content: &[u8]) -> BlobPreviewKind {
+    if gitlink {
+        BlobPreviewKind::Submodule
+    } else if mode == "120000" {
+        BlobPreviewKind::Symlink
+    } else if let Some((object, size)) = lfs_pointer(content) {
+        BlobPreviewKind::LfsPointer { object, size }
+    } else if content.contains(&0) || std::str::from_utf8(content).is_err() {
+        BlobPreviewKind::Binary
+    } else {
+        BlobPreviewKind::Text
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum FilePreviewSourceV3<'a> {
+    Saved(&'a str),
+    Index(&'a str),
+    ObservedHead(&'a str),
+    RawWorktree,
+}
+/// The one full-file line index. These are read-only byte ranges, NOT patch
+/// hunks, review anchors, or changed membership. Avoid a phantom trailing row.
+pub(crate) fn preview_line_ranges_v3(
+    content: &[u8],
+    max_lines: usize,
+) -> (Vec<std::ops::Range<usize>>, bool) {
+    let cap = max_lines.clamp(1, 10_000);
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    let mut lines = content.split(|byte| *byte == b'\n').peekable();
+    while let Some(line) = lines.next() {
+        if line.is_empty() && lines.peek().is_none() && content.ends_with(b"\n") {
+            break;
+        }
+        if ranges.len() >= cap {
+            return (ranges, true);
+        }
+        ranges.push(offset..offset + line.len());
+        offset += line.len() + usize::from(lines.peek().is_some());
+    }
+    (ranges, false)
+}
+pub(crate) fn content_preview_rows_v3(
+    kind: &BlobPreviewKind,
+    content: &[u8],
+    max_lines: usize,
+    source: FilePreviewSourceV3<'_>,
+) -> (Vec<FilePreviewLine>, bool) {
+    if *kind == BlobPreviewKind::Text {
+        let (ranges, truncated) = preview_line_ranges_v3(content, max_lines);
+        return (
+            ranges
+                .into_iter()
+                .enumerate()
+                .map(|(index, bytes)| FilePreviewLine {
+                    line: Some(index as u32 + 1),
+                    label: display_bytes(&content[bytes]),
+                })
+                .collect(),
+            truncated,
+        );
+    }
+    let label = match kind {
+        BlobPreviewKind::Binary => match source {
+            FilePreviewSourceV3::Saved(id) => {
+                format!("Binary file: {} bytes; saved object {id}", content.len())
+            }
+            FilePreviewSourceV3::Index(id) => format!(
+                "Binary file: {} bytes; observed index object {id}",
+                content.len()
+            ),
+            FilePreviewSourceV3::ObservedHead(id) => format!(
+                "Binary file: {} bytes; observed HEAD object {id}",
+                content.len()
+            ),
+            FilePreviewSourceV3::RawWorktree => format!(
+                "Binary file: {} raw unsaved bytes; no Git blob identity",
+                content.len()
+            ),
+        },
+        BlobPreviewKind::Symlink => {
+            format!("Symbolic link pointing to {}", display_path_bytes(content))
+        }
+        BlobPreviewKind::Submodule => match source {
+            FilePreviewSourceV3::Saved(id) => {
+                format!("Submodule: another repository at saved version {id}")
+            }
+            FilePreviewSourceV3::Index(id) => {
+                format!("Submodule: observed index target {id}; nested files were not loaded")
+            }
+            FilePreviewSourceV3::ObservedHead(id) => {
+                format!("Submodule: observed HEAD target {id}; nested files were not loaded")
+            }
+            FilePreviewSourceV3::RawWorktree => {
+                "Submodule working directory; nested version/files were not loaded".into()
+            }
+        },
+        BlobPreviewKind::LfsPointer { object, size } => format!(
+            "Git LFS pointer: {size} bytes, sha256:{object}. Actual content has not been fetched."
+        ),
+        BlobPreviewKind::Text => unreachable!("text was handled by the shared line index"),
+    };
+    (vec![FilePreviewLine { line: None, label }], false)
 }
 
 fn lfs_pointer(content: &[u8]) -> Option<(String, u64)> {

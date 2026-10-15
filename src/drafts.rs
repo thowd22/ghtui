@@ -4,11 +4,19 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::mpsc::{self, Receiver, SyncSender, TrySendError},
+    sync::Arc,
     thread,
 };
 
+mod corpus_preview_v4;
+pub use corpus_preview_v4::CorpusDraftFenceV4;
+use corpus_preview_v4::{DraftProducerV4, PendingDraftV4};
+
+#[cfg(test)]
+mod corpus_preview_v4_tests;
+
 enum Message {
-    Save(Scope, String, String),
+    Save(Scope, String, String, Option<u64>),
     SaveAndWait(Scope, String, String, SyncSender<Result<(), String>>),
     Remove(Scope, String, SyncSender<Result<(), String>>),
     Shutdown,
@@ -21,6 +29,7 @@ pub struct DraftAck {
 #[derive(Clone)]
 pub struct DraftClient {
     sender: SyncSender<Message>,
+    producer: Arc<DraftProducerV4>,
 }
 impl DraftClient {
     /// Publication workers use the same ordered queue as editing saves, and wait
@@ -32,15 +41,21 @@ impl DraftClient {
         body: String,
     ) -> Result<(), String> {
         let (sender, reply) = mpsc::sync_channel(1);
+        let _activity = self.producer.begin_legacy()?;
         self.sender
             .send(Message::SaveAndWait(scope, resource, body, sender))
             .map_err(|_| "Draft writer closed".to_owned())?;
         reply.recv().map_err(|_| "Draft writer closed".to_owned())?
     }
     pub fn save_pending(&self, pending: Vec<(Scope, String, String)>) -> Result<(), String> {
+        let _activity = if pending.is_empty() {
+            None
+        } else {
+            Some(self.producer.begin_legacy()?)
+        };
         for (scope, resource, body) in pending {
             self.sender
-                .send(Message::Save(scope, resource, body))
+                .send(Message::Save(scope, resource, body, None))
                 .map_err(|_| "Draft writer closed".to_owned())?;
         }
         Ok(())
@@ -48,6 +63,7 @@ impl DraftClient {
     /// Called by the publication worker only after confirmed remote success.
     pub fn remove(&self, scope: Scope, resource: String) -> Result<(), String> {
         let (sender, reply) = mpsc::sync_channel(1);
+        let _activity = self.producer.begin_legacy()?;
         self.sender
             .send(Message::Remove(scope, resource, sender))
             .map_err(|_| "Draft writer closed".to_owned())?;
@@ -58,22 +74,27 @@ pub struct DraftWriter {
     sender: SyncSender<Message>,
     acks: Receiver<DraftAck>,
     worker: Option<thread::JoinHandle<()>>,
-    pending: BTreeMap<(String, String, String), String>,
+    pending: BTreeMap<(String, String, String), PendingDraftV4>,
+    producer: Arc<DraftProducerV4>,
 }
 impl DraftWriter {
     pub fn new(path: PathBuf) -> Self {
         let (sender, requests) = mpsc::sync_channel(8);
         let (acks_tx, acks) = mpsc::channel();
+        let producer = Arc::new(DraftProducerV4::new(path.clone()));
+        let worker_producer = producer.clone();
         let worker = thread::spawn(move || {
+            let _lifetime = corpus_preview_v4::WorkerLifetimeV4(worker_producer.clone());
             let cache = Cache::open(&path).map_err(|error| error.to_string());
             while let Ok(message) = requests.recv() {
                 match message {
-                    Message::Save(scope, resource, body) => {
+                    Message::Save(scope, resource, body, revision) => {
                         let result = cache.as_ref().map_err(Clone::clone).and_then(|cache| {
                             cache
                                 .put_draft(&scope, &resource, &body)
                                 .map_err(|error| error.to_string())
                         });
+                        worker_producer.complete(revision, &result);
                         let _ = acks_tx.send(DraftAck {
                             scope,
                             resource,
@@ -105,50 +126,69 @@ impl DraftWriter {
             acks,
             worker: Some(worker),
             pending: BTreeMap::new(),
+            producer,
         }
     }
     pub fn client(&self) -> DraftClient {
         DraftClient {
             sender: self.sender.clone(),
+            producer: self.producer.clone(),
         }
     }
     pub fn take_pending(&mut self) -> Vec<(Scope, String, String)> {
+        self.producer
+            .retire("Pending drafts transferred out of the original preview queue");
         std::mem::take(&mut self.pending)
             .into_iter()
-            .map(|((host, login, resource), body)| (Scope { host, login }, resource, body))
+            .map(|((host, login, resource), pending)| {
+                self.producer.transferred(pending.revision);
+                (Scope { host, login }, resource, pending.body)
+            })
             .collect()
     }
     pub fn save(&mut self, scope: Scope, resource: String, body: String) -> Result<(), String> {
-        match self
-            .sender
-            .try_send(Message::Save(scope.clone(), resource.clone(), body))
-        {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(Message::Save(_, _, body))) => {
-                let key = (scope.host, scope.login, resource);
-                if self.pending.len() >= 16 && !self.pending.contains_key(&key) {
-                    return Err("Draft queue is full; keep this composer open".into());
-                }
-                self.pending.insert(key, body);
-                Ok(())
-            }
-            Err(_) => Err("Draft writer is unavailable; keep this composer open".into()),
-        }
+        self.accept_corpus_revision_v4(scope, resource, body, None)
+            .map(|_| ())
     }
     pub fn poll(&mut self) -> Vec<DraftAck> {
         let pending = std::mem::take(&mut self.pending);
-        for ((host, login, resource), body) in pending {
-            let _ = self.save(Scope { host, login }, resource, body);
+        for ((host, login, resource), pending) in pending {
+            match self.sender.try_send(Message::Save(
+                Scope {
+                    host: host.clone(),
+                    login: login.clone(),
+                },
+                resource.clone(),
+                pending.body,
+                Some(pending.revision),
+            )) {
+                Ok(()) => {}
+                Err(TrySendError::Full(Message::Save(_, _, body, _))) => {
+                    self.pending.insert(
+                        (host, login, resource),
+                        PendingDraftV4 {
+                            revision: pending.revision,
+                            body,
+                        },
+                    );
+                }
+                Err(TrySendError::Disconnected(_)) => self.producer.close(),
+                Err(_) => unreachable!("poll only sends ordinary draft saves"),
+            }
         }
         self.acks.try_iter().collect()
     }
 }
 impl Drop for DraftWriter {
     fn drop(&mut self) {
-        for ((host, login, resource), body) in std::mem::take(&mut self.pending) {
-            let _ = self
-                .sender
-                .send(Message::Save(Scope { host, login }, resource, body));
+        self.producer.close();
+        for ((host, login, resource), pending) in std::mem::take(&mut self.pending) {
+            let _ = self.sender.send(Message::Save(
+                Scope { host, login },
+                resource,
+                pending.body,
+                Some(pending.revision),
+            ));
         }
         let _ = self.sender.send(Message::Shutdown);
         if let Some(worker) = self.worker.take() {

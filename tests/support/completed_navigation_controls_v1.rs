@@ -35,23 +35,36 @@ fn unique_position(
     ys: std::ops::Range<u16>,
     xs: std::ops::Range<u16>,
 ) -> Option<(u16, u16)> {
+    checked_position(frame, label, ys, xs).ok().flatten()
+}
+
+fn checked_position(
+    frame: &vt100::Screen,
+    label: &str,
+    ys: std::ops::Range<u16>,
+    xs: std::ops::Range<u16>,
+) -> Result<Option<(u16, u16)>, ()> {
     if label.is_empty() {
-        return None;
+        return Err(());
     }
     let mut found = None;
     for y in ys {
         let (line, columns) = row(frame, y);
         for (byte, _) in line.match_indices(label) {
-            let (_, x) = columns.iter().rev().find(|(start, _)| *start <= byte)?;
+            let (_, x) = columns
+                .iter()
+                .rev()
+                .find(|(start, _)| *start <= byte)
+                .ok_or(())?;
             if xs.contains(x) {
                 if found.is_some() {
-                    return None;
+                    return Err(());
                 }
                 found = Some((*x, y));
             }
         }
     }
-    found
+    Ok(found)
 }
 
 fn owned_box(frame: &vt100::Screen, title: &str) -> Option<OwnedBox> {
@@ -241,5 +254,206 @@ pub fn progress_selection_in(
     Some(ProgressSelection {
         target,
         selected_row,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusAttributeV1 {
+    Inverse,
+    Underline,
+}
+impl FocusAttributeV1 {
+    fn matches(self, frame: &vt100::Screen, point: (u16, u16)) -> bool {
+        frame.cell(point.1, point.0).is_some_and(|cell| match self {
+            Self::Inverse => cell.inverse(),
+            Self::Underline => cell.underline(),
+        })
+    }
+}
+#[derive(Debug)]
+pub struct OwnedFocusV1 {
+    pub target: (u16, u16),
+    pub target_focused: bool,
+    owner: OwnedBox,
+    title: String,
+    identity: Option<(bool, usize, (u16, u16))>,
+}
+impl OwnedFocusV1 {
+    pub fn acknowledges_change_from(&self, previous: &Self) -> bool {
+        self.owner == previous.owner
+            && self.title == previous.title
+            && self.target == previous.target
+            && self.identity.is_some()
+            && self.identity != previous.identity
+    }
+}
+
+/// Caller-declared UI anchors, never body/row styling, identify focus. Text
+/// notices are used only by widgets that visibly name their Query/Rows focus.
+pub fn owned_focus_v1(
+    frame: &vt100::Screen,
+    title: &str,
+    target: &str,
+    attribute: FocusAttributeV1,
+    controls: &[&str],
+    notices: &[&str],
+) -> Option<OwnedFocusV1> {
+    if !controls.contains(&target) || controls.len() + notices.len() > 16 {
+        return None;
+    }
+    let owner = topmost_box_v1(frame, title)?;
+    let target = unique_position(
+        frame,
+        target,
+        owner.top + 1..owner.bottom,
+        owner.left + 1..owner.right,
+    )?;
+    let mut identity = None;
+    for (notice, labels) in [(false, controls), (true, notices)] {
+        for (index, label) in labels.iter().enumerate() {
+            let position = checked_position(
+                frame,
+                label,
+                if notice { owner.top } else { owner.top + 1 }..owner.bottom,
+                owner.left + 1..owner.right,
+            )
+            .ok()?;
+            if let Some(point) = position.filter(|point| notice || attribute.matches(frame, *point))
+            {
+                if identity.replace((notice, index, point)).is_some() {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(OwnedFocusV1 {
+        target,
+        target_focused: attribute.matches(frame, target),
+        owner,
+        title: title.into(),
+        identity,
+    })
+}
+fn topmost_box_v1(frame: &vt100::Screen, title: &str) -> Option<OwnedBox> {
+    let owner = owned_box(frame, title)?;
+    // A genuine nested complete overlay owns input instead of this underlay.
+    for y in owner.top + 1..owner.bottom {
+        for x in owner.left + 1..owner.right {
+            if frame.cell(y, x).is_none_or(|cell| cell.contents() != "┌") {
+                continue;
+            }
+            if let Some(right) = (x + 1..owner.right).find(|right| {
+                frame
+                    .cell(y, *right)
+                    .is_some_and(|cell| cell.contents() == "┐")
+            }) {
+                if (y + 1..owner.bottom).any(|bottom| {
+                    frame
+                        .cell(bottom, x)
+                        .is_some_and(|cell| cell.contents() == "└")
+                        && frame
+                            .cell(bottom, right)
+                            .is_some_and(|cell| cell.contents() == "┘")
+                }) {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(owner)
+}
+
+#[derive(Debug)]
+pub struct OwnedDetailsV1 {
+    pub point: (u16, u16),
+    owner: OwnedBox,
+    title: String,
+    selected: String,
+    selected_at: (u16, u16),
+    rows: Vec<String>,
+    first_field: Option<(usize, String)>,
+}
+impl OwnedDetailsV1 {
+    pub fn contains(&self, label: &str) -> bool {
+        self.rows.iter().any(|row| row.contains(label))
+    }
+    pub fn acknowledges_change_from(&self, previous: &Self) -> bool {
+        self.owner == previous.owner
+            && self.title == previous.title
+            && self.selected == previous.selected
+            && self.selected_at == previous.selected_at
+            && self.point == previous.point
+            && self.rows != previous.rows
+            && (self.first_field.is_some()
+                && previous.first_field.is_some()
+                && self.first_field != previous.first_field
+                || self.rows.iter().enumerate().any(|(index, line)| {
+                    !line.is_empty()
+                        && self.rows.iter().filter(|row| *row == line).count() == 1
+                        && previous.rows.iter().filter(|row| *row == line).count() == 1
+                        && previous
+                            .rows
+                            .iter()
+                            .position(|old| old == line)
+                            .is_some_and(|old_index| old_index != index)
+                }))
+    }
+}
+pub fn owned_details_v1(
+    frame: &vt100::Screen,
+    title: &str,
+    selected: &str,
+) -> Option<OwnedDetailsV1> {
+    let owner = topmost_box_v1(frame, title)?;
+    let up = unique_position(
+        frame,
+        "[Ctrl-PgUp Detail]",
+        owner.top + 1..owner.bottom,
+        owner.left + 1..owner.right,
+    )?;
+    let down = unique_position(
+        frame,
+        "[Ctrl-PgDn Detail]",
+        owner.top + 1..owner.bottom,
+        owner.left + 1..owner.right,
+    )?;
+    if up.1 != down.1 || up.1 + 1 >= owner.bottom.saturating_sub(1) {
+        return None;
+    }
+    let selected_at = unique_position(
+        frame,
+        selected,
+        owner.top + 1..up.1,
+        owner.left + 1..owner.right,
+    )?;
+    let mut rows = Vec::new();
+    for y in up.1 + 1..owner.bottom - 1 {
+        let mut text = String::new();
+        for x in owner.left + 1..owner.right {
+            let cell = frame.cell(y, x)?;
+            if cell.is_wide_continuation() {
+                continue;
+            }
+            let value = cell.contents();
+            if value.is_empty() {
+                text.push(' ');
+            } else {
+                text.push_str(&value);
+            }
+        }
+        rows.push(text.trim().to_owned());
+    }
+    let first_field = rows.iter().enumerate().find_map(|(index, line)| {
+        line.split_once(':')
+            .map(|(label, _)| (index, label.to_owned()))
+    });
+    Some(OwnedDetailsV1 {
+        point: (owner.left + 1, up.1 + 1),
+        owner,
+        title: title.into(),
+        selected: selected.into(),
+        selected_at,
+        rows,
+        first_field,
     })
 }

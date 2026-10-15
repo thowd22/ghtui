@@ -60,6 +60,12 @@ pub enum NativeDiffActionV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1>
     ClearRange,
     Source,
     Stage,
+    FullSide(DiffSide),
+    BackToPatch,
+    FullPoint {
+        ticket: crate::repository_native_full_side_v3::NativeFullSideTicketV3<S>,
+        row: usize,
+    },
     Point {
         ticket: NativeDiffLineTicketV1<S>,
         row: usize,
@@ -113,6 +119,12 @@ impl<S: NativeDiffPurposeV2> Clone for NativeDiffActionV1<S> {
             Self::ClearRange => Self::ClearRange,
             Self::Source => Self::Source,
             Self::Stage => Self::Stage,
+            Self::FullSide(side) => Self::FullSide(*side),
+            Self::BackToPatch => Self::BackToPatch,
+            Self::FullPoint { ticket, row } => Self::FullPoint {
+                ticket: ticket.clone(),
+                row: *row,
+            },
             Self::Point { ticket, row, right } => Self::Point {
                 ticket: ticket.clone(),
                 row: *row,
@@ -186,6 +198,11 @@ impl<S: NativeDiffPurposeV2> PartialEq for NativeDiffActionV1<S> {
             (Self::ClearRange, Self::ClearRange) => true,
             (Self::Source, Self::Source) => true,
             (Self::Stage, Self::Stage) => true,
+            (Self::FullSide(a), Self::FullSide(b)) => a == b,
+            (Self::BackToPatch, Self::BackToPatch) => true,
+            (Self::FullPoint { ticket: a, row: ar }, Self::FullPoint { ticket: b, row: br }) => {
+                a == b && ar == br
+            }
             (
                 Self::Point {
                     ticket: a_ticket,
@@ -226,9 +243,9 @@ pub struct NativeDiffHitV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> 
     pub action: NativeDiffActionV1<S>,
 }
 pub struct NativeDiffLayoutV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
-    hits: Vec<NativeDiffHitV1<S>>,
-    body: Rect,
-    query: Rect,
+    pub(crate) hits: Vec<NativeDiffHitV1<S>>,
+    pub(crate) body: Rect,
+    pub(crate) query: Rect,
     pub query_focused: bool,
     pub controls: bool,
     pub focus: Option<usize>,
@@ -274,7 +291,12 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             .hits
             .iter()
             .enumerate()
-            .filter(|(_, hit)| !matches!(hit.action, NativeDiffActionV1::Point { .. }))
+            .filter(|(_, hit)| {
+                !matches!(
+                    hit.action,
+                    NativeDiffActionV1::Point { .. } | NativeDiffActionV1::FullPoint { .. }
+                )
+            })
             .map(|(i, _)| i)
             .collect();
         if controls.is_empty() {
@@ -386,6 +408,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             KeyCode::Char('x') => Some(A::ClearRange),
             KeyCode::Char('I') => Some(A::Source),
             KeyCode::Char('a') => Some(A::Stage),
+            KeyCode::Char('F') => Some(A::FullSide(DiffSide::Old)),
+            KeyCode::Char('V') => Some(A::FullSide(DiffSide::New)),
+            KeyCode::Char('b') => Some(A::BackToPatch),
             KeyCode::Up | KeyCode::Char('k') => Some(A::Move {
                 delta: -1,
                 extend: shift,
@@ -454,7 +479,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             _ => None,
         }
     }
-    fn button(
+    pub(crate) fn button(
         &mut self,
         frame: &mut Frame,
         rect: Rect,
@@ -526,7 +551,17 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             return;
         }
         if self.controls {
-            self.draw_controls(frame, state, inner, theme);
+            if state.is_full_side() {
+                crate::repository_native_full_side_ui_v3::draw_controls(
+                    self, frame, state, inner, theme,
+                );
+            } else {
+                self.draw_controls(frame, state, inner, theme);
+            }
+            return;
+        }
+        if state.is_full_side() {
+            crate::repository_native_full_side_ui_v3::draw(self, frame, state, inner, theme);
             return;
         }
         let mut y = inner.y;
@@ -849,6 +884,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
         let entries = [
             ("[o Back to diff]", A::Controls),
             ("[Esc Close]", A::Close),
+            ("[F Full Old]", A::FullSide(DiffSide::Old)),
+            ("[V Full New]", A::FullSide(DiffSide::New)),
+            ("[b Back patch]", A::BackToPatch),
             ("[l Layout]", A::Option(O::Layout)),
             ("[O Old side]", A::Option(O::Side(DiffSide::Old))),
             ("[N New side]", A::Option(O::Side(DiffSide::New))),
@@ -954,7 +992,7 @@ fn draw_cell<S: NativeDiffPurposeV2>(
         rect,
     );
 }
-fn paint_style(role: NativeDiffPaintRoleV1, base: Style, theme: Theme) -> Style {
+pub(crate) fn paint_style(role: NativeDiffPaintRoleV1, base: Style, theme: Theme) -> Style {
     match role {
         NativeDiffPaintRoleV1::Keyword => base.patch(theme.style(SemanticToken::Reference)),
         NativeDiffPaintRoleV1::String => base.patch(theme.style(SemanticToken::Actor)),

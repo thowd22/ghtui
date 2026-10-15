@@ -510,6 +510,9 @@ pub struct DashboardSnapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetricsAction {
+    SaveDashboard,
+    RestoreDashboard,
+    DefaultDashboard,
     Window(UtcWindow),
     Repository(String),
     AllSelected,

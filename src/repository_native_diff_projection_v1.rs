@@ -20,7 +20,7 @@ use std::{
 use unicode_segmentation::UnicodeSegmentation;
 
 #[path = "repository_native_diff_projection_v1_paint.rs"]
-mod paint;
+pub(crate) mod paint;
 
 const ROW_CAP: usize = 50_000;
 const BYTE_CAP: usize = 8 * 1024 * 1024;
@@ -80,7 +80,7 @@ impl NativeDiffQueryV1 {
             Self::Exact(text) | Self::Regex(text) => text,
         }
     }
-    fn compile(&self) -> Result<Option<Regex>, String> {
+    pub(crate) fn compile(&self) -> Result<Option<Regex>, String> {
         if self.text().len() > QUERY_CAP {
             return Err("Native diff query exceeds256 raw bytes".into());
         }
@@ -1086,32 +1086,52 @@ fn search<S: NativeDiffContentV2>(
                 });
                 true
             };
-            if let Some(regex) = regex {
-                for matched in regex.find_iter(&line.text) {
-                    operation.check()?;
-                    if !found(matched.range()) {
-                        return Ok((matches, true));
-                    }
-                }
-            } else {
-                let needle = query.text().as_bytes();
-                let mut next = 0;
-                for (begin, window) in line.text.windows(needle.len()).enumerate() {
-                    if begin % 256 == 0 {
-                        operation.check()?;
-                    }
-                    if begin >= next && window == needle {
-                        if !found(begin..begin + needle.len()) {
-                            return Ok((matches, true));
-                        }
-                        next = begin + needle.len();
-                    }
-                }
+            if !visit_line_matches_v3(query, regex, &line.text, operation, &mut found)? {
+                return Ok((matches, true));
             }
         }
     }
     operation.check()?;
     Ok((matches, false))
+}
+
+/// One raw exact/regex line matcher for patch and read-only full-file content.
+/// The visitor owns its bounded identity/result cap; this never assigns keys.
+pub(crate) fn visit_line_matches_v3(
+    query: &NativeDiffQueryV1,
+    regex: Option<&Regex>,
+    raw: &[u8],
+    operation: &LocalGitNavigationReadV1,
+    mut found: impl FnMut(Range<usize>) -> bool,
+) -> Result<bool, String> {
+    operation.check()?;
+    if query.text().is_empty() {
+        return Ok(true);
+    }
+    if let Some(regex) = regex {
+        for matched in regex.find_iter(raw) {
+            operation.check()?;
+            if !found(matched.range()) {
+                return Ok(false);
+            }
+        }
+    } else {
+        let needle = query.text().as_bytes();
+        let mut next = 0;
+        for (begin, window) in raw.windows(needle.len()).enumerate() {
+            if begin % 256 == 0 {
+                operation.check()?;
+            }
+            if begin >= next && window == needle {
+                if !found(begin..begin + needle.len()) {
+                    return Ok(false);
+                }
+                next = begin + needle.len();
+            }
+        }
+    }
+    operation.check()?;
+    Ok(true)
 }
 
 fn paired_whitespace_equal<S: NativeDiffContentV2>(
@@ -1335,20 +1355,7 @@ fn wrap_cell<S: NativeDiffContentV2>(
     {
         return Ok(vec![cell]);
     }
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    let mut used = 0;
-    for (offset, grapheme) in cell.text.grapheme_indices(true) {
-        operation.check()?;
-        let columns = ratatui::text::Span::raw(grapheme).width();
-        if used > 0 && used + columns > width {
-            chunks.push(start..offset);
-            start = offset;
-            used = 0;
-        }
-        used += columns;
-    }
-    chunks.push(start..cell.text.len());
+    let chunks = text_chunks_v3(&cell.text, width, operation)?;
     chunks
         .into_iter()
         .enumerate()
@@ -1374,6 +1381,27 @@ fn wrap_cell<S: NativeDiffContentV2>(
             })
         })
         .collect()
+}
+pub(crate) fn text_chunks_v3(
+    text: &str,
+    width: usize,
+    operation: &LocalGitNavigationReadV1,
+) -> Result<Vec<Range<usize>>, String> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut used = 0;
+    for (offset, grapheme) in text.grapheme_indices(true) {
+        operation.check()?;
+        let columns = ratatui::text::Span::raw(grapheme).width();
+        if used > 0 && used + columns > width {
+            chunks.push(start..offset);
+            start = offset;
+            used = 0;
+        }
+        used += columns;
+    }
+    chunks.push(start..text.len());
+    Ok(chunks)
 }
 fn charge_row<S: NativeDiffContentV2>(
     row: &NativeDiffRowV1<S>,

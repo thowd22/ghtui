@@ -1,4 +1,8 @@
 //! Native selected-corpus journeys: exact paths, durable intent and actual local Git effects.
+#[path = "corpus_completed_budget_v2.rs"]
+mod corpus_completed_budget_v2;
+#[path = "corpus_preview_v4.rs"]
+mod corpus_preview_v4;
 use crate::support::{Fixture, GhStep, Session};
 use ghtui::{
     config::Config,

@@ -232,6 +232,10 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
         return;
     }
     if action == A::Stage {
+        if S::state(app).is_some_and(|state| state.is_full_side()) {
+            S::parts(app).0.as_mut().expect("native full side").status="Full-file context is read-only and has no canonical staging coordinates. Back to the original patch before previewing a selection.".into();
+            return;
+        }
         S::preview(app);
         return;
     }
@@ -264,9 +268,115 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
     }
     let (state, layout) = S::parts(app);
     let state = state.as_mut().expect("capturing native state");
+    if state.is_full_side() {
+        let mut handled = true;
+        match &action {
+            A::Option(
+                NativeDiffOptionChangeV1::Layout
+                | NativeDiffOptionChangeV1::Side(_)
+                | NativeDiffOptionChangeV1::Context
+                | NativeDiffOptionChangeV1::WithinLine
+                | NativeDiffOptionChangeV1::CollapseGenerated
+                | NativeDiffOptionChangeV1::MarkGenerated(_),
+            ) => {
+                state.status="Patch pairing/context/within-line/generated options do not apply to full-file context. Back to patch for those controls.".into();
+            }
+            A::FullPoint { ticket, row } => {
+                if state
+                    .current_full_side()
+                    .is_some_and(|frame| frame.accepts(ticket, *row))
+                {
+                    state.selected = *row;
+                    layout.query_focused = false;
+                    layout.focus = None;
+                }
+            }
+            A::Move { delta, .. } => {
+                if let Some(frame) = state.current_full_side() {
+                    state.selected = state
+                        .selected
+                        .saturating_add_signed(*delta as isize)
+                        .min(frame.rows().len().saturating_sub(1));
+                }
+            }
+            A::Last => {
+                if let Some(frame) = state.current_full_side() {
+                    state.selected = frame.rows().len().saturating_sub(1);
+                }
+            }
+            A::Scroll(delta) => {
+                if let Some(frame) = state.current_full_side() {
+                    state.scroll = state
+                        .scroll
+                        .saturating_add_signed(*delta as isize)
+                        .min(frame.rows().len().saturating_sub(1));
+                }
+            }
+            A::Match(delta) => {
+                layout.query_focused = false;
+                if let Some(frame) = state.current_full_side() {
+                    let next = if *delta >= 0 {
+                        frame
+                            .matches()
+                            .iter()
+                            .copied()
+                            .find(|row| *row > state.selected)
+                            .or_else(|| frame.matches().first().copied())
+                    } else {
+                        frame
+                            .matches()
+                            .iter()
+                            .copied()
+                            .rev()
+                            .find(|row| *row < state.selected)
+                            .or_else(|| frame.matches().last().copied())
+                    };
+                    if let Some(row) = next {
+                        state.selected = row;
+                    } else {
+                        state.status = "No full-file matching lines in the admitted prefix".into();
+                    }
+                }
+            }
+            A::Select
+            | A::SelectHunk
+            | A::ClearRange
+            | A::Hunk(_)
+            | A::Drag { .. }
+            | A::Point { .. } => {
+                state.status="Full-file rows have no canonical patch/hunk/range authority; Back restores the genuine patch selection".into();
+            }
+            _ => handled = false,
+        }
+        if handled {
+            if !matches!(action, A::Scroll(_)) {
+                visible::<S>(app);
+            }
+            return;
+        }
+    }
     let mut prepare = false;
     let mut error = None;
     match action {
+        A::FullSide(side) => match state.open_full_side(side) {
+            Ok(()) => {
+                layout.controls = false;
+                layout.query_focused = false;
+                layout.focus = None;
+                prepare = true;
+            }
+            Err(reason) => error = Some(reason),
+        },
+        A::BackToPatch => {
+            if state.back_to_patch() {
+                layout.controls = false;
+                layout.query_focused = false;
+                layout.focus = None;
+                prepare = true;
+            } else {
+                error = Some("Already viewing the original patch".into());
+            }
+        }
         A::QueryClick(column) => {
             layout.query_focused = true;
             layout.focus = None;

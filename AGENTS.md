@@ -12,6 +12,16 @@ The executable and shared real-binary PTY framework are implemented and under ac
 
 ## Required verification for every task
 
+### Development-host resource safety
+
+After the host reboot/resource-pressure incident, keep coding and review parallel but serialize heavy verification across all agents and private copies. The coordinating Root alone launches Cargo, rustc and PTY verification, holding the shared `target/verification.lock`. Use explicit working directories, `CARGO_BUILD_JOBS=1`, `RUST_TEST_THREADS=2`, `RAYON_NUM_THREADS=2`, and disk-backed build/temporary paths. Other agents request verification instead of launching another build.
+
+On this Linux development host, put verification in a transient user scope with CPU quota 200%, memory high/max 4/6 GiB, swap max 512 MiB and task max 256, plus low CPU/I/O priority. Verify that limits are active; do not silently fall back to an unbounded run. These are local development safeguards, not runtime dependencies or native macOS evidence. Preserve interrupted logs and revalidate process ownership and working directories after session or host restarts.
+
+Use `node scripts/test-all.mjs` for the unfiltered `cargo test --locked --all-targets` gate and `node scripts/test-task.mjs <key>` for checked task gates. Both compose a child-only Git environment that keeps automatic maintenance foreground without changing user/repository config or the installed application. Preserve this policy for direct diagnostic Cargo runs: detached maintenance escapes the PTY session and accumulates adopted zombies under the Linux test subreaper. Do not replace exact owned-session cleanup with indiscriminate orphan reaping or increase task limits to conceal cumulative leaks.
+
+### Task gates
+
 - Implement meaningful code/provider tests and a task-specific real-binary PTY E2E journey.
 - Exercise both mouse and keyboard input and independently verify visible state plus command/storage/Git effects. Snapshot-only or direct-handler tests do not replace PTY coverage.
 - Use temporary real Git repositories/local bare remotes and strict offline fake-gh fixtures. Live mutation tests require an explicitly configured disposable repository.

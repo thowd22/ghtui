@@ -171,6 +171,9 @@ fn prepared_budget(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetricsWorkspaceAction {
+    Layout,
+    ToggleWidget(usize),
+    MoveWidget(bool),
     Metric(MetricsAction),
     Select(usize),
     Inspect(usize),
@@ -179,6 +182,7 @@ pub enum MetricsWorkspaceAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetricsView {
+    Layout,
     Cards,
     Contributors(usize),
     Details { card: usize, contributor: usize },
@@ -204,6 +208,12 @@ pub struct MetricsPreparedCard {
 }
 #[derive(Clone, Debug)]
 pub struct MetricsWorkspace {
+    pub layout: crate::dashboard_profile_v1::DashboardLayoutV1,
+    /// Restored preference scope only; fresh reads must still prove access.
+    pub restored_scope: Option<Arc<[String]>>,
+    all_card_rows: Arc<[MetricsPreparedRow]>,
+    layout_rows: Arc<[MetricsPreparedRow]>,
+    layout_return: (MetricsView, usize, usize),
     pub evidence: Arc<DashboardEvidence>,
     pub snapshot: Arc<DashboardSnapshot>,
     /// Immutable genuine source records for Root's fresh canonical parent-opening worker.
@@ -871,7 +881,13 @@ impl MetricsWorkspace {
                 format!(" • Missing {}", missing_repositories.len())
             }
         );
-        Ok(Self {
+        let all_card_rows: Arc<[MetricsPreparedRow]> = Arc::from(card_rows);
+        let mut prepared = Self {
+            layout: Default::default(),
+            restored_scope: None,
+            all_card_rows: all_card_rows.clone(),
+            layout_rows: Arc::from([]),
+            layout_return: (MetricsView::Cards, 0, 0),
             evidence,
             snapshot,
             observations,
@@ -884,7 +900,7 @@ impl MetricsWorkspace {
             window_label,
             as_of_label,
             source_coverage_label,
-            card_rows: Arc::from(card_rows),
+            card_rows: all_card_rows,
             contributor_positions: vec![(0, 0); cards.len()],
             cards: Arc::from(cards),
             repository_rows: Arc::from(repository_rows),
@@ -897,13 +913,16 @@ impl MetricsWorkspace {
             repository_return: (MetricsView::Cards, 0, 0),
             info_return: (MetricsView::Cards, 0, 0),
             canonical_index: Arc::new(canonical),
-        })
+        };
+        prepared.rebuild_layout()?;
+        Ok(prepared)
     }
     pub fn rows(&self) -> &[MetricsPreparedRow] {
         if self.pending.is_some() {
             return &[];
         }
         match self.view {
+            MetricsView::Layout => &self.layout_rows,
             MetricsView::Cards => &self.card_rows,
             MetricsView::Contributors(card) => &self.cards[card].contributors,
             MetricsView::Details { card, contributor } => &self.cards[card].details[contributor],
@@ -935,6 +954,85 @@ impl MetricsWorkspace {
             _ => {}
         }
     }
+    pub fn apply_layout(
+        &mut self,
+        layout: crate::dashboard_profile_v1::DashboardLayoutV1,
+    ) -> Result<(), String> {
+        layout.validate()?;
+        self.layout = layout;
+        self.rebuild_layout()?;
+        if self.view == MetricsView::Cards {
+            self.selected = self.selected.min(self.card_rows.len().saturating_sub(1));
+            self.top = self.top.min(self.selected);
+        }
+        Ok(())
+    }
+    fn displayed_card(&self, index: usize) -> Option<usize> {
+        let MetricsWorkspaceAction::Metric(MetricsAction::Card(kind)) =
+            self.card_rows.get(index)?.action.as_ref()?
+        else {
+            return None;
+        };
+        self.snapshot
+            .cards
+            .iter()
+            .position(|card| card.kind == *kind)
+    }
+    fn rebuild_layout(&mut self) -> Result<(), String> {
+        self.layout.validate()?;
+        let cards = self
+            .layout
+            .shown()
+            .map(|kind| {
+                self.all_card_rows
+                    .iter()
+                    .find(|row| {
+                        row.action
+                            == Some(MetricsWorkspaceAction::Metric(MetricsAction::Card(kind)))
+                    })
+                    .cloned()
+                    .ok_or("Original dashboard widget is unavailable")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.card_rows = Arc::from(cards);
+        let last = self.card_rows.len().saturating_sub(1);
+        self.card_position.0 = self.card_position.0.min(last);
+        self.card_position.1 = self.card_position.1.min(self.card_position.0);
+        for position in [
+            &mut self.layout_return,
+            &mut self.repository_return,
+            &mut self.info_return,
+        ] {
+            if position.0 == MetricsView::Cards {
+                position.1 = position.1.min(last);
+                position.2 = position.2.min(position.1);
+            }
+        }
+        self.layout_rows = Arc::from(
+            self.layout
+                .slots()
+                .iter()
+                .enumerate()
+                .map(|(index, slot)| {
+                    let label = crate::dashboard_profile_v1::WIDGETS
+                        .iter()
+                        .find(|(kind, _)| *kind == slot.kind)
+                        .expect("validated widget")
+                        .1;
+                    row(
+                        format!("[{}] {label}", if slot.visible { "x" } else { " " }),
+                        if slot.visible {
+                            SemanticToken::Success
+                        } else {
+                            SemanticToken::Muted
+                        },
+                        Some(MetricsWorkspaceAction::ToggleWidget(index)),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+        Ok(())
+    }
     /// Returns only actual worker requests. Local Card/Back/picker/detail/selection is consumed.
     pub fn apply(
         &mut self,
@@ -949,6 +1047,30 @@ impl MetricsWorkspace {
             return Err("Dashboard is preparing; old values and Open are hidden".into());
         }
         match action {
+            MetricsWorkspaceAction::Layout => {
+                self.remember();
+                if self.view != MetricsView::Layout {
+                    self.layout_return = (self.view, self.selected, self.top);
+                    self.view = MetricsView::Layout;
+                    self.selected = 0;
+                    self.top = 0;
+                }
+            }
+            MetricsWorkspaceAction::ToggleWidget(index) => {
+                if self.view != MetricsView::Layout {
+                    return Err("Open Layout before changing its widgets".into());
+                }
+                self.layout.toggle(index)?;
+                self.selected = index;
+                self.rebuild_layout()?;
+            }
+            MetricsWorkspaceAction::MoveWidget(down) => {
+                if self.view != MetricsView::Layout {
+                    return Err("Open Layout before reordering widgets".into());
+                }
+                self.selected = self.layout.move_slot(self.selected, down)?;
+                self.rebuild_layout()?;
+            }
             MetricsWorkspaceAction::Select(index) => {
                 self.selected = index.min(self.rows().len().saturating_sub(1));
             }
@@ -962,6 +1084,11 @@ impl MetricsWorkspace {
             MetricsWorkspaceAction::Inspect(index) => {
                 let original = (self.view, self.selected, self.top);
                 match self.view {
+                    MetricsView::Layout => {
+                        return Err(
+                            "Return to dashboard cards before inspecting their evidence".into()
+                        )
+                    }
                     MetricsView::Contributors(card) if index < self.cards[card].details.len() => {
                         self.selected = index;
                         self.remember();
@@ -976,10 +1103,13 @@ impl MetricsWorkspace {
                         self.view = MetricsView::CardInfo(card);
                     }
                     MetricsView::Cards => {
-                        self.selected = index.min(self.cards.len() - 1);
+                        self.selected = index.min(self.card_rows.len().saturating_sub(1));
                         self.remember();
                         self.info_return = (MetricsView::Cards, self.selected, self.top);
-                        self.view = MetricsView::CardInfo(self.selected);
+                        self.view = MetricsView::CardInfo(
+                            self.displayed_card(self.selected)
+                                .ok_or("Original dashboard widget unavailable")?,
+                        );
                     }
                     MetricsView::Details { card, .. } => {
                         self.info_return = original;
@@ -1002,7 +1132,14 @@ impl MetricsWorkspace {
                     .position(|card| card.kind == kind)
                     .ok_or("Metric card unavailable")?;
                 if self.view == MetricsView::Cards {
-                    self.selected = card;
+                    self.selected = self
+                        .card_rows
+                        .iter()
+                        .position(|row| {
+                            row.action
+                                == Some(MetricsWorkspaceAction::Metric(MetricsAction::Card(kind)))
+                        })
+                        .ok_or("Dashboard widget is hidden; show it in Layout first")?;
                 }
                 self.remember();
                 self.view = MetricsView::Contributors(card);
@@ -1014,6 +1151,14 @@ impl MetricsWorkspace {
                 }
                 self.remember();
                 match self.view {
+                    MetricsView::Layout => {
+                        (self.view, self.selected, self.top) = self.layout_return;
+                        if self.view == MetricsView::Cards {
+                            self.selected =
+                                self.selected.min(self.card_rows.len().saturating_sub(1));
+                            self.top = self.top.min(self.selected);
+                        }
+                    }
                     MetricsView::Cards => {}
                     MetricsView::Contributors(_) => {
                         self.view = MetricsView::Cards;
@@ -1069,7 +1214,11 @@ impl MetricsWorkspace {
                             return Err("Dashboard UTC request must retain an immutable bounded as-of window".into());
                         }
                     }
-                    MetricsAction::AllSelected | MetricsAction::Refresh => {}
+                    MetricsAction::AllSelected
+                    | MetricsAction::Refresh
+                    | MetricsAction::SaveDashboard
+                    | MetricsAction::RestoreDashboard
+                    | MetricsAction::DefaultDashboard => {}
                     _ => return Err("Unexpected Dashboard action".into()),
                 }
                 self.remember();

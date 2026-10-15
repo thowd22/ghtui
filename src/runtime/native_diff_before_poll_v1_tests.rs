@@ -7,6 +7,8 @@ use crate::{
 };
 use ratatui::layout::Rect;
 use std::time::Duration;
+#[path = "native_full_side_before_poll_v3_tests.rs"]
+mod full_side_v3;
 
 #[test]
 fn native_diff_worker_genuine_initial_nine_children_same_original_seal_source_and_readonly_bytes() {

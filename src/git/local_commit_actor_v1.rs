@@ -73,6 +73,9 @@ impl LocalCommitSourceIdentity {
     pub fn root(&self) -> &Path {
         &self.root
     }
+    pub(crate) fn root_file_identity_v3(&self) -> (u64, u64) {
+        self.root_file
+    }
     pub fn git_directory(&self) -> &Path {
         &self.git_directory
     }

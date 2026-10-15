@@ -12,6 +12,8 @@ use std::{collections::BTreeMap, fs, time::Duration};
 
 #[path = "metrics_boundaries.rs"]
 mod boundaries;
+#[path = "dashboards_v1.rs"]
+mod dashboards_v1;
 
 const APP: &str = "example/app";
 const TOOLS: &str = "example/tools";

@@ -42,6 +42,31 @@ fn target_paths(path: &Path) -> [PathBuf; 4] {
 
 #[cfg(target_os = "linux")]
 fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> Result<Vec<File>> {
+    prepare_with_named_metadata_v2(path, &mut after_open, |path, _| fs::symlink_metadata(path))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NamedPhaseV2 {
+    Initial,
+    Current,
+    #[cfg(any(target_os = "macos", test))]
+    BeforeRepair,
+    #[cfg(any(target_os = "macos", test))]
+    Repaired,
+}
+
+/// An unlinked optional name is a transient observation, NEVER an admissible
+/// target. Every other type/owner/link combination still passes strict verify.
+fn optional_named_unlinked_v2(index: usize, regular: bool, owned: bool, unlinked: bool) -> bool {
+    index > 0 && regular && owned && unlinked
+}
+
+#[cfg(target_os = "linux")]
+fn prepare_with_named_metadata_v2(
+    path: &Path,
+    mut after_open: impl FnMut(&Path, &File),
+    mut metadata: impl FnMut(&Path, NamedPhaseV2) -> std::io::Result<fs::Metadata>,
+) -> Result<Vec<File>> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -60,22 +85,60 @@ fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> 
     // Validate every existing target before repairing any mode. Refusing an
     // unsafe journal must not alter an unrelated alias target or the database.
     let paths = target_paths(path);
+    let mut original_main = None;
     // SQLite may unlink optional journals during an ordinary commit/last close.
     // Never repair a detached descriptor or relax the current-target policy.
     // Discard the WHOLE tentative set and inspect fresh names, at most four
     // times, before any chmod. This performs no SQL or mutation retry.
     'validation: for _ in 0..4 {
-        let mut descriptors = Vec::new();
+        // Validate ALL existing names before even creating an absent main.
+        // An unsafe optional alias must not cause any database publication.
+        let mut originals = Vec::with_capacity(paths.len());
+        let mut transient = false;
         for (index, path) in paths.iter().enumerate() {
-            let original = match fs::symlink_metadata(path) {
+            let original = match metadata(path, NamedPhaseV2::Initial) {
                 Ok(metadata) => {
-                    verify(&metadata, uid)?;
+                    if optional_named_unlinked_v2(
+                        index,
+                        metadata.is_file(),
+                        metadata.uid() == uid,
+                        metadata.nlink() == 0,
+                    ) {
+                        transient = true;
+                    } else {
+                        verify(&metadata, uid)?;
+                        if index == 0 {
+                            if original_main
+                                .as_ref()
+                                .is_some_and(|original| !same_file(original, &metadata))
+                            {
+                                bail!("Original cache database changed during validation; no modes repaired");
+                            }
+                            original_main.get_or_insert_with(|| metadata.clone());
+                        }
+                    }
                     Some(metadata)
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound && index > 0 => continue,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound && index > 0 => None,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if original_main.is_some() {
+                        bail!("Original cache database disappeared during validation; no replacement created");
+                    }
+                    None
+                }
                 Err(error) => return Err(error.into()),
             };
+            originals.push(original);
+        }
+        if transient {
+            continue;
+        }
+        let mut descriptors = Vec::new();
+        for (index, path) in paths.iter().enumerate() {
+            let original = &originals[index];
+            if index > 0 && original.is_none() {
+                continue;
+            }
             let file = match open_target(path, index == 0 && original.is_none()) {
                 Ok(file) => file,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound && index > 0 => {
@@ -94,6 +157,15 @@ fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> 
                 continue 'validation;
             }
             verify(&opened, uid)?;
+            if index == 0 {
+                if original_main
+                    .as_ref()
+                    .is_some_and(|original| !same_file(original, &opened))
+                {
+                    bail!("Original cache database changed while opening; no modes repaired");
+                }
+                original_main.get_or_insert_with(|| opened.clone());
+            }
             if original
                 .as_ref()
                 .is_some_and(|old| !same_file(old, &opened))
@@ -112,7 +184,7 @@ fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> 
                 .iter()
                 .find(|(held_index, _, _)| *held_index == index)
                 .map(|(_, _, file)| file);
-            let current = match fs::symlink_metadata(path) {
+            let current = match metadata(path, NamedPhaseV2::Current) {
                 Ok(metadata) => metadata,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound && index > 0 => {
                     if file.is_some() {
@@ -122,6 +194,14 @@ fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> 
                 }
                 Err(error) => return Err(error.into()),
             };
+            if optional_named_unlinked_v2(
+                index,
+                current.is_file(),
+                current.uid() == uid,
+                current.nlink() == 0,
+            ) {
+                continue 'validation;
+            }
             verify(&current, uid)?;
             let Some(file) = file else {
                 // A formerly absent journal appeared. It needs its own freshly
@@ -184,6 +264,12 @@ fn verify(metadata: &fs::Metadata, uid: u32) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod named_race_v2_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod churn_trace_v4_tests;
 
 #[cfg(test)]
 mod tests {

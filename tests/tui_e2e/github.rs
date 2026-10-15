@@ -6,6 +6,8 @@ use ghtui::{
     storage::{Cache, Scope},
 };
 use serde_json::{json, Value};
+#[path = "cache_named_v2.rs"]
+mod cache_named_v2;
 #[path = "sqlite_dependency.rs"]
 mod sqlite_dependency;
 #[path = "timeline_actor_legacy_v1.rs"]

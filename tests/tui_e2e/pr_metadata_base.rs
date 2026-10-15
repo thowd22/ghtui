@@ -204,7 +204,13 @@ pub(super) fn choose_branch(session: &mut Session, mouse: bool) {
         session.wait_for_screen(PICKER);
         session.click_visible_action("[Enter Choose]");
     } else {
-        session.focus_visible_form_action("[Enter Choose]");
+        session.focus_completed_owned_action_v1(
+            PICKER,
+            "[Enter Choose]",
+            crate::support::completed_navigation_controls_v1::FocusAttributeV1::Inverse,
+            &["[Enter Choose]", "[Esc Back]"],
+            &["Filter focused:", "· Rows focused"],
+        );
         session.send_key(b"\r");
     }
     session.wait_for_overlay_close(PICKER);
@@ -532,6 +538,36 @@ fn pr_metadata_base_mouse_fresh_changed_tip_refuses_before_publication_marker_or
     stale_tip(true);
 }
 fn stale_tip(mouse: bool) {
+    stale_tip_observed_input(mouse, false);
+}
+fn submit(session: &mut Session, mouse: bool) {
+    if mouse {
+        session.click_visible_action("[Confirm action]");
+    } else {
+        session.focus_completed_owned_action_v1(
+            "Change base branch • example/repo#7",
+            "[Confirm action]",
+            crate::support::completed_navigation_controls_v1::FocusAttributeV1::Inverse,
+            &[
+                "[Preview]",
+                "[External editor]",
+                "[Confirm action]",
+                "[Keep draft / Close]",
+            ],
+            &[],
+        );
+        session.send_key(b"\r");
+    }
+}
+#[test]
+fn owned_input_frames_v1_keyboard_held_confirm_one_actual_input_per_completed_focus() {
+    stale_tip_observed_input(false, true);
+}
+#[test]
+fn owned_input_frames_v1_mouse_held_confirm_one_actual_input_per_completed_focus() {
+    stale_tip_observed_input(true, true);
+}
+fn stale_tip_observed_input(mouse: bool, controlled: bool) {
     let fixture = fixture();
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
@@ -548,7 +584,15 @@ fn stale_tip(mouse: bool) {
     load_picker(&mut session, &fixture, mouse, 28);
     choose_branch(&mut session, mouse);
     preview_tip(&mut session, &fixture, mouse, 28);
+    if controlled {
+        session.hold_observed_output_after_next_write_v1(Duration::from_millis(200));
+    }
     submit(&mut session, mouse);
+    if controlled {
+        let writes = session.finish_observed_output_hold_v1();
+        assert_eq!(crate::support::receiver_delivery_gate_v1::maximum_unacknowledged(&writes), 1,
+            "ONE actual successful PTY input per acknowledged completed focus transition; actual journal: {writes:?}");
+    }
     session.wait_for_screen("PR intent refused");
     session.wait_for_screen("Original indexed choice is absent/changed/unavailable");
     session.wait_for_screen("Base branch:");

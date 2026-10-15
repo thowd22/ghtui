@@ -57,21 +57,54 @@ fn verify(metadata: &libc::stat, uid: libc::uid_t) -> Result<()> {
     }
     Ok(())
 }
+enum SnapshotV2 {
+    Fresh(Vec<Option<libc::stat>>),
+    TransientOptional,
+}
+
 fn snapshot(
     directory: &File,
     names: &[CString],
     uid: libc::uid_t,
-) -> Result<Vec<Option<libc::stat>>> {
-    names
-        .iter()
-        .map(|name| {
-            let value = stat_at(directory, name)?;
-            if let Some(metadata) = &value {
+    original_main: &mut Option<libc::stat>,
+    phase: super::NamedPhaseV2,
+    named: &mut impl FnMut(&File, &CString, super::NamedPhaseV2) -> io::Result<Option<libc::stat>>,
+) -> Result<SnapshotV2> {
+    let mut values = Vec::with_capacity(names.len());
+    let mut transient = false;
+    for (index, name) in names.iter().enumerate() {
+        let value = named(directory, name, phase)?;
+        if let Some(metadata) = &value {
+            if super::optional_named_unlinked_v2(
+                index,
+                metadata.st_mode & libc::S_IFMT == libc::S_IFREG,
+                metadata.st_uid == uid,
+                metadata.st_nlink == 0,
+            ) {
+                transient = true;
+            } else {
                 verify(metadata, uid)?;
+                if index == 0 {
+                    if original_main
+                        .as_ref()
+                        .is_some_and(|original| !same(original, metadata))
+                    {
+                        bail!("Original cache database changed during validation; no replacement created");
+                    }
+                    original_main.get_or_insert(*metadata);
+                }
             }
-            Ok(value)
-        })
-        .collect()
+        } else if index == 0 && original_main.is_some() {
+            bail!("Original cache database disappeared during validation; no replacement created");
+        }
+        // Even after a transient slot, reject any later unsafe alias now.
+        values.push(value);
+    }
+    Ok(if transient {
+        SnapshotV2::TransientOptional
+    } else {
+        SnapshotV2::Fresh(values)
+    })
 }
 fn parent_current(parent: &Path, directory: &File, uid: libc::uid_t) -> Result<()> {
     let named = fs::symlink_metadata(parent)?;
@@ -86,6 +119,16 @@ fn parent_current(parent: &Path, directory: &File, uid: libc::uid_t) -> Result<(
 }
 
 fn prepare_after_snapshot(path: &Path, mut observe: impl FnMut(usize)) -> Result<Vec<File>> {
+    prepare_with_named_metadata_v2(path, &mut observe, |directory, name, _| {
+        stat_at(directory, name)
+    })
+}
+
+fn prepare_with_named_metadata_v2(
+    path: &Path,
+    mut observe: impl FnMut(usize),
+    mut named: impl FnMut(&File, &CString, super::NamedPhaseV2) -> io::Result<Option<libc::stat>>,
+) -> Result<Vec<File>> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -122,28 +165,53 @@ fn prepare_after_snapshot(path: &Path, mut observe: impl FnMut(usize)) -> Result
             .map_err(anyhow::Error::from)
         })
         .collect::<Result<Vec<_>>>()?;
-    // All existing names are checked BEFORE creating an absent database too.
-    let mut original = snapshot(&directory, &names, uid)?;
-    if original[0].is_none() {
-        parent_current(parent, &directory, uid)?;
-        super::create_v1::create(path)?;
-        original = snapshot(&directory, &names, uid)?;
-    }
-    let main =
-        original[0].context("Cache database disappeared after creation; no replacement created")?;
-    for attempt in 0..4 {
-        if attempt != 0 {
-            original = snapshot(&directory, &names, uid)?;
+    // ONE total four-pass budget, including initial named observations. No
+    // nested retry can renew it; every transient abandons the whole snapshot.
+    let mut original_main = None;
+    'validation: for attempt in 0..4 {
+        let SnapshotV2::Fresh(mut original) = snapshot(
+            &directory,
+            &names,
+            uid,
+            &mut original_main,
+            super::NamedPhaseV2::Initial,
+            &mut named,
+        )?
+        else {
+            continue;
+        };
+        // Every existing name is checked BEFORE creating an absent database.
+        if original[0].is_none() {
+            parent_current(parent, &directory, uid)?;
+            super::create_v1::create(path)?;
+            let SnapshotV2::Fresh(created) = snapshot(
+                &directory,
+                &names,
+                uid,
+                &mut original_main,
+                super::NamedPhaseV2::Initial,
+                &mut named,
+            )?
+            else {
+                continue;
+            };
+            original = created;
         }
-        if original[0]
-            .as_ref()
-            .is_none_or(|current| !same(&main, current))
-        {
-            bail!("Original cache database changed before repair; no modes repaired");
-        }
+        let main = original_main
+            .context("Cache database disappeared after creation; no replacement created")?;
         observe(attempt);
         parent_current(parent, &directory, uid)?;
-        let current = snapshot(&directory, &names, uid)?;
+        let SnapshotV2::Fresh(current) = snapshot(
+            &directory,
+            &names,
+            uid,
+            &mut original_main,
+            super::NamedPhaseV2::Current,
+            &mut named,
+        )?
+        else {
+            continue;
+        };
         if current[0]
             .as_ref()
             .is_none_or(|current| !same(&main, current))
@@ -167,12 +235,20 @@ fn prepare_after_snapshot(path: &Path, mut observe: impl FnMut(usize)) -> Result
             let Some(expected) = expected else {
                 continue;
             };
-            let Some(now) = stat_at(&directory, name)? else {
+            let Some(now) = named(&directory, name, super::NamedPhaseV2::BeforeRepair)? else {
                 if index != 0 {
                     continue;
                 }
                 bail!("Original cache database disappeared during repair; no SQLite opened");
             };
+            if super::optional_named_unlinked_v2(
+                index,
+                now.st_mode & libc::S_IFMT == libc::S_IFREG,
+                now.st_uid == uid,
+                now.st_nlink == 0,
+            ) {
+                continue 'validation;
+            }
             verify(&now, uid)?;
             if !same(expected, &now) {
                 bail!("Cache target changed during private repair; no SQLite opened");
@@ -197,7 +273,17 @@ fn prepare_after_snapshot(path: &Path, mut observe: impl FnMut(usize)) -> Result
             }
         }
         parent_current(parent, &directory, uid)?;
-        let repaired = snapshot(&directory, &names, uid)?;
+        let SnapshotV2::Fresh(repaired) = snapshot(
+            &directory,
+            &names,
+            uid,
+            &mut original_main,
+            super::NamedPhaseV2::Repaired,
+            &mut named,
+        )?
+        else {
+            continue;
+        };
         if repaired[0]
             .as_ref()
             .is_none_or(|current| !same(&main, current))
@@ -215,6 +301,9 @@ fn prepare_after_snapshot(path: &Path, mut observe: impl FnMut(usize)) -> Result
     }
     bail!("Cache journals kept changing during bounded validation; no modes repaired")
 }
+
+#[cfg(test)]
+mod named_v2_tests;
 
 #[cfg(test)]
 mod tests {

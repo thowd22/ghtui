@@ -197,42 +197,24 @@ fn assert_local_state(fixture: &Fixture, config: &[u8], before: &GitState) {
     assert!(cache.draft(&other, "catalogue-draft").unwrap().is_none());
 }
 fn owner_detail(session: &mut Session, mouse: bool) {
-    let point = session
-        .locate("Repository ID: 10000")
-        .expect("Actual selected detail geometry before owner scrolling");
-    if mouse {
-        session.click(point.0, point.1);
-    } else {
-        // Filter() ends in the list. Tab moves into the real detail panel;
-        // one-line arrows cannot skip an owner as a wide-screen page might.
-        session.send_key(b"\t");
-    }
-    for _ in 0..32 {
-        session.poll_output(Duration::from_millis(20));
-        if session.screen().contains("Owner: @example [organization]") {
-            break;
-        }
-        if mouse {
-            session.wheel(point.0, point.1, true);
-        } else {
-            session.send_key(b"\x1b[B");
-        }
-    }
+    session.scroll_owned_details_v1(
+        mouse,
+        TITLE,
+        "◆ repository · example/repo0000",
+        true,
+        &["Owner: @example [organization]"],
+    );
     ready(session, &["Owner: @example [organization]"]);
-    for _ in 0..32 {
-        session.poll_output(Duration::from_millis(20));
-        if session
-            .screen()
-            .contains("Full repository name: example/repo0000")
-        {
-            break;
-        }
-        if mouse {
-            session.wheel(point.0, point.1, false);
-        } else {
-            session.send_key(b"\x1b[A");
-        }
-    }
+    session.scroll_owned_details_v1(
+        mouse,
+        TITLE,
+        "◆ repository · example/repo0000",
+        false,
+        &[
+            "Repository ID: 10000",
+            "Full repository name: example/repo0000",
+        ],
+    );
     ready(
         session,
         &[
@@ -240,11 +222,26 @@ fn owner_detail(session: &mut Session, mouse: bool) {
             "Full repository name: example/repo0000",
         ],
     );
-    if mouse {
-        session.click_visible_action("◆ repository · example/repo0000");
-    } else {
-        session.send_key(b"\x1b[Z");
+}
+fn owner_detail_controlled(session: &mut Session, mouse: bool, controlled: bool) {
+    if !controlled {
+        owner_detail(session, mouse);
+        return;
     }
+    session.hold_observed_output_after_next_write_v1(Duration::from_millis(200));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        owner_detail(session, mouse)
+    }));
+    let writes = session.finish_observed_output_hold_v1();
+    eprintln!("Actual narrow detail input journal: {writes:?}");
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
+    assert_eq!(
+        crate::support::receiver_delivery_gate_v1::maximum_unacknowledged(&writes),
+        1,
+        "Exactly ONE real current-detail input before completed viewport change"
+    );
 }
 fn image_at_current_row(session: &mut Session) {
     ready(session, &[TITLE, FIRST, "Repository ID: 10000", "▀"]);
@@ -267,6 +264,17 @@ fn journey(mouse: bool, mode: Mode) {
     journey_with_writer(mouse, mode, false);
 }
 fn journey_with_writer(mouse: bool, mode: Mode, hold_writer: bool) {
+    journey_with_observed_details(mouse, mode, hold_writer, false);
+}
+#[test]
+fn owned_input_frames_v1_keyboard_avatar_narrow_detail_one_acknowledged_scroll() {
+    journey_with_observed_details(false, Mode::Ready, false, true);
+}
+#[test]
+fn owned_input_frames_v1_mouse_avatar_narrow_detail_one_acknowledged_scroll() {
+    journey_with_observed_details(true, Mode::Ready, false, true);
+}
+fn journey_with_observed_details(mouse: bool, mode: Mode, hold_writer: bool, controlled: bool) {
     let fixture = configured(&asset_protocol(mode));
     let path = fixture.root.join("config/ghtui/config.toml");
     let mut config = Config::load(&path).unwrap();
@@ -314,7 +322,7 @@ fn journey_with_writer(mouse: bool, mode: Mode, hold_writer: bool) {
     choose(&mut session, mouse, "[Space Select]", b" ");
     choose(&mut session, mouse, "[p Pin]", b"p");
     ready(&mut session, &["Selected: yes", "Pinned: yes"]);
-    owner_detail(&mut session, mouse);
+    owner_detail_controlled(&mut session, mouse, controlled && mouse);
     session.resize_owned_modal(
         if mouse { 120 } else { 80 },
         if mouse { 40 } else { 24 },
@@ -331,7 +339,7 @@ fn journey_with_writer(mouse: bool, mode: Mode, hold_writer: bool) {
             "Pinned: yes",
         ],
     );
-    owner_detail(&mut session, mouse);
+    owner_detail_controlled(&mut session, mouse, controlled && !mouse);
     assert_commands(&session, &fixture, 7);
     assert_eq!(git_commands(&fixture), trace);
     assert_local_state(&fixture, &config_before, &git_before);

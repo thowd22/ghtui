@@ -16,6 +16,7 @@ mod remote_handoff_read_v1;
 use remote_handoff_read_v1::{run_git_with_window_v1, GitReadPolicyV1};
 mod local_commit_actor_origin_v1;
 mod local_saved_navigation_origin_v1;
+mod native_full_side_v3;
 mod native_mutable_diff_source_v2;
 mod readonly_diff_paths_v1;
 pub(crate) use local_commit_actor_origin_v1::original_saved_sha as original_actor_saved_sha;
@@ -25,6 +26,7 @@ pub(crate) use local_commit_actor_origin_v1::{
     register_fixture_trace as register_actor_origin_test_trace,
     FixtureTraceGuard as ActorOriginTraceGuard,
 };
+pub(crate) use native_full_side_v3::MutableFullSideV3;
 pub use native_mutable_diff_source_v2::{
     MutableChangedFileV2, MutableDiffIntentV2, MutableDiffKindV2, MutableDiffSourceV2,
 };

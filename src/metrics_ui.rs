@@ -42,7 +42,7 @@ pub fn draw(
     frame.render_widget(Clear, area);
     let mut y = area.y;
     let mut x = area.x;
-    let buttons = [
+    let mut buttons = vec![
         ("[7 Last7 days]", workspace.window_action(7)),
         ("[0 Last30 days]", workspace.window_action(30)),
         ("[R Repositories]", MetricsWorkspaceAction::Repositories),
@@ -59,6 +59,31 @@ pub fn draw(
             MetricsWorkspaceAction::Metric(MetricsAction::Back),
         ),
     ];
+    buttons.extend([
+        ("[L Layout]", MetricsWorkspaceAction::Layout),
+        (
+            "[S Save dashboard]",
+            MetricsWorkspaceAction::Metric(MetricsAction::SaveDashboard),
+        ),
+        (
+            "[O Saved dashboard]",
+            MetricsWorkspaceAction::Metric(MetricsAction::RestoreDashboard),
+        ),
+        (
+            "[D Defaults]",
+            MetricsWorkspaceAction::Metric(MetricsAction::DefaultDashboard),
+        ),
+    ]);
+    if workspace.view == MetricsView::Layout {
+        buttons.extend([
+            (
+                "[Space Show/hide]",
+                MetricsWorkspaceAction::ToggleWidget(workspace.selected),
+            ),
+            ("[< Earlier]", MetricsWorkspaceAction::MoveWidget(false)),
+            ("[> Later]", MetricsWorkspaceAction::MoveWidget(true)),
+        ]);
+    }
     for (label, action) in buttons {
         let width = (label.len() as u16).min(area.width);
         if x > area.x && x.saturating_add(width) > area.right() {
@@ -85,6 +110,16 @@ pub fn draw(
         x = x.saturating_add(width + 1);
     }
     y = y.saturating_add(1);
+    if workspace.view == MetricsView::Layout && y < area.bottom().saturating_sub(1) {
+        frame.render_widget(
+            Paragraph::new(
+                "Layout only • one widget must stay visible • Save replaces this account's default",
+            )
+            .style(theme.style(SemanticToken::Reference)),
+            Rect::new(area.x, y, area.width, 1),
+        );
+        y += 1;
+    }
     let headers = [
         (&workspace.scope_label, SemanticToken::Reference),
         (&workspace.cohort_label, SemanticToken::Muted),
@@ -277,6 +312,19 @@ pub fn keyboard_action(
         KeyCode::Char('R') => MetricsWorkspaceAction::Repositories,
         KeyCode::Char('r') => MetricsWorkspaceAction::Metric(MetricsAction::Refresh),
         KeyCode::Char('i') => MetricsWorkspaceAction::Inspect(workspace.selected),
+        KeyCode::Char('L') => MetricsWorkspaceAction::Layout,
+        KeyCode::Char('S') => MetricsWorkspaceAction::Metric(MetricsAction::SaveDashboard),
+        KeyCode::Char('O') => MetricsWorkspaceAction::Metric(MetricsAction::RestoreDashboard),
+        KeyCode::Char('D') => MetricsWorkspaceAction::Metric(MetricsAction::DefaultDashboard),
+        KeyCode::Char(' ') if workspace.view == MetricsView::Layout => {
+            MetricsWorkspaceAction::ToggleWidget(workspace.selected)
+        }
+        KeyCode::Char('<') if workspace.view == MetricsView::Layout => {
+            MetricsWorkspaceAction::MoveWidget(false)
+        }
+        KeyCode::Char('>') if workspace.view == MetricsView::Layout => {
+            MetricsWorkspaceAction::MoveWidget(true)
+        }
         _ => return None,
     };
     Some(if workspace.pending.is_some() {

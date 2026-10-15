@@ -228,6 +228,17 @@ fn normalized(screen: &str) -> String {
         .join(" ")
 }
 fn journey(mouse: bool, failure: Failure) {
+    journey_observed_input(mouse, failure, false);
+}
+#[test]
+fn owned_input_frames_v1_keyboard_catalogue_close_held_input_requires_one_focus_ack() {
+    journey_observed_input(false, Failure::MissingTotal, true);
+}
+#[test]
+fn owned_input_frames_v1_mouse_catalogue_close_held_input_preserves_original_failure() {
+    journey_observed_input(true, Failure::MissingTotal, true);
+}
+fn journey_observed_input(mouse: bool, failure: Failure, controlled: bool) {
     let mut steps = collection(vec![json!([repository(0)])], 42);
     steps.extend(failed_open(failure));
     assert_eq!(steps.len(), 13);
@@ -285,10 +296,27 @@ fn journey(mouse: bool, failure: Failure) {
         "No stale input resends malformed Open or reloads source"
     );
     assert_eq!(git_commands(&fixture), git);
+    if controlled {
+        session.hold_observed_output_after_next_write_v1(Duration::from_millis(200));
+    }
     if !mouse {
-        session.focus_visible_action("[Esc Close]");
+        session.focus_completed_owned_action_v1(
+            TITLE,
+            "[Esc Close]",
+            crate::support::completed_navigation_controls_v1::FocusAttributeV1::Underline,
+            &["[Esc Close]", "[q Quit]"],
+            &[],
+        );
     }
     choose(&mut session, mouse, "[Esc Close]", b"\r");
+    if controlled {
+        let writes = session.finish_observed_output_hold_v1();
+        assert_eq!(
+            crate::support::receiver_delivery_gate_v1::maximum_unacknowledged(&writes),
+            1,
+            "ONE actual successful input per completed catalogue focus; {writes:?}"
+        );
+    }
     session.wait_for_overlay_close(TITLE);
     ready(
         &mut session,

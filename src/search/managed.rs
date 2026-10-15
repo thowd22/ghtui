@@ -1322,8 +1322,26 @@ impl CorpusManager {
         let token = cancel.clone();
         let limits = self.limits.clone();
         let progress = self.progress.clone();
+        #[cfg(test)]
+        let (before_monitor, after_child, monitor_scans) =
+            match completed_budget_v2_tests::take_witness() {
+                Some(witness) => (
+                    Some(witness.before_monitor),
+                    Some(witness.after_child),
+                    Some(witness.monitor_scans),
+                ),
+                None => (None, None, None),
+            };
         let monitor = std::thread::spawn(move || {
+            #[cfg(test)]
+            if let Some(witness) = before_monitor {
+                witness();
+            }
             while !observer_done.load(Ordering::Acquire) {
+                #[cfg(test)]
+                if let Some(scans) = &monitor_scans {
+                    scans.fetch_add(1, Ordering::AcqRel);
+                }
                 if token.is_cancelled() {
                     break;
                 }
@@ -1355,6 +1373,10 @@ impl CorpusManager {
             .get_or_init(CommandRunner::default)
             .run(command, cancel);
         done.store(true, Ordering::Release);
+        #[cfg(test)]
+        if let Some(witness) = after_child {
+            witness(result.is_ok(), done.load(Ordering::Acquire));
+        }
         let _ = monitor.join();
         if let Err(failure) = result {
             let description = reason
@@ -1472,6 +1494,9 @@ impl CorpusManager {
                 Ok(CorpusOutcome{mapping:Some(mapping),recovery:None,message:"Explicit managed clone ready • saved-object source, no checkout or parent fetch".into()})
             }
             Err(failure) => {
+                RUNNER
+                    .get_or_init(CommandRunner::default)
+                    .mark_ambiguous(&self.resource(repository));
                 self.progress.update(|state| {
                     state.phase = CorpusPhase::Retained;
                     state.elapsed_millis = started.elapsed().as_millis() as u64;
@@ -1512,6 +1537,10 @@ impl CorpusManager {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "managed_completed_budget_v2_tests.rs"]
+mod completed_budget_v2_tests;
 
 struct CorpusLock(File);
 impl Drop for CorpusLock {

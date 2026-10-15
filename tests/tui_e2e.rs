@@ -14,6 +14,8 @@ mod corpus;
 mod editor_viewport;
 #[path = "tui_e2e/file_history.rs"]
 mod file_history;
+#[path = "tui_e2e/git_maintenance_v1.rs"]
+mod git_maintenance_v1;
 #[path = "tui_e2e/github.rs"]
 mod github;
 #[path = "support/hydration.rs"]

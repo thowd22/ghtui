@@ -65,6 +65,13 @@ impl NativeDiffContentV2 for MutableDiffSourceV2 {
 /// immutable engine does not share saved authorization with unsaved content.
 pub type CapturedNativeDiffPurposeV2<S> = (Arc<<S as NativeDiffPurposeV2>::Intent>, Option<Arc<S>>);
 pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
+    #[doc(hidden)]
+    fn prepare_full_side_v3(
+        self: &Arc<Self>,
+        file: usize,
+        side: DiffSide,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<Arc<crate::repository_native_full_side_v3::NativeFullSideMaterialV3>, String>;
     fn closed_status() -> &'static str;
     fn pane_title(wide: bool) -> &'static str;
     fn stage_control() -> &'static str;
@@ -89,6 +96,19 @@ pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
 }
 
 impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
+    fn prepare_full_side_v3(
+        self: &Arc<Self>,
+        file: usize,
+        side: DiffSide,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<Arc<crate::repository_native_full_side_v3::NativeFullSideMaterialV3>, String> {
+        crate::repository_native_full_side_v3::NativeFullSideMaterialV3::saved(
+            self.clone(),
+            file,
+            side,
+            operation,
+        )
+    }
     fn closed_status() -> &'static str {
         "Native saved diff closed • no repository changes"
     }
@@ -176,6 +196,18 @@ impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
 }
 
 impl NativeDiffPurposeV2 for MutableDiffSourceV2 {
+    fn prepare_full_side_v3(
+        self: &Arc<Self>,
+        file: usize,
+        side: DiffSide,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<Arc<crate::repository_native_full_side_v3::NativeFullSideMaterialV3>, String> {
+        Ok(
+            crate::repository_native_full_side_v3::NativeFullSideMaterialV3::mutable(
+                crate::git::MutableFullSideV3::read(self.clone(), file, side, operation)?,
+            ),
+        )
+    }
     fn closed_status() -> &'static str {
         "Native local diff closed • no repository changes"
     }
