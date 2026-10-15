@@ -2,6 +2,9 @@
 use super::*;
 mod inspect;
 pub use inspect::*;
+#[path = "pr_inline_v1.rs"]
+mod inline_v1;
+pub use inline_v1::{InlineCommentReceiptV1, InlinePublicationFailureV1};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestedTeam {
@@ -114,55 +117,7 @@ impl InlineComment {
     }
     pub fn validate_patch(&self, patch: &str) -> GithubResult<()> {
         self.validate()?;
-        let mut valid = BTreeSet::new();
-        let (mut old, mut new) = (0u64, 0u64);
-        for row in patch.lines() {
-            if row.starts_with("@@ ") {
-                let mut positions = row.split_whitespace();
-                positions.next();
-                old = positions
-                    .next()
-                    .and_then(|s| s.trim_start_matches('-').split(',').next()?.parse().ok())
-                    .ok_or_else(|| {
-                        error(GithubErrorKind::Json, "Malformed old-side hunk coordinates")
-                    })?;
-                new = positions
-                    .next()
-                    .and_then(|s| s.trim_start_matches('+').split(',').next()?.parse().ok())
-                    .ok_or_else(|| {
-                        error(GithubErrorKind::Json, "Malformed new-side hunk coordinates")
-                    })?;
-            } else {
-                match row.as_bytes().first() {
-                    Some(b' ') => {
-                        valid.insert(match self.side {
-                            DiffSide::Left => old,
-                            DiffSide::Right => new,
-                        });
-                        old += 1;
-                        new += 1;
-                    }
-                    Some(b'-') => {
-                        if self.side == DiffSide::Left {
-                            valid.insert(old);
-                        }
-                        old += 1;
-                    }
-                    Some(b'+') => {
-                        if self.side == DiffSide::Right {
-                            valid.insert(new);
-                        }
-                        new += 1;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        let start = self.start_line.unwrap_or(self.line);
-        if self.line - start > 10_000 || !(start..=self.line).all(|line| valid.contains(&line)) {
-            return Err(error(GithubErrorKind::InvalidTarget,"Selected review lines are absent from the canonical patch; expand context or re-anchor the retained draft"));
-        }
-        Ok(())
+        inline_v1::validate_inline_patch(self, patch)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1213,76 +1168,7 @@ impl GithubProvider {
         comment: &InlineComment,
         cancel: &CancellationToken,
     ) -> GithubResult<Value> {
-        comment.validate()?;
-        self.guard_target(identity, target, cancel)?;
-        let files = self.api_list(
-            &format!("{}/files?per_page=100", self.pr_endpoint(target)),
-            None,
-            cancel,
-        )?;
-        let file = files
-            .iter()
-            .find(|f| text(f, "filename") == comment.path)
-            .ok_or_else(|| {
-                error(
-                    GithubErrorKind::InvalidTarget,
-                    "Selected file is absent from this PR",
-                )
-            })?;
-        let patch = file.get("patch").and_then(Value::as_str).ok_or_else(|| {
-            error(
-                GithubErrorKind::Unsupported,
-                "This file has no canonical text patch; line comments cannot be safely anchored",
-            )
-        })?;
-        comment.validate_patch(patch)?;
-        let fresh = self.pr_summary(&target.pr.repository, target.pr.number, cancel)?;
-        if fresh.head_sha != target.head_sha || fresh.base_sha != target.base_sha {
-            return Err(error(
-                GithubErrorKind::StaleHead,
-                "PR changed while validating the inline range; retain the draft and re-anchor it",
-            ));
-        }
-        let mut payload = comment.payload();
-        payload["commit_id"] = json!(target.head_sha);
-        let value = self.target_write(
-            target,
-            &format!("{}/comments", self.pr_endpoint(target)),
-            "POST",
-            Some(payload),
-            cancel,
-        )?;
-        let id = number(&value, "id");
-        if id == 0 {
-            self.runner
-                .mark_ambiguous(&self.resource(&target.pr.repository, target.pr.number));
-            return Err(error(
-                GithubErrorKind::AmbiguousWrite,
-                "Inline write did not return a comment identity",
-            ));
-        }
-        let result = self.after_pr_write(
-            target,
-            self.api(
-                &self.comment_endpoint(target, id, CommentKind::Review)?,
-                "GET",
-                None,
-                None,
-                false,
-                cancel,
-            ),
-        )?;
-        if text(&result, "path") != comment.path
-            || text(&result, "commit_id") != target.head_sha
-            || number(&result, "line") != comment.line
-            || text(&result, "body") != comment.body
-        {
-            return Err(self.ambiguous_pr(
-                target,
-                "Inline comment read-back did not match its canonical coordinates",
-            ));
-        }
-        Ok(result)
+        self.inline_comment_response_v1(identity, target, comment, cancel)
     }
     pub fn reply_inline(
         &self,

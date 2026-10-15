@@ -59,6 +59,9 @@ pub enum Action {
     RepositoryRow(crate::workspace::RowAction),
     OriginalDiffSidesV1(crate::repository_diff_sides_v1::OriginalDiffActionV1),
     NativeDiffV1(crate::repository_native_diff_ui_v1::NativeDiffActionV1),
+    NativeMutableDiffV2(
+        crate::repository_native_diff_ui_v1::NativeDiffActionV1<crate::git::MutableDiffSourceV2>,
+    ),
     OriginalTreeV1(crate::repository_tree_jump_v1::OriginalTreeJumpActionV1),
     OriginalTreeViewportV2(crate::repository_tree_viewport_v2::TreeViewportActionV2),
     GraphRereadV3(crate::repository_graph_reread_native_v3::GraphRereadActionV3),
@@ -184,6 +187,11 @@ pub struct App {
     pub original_diff_picker_v1: Option<crate::repository_diff_sides_v1::OriginalDiffPickerV1>,
     pub native_diff_v1: Option<crate::repository_native_diff_v1::NativeDiffStateV1>,
     pub native_diff_layout_v1: crate::repository_native_diff_ui_v1::NativeDiffLayoutV1,
+    pub native_mutable_diff_v2: Option<
+        crate::repository_native_diff_v1::NativeDiffStateV1<crate::git::MutableDiffSourceV2>,
+    >,
+    pub native_mutable_diff_layout_v2:
+        crate::repository_native_diff_ui_v1::NativeDiffLayoutV1<crate::git::MutableDiffSourceV2>,
     pub original_diff_work_v1:
         Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkV1>>,
     pub original_diff_layout_v1: crate::repository_diff_sides_ui_v1::OriginalDiffLayoutV1,
@@ -372,6 +380,8 @@ impl Default for App {
             original_diff_picker_v1: None,
             native_diff_v1: None,
             native_diff_layout_v1: Default::default(),
+            native_mutable_diff_v2: None,
+            native_mutable_diff_layout_v2: Default::default(),
             original_diff_work_v1: None,
             original_diff_layout_v1: Default::default(),
             original_diff_cancel_v1: false,
@@ -827,6 +837,9 @@ impl App {
         match action {
             Action::NativeDiffV1(action) => {
                 crate::repository_native_diff_native_v1::dispatch(self, action)
+            }
+            Action::NativeMutableDiffV2(action) => {
+                crate::repository_native_diff_native_v1::dispatch_mutable(self, action)
             }
             Action::RelatedPrV1(_) => (), // Handled before global dispatch.
             Action::OriginalTreeViewportV2(action) => {
@@ -2191,9 +2204,7 @@ impl App {
                         return;
                     }
                     if key.code == KeyCode::Char('v') {
-                        self.dispatch(Action::NativeDiffV1(
-                            crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
-                        ));
+                        crate::repository_native_diff_native_v1::open(self);
                         return;
                     }
                     if key.code == KeyCode::Char('u') {

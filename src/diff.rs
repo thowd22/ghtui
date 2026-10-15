@@ -47,8 +47,10 @@ impl Diff {
     /// Parses Git's canonical patch. Quoted byte paths retain their exact decoded bytes.
     pub fn parse(patch: &[u8]) -> Result<Self, String> {
         let mut diff = Self::default();
-        let mut old_line = 0;
-        let mut new_line = 0;
+        // The next position may legitimately be u32::MAX+1 after the final
+        // representable line. Never wrap it into another line's coordinates.
+        let mut old_line = 0u64;
+        let mut new_line = 0u64;
         for line in patch.split(|b| *b == b'\n') {
             if line.starts_with(b"diff --git ") {
                 diff.files.push(FileDiff::default());
@@ -59,24 +61,48 @@ impl Diff {
             };
             if line.starts_with(b"@@ ") {
                 let hunk = parse_header(line)?;
-                old_line = hunk.old_start;
-                new_line = hunk.new_start;
+                old_line = u64::from(hunk.old_start);
+                new_line = u64::from(hunk.new_start);
                 file.hunks.push(hunk);
             } else if let Some(hunk) = file.hunks.last_mut() {
                 let (kind, old, new) = match line.first() {
                     Some(b' ') => {
-                        let coords = (LineKind::Context, Some(old_line), Some(new_line));
+                        let coords = (
+                            LineKind::Context,
+                            Some(
+                                u32::try_from(old_line)
+                                    .map_err(|_| "Old diff coordinate overflow")?,
+                            ),
+                            Some(
+                                u32::try_from(new_line)
+                                    .map_err(|_| "New diff coordinate overflow")?,
+                            ),
+                        );
                         old_line += 1;
                         new_line += 1;
                         coords
                     }
                     Some(b'+') => {
-                        let coords = (LineKind::Added, None, Some(new_line));
+                        let coords = (
+                            LineKind::Added,
+                            None,
+                            Some(
+                                u32::try_from(new_line)
+                                    .map_err(|_| "New diff coordinate overflow")?,
+                            ),
+                        );
                         new_line += 1;
                         coords
                     }
                     Some(b'-') => {
-                        let coords = (LineKind::Removed, Some(old_line), None);
+                        let coords = (
+                            LineKind::Removed,
+                            Some(
+                                u32::try_from(old_line)
+                                    .map_err(|_| "Old diff coordinate overflow")?,
+                            ),
+                            None,
+                        );
                         old_line += 1;
                         coords
                     }
@@ -325,12 +351,12 @@ fn parse_range(value: &str, prefix: char) -> Result<(u32, u32), String> {
         .strip_prefix(prefix)
         .ok_or("Invalid hunk coordinate prefix")?;
     let mut parts = value.split(',');
-    let start = parts
+    let start: u32 = parts
         .next()
         .unwrap_or_default()
         .parse()
         .map_err(|_| "Invalid hunk start")?;
-    let count = parts
+    let count: u32 = parts
         .next()
         .map(str::parse)
         .transpose()
@@ -338,6 +364,9 @@ fn parse_range(value: &str, prefix: char) -> Result<(u32, u32), String> {
         .unwrap_or(1);
     if parts.next().is_some() {
         return Err("Too many hunk coordinates".into());
+    }
+    if count > 0 && (start == 0 || start.checked_add(count - 1).is_none()) {
+        return Err("Hunk span has zero or overflowing canonical line coordinates".into());
     }
     Ok((start, count))
 }

@@ -346,6 +346,13 @@ pub fn invalidate_unresolved_discussions(
 }
 
 fn comment_category(marker: &PrWriteMarker) -> Result<SyncBindingKind, String> {
+    if marker.command == "inline-comment" {
+        let digest = marker.selected_resource.strip_prefix("inline/")
+            .filter(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+            .ok_or("Inline publication lacks its exact canonical anchor SHA256; no category is guessed")?;
+        debug_assert_eq!(digest.len(), 64);
+        return Ok(SyncBindingKind::InlineComment);
+    }
     if marker.command == "new-comment" && marker.selected_resource == "pr" {
         return Ok(SyncBindingKind::ConversationComment);
     }
@@ -362,7 +369,9 @@ fn comment_category(marker: &PrWriteMarker) -> Result<SyncBindingKind, String> {
 
 fn possible_text_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
     let category = match marker.command.as_str() {
-        "new-comment" | "edit-comment" | "delete-comment" => Some(comment_category(marker)?),
+        "new-comment" | "inline-comment" | "edit-comment" | "delete-comment" => {
+            Some(comment_category(marker)?)
+        }
         "legacy-approve" | "legacy-request-changes" | "legacy-review-comment" => {
             Some(SyncBindingKind::Review)
         }
@@ -514,6 +523,12 @@ mod tests {
                 Some(SyncBindingKind::InlineComment),
             ),
             (
+                "inline-comment",
+                "inline/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                PrEffectKind::Comment,
+                Some(SyncBindingKind::InlineComment),
+            ),
+            (
                 "legacy-review-comment",
                 "pr",
                 PrEffectKind::Review,
@@ -547,7 +562,105 @@ mod tests {
                     .categories(),
                 expected.as_slice()
             );
+            if command == "inline-comment" {
+                let target = PrWriteTarget::new(&identity(), &summary()).unwrap();
+                let marker = PrWriteJournal::open(&path)
+                    .unwrap()
+                    .latest_source_receipt(&target, SyncBindingKind::InlineComment)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(marker.command, "inline-comment");
+                assert_eq!(marker.selected_resource, selected);
+                assert_eq!(marker.publication_reference(), reference);
+            }
         }
+    }
+    #[test]
+    fn inline_comments_discussion_category_rejects_fake_ids_or_malformed_anchor_digests() {
+        for selected in [
+            "Review/0",
+            "inline/0",
+            "inline/",
+            "inline/not-an-anchor",
+            "inline/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "inline/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaG",
+        ] {
+            let dir = directory();
+            let path = dir.path().join("cache.sqlite3");
+            let reference = confirmed(&path, "inline-comment", selected, PrEffectKind::Comment);
+            assert!(
+                confirmed_discussion_impact(&path, &identity(), &summary(), &reference).is_err()
+            );
+            let target = PrWriteTarget::new(&identity(), &summary()).unwrap();
+            assert!(PrWriteJournal::open(&path)
+                .unwrap()
+                .latest_source_receipt(&target, SyncBindingKind::InlineComment)
+                .unwrap()
+                .is_none());
+        }
+    }
+    #[test]
+    fn inline_comments_unresolved_anchor_hides_only_inline_text_without_clearing_pending() {
+        let dir = directory();
+        let path = dir.path().join("cache.sqlite3");
+        let scope = Scope::github("github.invalid", Some(42)).unwrap();
+        let mut cache = Cache::open(&path).unwrap();
+        let inline_key = format!("collaboration-v1:{}", "a".repeat(64));
+        let conversation_key = format!("collaboration-v1:{}", "b".repeat(64));
+        for (key, kind) in [
+            (inline_key.as_str(), SyncBindingKind::InlineComment),
+            (
+                conversation_key.as_str(),
+                SyncBindingKind::ConversationComment,
+            ),
+        ] {
+            let bound = SyncBinding {
+                namespace: SyncNamespace::Collaboration,
+                repository_id: 9,
+                repository: "example/repo".into(),
+                resource: "PR_exact_7".into(),
+                kind,
+            };
+            let reservation = cache.reserve_resource_sync(&scope, key, &bound).unwrap();
+            assert!(cache
+                .commit_reserved_sync(&scope, key, reservation, &[], true)
+                .unwrap());
+        }
+        let target = PrWriteTarget::new(&identity(), &summary()).unwrap();
+        let intent = PrWriteIntent {
+            command: "inline-comment".into(),
+            selected_resource: format!("inline/{}", "a".repeat(64)),
+            observed_head: "a".repeat(40),
+            values: BTreeMap::from([("body".into(), "bounded inline draft".into())]),
+        };
+        let mut journal = PrWriteJournal::open(&path).unwrap();
+        let permit = journal.begin(&target, &intent).unwrap();
+        journal.claim(&permit, &target, &intent).unwrap();
+        let reference = permit.marker().publication_reference();
+        let fence = invalidate_unresolved_discussions(&path, &identity(), &summary(), &reference)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fence.sources, vec![inline_key.clone()]);
+        assert!(cache
+            .binding_status(&scope, &inline_key)
+            .unwrap()
+            .unwrap()
+            .visible_generation
+            .is_none());
+        assert!(cache
+            .binding_status(&scope, &conversation_key)
+            .unwrap()
+            .unwrap()
+            .visible_generation
+            .is_some());
+        assert_eq!(
+            journal
+                .blocking(&target)
+                .unwrap()
+                .unwrap()
+                .publication_reference(),
+            reference
+        );
     }
     #[test]
     fn collaboration_index_invalidation_requires_original_confirmed_account_node_repo_and_attempt()

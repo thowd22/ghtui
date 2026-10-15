@@ -258,6 +258,11 @@ impl RepositoryCatalogueAccessSession<'_> {
     pub fn identity(&self) -> &HostIdentity {
         &self.identity
     }
+    /// Borrow the already observed row INSIDE this live original session.
+    /// Intermediate metadata only: not a closing access receipt or write grant.
+    pub(crate) fn observation_v1(&self, id: u64) -> Option<&CurrentCatalogueRepository> {
+        self.verified.iter().find(|row| row.original.id == id)
+    }
     pub fn deadline(&self) -> Instant {
         self.budget.deadline()
     }
@@ -399,7 +404,9 @@ impl RepositoryCatalogueAccessSession<'_> {
                     self.verified.push(observation);
                     self.verified.len() - 1
                 };
-                Ok(&self.verified[index])
+                Ok(self
+                    .observation_v1(self.verified[index].original.id)
+                    .expect("actual observed original repository retained"))
             }
             Err(failure) => {
                 if matches!(

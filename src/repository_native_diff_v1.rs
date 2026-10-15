@@ -2,8 +2,9 @@
 //! Only a genuine original source can prepare rows; the B worker seals the read.
 use crate::{
     editor::TextBuffer,
-    git::{OriginalComparisonIntentV1, OriginalComparisonSourceV1},
+    git::OriginalComparisonSourceV1,
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+    repository_native_diff_content_v2::NativeDiffPurposeV2,
     repository_native_diff_projection_v1::{
         NativeDiffLineKeyV1, NativeDiffLineTicketV1, NativeDiffOptionsV1, NativeDiffProjectionV1,
         NativeDiffQueryV1, NativeDiffRangeV1, NativeDiffWhitespaceV1,
@@ -27,25 +28,45 @@ pub enum NativeDiffOptionChangeV1 {
     MarkGenerated(usize),
     CollapseGenerated,
 }
-#[derive(Clone)]
-enum RangeEditV1 {
+enum RangeEditV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
     Extend {
-        frame: Arc<NativeDiffProjectionV1>,
-        range: Arc<NativeDiffRangeV1>,
-        last: NativeDiffLineTicketV1,
+        frame: Arc<NativeDiffProjectionV1<S>>,
+        range: Arc<NativeDiffRangeV1<S>>,
+        last: NativeDiffLineTicketV1<S>,
     },
     Between {
-        frame: Arc<NativeDiffProjectionV1>,
-        first: NativeDiffLineTicketV1,
-        last: NativeDiffLineTicketV1,
+        frame: Arc<NativeDiffProjectionV1<S>>,
+        first: NativeDiffLineTicketV1<S>,
+        last: NativeDiffLineTicketV1<S>,
     },
     Hunk {
-        frame: Arc<NativeDiffProjectionV1>,
+        frame: Arc<NativeDiffProjectionV1<S>>,
         index: usize,
     },
     Clear,
 }
-impl RangeEditV1 {
+impl<S: NativeDiffPurposeV2> Clone for RangeEditV1<S> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Extend { frame, range, last } => Self::Extend {
+                frame: frame.clone(),
+                range: range.clone(),
+                last: last.clone(),
+            },
+            Self::Between { frame, first, last } => Self::Between {
+                frame: frame.clone(),
+                first: first.clone(),
+                last: last.clone(),
+            },
+            Self::Hunk { frame, index } => Self::Hunk {
+                frame: frame.clone(),
+                index: *index,
+            },
+            Self::Clear => Self::Clear,
+        }
+    }
+}
+impl<S: NativeDiffPurposeV2> RangeEditV1<S> {
     fn same(&self, other: &Self) -> bool {
         match (self, other) {
             (
@@ -117,38 +138,34 @@ fn same_options(a: &NativeDiffOptionsV1, b: &NativeDiffOptionsV1) -> bool {
 }
 
 /// No public field/serde constructor can turn display coordinates into a source.
-pub struct NativeDiffRequestV1 {
+pub struct NativeDiffRequestV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
     session: Arc<()>,
-    intent: Arc<OriginalComparisonIntentV1>,
-    source: Option<Arc<OriginalComparisonSourceV1>>,
-    actors: Option<Arc<NativeDiffActorsV1>>,
+    intent: Arc<S::Intent>,
+    source: Option<Arc<S>>,
+    actors: Option<Arc<NativeDiffActorsV1<S>>>,
     file: usize,
     options: NativeDiffOptionsV1,
     changes: Arc<[NativeDiffOptionChangeV1]>,
     query: NativeDiffQueryV1,
     regex: bool,
-    retained_range: Option<Arc<NativeDiffRangeV1>>,
-    range_edit: Option<RangeEditV1>,
-    focused: Option<NativeDiffLineKeyV1>,
+    retained_range: Option<Arc<NativeDiffRangeV1<S>>>,
+    range_edit: Option<RangeEditV1<S>>,
+    focused: Option<NativeDiffLineKeyV1<S>>,
     width: u16,
 }
-impl std::fmt::Debug for NativeDiffRequestV1 {
+impl<S: NativeDiffPurposeV2> std::fmt::Debug for NativeDiffRequestV1<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("NativeDiffRequestV1(<original source/query/options/width epoch>)")
+        f.write_str("NativeDiffRequestV1<S>(<original source/query/options/width epoch>)")
     }
 }
-impl NativeDiffRequestV1 {
+impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
     pub fn owns(&self, workspace: &Workspace) -> bool {
-        self.intent.owns(workspace)
+        S::intent_owns(self.intent.as_ref(), workspace)
             && self.source.as_ref().is_none_or(|source| {
-                Arc::ptr_eq(source.intent(), &self.intent)
-                    && workspace
-                        .original_comparison_v1
-                        .as_ref()
-                        .is_none_or(|current| Arc::ptr_eq(source, current))
+                Arc::ptr_eq(source.intent(), &self.intent) && S::source_owns(source, workspace)
             })
     }
-    pub fn intent(&self) -> &Arc<OriginalComparisonIntentV1> {
+    pub fn intent(&self) -> &Arc<S::Intent> {
         &self.intent
     }
     /// The supplied original operation owns all source reads and preparation.
@@ -156,19 +173,22 @@ impl NativeDiffRequestV1 {
     pub fn prepare(
         self: &Arc<Self>,
         operation: &LocalGitNavigationReadV1,
-    ) -> Result<PreparedNativeDiffV1, String> {
+    ) -> Result<PreparedNativeDiffV1<S>, String> {
         operation.check()?;
         if self.changes.len() > COMMAND_CAP || !(12..=512).contains(&self.width) {
             return Err("Native diff pending commands/width exceed bounded preparation".into());
         }
         let source = match &self.source {
-            Some(source) => source.clone(),
-            None => OriginalComparisonSourceV1::read(self.intent.clone(), operation)?,
+            Some(source) => {
+                source.validate_current(operation)?;
+                source.clone()
+            }
+            None => S::read(self.intent.clone(), operation)?,
         };
         if !Arc::ptr_eq(source.intent(), &self.intent) {
             return Err("Native diff source no longer matches its original captured intent".into());
         }
-        if self.file >= source.members().len() && !source.members().is_empty() {
+        if self.file >= source.member_count() && source.member_count() != 0 {
             return Err("Native diff file is outside observed canonical members".into());
         }
         let mut options = self.options.clone();
@@ -202,7 +222,7 @@ impl NativeDiffRequestV1 {
                     options.collapse_generated = !options.collapse_generated;
                 }
                 NativeDiffOptionChangeV1::MarkGenerated(file) => {
-                    if *file >= source.members().len() {
+                    if *file >= source.member_count() {
                         return Err("Generated marking is outside original observed members".into());
                     }
                     // Catalogue cloning is worker work under the original clock;
@@ -238,7 +258,7 @@ impl NativeDiffRequestV1 {
             Some(RangeEditV1::Clear) => None,
             None => self.retained_range.clone(),
         };
-        let mut view = if source.members().is_empty() {
+        let mut view = if source.member_count() == 0 {
             NativePreparedViewV1::SourceOnly(Arc::from(
                 if source.complete() && source.observed_members() == 0 {
                     "No changed files in this complete original comparison • read-only; no row/range authority"
@@ -247,7 +267,7 @@ impl NativeDiffRequestV1 {
                 },
             ))
         } else {
-            match NativeDiffProjectionV1::prepare(
+            match NativeDiffProjectionV1::<S>::prepare(
                 source.clone(),
                 self.file,
                 options.clone(),
@@ -274,7 +294,7 @@ impl NativeDiffRequestV1 {
         let actors = match &self.actors {
             Some(actors) if Arc::ptr_eq(&actors.source, &source) => actors.clone(),
             Some(_) => return Err("Native actor labels belong to another original source".into()),
-            None => Arc::new(NativeDiffActorsV1::prepare(source.clone(), operation)?),
+            None => Arc::new(NativeDiffActorsV1::<S>::prepare(source.clone(), operation)?),
         };
         if view
             .prepared_bytes()
@@ -288,8 +308,9 @@ impl NativeDiffRequestV1 {
             .as_ref()
             .and_then(|key| view.frame().and_then(|frame| frame.rows_for(key)))
             .map_or(0, |rows| rows.start);
+        source.validate_current(operation)?;
         operation.check()?;
-        Ok(PreparedNativeDiffV1 {
+        Ok(PreparedNativeDiffV1::<S> {
             request: self.clone(),
             source,
             view,
@@ -300,21 +321,21 @@ impl NativeDiffRequestV1 {
     }
 }
 
-pub struct PreparedNativeDiffV1 {
-    request: Arc<NativeDiffRequestV1>,
-    source: Arc<OriginalComparisonSourceV1>,
-    view: NativePreparedViewV1,
+pub struct PreparedNativeDiffV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    request: Arc<NativeDiffRequestV1<S>>,
+    source: Arc<S>,
+    view: NativePreparedViewV1<S>,
     options: NativeDiffOptionsV1,
-    actors: Arc<NativeDiffActorsV1>,
+    actors: Arc<NativeDiffActorsV1<S>>,
     focus: usize,
 }
-enum NativePreparedViewV1 {
-    Rows(Arc<NativeDiffProjectionV1>),
+enum NativePreparedViewV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    Rows(Arc<NativeDiffProjectionV1<S>>),
     // No synthetic cells, keys or changed membership can be constructed here.
     SourceOnly(Arc<str>),
 }
-impl NativePreparedViewV1 {
-    fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1>> {
+impl<S: NativeDiffPurposeV2> NativePreparedViewV1<S> {
+    fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         match self {
             Self::Rows(frame) => Some(frame),
             Self::SourceOnly(_) => None,
@@ -329,34 +350,26 @@ impl NativePreparedViewV1 {
 }
 
 /// Genuine New-commit roles, prepared once; no inferred GitHub login/image.
-pub struct NativeDiffActorsV1 {
-    source: Arc<OriginalComparisonSourceV1>,
+pub struct NativeDiffActorsV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    source: Arc<S>,
     pub author: crate::identity::ActorIdentity,
     pub committer: crate::identity::ActorIdentity,
+    pub header_label: Arc<str>,
     pub author_label: Arc<str>,
     pub committer_label: Arc<str>,
 }
-impl NativeDiffActorsV1 {
-    fn prepare(
-        source: Arc<OriginalComparisonSourceV1>,
-        operation: &LocalGitNavigationReadV1,
-    ) -> Result<Self, String> {
+impl<S: NativeDiffPurposeV2> NativeDiffActorsV1<S> {
+    fn prepare(source: Arc<S>, operation: &LocalGitNavigationReadV1) -> Result<Self, String> {
         operation.check()?;
-        let commit = source.head_commit();
-        let author = crate::git_actor_labels_v1::display_identity(
-            &commit.author,
-            crate::identity::GitRole::Author,
-        );
-        let committer = crate::git_actor_labels_v1::display_identity(
-            &commit.committer,
-            crate::identity::GitRole::Committer,
-        );
-        let author_label = Arc::from(format!("New commit: {}", author.label()));
-        let committer_label = Arc::from(format!("New commit: {}", committer.label()));
+        let (author, committer, author_label, committer_label) = source.actor_labels();
+        let author_label = Arc::from(author_label);
+        let committer_label = Arc::from(committer_label);
+        let header_label = Arc::from(source.pane_header());
         let result = Self {
             source,
             author,
             committer,
+            header_label,
             author_label,
             committer_label,
         };
@@ -376,18 +389,19 @@ impl NativeDiffActorsV1 {
             + 128
             + actor_bytes(&self.author)
             + actor_bytes(&self.committer)
+            + self.header_label.len()
             + self.author_label.len()
             + self.committer_label.len()
     }
 }
-impl PreparedNativeDiffV1 {
-    pub fn request(&self) -> &Arc<NativeDiffRequestV1> {
+impl<S: NativeDiffPurposeV2> PreparedNativeDiffV1<S> {
+    pub fn request(&self) -> &Arc<NativeDiffRequestV1<S>> {
         &self.request
     }
-    pub fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1>> {
+    pub fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         self.view.frame()
     }
-    pub fn source(&self) -> &Arc<OriginalComparisonSourceV1> {
+    pub fn source(&self) -> &Arc<S> {
         &self.source
     }
     pub fn source_only(&self) -> bool {
@@ -395,20 +409,20 @@ impl PreparedNativeDiffV1 {
     }
 }
 
-pub struct NativeDiffStateV1 {
+pub struct NativeDiffStateV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
     session: Arc<()>,
-    intent: Arc<OriginalComparisonIntentV1>,
-    source: Option<Arc<OriginalComparisonSourceV1>>,
-    actors: Option<Arc<NativeDiffActorsV1>>,
-    frame: Option<Arc<NativeDiffProjectionV1>>,
+    intent: Arc<S::Intent>,
+    source: Option<Arc<S>>,
+    actors: Option<Arc<NativeDiffActorsV1<S>>>,
+    frame: Option<Arc<NativeDiffProjectionV1<S>>>,
     projection_available: bool,
     metadata_note: Option<Arc<str>>,
-    pending: Option<Arc<NativeDiffRequestV1>>,
+    pending: Option<Arc<NativeDiffRequestV1<S>>>,
     options: NativeDiffOptionsV1,
     changes: Vec<NativeDiffOptionChangeV1>,
-    range: Option<Arc<NativeDiffRangeV1>>,
-    range_edit: Option<RangeEditV1>,
-    anchor: Option<NativeDiffLineTicketV1>,
+    range: Option<Arc<NativeDiffRangeV1<S>>>,
+    range_edit: Option<RangeEditV1<S>>,
+    anchor: Option<NativeDiffLineTicketV1<S>>,
     pub query: TextBuffer,
     pub regex: bool,
     admitted_regex: bool,
@@ -420,17 +434,9 @@ pub struct NativeDiffStateV1 {
     pub width: u16,
     pub status: String,
 }
-impl NativeDiffStateV1 {
-    pub fn open(workspace: &Workspace, width: u16) -> Result<Self, String> {
-        let source = workspace
-            .original_comparison_v1
-            .as_ref()
-            .filter(|source| source.intent().owns(workspace))
-            .cloned();
-        let intent = match &source {
-            Some(source) => source.intent().clone(),
-            None => OriginalComparisonIntentV1::capture(workspace)?,
-        };
+impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
+    pub fn open_source(workspace: &Workspace, width: u16) -> Result<Self, String> {
+        let (intent, source) = S::capture(workspace)?;
         Ok(Self {
             session: Arc::new(()),
             intent,
@@ -458,31 +464,29 @@ impl NativeDiffStateV1 {
         })
     }
     pub fn owns(&self, workspace: &Workspace) -> bool {
-        self.intent.owns(workspace)
-            && self.source.as_ref().is_none_or(|source| {
-                workspace
-                    .original_comparison_v1
-                    .as_ref()
-                    .is_none_or(|current| Arc::ptr_eq(source, current))
-            })
+        S::intent_owns(self.intent.as_ref(), workspace)
+            && self
+                .source
+                .as_ref()
+                .is_none_or(|source| S::source_owns(source, workspace))
     }
-    pub fn intent(&self) -> &Arc<OriginalComparisonIntentV1> {
+    pub fn intent(&self) -> &Arc<S::Intent> {
         &self.intent
     }
-    pub fn source(&self) -> Option<&Arc<OriginalComparisonSourceV1>> {
+    pub fn source(&self) -> Option<&Arc<S>> {
         self.source.as_ref()
     }
-    pub fn actors(&self) -> Option<&Arc<NativeDiffActorsV1>> {
+    pub fn actors(&self) -> Option<&Arc<NativeDiffActorsV1<S>>> {
         self.actors.as_ref()
     }
     pub fn metadata_note(&self) -> Option<&str> {
         self.metadata_note.as_deref()
     }
-    pub fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1>> {
+    pub fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         self.frame.as_ref()
     }
     /// A retained preview is not an interactive frame after newer input.
-    pub fn current_frame(&self) -> Option<&Arc<NativeDiffProjectionV1>> {
+    pub fn current_frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         self.frame.as_ref().filter(|frame| {
             self.projection_available
                 && self.pending.is_none()
@@ -499,13 +503,13 @@ impl NativeDiffStateV1 {
                 }
         })
     }
-    pub fn pending(&self) -> Option<&Arc<NativeDiffRequestV1>> {
+    pub fn pending(&self) -> Option<&Arc<NativeDiffRequestV1<S>>> {
         self.pending.as_ref()
     }
-    pub fn range(&self) -> Option<&Arc<NativeDiffRangeV1>> {
+    pub fn range(&self) -> Option<&Arc<NativeDiffRangeV1<S>>> {
         self.range.as_ref()
     }
-    pub fn accepts(&self, request: &Arc<NativeDiffRequestV1>) -> bool {
+    pub fn accepts(&self, request: &Arc<NativeDiffRequestV1<S>>) -> bool {
         Arc::ptr_eq(&self.session, &request.session)
             && Arc::ptr_eq(&self.intent, &request.intent)
             && self
@@ -532,7 +536,7 @@ impl NativeDiffStateV1 {
                 _ => false,
             }
     }
-    pub fn request(&mut self) -> Result<Arc<NativeDiffRequestV1>, String> {
+    pub fn request(&mut self) -> Result<Arc<NativeDiffRequestV1<S>>, String> {
         // New input retires the previous epoch even if its replacement is
         // rejected for a small terminal or invalid bounded query.
         self.pending = None;
@@ -550,7 +554,7 @@ impl NativeDiffStateV1 {
             .as_ref()
             .and_then(|frame| frame.ticket(self.selected, self.right))
             .map(|ticket| ticket.key().clone());
-        let request = Arc::new(NativeDiffRequestV1 {
+        let request = Arc::new(NativeDiffRequestV1::<S> {
             session: self.session.clone(),
             intent: self.intent.clone(),
             source: self.source.clone(),
@@ -583,7 +587,7 @@ impl NativeDiffStateV1 {
         self.changes.push(change);
         Ok(())
     }
-    pub fn accept(&mut self, prepared: PreparedNativeDiffV1) -> bool {
+    pub fn accept(&mut self, prepared: PreparedNativeDiffV1<S>) -> bool {
         if !self.accepts(&prepared.request) {
             return false;
         }
@@ -602,7 +606,7 @@ impl NativeDiffStateV1 {
                 self.selected = prepared.focus;
                 self.scroll = self.selected.saturating_sub(2);
                 self.frame = Some(frame);
-                self.status = "Native saved diff ready • original canonical rows; read-only".into();
+                self.status = S::ready_status().into();
             }
             NativePreparedViewV1::SourceOnly(note) => {
                 // Keep only already admitted selection/preview, never a failed
@@ -621,7 +625,7 @@ impl NativeDiffStateV1 {
         self.range_edit = None;
         true
     }
-    pub fn fail(&mut self, request: &Arc<NativeDiffRequestV1>, reason: &str) -> bool {
+    pub fn fail(&mut self, request: &Arc<NativeDiffRequestV1<S>>, reason: &str) -> bool {
         if !self.accepts(request) {
             return false;
         }
@@ -642,7 +646,11 @@ impl NativeDiffStateV1 {
         };
         true
     }
-    pub fn select(&mut self, ticket: NativeDiffLineTicketV1, extend: bool) -> Result<(), String> {
+    pub fn select(
+        &mut self,
+        ticket: NativeDiffLineTicketV1<S>,
+        extend: bool,
+    ) -> Result<(), String> {
         if self.pending.is_some() {
             return Err(
                 "Wait for the current native projection before selecting original lines".into(),
@@ -691,8 +699,8 @@ impl NativeDiffStateV1 {
     }
     pub fn select_between(
         &mut self,
-        first: NativeDiffLineTicketV1,
-        last: NativeDiffLineTicketV1,
+        first: NativeDiffLineTicketV1<S>,
+        last: NativeDiffLineTicketV1<S>,
     ) -> Result<(), String> {
         let frame = self
             .current_frame()
@@ -711,9 +719,25 @@ impl NativeDiffStateV1 {
     }
 }
 
+// Keep the existing saved-only constructor unambiguous. Mutable content must
+// choose its distinct concrete source, never silently inherit saved authority.
+impl NativeDiffStateV1<OriginalComparisonSourceV1> {
+    pub fn open(workspace: &Workspace, width: u16) -> Result<Self, String> {
+        Self::open_source(workspace, width)
+    }
+}
+impl NativeDiffStateV1<crate::git::MutableDiffSourceV2> {
+    pub fn open_mutable(workspace: &Workspace, width: u16) -> Result<Self, String> {
+        Self::open_source(workspace, width)
+    }
+}
+
 #[cfg(test)]
 #[path = "repository_native_diff_metadata_v1_tests.rs"]
 mod metadata_tests;
+#[cfg(test)]
+#[path = "repository_native_mutable_diff_v2_tests.rs"]
+mod mutable_tests;
 #[cfg(test)]
 #[path = "repository_native_diff_v1_tests.rs"]
 mod tests;

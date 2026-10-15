@@ -40,6 +40,9 @@ pub struct CommandSpec {
     pub clear_env: bool,
     pub stdin: Vec<u8>,
     pub timeout: Duration,
+    /// Bounds only; never a read or write permission. Setup and lock waiting
+    /// cannot extend the caller's original absolute phase deadline.
+    pub(crate) absolute_deadline_v1: Option<Instant>,
     pub output_limit: usize,
     pub kind: CommandKind,
     /// Only ordinary reads may share an in-flight response. Security-boundary
@@ -61,6 +64,7 @@ impl CommandSpec {
             clear_env: false,
             stdin: Vec::new(),
             timeout: Duration::from_secs(30),
+            absolute_deadline_v1: None,
             output_limit: 4 * 1024 * 1024,
             kind: CommandKind::Read,
             coalesce_read: true,
@@ -103,6 +107,10 @@ impl CommandSpec {
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
+    }
+    fn original_deadline_expired_v1(&self) -> bool {
+        self.absolute_deadline_v1
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 }
 
@@ -184,6 +192,7 @@ struct ReadKey {
     clear_env: bool,
     stdin: Vec<u8>,
     timeout: Duration,
+    absolute_deadline_v1: Option<Instant>,
     output_limit: usize,
     sensitive_values: Vec<String>,
 }
@@ -197,6 +206,7 @@ impl From<&CommandSpec> for ReadKey {
             clear_env: s.clear_env,
             stdin: s.stdin.clone(),
             timeout: s.timeout,
+            absolute_deadline_v1: s.absolute_deadline_v1,
             output_limit: s.output_limit,
             sensitive_values: s.sensitive_values.clone(),
         }
@@ -267,7 +277,8 @@ impl CommandRunner {
                                 false,
                             ));
                         }
-                        if started.elapsed() >= spec.timeout {
+                        if started.elapsed() >= spec.timeout || spec.original_deadline_expired_v1()
+                        {
                             return Err(failure(
                                 FailureKind::Timeout,
                                 "Read wait exceeded its deadline",
@@ -310,7 +321,7 @@ impl CommandRunner {
                             false,
                         ));
                     }
-                    if waiting.elapsed() >= spec.timeout {
+                    if waiting.elapsed() >= spec.timeout || spec.original_deadline_expired_v1() {
                         return Err(failure(
                             FailureKind::Timeout,
                             "Write wait exceeded its deadline",
@@ -453,7 +464,7 @@ fn execute(
             false,
         ));
     }
-    if spec.timeout.is_zero() {
+    if spec.timeout.is_zero() || spec.original_deadline_expired_v1() {
         return Err(failure(
             FailureKind::Timeout,
             "Command deadline expired before launch",
@@ -489,6 +500,13 @@ fn execute(
         return Err(failure(
             FailureKind::Cancelled,
             "Original read cancelled before spawn",
+            false,
+        ));
+    }
+    if spec.original_deadline_expired_v1() || start.elapsed() >= spec.timeout {
+        return Err(failure(
+            FailureKind::Timeout,
+            "Command deadline expired during setup",
             false,
         ));
     }
@@ -563,6 +581,7 @@ fn execute(
         {
             stopped = Some(FailureKind::Cancelled);
         } else if start.elapsed() >= spec.timeout
+            || spec.original_deadline_expired_v1()
             || measured
                 .as_ref()
                 .is_some_and(|claim| claim.original_deadline_expired())
@@ -715,4 +734,70 @@ pub fn redact(input: &str, secrets: &[String]) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod absolute_deadline_tests_v1 {
+    use super::*;
+
+    #[test]
+    fn inline_comments_absolute_deadline_prevents_even_attempting_a_missing_program() {
+        let mut spec = CommandSpec::new("ghtui-this-program-must-not-exist");
+        spec.absolute_deadline_v1 = Some(Instant::now());
+        let failure = CommandRunner::default()
+            .run(spec, &CancellationToken::default())
+            .unwrap_err();
+        assert_eq!(failure.kind, FailureKind::Timeout);
+        assert!(!failure.outcome_unknown);
+    }
+
+    #[test]
+    fn inline_comments_absolute_deadline_terminates_an_actual_process_without_reset() {
+        let mut spec = CommandSpec::new("/bin/sleep").args(["2"]).fresh_read();
+        let started = Instant::now();
+        spec.absolute_deadline_v1 = Some(started + Duration::from_millis(40));
+        let failure = CommandRunner::default()
+            .run(spec, &CancellationToken::default())
+            .unwrap_err();
+        assert_eq!(failure.kind, FailureKind::Timeout);
+        assert!(!failure.outcome_unknown);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn inline_comments_absolute_deadline_bounds_write_lock_wait_without_launch() {
+        let runner = CommandRunner::default();
+        let lock = Arc::new(Mutex::new(ResourceState::default()));
+        runner
+            .state
+            .lock()
+            .unwrap()
+            .writes
+            .insert("original-inline-phase".into(), lock.clone());
+        let _held = lock.lock().unwrap();
+        let mut spec =
+            CommandSpec::new("ghtui-this-program-must-not-exist").write("original-inline-phase");
+        let started = Instant::now();
+        spec.absolute_deadline_v1 = Some(started + Duration::from_millis(40));
+        let failure = runner.run(spec, &CancellationToken::default()).unwrap_err();
+        assert_eq!(failure.kind, FailureKind::Timeout);
+        assert!(!failure.outcome_unknown);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn inline_comments_absolute_deadline_bounds_a_coalesced_subscriber_wait() {
+        let runner = CommandRunner::default();
+        let mut spec = CommandSpec::new("ghtui-this-program-must-not-exist");
+        let started = Instant::now();
+        spec.absolute_deadline_v1 = Some(started + Duration::from_millis(40));
+        runner.state.lock().unwrap().reads.insert(
+            ReadKey::from(&spec),
+            Arc::new((Mutex::new(None), Condvar::new())),
+        );
+        let failure = runner.run(spec, &CancellationToken::default()).unwrap_err();
+        assert_eq!(failure.kind, FailureKind::Timeout);
+        assert!(!failure.outcome_unknown);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
 }

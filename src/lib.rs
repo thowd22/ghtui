@@ -83,6 +83,7 @@ pub mod repository_graph_reread_native_v3;
 pub mod repository_graph_reread_v3;
 pub mod repository_graph_ui_v1;
 pub mod repository_graph_v1;
+pub mod repository_native_diff_content_v2;
 pub mod repository_native_diff_native_v1;
 pub mod repository_native_diff_projection_v1;
 pub mod repository_native_diff_ui_v1;

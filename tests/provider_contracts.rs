@@ -14,6 +14,8 @@ mod capture_accounting;
 mod collaboration_index;
 #[path = "provider_contracts/inbox_exact_v1.rs"]
 mod inbox_exact_v1;
+#[path = "provider_contracts/inline_receipts_v1.rs"]
+mod inline_receipts_v1;
 #[path = "provider_contracts/local_commit_actor_v1.rs"]
 mod local_commit_actor_v1;
 #[path = "provider_contracts/metadata_actions.rs"]
@@ -3166,8 +3168,9 @@ fn inline_comments_deleted_multiline_range_uses_canonical_patch_and_sha() {
     let fixture = Fixture::new();
     let sha = target().head_sha;
     let body = "Please fix both old lines";
-    let response = json!({"id":50,"path":"renamed.rs","line":2,"start_line":1,"side":"LEFT","start_side":"LEFT","commit_id":sha,"body":body});
+    let response = json!({"id":50,"node_id":"PRRC_50","pull_request_url":"https://api.github.invalid/repos/example/repo/pulls/7","user":{"id":42,"login":"octocat","type":"User"},"path":"renamed.rs","line":2,"start_line":1,"side":"LEFT","start_side":"LEFT","commit_id":sha,"body":body});
     let mut steps = guard_steps();
+    steps[1] = step(api_args("user"), json!({"login":"octocat","id":42}));
     steps.extend([page_step("repos/example/repo/pulls/7/files?per_page=100",json!([[{"filename":"renamed.rs","previous_filename":"old.rs","patch":"@@ -1,2 +1,2 @@\n-old one\n-old two\n+new one\n+new two"}]])),write_step("repos/example/repo/pulls/7/comments","POST",Some(json!({"path":"renamed.rs","line":2,"start_line":1,"side":"LEFT","start_side":"LEFT","commit_id":sha,"body":body})),response.clone()),step(api_args("repos/example/repo/pulls/comments/50"),response)]);
     steps.insert(
         4,
@@ -3187,7 +3190,7 @@ fn inline_comments_deleted_multiline_range_uses_canonical_patch_and_sha() {
     };
     let result = provider(&fixture)
         .inline_comment(
-            &identity(),
+            &verified_identity(),
             &target(),
             &comment,
             &CancellationToken::default(),

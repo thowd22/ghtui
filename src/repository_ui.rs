@@ -208,6 +208,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 });
             }
             x = rect.right().saturating_add(1);
+        }
+        let mutable_comparison = workspace.actor_profile.is_none()
+            && workspace.file_provenance.is_none()
+            && workspace.comparison.as_ref().is_some_and(|comparison| {
+                matches!(
+                    comparison.comparison,
+                    crate::git::Comparison::Working
+                        | crate::git::Comparison::Staged
+                        | crate::git::Comparison::Uncommitted
+                )
+            });
+        if saved_comparison || mutable_comparison {
             let label = "[v Native diff]";
             let rect = Rect::new(
                 x.min(area.right()),
@@ -222,11 +234,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             if !rect.is_empty() {
                 app.hits.push(HitRegion {
                     rect,
-                    action: Action::NativeDiffV1(
-                        crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
-                    ),
+                    action: if mutable_comparison {
+                        Action::NativeMutableDiffV2(
+                            crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
+                        )
+                    } else {
+                        Action::NativeDiffV1(
+                            crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
+                        )
+                    },
                 });
             }
+            x = rect.right().saturating_add(1);
         }
         for control in
             file_history::controls(workspace, app.loading[crate::app::View::Repository.index()])

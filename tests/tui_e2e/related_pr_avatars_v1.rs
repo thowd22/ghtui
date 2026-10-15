@@ -1,10 +1,12 @@
 //! Actual modal + public curl bytes/argv/PID/cache; strict offline GH only.
 use super::*;
+#[path = "../support/asset_metadata_publication_v1.rs"]
+mod metadata_publication_v1;
 #[path = "../support/positive_pid_publication_v1.rs"]
 mod pid_publication_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession, ProcessIdentity};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 #[path = "timeline_actor_related_v1.rs"]
 mod timeline_actor_v1;
 
@@ -12,6 +14,7 @@ mod timeline_actor_v1;
 enum Mode {
     Ready,
     PartialPid,
+    PartialMetadata,
     Failed,
     Cancel,
     Privacy,
@@ -54,7 +57,12 @@ fn asset(fixture: &Fixture, mode: Mode) -> Asset {
             fixture.root.display()
         )
     };
-    let script=format!("#!/bin/sh\nid=\nfor arg do case \"$arg\" in 'https://avatars.githubusercontent.com/u/201?v=4') id=201;; 'https://avatars.githubusercontent.com/u/202?v=4') id=202;; 'https://avatars.githubusercontent.com/u/303?v=4') id=303;; esac; done\nif [ -z \"$id\" ]; then printf unexpected > '{root}/related-curl-unexpected'; exit 94; fi\n{publication}printf '%s\\n' \"$@\" >> '{root}/related-curl-'\"$id\"'-argv'\n/usr/bin/env | /usr/bin/sed 's/=.*//' >> '{root}/related-curl-'\"$id\"'-env'\ntries=0\nwhile [ ! -e '{gate}' ] && [ \"$tries\" -lt 600 ]; do /bin/sleep 0.01; tries=$((tries + 1)); done\nprintf complete > '{root}/related-curl-'\"$id\"'-complete'\n{effect}",root=fixture.root.display(),gate=release.display());
+    let metadata_hold = if mode == Mode::PartialMetadata {
+        format!("if [ \"$id\" = 201 ]; then\nprintf pending > '{root}/related-metadata-pending'\nmetadata_tries=0\nwhile [ ! -f '{root}/related-metadata-publish' ] && [ \"$metadata_tries\" -lt 300 ]; do /bin/sleep 0.01; metadata_tries=$((metadata_tries + 1)); done\nfi\n",root=fixture.root.display())
+    } else {
+        String::new()
+    };
+    let script=format!("#!/bin/sh\nid=\nfor arg do case \"$arg\" in 'https://avatars.githubusercontent.com/u/201?v=4') id=201;; 'https://avatars.githubusercontent.com/u/202?v=4') id=202;; 'https://avatars.githubusercontent.com/u/303?v=4') id=303;; esac; done\nif [ -z \"$id\" ]; then printf unexpected > '{root}/related-curl-unexpected'; exit 94; fi\n{publication}printf '%s\\n' \"$@\" >> '{root}/related-curl-'\"$id\"'-argv'\n{metadata_hold}/usr/bin/env | /usr/bin/sed 's/=.*//' >> '{root}/related-curl-'\"$id\"'-env'\nprintf 'complete\\n' > '{root}/related-curl-'\"$id\"'-metadata'\ntries=0\nwhile [ ! -e '{gate}' ] && [ \"$tries\" -lt 600 ]; do /bin/sleep 0.01; tries=$((tries + 1)); done\nprintf complete > '{root}/related-curl-'\"$id\"'-complete'\n{effect}",root=fixture.root.display(),gate=release.display());
     let program = fixture.root.join("bin/curl");
     // Preserve the parent's deliberate HTTP-forbidden probe; never normalize
     // its executable or accidentally reopen it while the TUI is running.
@@ -65,6 +73,17 @@ fn asset(fixture: &Fixture, mode: Mode) -> Asset {
 fn asset_path(fixture: &Fixture, id: u64, suffix: &str) -> std::path::PathBuf {
     fixture.root.join(format!("related-curl-{id}-{suffix}"))
 }
+fn metadata_complete(fixture: &Fixture, id: u64) -> bool {
+    let mut bytes = Vec::new();
+    match fs::File::open(asset_path(fixture, id, "metadata")) {
+        Ok(file) => {
+            file.take(10).read_to_end(&mut bytes).unwrap();
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(error) => panic!("Actual asset metadata publication unavailable: {error}"),
+    }
+    metadata_publication_v1::complete_metadata(&bytes).expect("Actual bounded metadata publication")
+}
 fn started(session: &mut Session, fixture: &Fixture, id: u64) -> ProcessIdentity {
     let end = Instant::now() + Duration::from_secs(3);
     loop {
@@ -72,7 +91,10 @@ fn started(session: &mut Session, fixture: &Fixture, id: u64) -> ProcessIdentity
             if let Some(pid) = pid_publication_v1::complete_positive_pid(&bytes)
                 .expect("Actual fixture PID publication must be one positive complete record")
             {
-                if let Some(actual) = process_identity(pid).unwrap() {
+                if let Some(actual) = process_identity(pid)
+                    .unwrap()
+                    .filter(|_| metadata_complete(fixture, id))
+                {
                     let owner =
                         OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
                     assert!(owner.owns(&actual));
@@ -154,6 +176,10 @@ fn effects(fixture: &Fixture, ids: &[u64]) {
             );
             continue;
         }
+        assert!(
+            metadata_complete(fixture, id),
+            "PID alone cannot publish later argv/environment observations"
+        );
         let args = fs::read_to_string(asset_path(fixture, id, "argv")).unwrap();
         assert_eq!(args.lines().filter(|a| *a == "--url").count(), 1);
         assert!(args.starts_with("-q\n--fail\n--silent\n--show-error\n"));
@@ -185,7 +211,7 @@ fn journey(mouse: bool, mode: Mode) {
     let asset = asset(fixture, mode);
     let mut steps = protocol(&source.original, Case::ReplacedOrigin);
     steps.extend(discovery(&source.original, 42, 42, false));
-    if matches!(mode, Mode::Ready | Mode::PartialPid) {
+    if matches!(mode, Mode::Ready | Mode::PartialPid | Mode::PartialMetadata) {
         let mut open = opening(&source.original);
         // Preserve genuine bounded --paginate/--slurp argv; replace only the
         // actual observed body, never turn a strict fixture into a loose read.
@@ -249,6 +275,37 @@ fn journey(mouse: bool, mode: Mode) {
         completed(&mut session, &[TITLE, "[OW]", "@host-writer"], &["▀"]);
         effects(fixture, &[]);
     } else {
+        if mode == Mode::PartialMetadata {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !fixture.root.join("related-metadata-pending").exists() {
+                assert!(
+                    Instant::now() < deadline,
+                    "Actual child reaches held incomplete metadata"
+                );
+                session.poll_output(Duration::from_millis(10));
+            }
+            let published_pid = pid_publication_v1::complete_positive_pid(
+                &fs::read(asset_path(fixture, 201, "pid")).unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+            let actual = process_identity(published_pid).unwrap().unwrap();
+            let owner = OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
+            assert!(owner.owns(&actual) && !actual.zombie);
+            assert!(asset_path(fixture, 201, "argv").exists());
+            assert!(!asset_path(fixture, 201, "env").exists());
+            assert!(!metadata_complete(fixture, 201));
+            completed(&mut session, &[TITLE, "[OW]", "@host-writer"], &["▀"]);
+            session.resize_owned_modal(80, 24, TITLE, &["[Esc Back]", "[r Discover]"]);
+            session.resize_owned_modal(120, 40, TITLE, &["[Esc Back]", "[r Discover]"]);
+            strict(&session, fixture, 15);
+            assert!(!metadata_complete(fixture, 201));
+            fs::write(
+                fixture.root.join("related-metadata-publish"),
+                b"explicit sidecar release",
+            )
+            .unwrap();
+        }
         if mode == Mode::PartialPid {
             let end = Instant::now() + Duration::from_secs(3);
             while !fixture.root.join("related-pid-pending").exists() {
@@ -388,14 +445,17 @@ fn journey(mouse: bool, mode: Mode) {
     assert_eq!(
         trace(fixture).len(),
         original_trace.len()
-            + if matches!(mode, Mode::Ready | Mode::PartialPid | Mode::Privacy) {
+            + if matches!(
+                mode,
+                Mode::Ready | Mode::PartialPid | Mode::PartialMetadata | Mode::Privacy
+            ) {
                 4
             } else {
                 2
             }
     );
     assert_read_only_trace(fixture);
-    let expected = if matches!(mode, Mode::Ready | Mode::PartialPid) {
+    let expected = if matches!(mode, Mode::Ready | Mode::PartialPid | Mode::PartialMetadata) {
         31
     } else if mode == Mode::Privacy {
         17
@@ -452,4 +512,9 @@ pair!(
     related_pr_avatars_keyboard_partial_pid_waits_original_complete_publication,
     related_pr_avatars_mouse_partial_pid_waits_original_complete_publication,
     PartialPid
+);
+pair!(
+    related_pr_avatars_keyboard_partial_metadata_pid_is_not_completed_argv_env,
+    related_pr_avatars_mouse_partial_metadata_pid_is_not_completed_argv_env,
+    PartialMetadata
 );

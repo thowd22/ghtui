@@ -210,7 +210,7 @@ impl GithubProvider {
         })
     }
 }
-fn original_parent(first: &PrResourceParentV1, last: &PrResourceParentV1) -> bool {
+pub(super) fn original_parent(first: &PrResourceParentV1, last: &PrResourceParentV1) -> bool {
     first.database_id == last.database_id
         && first.repository_id == last.repository_id
         && first.repository_node == last.repository_node

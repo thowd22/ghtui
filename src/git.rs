@@ -14,12 +14,16 @@ mod remote_handoff_read_v1;
 use remote_handoff_read_v1::{run_git_with_window_v1, GitReadPolicyV1};
 mod local_commit_actor_origin_v1;
 mod local_saved_navigation_origin_v1;
+mod native_mutable_diff_source_v2;
 pub(crate) use local_commit_actor_origin_v1::original_saved_sha as original_actor_saved_sha;
 pub use local_commit_actor_origin_v1::OriginalLocalActorOriginV1;
 #[cfg(test)]
 pub(crate) use local_commit_actor_origin_v1::{
     register_fixture_trace as register_actor_origin_test_trace,
     FixtureTraceGuard as ActorOriginTraceGuard,
+};
+pub use native_mutable_diff_source_v2::{
+    MutableChangedFileV2, MutableDiffIntentV2, MutableDiffKindV2, MutableDiffSourceV2,
 };
 mod local_commit_actor_v1;
 pub use file_history::{FileBlameLine, FileHistoryEntry, FileHistoryPage};
@@ -1125,7 +1129,7 @@ impl GitRepository {
             comparison,
             Comparison::Working | Comparison::Uncommitted | Comparison::Staged
         ) {
-            Some(self.fingerprint()?)
+            Some(self.fingerprint_with_capture_limit_v2(capture_limit)?)
         } else {
             None
         };
@@ -1149,12 +1153,15 @@ impl GitRepository {
                 "Unstaged edits compared to the next commit".into(),
             ),
             Comparison::Uncommitted => {
-                let head = self.status()?.head;
+                let head = self.mutable_comparison_head_v2(capture_limit)?;
                 if let Some(head) = &head {
                     args.push(head.clone());
                 } else {
-                    let empty_tree =
-                        self.bytes(["hash-object", "-t", "tree", "--stdin"], Some(&[]))?;
+                    let empty_tree = self.bytes_with_capture_limit_v2(
+                        ["hash-object", "-t", "tree", "--stdin"],
+                        Some(&[]),
+                        capture_limit,
+                    )?;
                     args.push(text(trim_line(&empty_tree)));
                 }
                 (
@@ -1166,7 +1173,7 @@ impl GitRepository {
             }
             Comparison::Staged => {
                 args.push("--cached".into());
-                let head = self.status()?.head;
+                let head = self.mutable_comparison_head_v2(capture_limit)?;
                 if let Some(head) = &head {
                     args.push(head.clone());
                 }
@@ -1246,7 +1253,7 @@ impl GitRepository {
                 capture_limit,
             )?
         } else {
-            self.bytes(args.iter().map(OsStr::new), None)?
+            self.bytes_with_capture_limit_v2(args.iter().map(OsStr::new), None, capture_limit)?
         };
         let mut diff = Diff::parse(&patch).map_err(GitError)?;
         let mut names_args = args.clone();
@@ -1255,7 +1262,7 @@ impl GitRepository {
         let names = if original {
             self.original_bytes_with_capture_limit_v1(names_args.iter(), None, capture_limit)?
         } else {
-            self.bytes(names_args.iter(), None)?
+            self.bytes_with_capture_limit_v2(names_args.iter(), None, capture_limit)?
         };
         let paths = parse_diff_paths(&names)?;
         if diff.files.len() != paths.len() {
@@ -1268,7 +1275,7 @@ impl GitRepository {
         diff.base = common_ancestor.clone().or_else(|| base.clone());
         diff.head = head.clone();
         if let Some(observed) = observed {
-            if self.fingerprint()? != observed {
+            if self.fingerprint_with_capture_limit_v2(capture_limit)? != observed {
                 return Err(GitError(
                     "Repository changed while loading the diff. Refresh before selecting changes."
                         .into(),
@@ -1446,31 +1453,55 @@ impl GitRepository {
     }
 
     pub fn fingerprint(&self) -> GitResult<WorkspaceFingerprint> {
+        self.fingerprint_with_capture_limit_v2(MAX_OUTPUT)
+    }
+
+    /// Same continuity hint and runner as ordinary mutation previews, with a
+    /// smaller native-view envelope. Filesystem bytes are bounded separately;
+    /// they are not falsely charged as captured Git child output.
+    pub(crate) fn fingerprint_with_capture_limit_v2(
+        &self,
+        cap: usize,
+    ) -> GitResult<WorkspaceFingerprint> {
+        if cap == 0 || cap > MAX_OUTPUT {
+            return Err(GitError("Invalid mutable fingerprint capture limit".into()));
+        }
+        self.check_mutable_read_v2()?;
         let mut hash = DefaultHasher::new();
-        let status = self.read(&[
-            "status",
-            "--porcelain=v2",
-            "-z",
-            "--branch",
-            "--untracked-files=all",
-        ])?;
+        let status = self.bytes_with_capture_limit_v2(
+            [
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "--branch",
+                "--untracked-files=all",
+            ],
+            None,
+            cap,
+        )?;
         status.hash(&mut hash);
-        self.read(&["ls-files", "--stage", "-z"])?.hash(&mut hash);
-        self.read(&[
-            "for-each-ref",
-            "--format=%(refname)%00%(objectname)%00%(upstream)%00",
-        ])?
+        self.bytes_with_capture_limit_v2(["ls-files", "--stage", "-z"], None, cap)?
+            .hash(&mut hash);
+        self.bytes_with_capture_limit_v2(
+            [
+                "for-each-ref",
+                "--format=%(refname)%00%(objectname)%00%(upstream)%00",
+            ],
+            None,
+            cap,
+        )?
         .hash(&mut hash);
         // An absent remote is normal local state. --get-regexp exits one for
         // no match; repeating that probe would consume two full failed-read
         // reservations inside a correctly measured operation. Enumerate once
         // and retain exactly the same raw remote key/value records instead.
-        let config = self.read(&["config", "--null", "--list"])?;
+        let config = self.bytes_with_capture_limit_v2(["config", "--null", "--list"], None, cap)?;
         let mut remote_config = Vec::new();
         for record in config
             .split(|byte| *byte == 0)
             .filter(|record| !record.is_empty())
         {
+            self.check_mutable_read_v2()?;
             let key = record
                 .split(|byte| *byte == b'\n')
                 .next()
@@ -1481,27 +1512,32 @@ impl GitRepository {
             }
         }
         remote_config.hash(&mut hash);
-        self.read(&["diff", "--no-ext-diff", "--no-textconv", "--binary"])?
-            .hash(&mut hash);
+        self.bytes_with_capture_limit_v2(
+            ["diff", "--no-ext-diff", "--no-textconv", "--binary"],
+            None,
+            cap,
+        )?
+        .hash(&mut hash);
         let mut untracked_bytes = 0u64;
         for entry in parse_status(&status)?
             .entries
             .into_iter()
             .filter(StatusEntry::untracked)
         {
+            self.check_mutable_read_v2()?;
             let path = self.root.join(entry.path.as_os_str());
             let metadata = std::fs::symlink_metadata(&path)?;
             if metadata.file_type().is_symlink() {
                 std::fs::read_link(path)?.hash(&mut hash);
             } else if metadata.is_file() {
-                if metadata.len() > MAX_OUTPUT as u64 {
+                if metadata.len() > cap as u64 {
                     return Err(GitError(
                         "Untracked file exceeds safe mutation preview size".into(),
                     ));
                 }
                 untracked_bytes = untracked_bytes.saturating_add(metadata.len());
-                if untracked_bytes > MAX_OUTPUT as u64 {
-                    return Err(GitError("Untracked content exceeds the safe mutation preview byte budget (32MiB); ignore or move unrelated data before previewing a write".into()));
+                if untracked_bytes > cap as u64 {
+                    return Err(GitError(format!("Untracked content exceeds the safe mutation preview byte budget ({}MiB); ignore or move unrelated data before previewing a write", cap / (1024 * 1024))));
                 }
                 let mut file = std::fs::OpenOptions::new()
                     .read(true)
@@ -1517,9 +1553,7 @@ impl GitRepository {
                 let mut count = 0u64;
                 let mut buffer = [0u8; 64 * 1024];
                 loop {
-                    if self.cancellation.is_cancelled() {
-                        return Err(GitError("Git mutation preview cancelled".into()));
-                    }
+                    self.check_mutable_read_v2()?;
                     let read = file.read(&mut buffer)?;
                     if read == 0 {
                         break;
@@ -1539,8 +1573,43 @@ impl GitRepository {
                 }
             }
         }
+        self.check_mutable_read_v2()?;
         format!("{:?}", self.sequencer()).hash(&mut hash);
-        Ok(WorkspaceFingerprint(hash.finish()))
+        let result = WorkspaceFingerprint(hash.finish());
+        self.check_mutable_read_v2()?;
+        Ok(result)
+    }
+
+    fn check_mutable_read_v2(&self) -> GitResult<()> {
+        if self.cancellation.is_cancelled() {
+            return Err(GitError("Git mutation preview cancelled".into()));
+        }
+        if let Some(window) = &self.navigation_read_window {
+            window
+                .check(&self.cancellation)
+                .map_err(|error| GitError(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn mutable_comparison_head_v2(&self, cap: usize) -> GitResult<Option<String>> {
+        // Preserve the exact legacy status workflow; the native producer needs
+        // only the same parser's observed HEAD, not unrelated decorations.
+        if cap == MAX_OUTPUT {
+            return Ok(self.status()?.head);
+        }
+        let bytes = self.bytes_with_capture_limit_v2(
+            [
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "--branch",
+                "--untracked-files=all",
+            ],
+            None,
+            cap,
+        )?;
+        Ok(parse_status(&bytes)?.head)
     }
 
     /// Refresh and acknowledge local state after a failed write before planning another operation.
@@ -2094,6 +2163,41 @@ impl GitRepository {
         S: AsRef<OsStr>,
     {
         let result = self.run(args, stdin)?;
+        if result.success {
+            Ok(result.stdout)
+        } else {
+            Err(result.error("Git operation"))
+        }
+    }
+
+    /// Ordinary installed-Git semantics and the retained producer/window. No
+    /// original-object flag, second runner, discovery, or renewed deadline.
+    fn bytes_with_capture_limit_v2<I, S>(
+        &self,
+        args: I,
+        stdin: Option<&[u8]>,
+        cap: usize,
+    ) -> GitResult<Vec<u8>>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        if cap == 0 || cap > MAX_OUTPUT {
+            return Err(GitError("Invalid mutable read capture limit".into()));
+        }
+        let result = run_git_bounded_policy_v1(
+            &self.root,
+            args,
+            stdin,
+            false,
+            &self.cancellation,
+            GitReadPolicyV1 {
+                timeout: COMMAND_TIMEOUT,
+                output_limit: cap,
+                window: self.navigation_read_window.as_ref(),
+                runner: Some(self.actual_read_runner_v1()),
+            },
+        )?;
         if result.success {
             Ok(result.stdout)
         } else {

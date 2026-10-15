@@ -6,6 +6,7 @@ use crate::{
     diff::{DiffLine, LineKind},
     git::{OriginalComparisonSourceV1, RawPath},
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+    repository_native_diff_content_v2::NativeDiffContentV2,
     repository_view::{
         diff_rows_for_files_v1, DiffAnchor, DiffCell, DiffLayout, DiffSide, SemanticRole,
     },
@@ -97,16 +98,27 @@ impl NativeDiffQueryV1 {
 }
 
 /// No constructor/serde: only a genuine observed canonical source can yield keys.
-#[derive(Clone, Debug)]
-pub struct NativeDiffLineKeyV1 {
-    source: Arc<OriginalComparisonSourceV1>,
+#[derive(Debug)]
+pub struct NativeDiffLineKeyV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
+    source: Arc<S>,
     file: usize,
     hunk: usize,
     line: usize,
     side: DiffSide,
 }
-impl NativeDiffLineKeyV1 {
-    pub fn source(&self) -> &Arc<OriginalComparisonSourceV1> {
+impl<S: NativeDiffContentV2> Clone for NativeDiffLineKeyV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            file: self.file,
+            hunk: self.hunk,
+            line: self.line,
+            side: self.side,
+        }
+    }
+}
+impl<S: NativeDiffContentV2> NativeDiffLineKeyV1<S> {
+    pub fn source(&self) -> &Arc<S> {
         &self.source
     }
     pub fn file(&self) -> usize {
@@ -141,64 +153,74 @@ impl NativeDiffLineKeyV1 {
         (self.hunk, self.line, side_index(self.side))
     }
 }
-impl PartialEq for NativeDiffLineKeyV1 {
+impl<S: NativeDiffContentV2> PartialEq for NativeDiffLineKeyV1<S> {
     fn eq(&self, other: &Self) -> bool {
         self.same(other)
     }
 }
-impl Eq for NativeDiffLineKeyV1 {}
+impl<S: NativeDiffContentV2> Eq for NativeDiffLineKeyV1<S> {}
 
-#[derive(Clone, Debug)]
-pub struct NativeDiffFileKeyV1 {
-    source: Arc<OriginalComparisonSourceV1>,
+#[derive(Debug)]
+pub struct NativeDiffFileKeyV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
+    source: Arc<S>,
     index: usize,
 }
-impl NativeDiffFileKeyV1 {
-    pub fn source(&self) -> &Arc<OriginalComparisonSourceV1> {
+impl<S: NativeDiffContentV2> Clone for NativeDiffFileKeyV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            index: self.index,
+        }
+    }
+}
+impl<S: NativeDiffContentV2> NativeDiffFileKeyV1<S> {
+    pub fn source(&self) -> &Arc<S> {
         &self.source
     }
     pub fn index(&self) -> usize {
         self.index
     }
     pub fn path(&self, side: DiffSide) -> Option<&RawPath> {
-        use crate::git::OriginalComparisonSideV1 as Side;
-        let member = self.source.members().get(self.index)?;
-        member.path(match side {
-            DiffSide::Old => Side::Old,
-            DiffSide::New => Side::New,
-            DiffSide::Both => return None,
-        })
+        self.source.member_path(self.index, side)
     }
 }
-impl PartialEq for NativeDiffFileKeyV1 {
+impl<S: NativeDiffContentV2> PartialEq for NativeDiffFileKeyV1<S> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.source, &other.source) && self.index == other.index
     }
 }
-impl Eq for NativeDiffFileKeyV1 {}
+impl<S: NativeDiffContentV2> Eq for NativeDiffFileKeyV1<S> {}
 
 /// A hit belongs to one exact prepared epoch, not just a surviving line label.
-#[derive(Clone, Debug)]
-pub struct NativeDiffLineTicketV1 {
+#[derive(Debug)]
+pub struct NativeDiffLineTicketV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
     epoch: Arc<()>,
-    key: NativeDiffLineKeyV1,
+    key: NativeDiffLineKeyV1<S>,
 }
-impl NativeDiffLineTicketV1 {
-    pub fn key(&self) -> &NativeDiffLineKeyV1 {
+impl<S: NativeDiffContentV2> Clone for NativeDiffLineTicketV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            epoch: self.epoch.clone(),
+            key: self.key.clone(),
+        }
+    }
+}
+impl<S: NativeDiffContentV2> NativeDiffLineTicketV1<S> {
+    pub fn key(&self) -> &NativeDiffLineKeyV1<S> {
         &self.key
     }
 }
-impl PartialEq for NativeDiffLineTicketV1 {
+impl<S: NativeDiffContentV2> PartialEq for NativeDiffLineTicketV1<S> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.epoch, &other.epoch) && self.key == other.key
     }
 }
-impl Eq for NativeDiffLineTicketV1 {}
+impl<S: NativeDiffContentV2> Eq for NativeDiffLineTicketV1<S> {}
 
 /// Original changed membership is independent of wrapped/hidden display rows.
 #[derive(Debug)]
-pub struct NativeDiffRangeV1 {
-    source: Arc<OriginalComparisonSourceV1>,
+pub struct NativeDiffRangeV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
+    source: Arc<S>,
     file: usize,
     side: DiffSide,
     anchor: (usize, usize),
@@ -206,8 +228,8 @@ pub struct NativeDiffRangeV1 {
     last: (usize, usize),
     changed: Arc<[(usize, usize)]>,
 }
-impl NativeDiffRangeV1 {
-    pub fn source(&self) -> &Arc<OriginalComparisonSourceV1> {
+impl<S: NativeDiffContentV2> NativeDiffRangeV1<S> {
+    pub fn source(&self) -> &Arc<S> {
         &self.source
     }
     pub fn file(&self) -> usize {
@@ -225,7 +247,7 @@ impl NativeDiffRangeV1 {
     pub fn changed(&self) -> &[(usize, usize)] {
         &self.changed
     }
-    pub fn contains(&self, key: &NativeDiffLineKeyV1) -> bool {
+    pub fn contains(&self, key: &NativeDiffLineKeyV1<S>) -> bool {
         Arc::ptr_eq(&self.source, &key.source)
             && self.file == key.file
             && self.changed.binary_search(&(key.hunk, key.line)).is_ok()
@@ -248,11 +270,11 @@ pub struct NativeDiffSpanV1 {
     pub role: NativeDiffPaintRoleV1,
 }
 
-#[derive(Clone, Debug)]
-pub struct NativeDiffCellV1 {
+#[derive(Debug)]
+pub struct NativeDiffCellV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
     text: Arc<str>,
     role: SemanticRole,
-    key: Option<NativeDiffLineKeyV1>,
+    key: Option<NativeDiffLineKeyV1<S>>,
     spans: Arc<[NativeDiffSpanV1]>,
     old_line: Option<u32>,
     new_line: Option<u32>,
@@ -260,14 +282,29 @@ pub struct NativeDiffCellV1 {
     continuation: bool,
     selected: bool,
 }
-impl NativeDiffCellV1 {
+impl<S: NativeDiffContentV2> Clone for NativeDiffCellV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            text: self.text.clone(),
+            role: self.role,
+            key: self.key.clone(),
+            spans: self.spans.clone(),
+            old_line: self.old_line,
+            new_line: self.new_line,
+            prefix: self.prefix,
+            continuation: self.continuation,
+            selected: self.selected,
+        }
+    }
+}
+impl<S: NativeDiffContentV2> NativeDiffCellV1<S> {
     pub fn text(&self) -> &str {
         &self.text
     }
     pub fn role(&self) -> SemanticRole {
         self.role
     }
-    pub fn key(&self) -> Option<&NativeDiffLineKeyV1> {
+    pub fn key(&self) -> Option<&NativeDiffLineKeyV1<S>> {
         self.key.as_ref()
     }
     pub fn spans(&self) -> &[NativeDiffSpanV1] {
@@ -290,19 +327,27 @@ impl NativeDiffCellV1 {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct NativeDiffRowV1 {
-    left: NativeDiffCellV1,
-    right: Option<NativeDiffCellV1>,
+#[derive(Debug)]
+pub struct NativeDiffRowV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
+    left: NativeDiffCellV1<S>,
+    right: Option<NativeDiffCellV1<S>>,
 }
-impl NativeDiffRowV1 {
-    pub fn left(&self) -> &NativeDiffCellV1 {
+impl<S: NativeDiffContentV2> Clone for NativeDiffRowV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            left: self.left.clone(),
+            right: self.right.clone(),
+        }
+    }
+}
+impl<S: NativeDiffContentV2> NativeDiffRowV1<S> {
+    pub fn left(&self) -> &NativeDiffCellV1<S> {
         &self.left
     }
-    pub fn right(&self) -> Option<&NativeDiffCellV1> {
+    pub fn right(&self) -> Option<&NativeDiffCellV1<S>> {
         self.right.as_ref()
     }
-    pub fn cell(&self, right: bool) -> Option<&NativeDiffCellV1> {
+    pub fn cell(&self, right: bool) -> Option<&NativeDiffCellV1<S>> {
         if right {
             self.right()
         } else {
@@ -311,13 +356,21 @@ impl NativeDiffRowV1 {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct NativeDiffMatchV1 {
-    key: NativeDiffLineKeyV1,
+#[derive(Debug)]
+pub struct NativeDiffMatchV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
+    key: NativeDiffLineKeyV1<S>,
     raw_bytes: Range<usize>,
 }
-impl NativeDiffMatchV1 {
-    pub fn key(&self) -> &NativeDiffLineKeyV1 {
+impl<S: NativeDiffContentV2> Clone for NativeDiffMatchV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            raw_bytes: self.raw_bytes.clone(),
+        }
+    }
+}
+impl<S: NativeDiffContentV2> NativeDiffMatchV1<S> {
+    pub fn key(&self) -> &NativeDiffLineKeyV1<S> {
         &self.key
     }
     pub fn raw_bytes(&self) -> Range<usize> {
@@ -344,19 +397,19 @@ impl NativeDiffHunkIndexV1 {
 }
 
 #[derive(Debug)]
-pub struct NativeDiffProjectionV1 {
-    source: Arc<OriginalComparisonSourceV1>,
+pub struct NativeDiffProjectionV1<S: NativeDiffContentV2 = OriginalComparisonSourceV1> {
+    source: Arc<S>,
     file: usize,
     options: NativeDiffOptionsV1,
     query: NativeDiffQueryV1,
     width: u16,
     epoch: Arc<()>,
-    rows: Arc<[NativeDiffRowV1]>,
+    rows: Arc<[NativeDiffRowV1<S>]>,
     hunks: Arc<[NativeDiffHunkIndexV1]>,
     line_rows: BTreeMap<(usize, usize, u8), Range<usize>>,
     first_match_rows: BTreeMap<(usize, usize, u8), usize>,
-    matches: Arc<[NativeDiffMatchV1]>,
-    range: Option<Arc<NativeDiffRangeV1>>,
+    matches: Arc<[NativeDiffMatchV1<S>]>,
+    range: Option<Arc<NativeDiffRangeV1<S>>>,
     hidden_selected: usize,
     hidden_rows: usize,
     changed_total: usize,
@@ -367,14 +420,14 @@ pub struct NativeDiffProjectionV1 {
     within_line_fallbacks: usize,
     plain_fallback_lines: usize,
 }
-impl NativeDiffProjectionV1 {
+impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn prepare(
-        source: Arc<OriginalComparisonSourceV1>,
+        source: Arc<S>,
         selected_file: usize,
         options: NativeDiffOptionsV1,
         query: NativeDiffQueryV1,
-        retained_range: Option<Arc<NativeDiffRangeV1>>,
+        retained_range: Option<Arc<NativeDiffRangeV1<S>>>,
         width: u16,
         operation: &LocalGitNavigationReadV1,
     ) -> Result<Arc<Self>, String> {
@@ -383,12 +436,10 @@ impl NativeDiffProjectionV1 {
             return Err("Choose Old or New as the native diff focused side".into());
         }
         if options.marked_generated.len() > ROW_CAP
-            || options.marked_generated.iter().any(|index| {
-                source
-                    .members()
-                    .get(*index)
-                    .is_none_or(|member| member.index() != *index)
-            })
+            || options
+                .marked_generated
+                .iter()
+                .any(|index| source.member_index(*index) != Some(*index))
         {
             return Err("Generated marks must name original admitted comparison members".into());
         }
@@ -404,11 +455,7 @@ impl NativeDiffProjectionV1 {
             .files
             .get(selected_file)
             .ok_or("Native diff selected original file is unavailable")?;
-        if source
-            .members()
-            .get(selected_file)
-            .is_none_or(|member| member.index() != selected_file)
-        {
+        if source.member_index(selected_file) != Some(selected_file) {
             return Err("Native diff file is not an admitted canonical member".into());
         }
         let regex = query.compile()?;
@@ -584,7 +631,7 @@ impl NativeDiffProjectionV1 {
             let mut right = right.map(Vec::into_iter);
             for _ in 0..count {
                 operation.check()?;
-                let row = NativeDiffRowV1 {
+                let row = NativeDiffRowV1::<S> {
                     left: left.next().unwrap_or_else(empty_cell),
                     right: right
                         .as_mut()
@@ -652,13 +699,13 @@ impl NativeDiffProjectionV1 {
                 line_rows.len() * 96
                     + first_match_rows.len() * 80
                     + hunks.len() * std::mem::size_of::<NativeDiffHunkIndexV1>()
-                    + matches.len() * std::mem::size_of::<NativeDiffMatchV1>()
+                    + matches.len() * std::mem::size_of::<NativeDiffMatchV1<S>>()
                     + options.marked_generated.len() * 32
                     + query.text().len()
                     + syntax_label.len()
                     + retained_range.as_ref().map_or(0, |range| {
                         range.changed.len() * std::mem::size_of::<(usize, usize)>()
-                            + std::mem::size_of::<NativeDiffRangeV1>()
+                            + std::mem::size_of::<NativeDiffRangeV1<S>>()
                             + 32
                     })
                     + std::mem::size_of::<Self>()
@@ -697,14 +744,14 @@ impl NativeDiffProjectionV1 {
         operation.check()?;
         Ok(prepared)
     }
-    pub fn source(&self) -> &Arc<OriginalComparisonSourceV1> {
+    pub fn source(&self) -> &Arc<S> {
         &self.source
     }
     pub fn file(&self) -> usize {
         self.file
     }
-    pub fn file_key(&self) -> NativeDiffFileKeyV1 {
-        NativeDiffFileKeyV1 {
+    pub fn file_key(&self) -> NativeDiffFileKeyV1<S> {
+        NativeDiffFileKeyV1::<S> {
             source: self.source.clone(),
             index: self.file,
         }
@@ -718,16 +765,16 @@ impl NativeDiffProjectionV1 {
     pub fn width(&self) -> u16 {
         self.width
     }
-    pub fn rows(&self) -> &[NativeDiffRowV1] {
+    pub fn rows(&self) -> &[NativeDiffRowV1<S>] {
         &self.rows
     }
     pub fn hunks(&self) -> &[NativeDiffHunkIndexV1] {
         &self.hunks
     }
-    pub fn matches(&self) -> &[NativeDiffMatchV1] {
+    pub fn matches(&self) -> &[NativeDiffMatchV1<S>] {
         &self.matches
     }
-    pub fn range(&self) -> Option<&Arc<NativeDiffRangeV1>> {
+    pub fn range(&self) -> Option<&Arc<NativeDiffRangeV1<S>>> {
         self.range.as_ref()
     }
     pub fn hidden_selected(&self) -> usize {
@@ -759,7 +806,7 @@ impl NativeDiffProjectionV1 {
     pub fn plain_fallback_lines(&self) -> usize {
         self.plain_fallback_lines
     }
-    pub fn rows_for(&self, key: &NativeDiffLineKeyV1) -> Option<Range<usize>> {
+    pub fn rows_for(&self, key: &NativeDiffLineKeyV1<S>) -> Option<Range<usize>> {
         (Arc::ptr_eq(&self.source, &key.source) && self.file == key.file)
             .then(|| {
                 self.line_rows.get(&key.coordinate()).cloned().or_else(|| {
@@ -776,8 +823,8 @@ impl NativeDiffProjectionV1 {
             })
             .flatten()
     }
-    pub fn ticket(&self, row: usize, right: bool) -> Option<NativeDiffLineTicketV1> {
-        Some(NativeDiffLineTicketV1 {
+    pub fn ticket(&self, row: usize, right: bool) -> Option<NativeDiffLineTicketV1<S>> {
+        Some(NativeDiffLineTicketV1::<S> {
             epoch: self.epoch.clone(),
             key: self.rows.get(row)?.cell(right)?.key.clone()?,
         })
@@ -786,7 +833,7 @@ impl NativeDiffProjectionV1 {
     /// sides/context/generated rows cannot retarget to a neighbouring cell.
     /// Ordinary nonzero matches were indexed in the worker; a zero-width regex
     /// has no paint span and may focus only that same canonical line's start.
-    pub fn first_matching_line_row(&self, key: &NativeDiffLineKeyV1) -> Option<usize> {
+    pub fn first_matching_line_row(&self, key: &NativeDiffLineKeyV1<S>) -> Option<usize> {
         if !Arc::ptr_eq(&self.source, &key.source) || self.file != key.file {
             return None;
         }
@@ -806,23 +853,23 @@ impl NativeDiffProjectionV1 {
     }
     /// Search can point to a hidden ORIGINAL row. Revealing that match is a
     /// presentation request, never a new anchor or a retargeted selection.
-    pub fn match_ticket(&self, index: usize) -> Option<NativeDiffLineTicketV1> {
-        Some(NativeDiffLineTicketV1 {
+    pub fn match_ticket(&self, index: usize) -> Option<NativeDiffLineTicketV1<S>> {
+        Some(NativeDiffLineTicketV1::<S> {
             epoch: self.epoch.clone(),
             key: self.matches.get(index)?.key.clone(),
         })
     }
-    pub fn accepts(&self, ticket: &NativeDiffLineTicketV1) -> bool {
+    pub fn accepts(&self, ticket: &NativeDiffLineTicketV1<S>) -> bool {
         Arc::ptr_eq(&self.epoch, &ticket.epoch)
             && Arc::ptr_eq(&self.source, &ticket.key.source)
             && self.file == ticket.key.file
     }
     pub fn range_between(
         &self,
-        first: &NativeDiffLineTicketV1,
-        last: &NativeDiffLineTicketV1,
+        first: &NativeDiffLineTicketV1<S>,
+        last: &NativeDiffLineTicketV1<S>,
         operation: &LocalGitNavigationReadV1,
-    ) -> Result<Arc<NativeDiffRangeV1>, String> {
+    ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
         operation.check()?;
         if !self.accepts(first)
             || !self.accepts(last)
@@ -853,10 +900,10 @@ impl NativeDiffProjectionV1 {
     /// epochs, but require a current exact-source/current-query endpoint hit.
     pub fn extend_range(
         &self,
-        retained: &NativeDiffRangeV1,
-        endpoint: &NativeDiffLineTicketV1,
+        retained: &NativeDiffRangeV1<S>,
+        endpoint: &NativeDiffLineTicketV1<S>,
         operation: &LocalGitNavigationReadV1,
-    ) -> Result<Arc<NativeDiffRangeV1>, String> {
+    ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
         operation.check()?;
         if !self.accepts(endpoint)
             || !Arc::ptr_eq(&self.source, &retained.source)
@@ -887,7 +934,7 @@ impl NativeDiffProjectionV1 {
         &self,
         hunk: usize,
         operation: &LocalGitNavigationReadV1,
-    ) -> Result<Arc<NativeDiffRangeV1>, String> {
+    ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
         let lines = self.source.result().diff.files[self.file]
             .hunks
             .get(hunk)
@@ -927,15 +974,15 @@ fn side_kind(side: DiffSide, kind: LineKind) -> bool {
             DiffSide::Both => true,
         }
 }
-fn build_range(
-    source: &Arc<OriginalComparisonSourceV1>,
+fn build_range<S: NativeDiffContentV2>(
+    source: &Arc<S>,
     file: usize,
     side: DiffSide,
     anchor: (usize, usize),
     first: (usize, usize),
     last: (usize, usize),
     operation: &LocalGitNavigationReadV1,
-) -> Result<Arc<NativeDiffRangeV1>, String> {
+) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
     operation.check()?;
     let mut changed = Vec::new();
     for (hunk, body) in source.result().diff.files[file].hunks.iter().enumerate() {
@@ -954,7 +1001,7 @@ fn build_range(
     if changed.is_empty() {
         return Err("Select original changed lines; context is not staging authority".into());
     }
-    let prepared = Arc::new(NativeDiffRangeV1 {
+    let prepared = Arc::new(NativeDiffRangeV1::<S> {
         source: source.clone(),
         file,
         side,
@@ -1002,13 +1049,13 @@ fn preflight(
     operation.check()
 }
 
-fn search(
-    source: &Arc<OriginalComparisonSourceV1>,
+fn search<S: NativeDiffContentV2>(
+    source: &Arc<S>,
     file: usize,
     query: &NativeDiffQueryV1,
     regex: Option<&Regex>,
     operation: &LocalGitNavigationReadV1,
-) -> Result<(Vec<NativeDiffMatchV1>, bool), String> {
+) -> Result<(Vec<NativeDiffMatchV1<S>>, bool), String> {
     let mut matches = Vec::new();
     if query.text().is_empty() {
         return Ok((matches, false));
@@ -1023,8 +1070,8 @@ fn search(
                 if matches.len() == MATCH_CAP {
                     return false;
                 }
-                matches.push(NativeDiffMatchV1 {
-                    key: NativeDiffLineKeyV1 {
+                matches.push(NativeDiffMatchV1::<S> {
+                    key: NativeDiffLineKeyV1::<S> {
                         source: source.clone(),
                         file,
                         hunk: hunk_index,
@@ -1067,8 +1114,8 @@ fn search(
     Ok((matches, false))
 }
 
-fn paired_whitespace_equal(
-    source: &OriginalComparisonSourceV1,
+fn paired_whitespace_equal<S: NativeDiffContentV2>(
+    source: &S,
     left: &DiffCell,
     right: Option<&DiffCell>,
 ) -> bool {
@@ -1091,8 +1138,8 @@ struct PairMaterial {
     hidden: BTreeSet<(usize, usize)>,
     fallbacks: usize,
 }
-fn prepare_pairs(
-    source: &Arc<OriginalComparisonSourceV1>,
+fn prepare_pairs<S: NativeDiffContentV2>(
+    source: &Arc<S>,
     file: usize,
     options: &NativeDiffOptionsV1,
     operation: &LocalGitNavigationReadV1,
@@ -1111,7 +1158,7 @@ fn prepare_pairs(
     ) {
         operation.check()?;
         if options.whitespace == NativeDiffWhitespaceV1::HideAsciiPaired
-            && paired_whitespace_equal(source, &paired.left, paired.right.as_ref())
+            && paired_whitespace_equal(source.as_ref(), &paired.left, paired.right.as_ref())
         {
             for anchor in [
                 paired.left.anchor.as_ref(),
@@ -1127,8 +1174,12 @@ fn prepare_pairs(
             }
         }
         if options.within_line {
-            let (old, new, fallback) =
-                paired_within(source, &paired.left, paired.right.as_ref(), operation)?;
+            let (old, new, fallback) = paired_within(
+                source.as_ref(),
+                &paired.left,
+                paired.right.as_ref(),
+                operation,
+            )?;
             material.fallbacks += usize::from(fallback);
             for (cell, spans) in [(Some(&paired.left), old), (paired.right.as_ref(), new)] {
                 if let Some(anchor) = cell
@@ -1150,8 +1201,8 @@ fn prepare_pairs(
     operation.check()?;
     Ok(material)
 }
-fn paired_lines<'a>(
-    source: &'a OriginalComparisonSourceV1,
+fn paired_lines<'a, S: NativeDiffContentV2>(
+    source: &'a S,
     left: &DiffCell,
     right: Option<&DiffCell>,
 ) -> Option<(&'a DiffLine, &'a DiffLine)> {
@@ -1163,8 +1214,8 @@ fn paired_lines<'a>(
     (a.kind == LineKind::Removed && b.kind == LineKind::Added).then_some((a, b))
 }
 type WithinPair = (Vec<Range<usize>>, Vec<Range<usize>>, bool);
-fn paired_within(
-    source: &OriginalComparisonSourceV1,
+fn paired_within<S: NativeDiffContentV2>(
+    source: &S,
     left: &DiffCell,
     right: Option<&DiffCell>,
     operation: &LocalGitNavigationReadV1,
@@ -1176,18 +1227,18 @@ fn paired_within(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn prepare_cell(
-    source: &Arc<OriginalComparisonSourceV1>,
+fn prepare_cell<S: NativeDiffContentV2>(
+    source: &Arc<S>,
     display: DiffCell,
     side: DiffSide,
-    matches: &[NativeDiffMatchV1],
+    matches: &[NativeDiffMatchV1<S>],
     within: &[Range<usize>],
-    range: &Option<Arc<NativeDiffRangeV1>>,
+    range: &Option<Arc<NativeDiffRangeV1<S>>>,
     options: &NativeDiffOptionsV1,
     language: paint::Language,
     lexer: &mut paint::Lexer,
     operation: &LocalGitNavigationReadV1,
-) -> Result<NativeDiffCellV1, String> {
+) -> Result<NativeDiffCellV1<S>, String> {
     operation.check()?;
     let Some(DiffAnchor {
         file_index,
@@ -1196,13 +1247,13 @@ fn prepare_cell(
         ..
     }) = display.anchor
     else {
-        return Ok(NativeDiffCellV1 {
+        return Ok(NativeDiffCellV1::<S> {
             text: display.label.into(),
             role: display.role,
             ..empty_cell()
         });
     };
-    let key = NativeDiffLineKeyV1 {
+    let key = NativeDiffLineKeyV1::<S> {
         source: source.clone(),
         file: file_index,
         hunk: hunk_index,
@@ -1245,7 +1296,7 @@ fn prepare_cell(
         LineKind::Removed => '-',
         _ => ' ',
     };
-    Ok(NativeDiffCellV1 {
+    Ok(NativeDiffCellV1::<S> {
         text: text.into(),
         role: display.role,
         key: Some(key),
@@ -1257,8 +1308,8 @@ fn prepare_cell(
         selected,
     })
 }
-fn empty_cell() -> NativeDiffCellV1 {
-    NativeDiffCellV1 {
+fn empty_cell<S: NativeDiffContentV2>() -> NativeDiffCellV1<S> {
+    NativeDiffCellV1::<S> {
         text: Arc::from(""),
         role: SemanticRole::Normal,
         key: None,
@@ -1270,12 +1321,12 @@ fn empty_cell() -> NativeDiffCellV1 {
         selected: false,
     }
 }
-fn wrap_cell(
-    cell: NativeDiffCellV1,
+fn wrap_cell<S: NativeDiffContentV2>(
+    cell: NativeDiffCellV1<S>,
     width: usize,
     wrap: bool,
     operation: &LocalGitNavigationReadV1,
-) -> Result<Vec<NativeDiffCellV1>, String> {
+) -> Result<Vec<NativeDiffCellV1<S>>, String> {
     if !wrap
         || cell
             .key
@@ -1315,7 +1366,7 @@ fn wrap_cell(
                     })
                 })
                 .collect::<Vec<_>>();
-            Ok(NativeDiffCellV1 {
+            Ok(NativeDiffCellV1::<S> {
                 text: Arc::from(&cell.text[bytes]),
                 spans: spans.into(),
                 continuation: index > 0,
@@ -1324,8 +1375,12 @@ fn wrap_cell(
         })
         .collect()
 }
-fn charge_row(row: &NativeDiffRowV1, bytes: &mut usize, rows: usize) -> Result<(), String> {
-    *bytes = bytes.saturating_add(std::mem::size_of::<NativeDiffRowV1>());
+fn charge_row<S: NativeDiffContentV2>(
+    row: &NativeDiffRowV1<S>,
+    bytes: &mut usize,
+    rows: usize,
+) -> Result<(), String> {
+    *bytes = bytes.saturating_add(std::mem::size_of::<NativeDiffRowV1<S>>());
     for cell in std::iter::once(&row.left).chain(row.right.iter()) {
         // Include conservative Arc headers/alignment, not just UTF8/span bytes.
         *bytes = bytes.saturating_add(

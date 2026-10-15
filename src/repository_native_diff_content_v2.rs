@@ -1,0 +1,259 @@
+//! One immutable canonical-file contract for the existing native diff engine.
+//! Implementations are sealed, genuine provider sources. Display keys retain
+//! their concrete source type: unsaved content can never become saved authority.
+use crate::{
+    git::{
+        ComparisonResult, MutableDiffIntentV2, MutableDiffKindV2, MutableDiffSourceV2,
+        OriginalComparisonIntentV1, OriginalComparisonSideV1, OriginalComparisonSourceV1, RawPath,
+    },
+    identity::{ActorIdentity, ActorKind, GitRole},
+    providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+    repository_view::DiffSide,
+    workspace::Workspace,
+};
+use std::sync::Arc;
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Read-only projection material, NOT a current-state check or write approval.
+pub trait NativeDiffContentV2: sealed::Sealed + std::fmt::Debug + Send + Sync {
+    fn result(&self) -> &ComparisonResult;
+    fn member_count(&self) -> usize;
+    fn member_index(&self, file: usize) -> Option<usize>;
+    fn member_path(&self, file: usize, side: DiffSide) -> Option<&RawPath>;
+}
+
+impl sealed::Sealed for OriginalComparisonSourceV1 {}
+impl NativeDiffContentV2 for OriginalComparisonSourceV1 {
+    fn result(&self) -> &ComparisonResult {
+        OriginalComparisonSourceV1::result(self)
+    }
+    fn member_count(&self) -> usize {
+        self.members().len()
+    }
+    fn member_index(&self, file: usize) -> Option<usize> {
+        Some(self.members().get(file)?.index())
+    }
+    fn member_path(&self, file: usize, side: DiffSide) -> Option<&RawPath> {
+        self.members().get(file)?.path(match side {
+            DiffSide::Old => OriginalComparisonSideV1::Old,
+            DiffSide::New => OriginalComparisonSideV1::New,
+            DiffSide::Both => return None,
+        })
+    }
+}
+
+impl sealed::Sealed for MutableDiffSourceV2 {}
+impl NativeDiffContentV2 for MutableDiffSourceV2 {
+    fn result(&self) -> &ComparisonResult {
+        MutableDiffSourceV2::result(self)
+    }
+    fn member_count(&self) -> usize {
+        self.members().len()
+    }
+    fn member_index(&self, file: usize) -> Option<usize> {
+        Some(self.members().get(file)?.index())
+    }
+    fn member_path(&self, file: usize, side: DiffSide) -> Option<&RawPath> {
+        self.members().get(file)?.path(side)
+    }
+}
+
+/// Captured purpose and worker validation are source-specific. Sharing the
+/// immutable engine does not share saved authorization with unsaved content.
+pub type CapturedNativeDiffPurposeV2<S> = (Arc<<S as NativeDiffPurposeV2>::Intent>, Option<Arc<S>>);
+pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
+    fn closed_status() -> &'static str;
+    fn pane_title(wide: bool) -> &'static str;
+    fn stage_control() -> &'static str;
+    fn stage_unavailable() -> &'static str;
+    fn selection_help() -> &'static str;
+    fn ready_status() -> &'static str;
+    type Intent: std::fmt::Debug + Send + Sync;
+    fn capture(workspace: &Workspace) -> Result<CapturedNativeDiffPurposeV2<Self>, String>;
+    fn intent(&self) -> &Arc<Self::Intent>;
+    fn intent_owns(intent: &Self::Intent, workspace: &Workspace) -> bool;
+    fn source_owns(source: &Arc<Self>, workspace: &Workspace) -> bool;
+    fn read(
+        intent: Arc<Self::Intent>,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<Arc<Self>, String>;
+    fn validate_current(&self, operation: &LocalGitNavigationReadV1) -> Result<(), String>;
+    fn complete(&self) -> bool;
+    fn observed_members(&self) -> usize;
+    fn member_label(&self, file: usize) -> Option<&str>;
+    fn pane_header(&self) -> String;
+    fn actor_labels(&self) -> (ActorIdentity, ActorIdentity, String, String);
+}
+
+impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
+    fn closed_status() -> &'static str {
+        "Native saved diff closed • no repository changes"
+    }
+    fn pane_title(wide: bool) -> &'static str {
+        if wide {
+            "Native saved diff • original source • bounded 512-column pane"
+        } else {
+            "Native saved diff • original source"
+        }
+    }
+    fn stage_control() -> &'static str {
+        "[a Stage disabled]"
+    }
+    fn stage_unavailable() -> &'static str {
+        "Stage disabled: this is a saved comparison; no current index/worktree authority or write was created"
+    }
+    fn selection_help() -> &'static str {
+        "Space selects original line; Shift+↑/↓ extends. Drag keeps exact original membership. Saved changes cannot be staged."
+    }
+    fn ready_status() -> &'static str {
+        "Native saved diff ready • original canonical rows; read-only"
+    }
+    type Intent = OriginalComparisonIntentV1;
+    fn capture(workspace: &Workspace) -> Result<(Arc<Self::Intent>, Option<Arc<Self>>), String> {
+        let source = workspace
+            .original_comparison_v1
+            .as_ref()
+            .filter(|source| source.intent().owns(workspace))
+            .cloned();
+        let intent = match &source {
+            Some(source) => source.intent().clone(),
+            None => OriginalComparisonIntentV1::capture(workspace)?,
+        };
+        Ok((intent, source))
+    }
+    fn intent(&self) -> &Arc<Self::Intent> {
+        OriginalComparisonSourceV1::intent(self)
+    }
+    fn intent_owns(intent: &Self::Intent, workspace: &Workspace) -> bool {
+        intent.owns(workspace)
+    }
+    fn source_owns(source: &Arc<Self>, workspace: &Workspace) -> bool {
+        source.intent().owns(workspace)
+            && workspace
+                .original_comparison_v1
+                .as_ref()
+                .is_none_or(|current| Arc::ptr_eq(source, current))
+    }
+    fn read(
+        intent: Arc<Self::Intent>,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<Arc<Self>, String> {
+        OriginalComparisonSourceV1::read(intent, operation)
+    }
+    fn validate_current(&self, operation: &LocalGitNavigationReadV1) -> Result<(), String> {
+        operation.check()
+    }
+    fn complete(&self) -> bool {
+        OriginalComparisonSourceV1::complete(self)
+    }
+    fn observed_members(&self) -> usize {
+        OriginalComparisonSourceV1::observed_members(self)
+    }
+    fn member_label(&self, file: usize) -> Option<&str> {
+        Some(self.members().get(file)?.label())
+    }
+    fn pane_header(&self) -> String {
+        let old = self.endpoint(OriginalComparisonSideV1::Old).object_id();
+        let new = self.endpoint(OriginalComparisonSideV1::New).object_id();
+        format!(
+            "Old {} → New {} • read-only",
+            &old[..old.len().min(12)],
+            &new[..new.len().min(12)]
+        )
+    }
+    fn actor_labels(&self) -> (ActorIdentity, ActorIdentity, String, String) {
+        let commit = self.head_commit();
+        let author = crate::git_actor_labels_v1::display_identity(&commit.author, GitRole::Author);
+        let committer =
+            crate::git_actor_labels_v1::display_identity(&commit.committer, GitRole::Committer);
+        let author_label = format!("New commit: {}", author.label());
+        let committer_label = format!("New commit: {}", committer.label());
+        (author, committer, author_label, committer_label)
+    }
+}
+
+impl NativeDiffPurposeV2 for MutableDiffSourceV2 {
+    fn closed_status() -> &'static str {
+        "Native local diff closed • no repository changes"
+    }
+    fn pane_title(wide: bool) -> &'static str {
+        if wide {
+            "Native local diff • observed snapshot • bounded 512-column pane"
+        } else {
+            "Native local diff • observed snapshot"
+        }
+    }
+    fn stage_control() -> &'static str {
+        "[a Preview selected]"
+    }
+    fn stage_unavailable() -> &'static str {
+        "Selected preview is unavailable until its current-state confirmation workflow is connected; no write was created"
+    }
+    fn selection_help() -> &'static str {
+        "Space selects original line; Shift+↑/↓ extends. Drag keeps exact observed membership. A separate current-state preview and confirmation is required before any write."
+    }
+    fn ready_status() -> &'static str {
+        "Native local diff ready • observed snapshot; preview before any write"
+    }
+    type Intent = MutableDiffIntentV2;
+    fn capture(workspace: &Workspace) -> Result<(Arc<Self::Intent>, Option<Arc<Self>>), String> {
+        Ok((MutableDiffIntentV2::capture(workspace)?, None))
+    }
+    fn intent(&self) -> &Arc<Self::Intent> {
+        MutableDiffSourceV2::intent(self)
+    }
+    fn intent_owns(intent: &Self::Intent, workspace: &Workspace) -> bool {
+        intent.owns(workspace)
+    }
+    fn source_owns(source: &Arc<Self>, workspace: &Workspace) -> bool {
+        source.intent().owns(workspace)
+    }
+    fn read(
+        intent: Arc<Self::Intent>,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<Arc<Self>, String> {
+        MutableDiffSourceV2::read(intent, operation)
+    }
+    fn validate_current(&self, operation: &LocalGitNavigationReadV1) -> Result<(), String> {
+        MutableDiffSourceV2::validate_current(self, operation)
+    }
+    fn complete(&self) -> bool {
+        MutableDiffSourceV2::complete(self)
+    }
+    fn observed_members(&self) -> usize {
+        MutableDiffSourceV2::observed_members(self)
+    }
+    fn member_label(&self, file: usize) -> Option<&str> {
+        Some(self.members().get(file)?.label())
+    }
+    fn pane_header(&self) -> String {
+        match self.intent().kind(){
+            MutableDiffKindV2::Working=>"Index → working files • tracked edits • observed snapshot".into(),
+            MutableDiffKindV2::Staged=>"Saved baseline as Git interprets it → index • observed snapshot".into(),
+            MutableDiffKindV2::Uncommitted=>"Saved baseline as Git interprets it → working files • all tracked edits • observed snapshot".into(),
+        }
+    }
+    fn actor_labels(&self) -> (ActorIdentity, ActorIdentity, String, String) {
+        // Unsaved files have no new-commit actor. Never infer who authored them
+        // from config, the previous commit, names, or a cached hosted profile.
+        let unknown = ActorIdentity {
+            host: None,
+            login: None,
+            name: "Unknown unsaved-content actor".into(),
+            email: None,
+            avatar_url: None,
+            kind: ActorKind::Unknown,
+            git_role: None,
+            host_associated: false,
+        };
+        (
+            unknown.clone(),
+            unknown,
+            "Unsaved content: author unknown; no new commit exists".into(),
+            "Unsaved content: committer unknown; no new commit exists".into(),
+        )
+    }
+}

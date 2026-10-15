@@ -243,6 +243,24 @@ fn preflight(workspace: &MetadataViewV1<'_>, rows: &mut Rows) -> Result<(), Stri
     Ok(())
 }
 impl PreparedRepositorySourceIdentity {
+    pub(crate) fn prepare_native_mutable_v2(
+        status: &crate::git::RepoStatus,
+        source: &crate::git::MutableDiffSourceV2,
+    ) -> Result<Self, String> {
+        Self::prepare_metadata_v1(&MetadataViewV1 {
+            directory: source.intent().origin().source().root(),
+            revision: status.head.as_deref().unwrap_or("HEAD"),
+            status,
+            mode: if source.intent().kind() == crate::git::MutableDiffKindV2::Staged {
+                RepositoryMode::Staged
+            } else {
+                RepositoryMode::Working
+            },
+            selected_commit: None,
+            preview: None,
+            comparison: Some(source.result()),
+        })
+    }
     pub fn prepare(workspace: &Workspace) -> Result<Self, String> {
         Self::prepare_metadata_v1(&MetadataViewV1::workspace(workspace))
     }

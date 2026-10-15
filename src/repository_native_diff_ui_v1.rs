@@ -1,6 +1,8 @@
 //! Screen geometry and borrowed, worker-prepared diff cells. No provider work.
 use crate::{
     editor::{display_line, display_width},
+    git::OriginalComparisonSourceV1,
+    repository_native_diff_content_v2::NativeDiffPurposeV2,
     repository_native_diff_projection_v1::{
         NativeDiffCellV1, NativeDiffLineTicketV1, NativeDiffPaintRoleV1,
     },
@@ -17,8 +19,7 @@ use ratatui::{
     Frame,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NativeDiffActionV1 {
+pub enum NativeDiffActionV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
     Open,
     Close,
     Quit,
@@ -60,38 +61,208 @@ pub enum NativeDiffActionV1 {
     Source,
     Stage,
     Point {
-        ticket: NativeDiffLineTicketV1,
+        ticket: NativeDiffLineTicketV1<S>,
         row: usize,
         right: bool,
     },
     Drag {
-        first: NativeDiffLineTicketV1,
-        last: NativeDiffLineTicketV1,
+        first: NativeDiffLineTicketV1<S>,
+        last: NativeDiffLineTicketV1<S>,
     },
 }
-#[derive(Clone)]
-pub struct NativeDiffHitV1 {
-    pub rect: Rect,
-    pub action: NativeDiffActionV1,
+impl<S: NativeDiffPurposeV2> Clone for NativeDiffActionV1<S> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Open => Self::Open,
+            Self::Close => Self::Close,
+            Self::Quit => Self::Quit,
+            Self::Controls => Self::Controls,
+            Self::FocusQuery => Self::FocusQuery,
+            Self::FocusBody => Self::FocusBody,
+            Self::FocusNext(value) => Self::FocusNext(*value),
+            Self::Activate => Self::Activate,
+            Self::QueryClick(value) => Self::QueryClick(*value),
+            Self::Insert(value) => Self::Insert(value.clone()),
+            Self::Backspace => Self::Backspace,
+            Self::Delete => Self::Delete,
+            Self::SelectAll => Self::SelectAll,
+            Self::ClearQuery => Self::ClearQuery,
+            Self::Cursor { right, select } => Self::Cursor {
+                right: *right,
+                select: *select,
+            },
+            Self::Edge { end, select } => Self::Edge {
+                end: *end,
+                select: *select,
+            },
+            Self::Regex => Self::Regex,
+            Self::Option(value) => Self::Option(value.clone()),
+            Self::File(value) => Self::File(*value),
+            Self::Match(value) => Self::Match(*value),
+            Self::Hunk(value) => Self::Hunk(*value),
+            Self::SelectHunk => Self::SelectHunk,
+            Self::Move { delta, extend } => Self::Move {
+                delta: *delta,
+                extend: *extend,
+            },
+            Self::First => Self::First,
+            Self::Last => Self::Last,
+            Self::Horizontal(value) => Self::Horizontal(*value),
+            Self::Scroll(value) => Self::Scroll(*value),
+            Self::Select => Self::Select,
+            Self::ClearRange => Self::ClearRange,
+            Self::Source => Self::Source,
+            Self::Stage => Self::Stage,
+            Self::Point { ticket, row, right } => Self::Point {
+                ticket: ticket.clone(),
+                row: *row,
+                right: *right,
+            },
+            Self::Drag { first, last } => Self::Drag {
+                first: first.clone(),
+                last: last.clone(),
+            },
+        }
+    }
 }
-#[derive(Default)]
-pub struct NativeDiffLayoutV1 {
-    hits: Vec<NativeDiffHitV1>,
+impl<S: NativeDiffPurposeV2> PartialEq for NativeDiffActionV1<S> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Open, Self::Open) => true,
+            (Self::Close, Self::Close) => true,
+            (Self::Quit, Self::Quit) => true,
+            (Self::Controls, Self::Controls) => true,
+            (Self::FocusQuery, Self::FocusQuery) => true,
+            (Self::FocusBody, Self::FocusBody) => true,
+            (Self::FocusNext(a), Self::FocusNext(b)) => a == b,
+            (Self::Activate, Self::Activate) => true,
+            (Self::QueryClick(a), Self::QueryClick(b)) => a == b,
+            (Self::Insert(a), Self::Insert(b)) => a == b,
+            (Self::Backspace, Self::Backspace) => true,
+            (Self::Delete, Self::Delete) => true,
+            (Self::SelectAll, Self::SelectAll) => true,
+            (Self::ClearQuery, Self::ClearQuery) => true,
+            (
+                Self::Cursor {
+                    right: a_right,
+                    select: a_select,
+                },
+                Self::Cursor {
+                    right: b_right,
+                    select: b_select,
+                },
+            ) => a_right == b_right && a_select == b_select,
+            (
+                Self::Edge {
+                    end: a_end,
+                    select: a_select,
+                },
+                Self::Edge {
+                    end: b_end,
+                    select: b_select,
+                },
+            ) => a_end == b_end && a_select == b_select,
+            (Self::Regex, Self::Regex) => true,
+            (Self::Option(a), Self::Option(b)) => a == b,
+            (Self::File(a), Self::File(b)) => a == b,
+            (Self::Match(a), Self::Match(b)) => a == b,
+            (Self::Hunk(a), Self::Hunk(b)) => a == b,
+            (Self::SelectHunk, Self::SelectHunk) => true,
+            (
+                Self::Move {
+                    delta: a_delta,
+                    extend: a_extend,
+                },
+                Self::Move {
+                    delta: b_delta,
+                    extend: b_extend,
+                },
+            ) => a_delta == b_delta && a_extend == b_extend,
+            (Self::First, Self::First) => true,
+            (Self::Last, Self::Last) => true,
+            (Self::Horizontal(a), Self::Horizontal(b)) => a == b,
+            (Self::Scroll(a), Self::Scroll(b)) => a == b,
+            (Self::Select, Self::Select) => true,
+            (Self::ClearRange, Self::ClearRange) => true,
+            (Self::Source, Self::Source) => true,
+            (Self::Stage, Self::Stage) => true,
+            (
+                Self::Point {
+                    ticket: a_ticket,
+                    row: a_row,
+                    right: a_right,
+                },
+                Self::Point {
+                    ticket: b_ticket,
+                    row: b_row,
+                    right: b_right,
+                },
+            ) => a_ticket == b_ticket && a_row == b_row && a_right == b_right,
+            (
+                Self::Drag {
+                    first: a_first,
+                    last: a_last,
+                },
+                Self::Drag {
+                    first: b_first,
+                    last: b_last,
+                },
+            ) => a_first == b_first && a_last == b_last,
+            _ => false,
+        }
+    }
+}
+impl<S: NativeDiffPurposeV2> Eq for NativeDiffActionV1<S> {}
+impl<S: NativeDiffPurposeV2> std::fmt::Debug for NativeDiffActionV1<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("NativeDiffActionV1")
+            .field(&std::mem::discriminant(self))
+            .finish()
+    }
+}
+
+pub struct NativeDiffHitV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    pub rect: Rect,
+    pub action: NativeDiffActionV1<S>,
+}
+pub struct NativeDiffLayoutV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    hits: Vec<NativeDiffHitV1<S>>,
     body: Rect,
     query: Rect,
     pub query_focused: bool,
     pub controls: bool,
     pub focus: Option<usize>,
-    drag: Option<(NativeDiffLineTicketV1, NativeDiffLineTicketV1)>,
+    drag: Option<(NativeDiffLineTicketV1<S>, NativeDiffLineTicketV1<S>)>,
 }
-impl NativeDiffLayoutV1 {
+impl<S: NativeDiffPurposeV2> Clone for NativeDiffHitV1<S> {
+    fn clone(&self) -> Self {
+        Self {
+            rect: self.rect,
+            action: self.action.clone(),
+        }
+    }
+}
+impl<S: NativeDiffPurposeV2> Default for NativeDiffLayoutV1<S> {
+    fn default() -> Self {
+        Self {
+            hits: Vec::new(),
+            body: Rect::default(),
+            query: Rect::default(),
+            query_focused: false,
+            controls: false,
+            focus: None,
+            drag: None,
+        }
+    }
+}
+impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
     pub fn clear(&mut self) {
         self.hits.clear();
         self.body = Rect::default();
         self.query = Rect::default();
         self.drag = None;
     }
-    pub fn hits(&self) -> &[NativeDiffHitV1] {
+    pub fn hits(&self) -> &[NativeDiffHitV1<S>] {
         &self.hits
     }
     pub fn body_height(&self) -> usize {
@@ -131,12 +302,12 @@ impl NativeDiffLayoutV1 {
         };
         self.focus = Some(controls[next]);
     }
-    pub fn activated(&self) -> Option<NativeDiffActionV1> {
+    pub fn activated(&self) -> Option<NativeDiffActionV1<S>> {
         self.focus
             .and_then(|i| self.hits.get(i))
             .map(|hit| hit.action.clone())
     }
-    pub fn key(&self, code: KeyCode, mods: KeyModifiers) -> Option<NativeDiffActionV1> {
+    pub fn key(&self, code: KeyCode, mods: KeyModifiers) -> Option<NativeDiffActionV1<S>> {
         use NativeDiffActionV1 as A;
         let ctrl = mods.contains(KeyModifiers::CONTROL);
         let shift = mods.contains(KeyModifiers::SHIFT);
@@ -243,7 +414,7 @@ impl NativeDiffLayoutV1 {
         kind: MouseEventKind,
         column: u16,
         row: u16,
-    ) -> Option<NativeDiffActionV1> {
+    ) -> Option<NativeDiffActionV1<S>> {
         use NativeDiffActionV1 as A;
         let point = (column, row).into();
         let hit = self
@@ -288,7 +459,7 @@ impl NativeDiffLayoutV1 {
         frame: &mut Frame,
         rect: Rect,
         label: &str,
-        action: NativeDiffActionV1,
+        action: NativeDiffActionV1<S>,
         theme: Theme,
     ) {
         if rect.is_empty() {
@@ -310,7 +481,7 @@ impl NativeDiffLayoutV1 {
     pub fn draw(
         &mut self,
         frame: &mut Frame,
-        state: &mut NativeDiffStateV1,
+        state: &mut NativeDiffStateV1<S>,
         area: Rect,
         theme: Theme,
     ) {
@@ -323,9 +494,9 @@ impl NativeDiffLayoutV1 {
             Block::default()
                 .borders(Borders::ALL)
                 .title(if area.width > 514 {
-                    "Native saved diff • original source • bounded 512-column pane"
+                    S::pane_title(true)
                 } else {
-                    "Native saved diff • original source"
+                    S::pane_title(false)
                 })
                 .style(theme.base()),
             area,
@@ -360,29 +531,21 @@ impl NativeDiffLayoutV1 {
         }
         let mut y = inner.y;
         if let Some(source) = state.source() {
-            let old = source
-                .endpoint(crate::git::OriginalComparisonSideV1::Old)
-                .object_id();
-            let new = source
-                .endpoint(crate::git::OriginalComparisonSideV1::New)
-                .object_id();
-            frame.render_widget(
-                Paragraph::new(format!(
-                    "Old {} → New {} • read-only",
-                    &old[..old.len().min(12)],
-                    &new[..new.len().min(12)]
-                ))
-                .style(theme.style(SemanticToken::Reference)),
-                Rect::new(inner.x, y, inner.width, 1),
-            );
-            y += 1;
-            if let Some(member) = source.members().get(state.file) {
+            if let Some(actors) = state.actors() {
+                frame.render_widget(
+                    Paragraph::new(actors.header_label.as_ref())
+                        .style(theme.style(SemanticToken::Reference)),
+                    Rect::new(inner.x, y, inner.width, 1),
+                );
+                y += 1;
+            }
+            if let Some(label) = source.member_label(state.file) {
                 frame.render_widget(
                     Paragraph::new(format!(
                         "File {}/{}: {}",
                         state.file + 1,
-                        source.members().len(),
-                        member.label()
+                        source.member_count(),
+                        label
                     ))
                     .style(theme.style(SemanticToken::Changed)),
                     Rect::new(inner.x, y, inner.width, 1),
@@ -580,11 +743,7 @@ impl NativeDiffLayoutV1 {
             return;
         };
         let body = if !current {
-            let label = p
-                .source()
-                .members()
-                .get(p.file())
-                .map_or("unavailable", |member| member.label());
+            let label = p.source().member_label(p.file()).unwrap_or("unavailable");
             frame.render_widget(
                 Paragraph::new(format!(
                     "Previous preview: {label} • NOT CURRENT • no row hits"
@@ -681,7 +840,7 @@ impl NativeDiffLayoutV1 {
     fn draw_controls(
         &mut self,
         frame: &mut Frame,
-        state: &NativeDiffStateV1,
+        state: &NativeDiffStateV1<S>,
         inner: Rect,
         theme: Theme,
     ) {
@@ -711,7 +870,7 @@ impl NativeDiffLayoutV1 {
             ("[} Next hunk]", A::Hunk(1)),
             ("[h Select hunk]", A::SelectHunk),
             ("[x Clear range]", A::ClearRange),
-            ("[a Stage disabled]", A::Stage),
+            (S::stage_control(), A::Stage),
             ("[I Source]", A::Source),
             ("[q Quit]", A::Quit),
         ];
@@ -730,7 +889,12 @@ impl NativeDiffLayoutV1 {
             x += width + 1;
         }
         if y + 3 < inner.bottom() {
-            frame.render_widget(Paragraph::new("Space selects original line; Shift+↑/↓ extends. Drag keeps exact original membership. Saved changes cannot be staged.").wrap(ratatui::widgets::Wrap{trim:false}).style(theme.style(SemanticToken::Muted)),Rect::new(inner.x,y+2,inner.width,inner.bottom()-y-3));
+            frame.render_widget(
+                Paragraph::new(S::selection_help())
+                    .wrap(ratatui::widgets::Wrap { trim: false })
+                    .style(theme.style(SemanticToken::Muted)),
+                Rect::new(inner.x, y + 2, inner.width, inner.bottom() - y - 3),
+            );
         }
         frame.render_widget(
             Paragraph::new(state.status.as_str()).style(theme.style(SemanticToken::Reference)),
@@ -742,9 +906,9 @@ impl NativeDiffLayoutV1 {
 #[cfg(test)]
 #[path = "repository_native_diff_ui_v1_tests.rs"]
 mod tests;
-fn draw_cell(
+fn draw_cell<S: NativeDiffPurposeV2>(
     frame: &mut Frame,
-    cell: &NativeDiffCellV1,
+    cell: &NativeDiffCellV1<S>,
     rect: Rect,
     horizontal: u16,
     focused: bool,

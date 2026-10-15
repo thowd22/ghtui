@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@graph_parallel'
 created_date: '2026-10-14 23:43'
-updated_date: '2026-10-15 00:43'
+updated_date: '2026-10-15 01:55'
 labels: []
 dependencies:
   - TASK-4
@@ -30,6 +30,7 @@ Six real-binary failures with genuinely long workspace roots show that local ide
 1. Code/provider tests: use actual Git fixtures and TestBackend at80x24 and120x40, long Unicode and raw-byte paths/refs, multiple ambiguous basenames, escaped/literal-byte distinctions, no-color, missing/stale/disabled choices, resize, bounded detail text and disjoint shared key/mouse hits. Require exact raw targets and full40/64-character IDs remain unchanged; no Git/GH/SQL/I/O during display-only details.
 2. Real-binary TUI E2E scenario long_local_identity: fresh keyboard and mouse fixtures with an explicitly long directory prefix, raw ref overrides and raw/Unicode/literal worktree siblings. Open discoverable full-source/full-target details, page/scroll/resize/close with both inputs; verify exact visible identity plus strict empty/expected GH journal, full original Git SHA/refs/HEAD/index/staged/dirty/untracked bytes, private SQL/config preservation and TTY/owned-child cleanup. For removal, Preview and explicit Confirm must affect only the exact chosen disposable worktree; cancel/stale/read-only inspection must affect nothing.
 3. Run node scripts/test-task.mjs long_local_identity and impacted original immutable_overrides/local_picker/stash_worktrees and source_identity/scoped forms, retaining all original six negative artifacts. Require nonzero executed code/PTY counts and actual completed keyboard/mouse journals; run cargo test --offline --locked --all-targets, cargo fmt --check and cargo clippy --offline --locked --all-targets -- -D warnings. Record actual logs/counts/paths and nativeMac limits; no fixture shortening, ignored tests, increased timeout or title-only acceptance.
+4. Equivalent required direct task commands: cargo test --test tui_e2e long_local_identity -- --nocapture and cargo test --all-targets. The count-checked wrapper must still verify nonzero actual executed code/provider and keyboard/mouse PTY coverage; these explicit commands do not waive offline/locked, format, Clippy, artifacts or native macOS limits.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -40,6 +41,13 @@ Six real-binary failures with genuinely long workspace roots show that local ide
 - [x] #4 Long-path Unicode/no-color/focus/resize/scroll/disabled/stale and both-input regressions execute with independent visible/command/storage/Git/config/TTY oracles and nonzero task-key counts.
 - [ ] #5 Full local regression/format/strict-Clippy and source-integrity evidence are recorded; broad Task4/10/35/41/67 dependency acceptance and nativeMac status remain honest.
 <!-- AC:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 Run meaningful task-specific code/provider and real-binary keyboard/mouse PTY tests with nonzero actual selected counts; record exact commands, results and retained artifacts.
+- [ ] #2 Run cargo test --all-targets, cargo fmt --check, and cargo clippy --all-targets -- -D warnings; fix failures before marking Done.
+- [ ] #3 Verify clickable mouse/keyboard action parity and applicable focus, resize, scrolling, overlay, loading, disabled and failure states with independent visible plus command/storage/Git effects; native macOS status remains explicit.
+<!-- DOD:END -->
 
 ## Implementation Plan
 
@@ -67,4 +75,6 @@ Journal correction: direct Main G7zrhd records are 4 positive completed sessions
 Root frozen combined Timeline + saved-native-diff + long-local-identity checkpoint, 2026-10-15: actual cargo test --offline --locked --all-targets terminal 0; 1,957 code/provider contracts (306 strict GitHub) and 646 actual PTY test functions pass, zero failed/ignored, PTY 85.66 s. 33 test targets include the zero-test main target, which is not counted as coverage. Root whole log target/build/root-diff-timeline-longpath-whole-first.log; strict all-target Clippy exit 0, fmt exit 0, dependency audit exit 0 (86 sources, 10,300 files, 108 adaptations, 117 registry packages). All 43 frozen production/test hashes unchanged through gates. Root preserved current SQLite/PID/Related guards and catalogue-close prerequisites. This green integrated checkpoint does not prove the causes of retained older negative artifacts, complete broad product coverage, native macOS verification, or release readiness.
 
 Root objectively checked the four narrow product/readability criteria using reviewed native/domain evidence and current integrated gates. Task remains In Progress: broad dependency and native macOS/release acceptance are not closed by this Linux checkpoint.
+
+Root integrated checkpoint2026-10-15 terminal GREEN: actual cargo test --all-targets with offline environment passes2012 code/provider (318 strictGH) and650 real-binary PTY functions,0failed/ignored,86.99s native;34targets includes zero-testmain NOTcoverage. All37 frozen source/test paths unchanged through gates (36code/tests+README); only README checkpoint prose updated afterward. strictalltargetClippy0(43.49s inclbuild),fmtcheck0,gitdiffcheck0,dependency audit86sources/10300files/108adaptations/117registry0. Logs target/build/root-inline-mutable-metadata-whole-first.log and -clippy-first.log; immutable source manifest root-inline-mutable-metadata-source-freeze-v1-20261015.json. Existing retained negative1975code/645of646PTY94.80s records Related env-sidecar publication race; separate complete metadata record +4contracttests and2 genuine held pre-env PTYs now prove correction, without weaker auth/proxy/argv/Git/SQL/TTY assertions. This does NOT diagnose/waive older agent Blended failure or prove full product/Mac/release coverage.
 <!-- SECTION:NOTES:END -->

@@ -480,6 +480,7 @@ impl GithubProvider {
         // The caller cannot override transport provenance through auxiliary environment.
         spec.env.insert("GH_HOST".into(), self.host.clone().into());
         if let Some((deadline, cap)) = self.scoped_read_window {
+            spec.absolute_deadline_v1 = Some(deadline);
             spec.timeout = spec
                 .timeout
                 .min(deadline.saturating_duration_since(std::time::Instant::now()));

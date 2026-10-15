@@ -181,6 +181,11 @@ impl Builder {
                     })
             });
         self.push("repository.native-diff".into(),"Explore native saved diff".into(),&["native","diff","split","unified","changes"],if saved_native {Action::NativeDiffV1(crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open)} else {Action::Explain("Open an actual local saved comparison first. Native mutable/PR diff sources are not inferred from a directory or display label.".into())},true)?;
+        let mutable_native = app.remote_repository.is_none()
+            && app.workspace.as_ref().is_some_and(|workspace| {
+                crate::git::MutableDiffIntentV2::capture(workspace).is_ok()
+            });
+        self.push("repository.native-local-diff".into(),"Explore native working/staged diff".into(),&["native","working","staged","local","diff"],if mutable_native{Action::NativeMutableDiffV2(crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open)}else{Action::Explain("Load an actual local Working or Staged comparison first; a directory or saved version is not mutable-source authority.".into())},true)?;
         self.push(
             "repository.operations".into(),
             "Open local operations".into(),

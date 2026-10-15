@@ -4,7 +4,7 @@ title: Verify complete cross-feature journeys and failure recovery
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 16:38'
+updated_date: '2026-10-15 01:54'
 labels:
   - delivery
   - e2e
@@ -12,6 +12,8 @@ milestone: m-5
 dependencies:
   - TASK-64
   - TASK-51
+  - TASK-75
+  - TASK-76
 documentation:
   - backlog/docs/doc-2 - ghtui-product-and-architecture-specification.md
   - backlog/docs/doc-4 - Code-and-TUI-end-to-end-testing-contract.md
@@ -72,4 +74,8 @@ Root-approved SOURCE-ONLY historical same-parent handoff ready: target/build/pro
 Root-approved SOURCE-ONLY wholeOPEN14 budget handoff FROZEN: target/build/provider-legacy-pr-workflow-budget-v1-handoff-20261014.md; six new undeclared files and separate unapplied provider-legacy-pr-workflow-budget-activation-v1-20261014.patch. Nine meaningful strict provider/SQLite/real-Git declarations are UNCOMPILED/UNRUN. One owned nonClone original Window + ONE common MetricsBudget now includes access5/identity2/private READ_ONLY restore/identity2/finalaccess5, upfront default capture allocations1,581,056 under2MiB. Successful raw stdout+stderr and full failed allocated reservations stay in the whole ledger; five-read deltas are not total. Same actual argv/version-prefix/lossy-firstline/empty-user semantics, fresh/noncoalescing gh transport preserved; no global identity/auth/CLI floor changes. New shared forwards use one restoration/five-parser/raw accounting policy, absolute SQL deadline, actual runner/program/env/numericScope binding and typed failures hiding private text. Selected edition2021 format/check exits0 and exact rg9 declarations; final patchcheck initially exited1 after Root newpr_checks_capture context, ONLY unappliedhunk revised to retain it, rerunexit0. Formatting/applicability are NOT tests. Frozen draft46/historical12/native6/2 unchanged; native witness slots/version4save/quarantine/operation-cache-journal-finalproof-age checks and deliberate old7/v2 migrations remain Root-owned prerequisites. No included source/export/registration/Cargo/native/remote/live mutations, no acceptance/status/Done claim.
 
 2026-10-14 user-selected delivery change: retain this task's reusable code/provider and keyboard/mouse whole-product journeys, with an explicit binary-path seam and independent effects. TASK-68 replays them against the actual curl-script-installed release executable for install/update/rollback/interrupted-install recovery; TASK-69 automates that release gate. Do not make this pre-release task depend on a finished TASK-68 installer, which would reverse the current Task65->66->67->68 order. See doc-12; dependencies, status and AC unchanged, no new verification or implementation claimed.
+
+2026-10-15 parity audit: TASK-75 explicitly tracks whole-file PR review comments (GitHub subject_type=file), separate from TASK-19 line/range publication and TASK-21 thread management. Whole-product review journeys must exercise genuine file-level create/readback/reply with both input modes, changed-head/source-loss and restart/uncertain no-resend recovery, exact remote and storage effects, actor fallback, unchanged Git and TTY. Added TASK-75 as direct prerequisite without changing the existing release/install ordering. New task remains To Do, no completion/testing claimed.
+
+2026-10-15 concrete read-only regression TASK-76 added as prerequisite: independent installed-Git control proved default worktree diff can rewrite index stat-cache bytes even with optional locks disabled, while staged tree is unchanged. Whole-product browsing and independent observers must preserve raw and semantic index before release. Native selected-staging observer is corrected separately without weakening its byte equality. Evidence/provider policy fix and both-input read-only journeys remain To Do; no current full-suite green is claimed as proof of that new edge case.
 <!-- SECTION:NOTES:END -->

@@ -116,6 +116,31 @@ fn raw_patch(
         .map_err(|failure| safe(GithubError::from(failure).kind))
 }
 impl GithubProvider {
+    /// Fresh raw parent in the caller's SAME measured original-source READ.
+    /// This intermediate receipt never grants permission to publish a comment.
+    pub(crate) fn pr_inline_original_parent_v1(
+        &self,
+        current: &CurrentCatalogueRepository,
+        original: &PrResourceReadV1,
+        limits: &PrResourceReadLimitsV1,
+        cancel: &CancellationToken,
+    ) -> GithubResult<PrResourceParentV1> {
+        limits.validate()?;
+        if original.kind != PrResourceKindV1::Files {
+            return Err(safe(GithubErrorKind::InvalidTarget));
+        }
+        let endpoint = format!(
+            "repos/{}/pulls/{}",
+            current.repository().full_name,
+            original.parent.number()
+        );
+        let value = document(self, &endpoint, limits.max_document_bytes, cancel, true)?;
+        let fresh = parent(self, current, &original.parent.summary, &value)?;
+        if !immutable_images::original_parent(&original.parent, &fresh) {
+            return Err(safe(GithubErrorKind::StaleHead));
+        }
+        Ok(fresh)
+    }
     /// Actual raw parent before/after, explicitly bounded resource pages. Fresh
     /// principal/repo admission is owned by the SAME original session, not this
     /// intermediate value; caller MUST close it with original local guards.
@@ -213,12 +238,17 @@ impl GithubProvider {
                 observed.status_coverage = coverage;
             }
         }
-        let closing = parent(
-            self,
-            current,
-            original,
-            &document(self, &endpoint, limits.max_document_bytes, cancel, true)?,
-        )?;
+        let closing = match kind {
+            PrResourceKindV1::Files => {
+                self.pr_inline_original_parent_v1(current, &observed, limits, cancel)?
+            }
+            PrResourceKindV1::Checks => parent(
+                self,
+                current,
+                original,
+                &document(self, &endpoint, limits.max_document_bytes, cancel, true)?,
+            )?,
+        };
         if !same_parent(&observed.parent, &closing) {
             return Err(safe(GithubErrorKind::StaleHead));
         }

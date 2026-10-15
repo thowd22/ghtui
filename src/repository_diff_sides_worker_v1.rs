@@ -12,6 +12,9 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub enum OriginalDiffWorkV1 {
     Native(Arc<crate::repository_native_diff_v1::NativeDiffRequestV1>),
+    MutableNative(
+        Arc<crate::repository_native_diff_v1::NativeDiffRequestV1<crate::git::MutableDiffSourceV2>>,
+    ),
     Query(Arc<OriginalDiffQueryV1>),
     Side(OriginalDiffSideTicketV1),
     Back(Arc<PreparedOriginalDiffSideV1>),
@@ -25,6 +28,7 @@ impl OriginalDiffWorkV1 {
     pub fn owns(&self, workspace: &Workspace, picker: Option<&OriginalDiffPickerV1>) -> bool {
         match self {
             Self::Native(request) => request.owns(workspace),
+            Self::MutableNative(request) => request.owns(workspace),
             Self::Query(request) => {
                 request.intent().owns(workspace)
                     && picker
@@ -102,6 +106,9 @@ impl OriginalDiffWorkerOwnerV1 {
             OriginalDiffWorkV1::Native(request) => {
                 request.prepare(operation).map(DiffResultV1::Native)
             }
+            OriginalDiffWorkV1::MutableNative(request) => {
+                request.prepare(operation).map(DiffResultV1::MutableNative)
+            }
             OriginalDiffWorkV1::Query(request) => {
                 OriginalDiffFrameV1::prepare(request.clone(), operation).map(DiffResultV1::Query)
             }
@@ -114,7 +121,13 @@ impl OriginalDiffWorkerOwnerV1 {
         };
         let result=result.and_then(|result| {
             operation.check()?;
+            if let DiffResultV1::MutableNative(prepared)=&result{
+                let identity=crate::repository_source_identity::PreparedRepositorySourceIdentity::prepare_native_mutable_v2(&self.checkout_labels,prepared.source())?;
+                operation.check()?;
+                return Ok((result,Arc::new(identity)));
+            }
             let (source,side)=match &result {
+                DiffResultV1::MutableNative(_)=>return Err("Mutable content cannot use saved identity preparation".into()),
                 DiffResultV1::Native(prepared)=>(prepared.source().as_ref(),None),
                 DiffResultV1::Query(frame)=>(frame.source().as_ref(),None),
                 DiffResultV1::Side {side,..}=>(side.source().as_ref(),Some(side.as_ref())),
@@ -144,6 +157,9 @@ impl OriginalDiffWorkerOwnerV1 {
 }
 enum DiffResultV1 {
     Native(crate::repository_native_diff_v1::PreparedNativeDiffV1),
+    MutableNative(
+        crate::repository_native_diff_v1::PreparedNativeDiffV1<crate::git::MutableDiffSourceV2>,
+    ),
     Query(Arc<OriginalDiffFrameV1>),
     Side {
         side: Arc<PreparedOriginalDiffSideV1>,
@@ -168,7 +184,14 @@ impl PreparedOriginalDiffWorkV1 {
                 (DiffResultV1::Native(prepared), OriginalDiffWorkV1::Native(request)) => {
                     Arc::ptr_eq(prepared.request(), request)
                 }
-                (DiffResultV1::Native(_), _) | (_, OriginalDiffWorkV1::Native(_)) => false,
+                (
+                    DiffResultV1::MutableNative(prepared),
+                    OriginalDiffWorkV1::MutableNative(request),
+                ) => Arc::ptr_eq(prepared.request(), request),
+                (DiffResultV1::Native(_) | DiffResultV1::MutableNative(_), _)
+                | (_, OriginalDiffWorkV1::Native(_) | OriginalDiffWorkV1::MutableNative(_)) => {
+                    false
+                }
                 _ => true,
             }
             && owner
@@ -186,7 +209,7 @@ impl PreparedOriginalDiffWorkV1 {
             return Err("Original comparison request retired; no prepared result admitted".into());
         }
         match self.result {
-            DiffResultV1::Native(_) => {
+            DiffResultV1::Native(_) | DiffResultV1::MutableNative(_) => {
                 Err("Native projection needs its exact capturing controller".into())
             }
             DiffResultV1::Query(frame) => {
@@ -228,6 +251,31 @@ impl PreparedOriginalDiffWorkV1 {
         };
         if !state.accept(prepared) {
             return Err("Original native controller changed before publication".into());
+        }
+        Ok(())
+    }
+    pub fn publish_native_mutable_v2(
+        self,
+        workspace: &Workspace,
+        state: &mut crate::repository_native_diff_v1::NativeDiffStateV1<
+            crate::git::MutableDiffSourceV2,
+        >,
+    ) -> Result<(), String> {
+        let OriginalDiffWorkV1::MutableNative(request) = self.owner.work().as_ref() else {
+            return Err("This is not an original mutable projection request".into());
+        };
+        if !self.owner.can_admit(workspace, None, true)
+            || !self.matches(&self.owner)
+            || !state.owns(workspace)
+            || !state.accepts(request)
+        {
+            return Err("Original mutable source/query/options/width request retired".into());
+        }
+        let DiffResultV1::MutableNative(prepared) = self.result else {
+            return Err("Mutable request returned another prepared kind".into());
+        };
+        if !state.accept(prepared) {
+            return Err("Original mutable controller changed before publication".into());
         }
         Ok(())
     }
