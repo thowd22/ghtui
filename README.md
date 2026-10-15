@@ -4,7 +4,7 @@ A fast Git and GitHub TUI being built in Rust and Ratatui for macOS and Linux. R
 
 The executable and real-terminal test framework now run locally. Local repository discovery, history, revision trees, working/staged/branch diffs, arbitrary saved-version comparisons, native Git operation forms and typed inventory pickers, navigation, persistent settings, cancellable workers, personal PR queues, native PR detail/metadata tabs, and persistent comment/review composers are integrated. Native PR comment creation/editing/deletion, reactions, requested subscription changes and explicit uncertain-write inspection/acknowledgement use durable publication guards. Local Exact/Regex/Ranked search has selected-corpus controls, highlighted previews, immutable saved-file destinations and saved queries across restart. Search's `[M Repositories]` manages explicit mapping/cloning/fetching and recoverable removal without automatic startup cloning. Scoped GitHub discovery opens verified immutable remote file contents or native PR conversations without inventing file coordinates or personal queue memberships. Native Actions catalogues, exact run/job/log viewers, artifact previews/exports, approvals/recovery, and guarded workflow/run/cache/secret/variable controls are integrated. Real avatars or honest fallbacks and semantic colors are supported. Remaining PR/search/management/Actions workflows and release verification are under active development; this is not yet a finished release.
 
-The latest recorded Linux full-suite checkpoint passed all 1,878 code/provider contracts, including 306 strict GitHub provider contracts, and 622 real-binary PTY journeys, with zero failed or ignored tests. Whole formatting and strict all-target Clippy checks also passed. Tests send actual keys and mouse reports, assert screen state and independent command/Git/storage effects, resize the terminal, and check terminal restoration. Task notes record actual commands and newer focused results as implementation continues; this green checkpoint is not a claim of complete product coverage or native macOS verification.
+The latest recorded Linux full-suite checkpoint passed all 1,884 code/provider contracts, including 306 strict GitHub provider contracts, and 624 real-binary PTY journeys, with zero failed or ignored tests. Whole formatting and strict all-target Clippy checks also passed. Tests send actual keys and mouse reports, assert screen state and independent command/Git/storage effects, resize the terminal, and check terminal restoration. Task notes record actual commands and newer focused results as implementation continues; this green checkpoint is not a claim of complete product coverage or native macOS verification.
 
 Saved comparisons now expose `[f Changed files]`, `[O Open old]`, `[N Open new]` and `[u Back to comparison]` through matching keys and clicks. Old/new files retain their exact original commit, raw path, mode and blob; a proposed comparison distinguishes the requested base from its actual merge-base contents. Filtering, paging, source details, historical file navigation and Back preserve the checkout. The checked gate passed 46 code contracts and 12 real-terminal journeys, including distinct non-UTF-8 paths, missing sides, live child cancellation and queued cancellation. Richer native split/unified controls and mutable-side workflows remain under implementation.
 
@@ -106,7 +106,7 @@ The script and release artifacts are not published yet; the actual installation 
 
 ## Implementation backlog
 
-73 tasks have priorities, dependencies, acceptance criteria, testing steps, and testing Definition of Done. Every task requires code/provider verification and a real-binary PTY journey through mouse and keyboard paths. Status and verification evidence live in Backlog.md; prepared backend code alone does not make a task Done.
+74 tasks have priorities, dependencies, acceptance criteria, testing steps, and testing Definition of Done. Every task requires code/provider verification and a real-binary PTY journey through mouse and keyboard paths. Status and verification evidence live in Backlog.md; prepared backend code alone does not make a task Done.
 
 | Milestone | Scope | Tasks |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ The script and release artifacts are not published yet; the actual installation 
 | M6 | Full Actions workflows and supported settings | 52–60 |
 | M7 | Dashboards, coverage, performance, usability, script installation, and CI/CD | 61–69 |
 | Environment | Allowed dependency sources and standard local Git initialization | 70–71 |
-| Correctness | Original Git object visibility when replacements/grafts are present | 72 |
+| Correctness | Original Git object visibility and readable long Git targets | 72, 74 |
 | Release integrity | Bundled SQLite upstream WAL-reset fix and cache compatibility | 73 |
 
 Start with TASK-1, then TASK-2 to establish the shared test framework. Dependencies, rather than numeric IDs alone, determine what is ready. TASK-69 adds this project's GitHub CI/CD near the end; local tests run throughout development.
@@ -138,7 +138,7 @@ Run inside a Git checkout to open the local workspace automatically. Configurati
 
 The shared PTY framework now cleans exact owned session descendants after failure, including providers in separate process groups. Deliberate app-only termination still leaves them alive until recovery assertions finish and the session is dropped. Its checked gate passed 15 code tests and 7 terminal journeys; failed cleanup cannot count as positive coverage, and deliberate panic records remain excluded.
 
-Relative, pinned official sources and checksum-verified registry packages are vendored inside the project, so offline resolution does not depend on `/tmp` checkouts or an existing Cargo cache. [Source provenance and integrity](vendor/README.md) documents the pins, retained licenses, and manifest-only platform adaptations. Run `node scripts/audit-dependencies.mjs` to verify them. A clean copied-source offline/locked all-target compilation and its real-terminal dependency gate passed with an empty Cargo home; release packaging and native macOS verification remain delivery gates.
+Relative, pinned official sources and checksum-verified registry packages are vendored inside the project, so offline resolution does not depend on `/tmp` checkouts or an existing Cargo cache. [Source provenance and integrity](vendor/README.md) documents the pins, retained licenses, and manifest-only platform adaptations. Run `node scripts/audit-dependencies.mjs` to verify them. The bundled SQLite update passed 4 runtime contracts and 2 keyboard/mouse terminal journeys across six actual cache/composer/restart sessions, plus the existing cache, composer and selected-corpus gates. A fresh Git-index source snapshot passed the full dependency audit, offline/locked all-target compilation with an empty Cargo home and build directory, and independent 4-code/2-terminal SQLite and 26-code/15-terminal framework gates. Deliberate panic records are not positive completion evidence. Release packaging and native macOS verification remain delivery gates.
 
 Use the installed Backlog.md CLI:
 
@@ -149,4 +149,4 @@ backlog task view TASK-1 --plain
 backlog task view TASK-69 --plain
 ```
 
-The project now has standard local `.git` metadata on the `main` branch. Backlog Git integration is enabled; remote operations and automatic commits remain disabled. No remote has been created. Initialization and read-only project/subdirectory discovery are tracked in TASK-71.
+The project now has standard local `.git` metadata on the `main` branch. Backlog Git integration is enabled; its remote operations and automatic commits remain disabled. The user supplied `git@github.com:thowd22/ghtui.git` for the verified publishing checkpoint. It is reachable, but no local remote is configured and no work has been pushed yet. Initialization and read-only project/subdirectory discovery are tracked in TASK-71.

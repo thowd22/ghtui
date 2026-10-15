@@ -4,7 +4,7 @@ title: Provide one curl-to-Bash installer and macOS/Linux release binaries
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 21:04'
+updated_date: '2026-10-14 23:51'
 labels:
   - delivery
   - e2e
@@ -70,4 +70,6 @@ The researched contract is doc-12. Do not invent a release URL or create a remot
 Research/backlog verification 2026-10-14: node scripts/audit-backlog.mjs exit0,72tasks,validtrue,0errors; backlog doctor exit0,no duplicate/self/cyclic IDs; exact CLI JSON readback verified TASK-68/69 descriptions/criteria/doc12 links with unchanged dependencies/status/DoD and all AC unchecked; CLI readback verified full doc12/doc2 content. README planned installation has no invented URL; git remote -v empty. git diff --check exit0 only checks tracked changes (this worktree is predominantly untracked), not a full-file release check. No installer/code/PTY/native release tests run for these documentation-only changes; four previously registered scoped_check_pending_ lib contracts remain recorded red in TASK-14 and are unrelated to installer acceptance. No release/build/publication or project completion claim.
 
 2026-10-14: Added TASK-73 as a direct release-artifact integrity prerequisite after verifying bundled SQLite3.50.2 and the official WAL-reset fix/backport advisory. Existing novice prerequisite TASK-67 retained; TASK-69 remains near-end and inherits TASK-73 through TASK-68. No installer/script/remote or advisory fix is implied implemented by this dependency change.
+
+User supplied the explicit project remote on2026-10-14: git@github.com:thowd22/ghtui.git, for use when delivery checkpoint is ready. This replaces the missing-target planning context but does not imply a hosted pipeline/release exists or permission to push unfinished work now. Keep TASK69 near-end and gated by65/68; no workflow or release acceptance from this note. Root will configure/publish to this exact remote at the verified checkpoint, retain gh auth/installed git semantics, and record actual hosted/native-macOS/installed-archive evidence before completion. Primary installation/release URL remains unclaimed until artifacts really exist.
 <!-- SECTION:NOTES:END -->

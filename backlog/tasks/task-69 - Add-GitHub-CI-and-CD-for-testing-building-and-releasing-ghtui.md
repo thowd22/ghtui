@@ -4,7 +4,7 @@ title: Add GitHub CI and CD for testing building and releasing ghtui
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 16:39'
+updated_date: '2026-10-14 23:54'
 labels:
   - delivery
   - e2e
@@ -61,4 +61,8 @@ This project needs its own GitHub CI/CD near the end of delivery. Automate the e
 2026-10-14 aligns near-end CI/CD with user-selected curl-to-Bash distribution: one script plus exact tested four-target binaries/metadata/checksums; install via the script and exercise installed executables before stable publication, preserve protected permissions/fork isolation and distinguish actual hosted/native evidence. TASK-68/TASK-65 dependencies, To Do and unchecked completion retained. Research/backlog changes only; no workflow implementation, remote, hosted run, signing credentials or publication claimed. See doc-12.
 
 Research/backlog verification 2026-10-14: node scripts/audit-backlog.mjs exit0,72tasks,validtrue,0errors; backlog doctor exit0,no duplicate/self/cyclic IDs; exact CLI JSON readback verified TASK-68/69 descriptions/criteria/doc12 links with unchanged dependencies/status/DoD and all AC unchecked; CLI readback verified full doc12/doc2 content. README planned installation has no invented URL; git remote -v empty. git diff --check exit0 only checks tracked changes (this worktree is predominantly untracked), not a full-file release check. No installer/code/PTY/native release tests run for these documentation-only changes; four previously registered scoped_check_pending_ lib contracts remain recorded red in TASK-14 and are unrelated to installer acceptance. No release/build/publication or project completion claim.
+
+User supplied the explicit project remote on2026-10-14: git@github.com:thowd22/ghtui.git, for use when delivery checkpoint is ready. This replaces the missing-target planning context but does not imply a hosted pipeline/release exists or permission to push unfinished work now. Keep TASK69 near-end and gated by65/68; no workflow or release acceptance from this note. Root will configure/publish to this exact remote at the verified checkpoint, retain gh auth/installed git semantics, and record actual hosted/native-macOS/installed-archive evidence before completion. Primary installation/release URL remains unclaimed until artifacts really exist.
+
+Explicit user project remote read-only SSH probe completed2026-10-14: GIT_TERMINAL_PROMPT=0 and ssh BatchMode/ConnectTimeout/StrictHostKeyChecking=yes git ls-remote --heads git@github.com:thowd22/ghtui.git exited0 and advertised no heads. This is observed access at that time, not proof of all refs/permissions or a hosted pipeline. Main git remote -v remainsempty; no origin configured, push, release or external mutation occurred. User target reserved for verified delivery checkpoint; TASK69 remainsnear-end ToDo.
 <!-- SECTION:NOTES:END -->

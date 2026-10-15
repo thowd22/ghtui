@@ -526,8 +526,10 @@
     {
       "directory": "vendor/upstream/rusqlite",
       "repository": "https://github.com/rusqlite/rusqlite.git",
-      "revision": "44e0ef965580b94d59c5dfe8874b57ab5993a8f7",
-      "modified_files": [],
+      "revision": "2a1790a69107cd03dae85d501dcbdb11c5b32ef3",
+      "modified_files": [
+        "Cargo.toml"
+      ],
       "excluded_paths": [
         ".git"
       ]

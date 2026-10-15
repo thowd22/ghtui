@@ -25,6 +25,9 @@ const LAST: &str = "example/repo1000";
 #[path = "repository_catalogue_read_limits_v1.rs"]
 mod read_limits_v1;
 
+#[path = "repository_catalogue_close_frame_v1.rs"]
+mod close_frame_v1;
+
 #[path = "repository_catalogue_source_transition_v1.rs"]
 mod source_transition_v1;
 
@@ -668,11 +671,13 @@ fn happy(mouse: bool) {
 }
 
 #[test]
-fn repo_catalog_native_keyboard_partial_rate_failure_unknown_fields_explicit_retry() {
+fn repo_catalog_native_keyboard_partial_rate_failure_unknown_fields_explicit_retry_test_framework_catalogue_close_frame_v1(
+) {
     partial(false);
 }
 #[test]
-fn repo_catalog_native_mouse_partial_rate_failure_unknown_fields_explicit_retry() {
+fn repo_catalog_native_mouse_partial_rate_failure_unknown_fields_explicit_retry_test_framework_catalogue_close_frame_v1(
+) {
     partial(true);
 }
 fn partial(mouse: bool) {
@@ -772,8 +777,27 @@ fn partial(mouse: bool) {
     }
     ready(&mut session, &[TITLE, LAST, "Repository ID: 11000"]);
     assert_commands(&session, &fixture, 21);
+    let before_close = session.completed_cursorless_end();
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("Repository • focused view");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if close_frame_v1::restored_main(
+            session.completed_cursorless_screen(),
+            session.completed_cursorless_end(),
+            before_close,
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Catalogue close did not complete the actual current main toolbar"
+        );
+    }
+    let completed_quit =
+        crate::support::locate_screen(session.completed_cursorless_screen().unwrap(), "[q Quit]")
+            .expect("Current completed main Quit control, not an old catalogue hit");
+    assert_eq!(session.locate("[q Quit]"), Some(completed_quit));
     finish(&mut session, &fixture, mouse, 21, &before, &config);
 }
 

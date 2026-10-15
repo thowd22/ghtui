@@ -6,6 +6,8 @@ use ghtui::{
     storage::{Cache, Scope},
 };
 use serde_json::{json, Value};
+#[path = "sqlite_dependency.rs"]
+mod sqlite_dependency;
 
 fn configured() -> Fixture {
     let fixture = Fixture::new();

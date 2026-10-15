@@ -52,3 +52,29 @@ its new exact pin and any manifest-only adaptation, and rerun `cargo vendor
 the upstream checksum inventory with `node scripts/audit-dependencies.mjs
 --refresh-upstream-checksums`. Ordinary builds/tests never refresh integrity
 metadata or accept changed source checksums automatically.
+
+## SQLite integrity update
+
+The bundled runtime is SQLite 3.51.3 from official rusqlite v0.39.0,
+commit `2a1790a69107cd03dae85d501dcbdb11c5b32ef3`, with libsqlite3-sys 0.37.0.
+Its original amalgamation SHA3-256 is
+`32d5424f97e0a7fc5ed2f6335afbb58be4e0298bd7117a34e39d345ff13d859e`,
+matching the [official release](https://www.sqlite.org/releaselog/3_51_3.html).
+The original C/Rust runtime and MIT/public-domain notices are unmodified.
+Only unsupported wasm-unknown manifest dependencies and their bindgen feature
+edge were removed for this macOS/Linux selected graph; the exact diff is
+`sqlite-manifest-adaptations.patch`. Existing default statement caching remains
+enabled, and `fallible_uint` explicitly preserves checked unsigned SQL values.
+
+SQLite documents the [WAL-reset race](https://www.sqlite.org/wal.html#walreset)
+as fixed in 3.51.3 and later. This upstream update is separate from the private
+cache's lock-neutral/sidecar lifecycle safeguards. Linked-version/source and
+real concurrent checkpoint/write/reopen tests verify the application runtime;
+stress testing is not a claim to reproduce the rare upstream corruption race.
+Native macOS and release verification remain separately required.
+
+For this update an independent offline `cargo vendor --versioned-dirs` output
+was compared with, but did not replace, the existing registry sources. All 117
+package checksums and common file hashes match. Cargo's generated inventory
+omits 218 retained upstream metadata/configuration files; the original registry
+files and checksum inventories remain byte-for-byte unchanged.
