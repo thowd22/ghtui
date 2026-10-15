@@ -3,6 +3,8 @@ use super::*;
 use crate::forms::{Form, FormAction, FormPurpose};
 use crossterm::event::{KeyCode, KeyModifiers};
 use images::inline_v1::ui_v1 as ui;
+#[path = "form_preview_visible_producer_v1_tests.rs"]
+mod form_preview_visible_v1;
 
 pub(super) fn form(s: &mut Setup) -> Form {
     let result = read(s, &Default::default(), &Default::default()).unwrap();

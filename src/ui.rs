@@ -6,30 +6,35 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
-use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
     let mut output = vec![];
-    for line in text.lines() {
-        let mut current = String::new();
-        let mut cells = 0;
-        for grapheme in line.graphemes(true) {
-            let count = crate::editor::grapheme_width(grapheme);
-            if !current.is_empty() && cells + count > usize::from(width.max(1)) {
-                output.push(Line::from(std::mem::take(&mut current)));
-                cells = 0;
-            }
-            current.push_str(grapheme);
-            cells += count;
-        }
-        output.push(Line::from(current));
-    }
+    crate::prepared_form_text_v1::visit_wrapped_ranges_v1(
+        text,
+        width,
+        None,
+        || Ok(()),
+        |range, _| {
+            output.push(Line::from(text[range].to_owned()));
+            Ok(())
+        },
+    )
+    .expect("legacy uncapped wrapping is infallible");
     output
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui::retire_invalid_form(app);
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::retire_invalid(app);
     crate::repository_native_diff_native_v1::synchronize_pr_source_v1(app);
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::retire_invalid(app);
+    if app.overlay == Some(Overlay::PrThreadHistoryV1) {
+        let area = frame.area();
+        crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::draw(
+            frame, app, area,
+        );
+        return;
+    }
     if app.overlay == Some(Overlay::PrThreadsV1) {
         let area = frame.area();
         crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::draw(frame, app, area);
@@ -289,6 +294,20 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         ),
         (format!("[{} Quit]", app.shortcut("quit")), Action::Quit),
     ];
+    if app.overlay.is_none()
+        && app.view == View::Inbox
+        && app.github.as_ref().is_some_and(|github| {
+            github
+                .pr
+                .as_ref()
+                .is_some_and(|page| page.tab == crate::github_workspace::PrTab::Files)
+                && github.scoped_pr_resource.as_ref().is_some_and(|view| {
+                    view.observed().kind() == crate::providers::gh::PrResourceKindV1::Files
+                })
+        })
+    {
+        buttons.insert(0, ("[F10 Reviews]".into(), Action::OpenScopedReviewsV2));
+    }
     if compact_footer {
         // Preserve discoverable Help/Commands/Quit and active cancellation;
         // Refresh/Settings remain clickable through the same command palette.
@@ -330,6 +349,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             return;
         }
         app.hits.clear();
+        if overlay == Overlay::ScopedReviewsV2 {
+            crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::draw(frame,app,area);
+            return;
+        }
         if overlay == Overlay::GraphRereadV3 {
             crate::repository_graph_reread_native_v3::draw(frame, app, area);
             return;
@@ -412,8 +435,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         frame.render_widget(Clear, rect);
         let title = match overlay {
-            Overlay::PrThreadsV1 => unreachable!("Owned threads drawn above"),
+            Overlay::PrThreadsV1 | Overlay::PrThreadHistoryV1 => {
+                unreachable!("Owned threads drawn above")
+            }
             Overlay::PrFileImages => unreachable!("Immutable images drawn above"),
+            Overlay::ScopedReviewsV2 => unreachable!("Original reviews drawn above"),
             Overlay::PrCheckChoices => unreachable!("Owned check choices drawn above"),
             Overlay::PrCheckContinuationV2 => unreachable!("Owned check continuation drawn above"),
             Overlay::GraphRereadV3 => unreachable!("Original Graph reread drawn above"),
@@ -444,8 +470,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
         match overlay {
-            Overlay::PrThreadsV1 => unreachable!("Owned threads drawn above"),
+            Overlay::PrThreadsV1 | Overlay::PrThreadHistoryV1 => {
+                unreachable!("Owned threads drawn above")
+            }
             Overlay::PrFileImages => unreachable!("Immutable images drawn above"),
+            Overlay::ScopedReviewsV2 => unreachable!("Original reviews drawn above"),
             Overlay::PrCheckChoices => unreachable!("Owned check choices drawn above"),
             Overlay::PrCheckContinuationV2 => unreachable!("Owned check continuation drawn above"),
             Overlay::GraphRereadV3 => unreachable!("Original Graph reread drawn above"),

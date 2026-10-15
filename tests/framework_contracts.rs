@@ -1,6 +1,166 @@
 mod support;
 
 #[test]
+fn test_framework_control_block_resize_requires_complete_ordered_bottom_controls_and_current_geometry(
+) {
+    use support::{
+        owned_control_block_ready_v3 as ready, owned_resize_controls_ready_v1, ResizeToolbarV1,
+    };
+    const TITLE: &str = "Owned wrapped controls";
+    const ACTIONS: [&str; 3] = ["[A First action]", "[B Second action]", "[C Last action]"];
+    fn painted(rows: u16, cols: u16) -> vt100::Parser {
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        parser.process(format!("\x1b[1;1H┌ {TITLE}\x1b[1;{cols}H┐").as_bytes());
+        let first = if cols == 40 { rows - 2 } else { rows - 1 };
+        for row in first..rows {
+            parser.process(format!("\x1b[{row};1H│\x1b[{row};{cols}H│").as_bytes());
+        }
+        // Independent literal layout for these known three controls, not the
+        // helper's footprint calculation or a snapshot accepted by default.
+        parser.process(format!("\x1b[{first};2H[A First action] [B Second action]").as_bytes());
+        if cols == 40 {
+            parser.process(format!("\x1b[{};2H[C Last action]", rows - 1).as_bytes());
+        } else {
+            parser.process(b" [C Last action]");
+        }
+        parser.process(format!("\x1b[{rows};1H└\x1b[{rows};{cols}H┘").as_bytes());
+        parser
+    }
+    for (rows, cols) in [(18, 40), (24, 80), (40, 120)] {
+        let parser = painted(rows, cols);
+        assert!(ready(parser.screen(), TITLE, &ACTIONS));
+        assert!(owned_resize_controls_ready_v1(
+            parser.screen(),
+            TITLE,
+            &ACTIONS,
+            ResizeToolbarV1::ControlBlock
+        ));
+        if cols == 40 {
+            assert!(
+                !owned_resize_controls_ready_v1(
+                    parser.screen(),
+                    TITLE,
+                    &ACTIONS,
+                    ResizeToolbarV1::Bottom
+                ),
+                "old single-row semantics are not relaxed"
+            );
+        }
+        assert!(!ready(parser.screen(), "Unrelated owner", &ACTIONS));
+        assert!(!ready(
+            parser.screen(),
+            TITLE,
+            &[ACTIONS[1], ACTIONS[0], ACTIONS[2]]
+        ));
+        assert!(!ready(parser.screen(), TITLE, &[ACTIONS[0], ACTIONS[0]]));
+        assert!(!ready(
+            parser.screen(),
+            TITLE,
+            &["[A First", ACTIONS[1], ACTIONS[2]]
+        ));
+        assert!(!ready(parser.screen(), TITLE, &[ACTIONS[2]]));
+        let mut old_geometry = painted(rows, cols);
+        old_geometry.set_size(rows + 1, cols);
+        assert!(!ready(old_geometry.screen(), TITLE, &ACTIONS));
+        let mut body_impostor = painted(rows, cols);
+        body_impostor
+            .process(format!("\x1b[{};1H\x1b[2K\x1b[4;2H[C Last action]", rows - 1).as_bytes());
+        assert!(
+            !ready(body_impostor.screen(), TITLE, &ACTIONS),
+            "matching body text is not the owned bottom control"
+        );
+        let mut missing_header = painted(rows, cols);
+        missing_header.process(format!("\x1b[1;1H\x1b[2K\x1b[3;2H{TITLE}").as_bytes());
+        assert!(
+            !ready(missing_header.screen(), TITLE, &ACTIONS),
+            "owner title must be on actual first border row"
+        );
+        let mut missing_corner = painted(rows, cols);
+        missing_corner.process(format!("\x1b[{rows};{cols}H ").as_bytes());
+        assert!(!ready(missing_corner.screen(), TITLE, &ACTIONS));
+        let mut unrelated_body = painted(rows, cols);
+        unrelated_body.process(format!("\x1b[4;2H{}", ACTIONS.join(" ")).as_bytes());
+        assert!(
+            ready(unrelated_body.screen(), TITLE, &ACTIONS),
+            "unrelated body copies cannot replace or invalidate exact owned controls"
+        );
+    }
+}
+
+#[test]
+fn test_framework_single_action_owned_resize_requires_whole_control_title_location_and_new_geometry(
+) {
+    use support::{
+        complete_single_owned_control_v2 as complete, owned_resize_controls_ready_v1 as ready,
+        ResizeToolbarV1,
+    };
+    let title = "Original review • resize required";
+    let action = "[Esc Close]";
+    assert!(complete(action));
+    for invalid in ["", "[]", "[Esc", "Close]", "[Esc] [Close]", "[Esc\nClose]"] {
+        assert!(
+            !complete(invalid),
+            "not one complete painted action: {invalid:?}"
+        );
+    }
+    for (rows, cols) in [(12, 40), (24, 80)] {
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        parser.process(format!("\x1b[1;1H┌ {title}\x1b[{};2H{action}", rows - 1).as_bytes());
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &[action],
+            ResizeToolbarV1::Bottom
+        ));
+        parser.process(format!("\x1b[{rows};1H└").as_bytes());
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &[action],
+            ResizeToolbarV1::Bottom
+        ));
+        parser.process(format!("\x1b[{rows};{cols}H┘").as_bytes());
+        assert!(ready(
+            parser.screen(),
+            title,
+            &[action],
+            ResizeToolbarV1::Bottom
+        ));
+        assert!(!ready(
+            parser.screen(),
+            "Unrelated modal",
+            &[action],
+            ResizeToolbarV1::Bottom
+        ));
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &["[Esc Back]"],
+            ResizeToolbarV1::Bottom
+        ));
+        parser.process(format!("\x1b[{};1H\x1b[2K\x1b[4;2H{action}", rows - 1).as_bytes());
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &[action],
+            ResizeToolbarV1::Bottom
+        ));
+        parser.process(format!("\x1b[{};2H{action}", rows - 1).as_bytes());
+        assert!(ready(
+            parser.screen(),
+            title,
+            &[action],
+            ResizeToolbarV1::Bottom
+        ));
+        parser.set_size(rows + 1, cols);
+        assert!(
+            !ready(parser.screen(), title, &[action], ResizeToolbarV1::Bottom),
+            "old-size border/control cannot acknowledge the new geometry"
+        );
+    }
+}
+
+#[test]
 fn test_framework_owned_resize_toolbar_requires_declared_location_title_and_new_bottom_border() {
     use support::{owned_resize_controls_ready_v1 as ready, ResizeToolbarV1};
     for (rows, cols) in [(24, 80), (40, 120)] {

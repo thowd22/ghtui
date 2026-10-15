@@ -1,5 +1,7 @@
 //! Real-binary local mutations; effects are independently read from Git objects/index/worktree.
 use crate::support::{Fixture, Session};
+#[path = "form_preview_visible_local_v1.rs"]
+mod form_preview_visible_v1;
 
 #[test]
 fn local_workspace_keyboard_explicit_github_repo_keeps_local_dirty_and_unborn_checkouts_accessible()
@@ -49,6 +51,15 @@ fn explicit_github_local_workspace(mouse: bool) {
     session.wait_for_screen("Branch: main");
     session.assert_focused_view("Repository");
     session.wait_for_screen("Local saved version");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            text.contains("Local saved version") && text.contains("Branch: main")
+        },
+        "completed original local history screenshot frame",
+        std::time::Duration::from_secs(8),
+    );
+    session.capture_completed_terminal_v1("git-history");
     if mouse {
         session.click_visible_action("[w Working]");
     } else {

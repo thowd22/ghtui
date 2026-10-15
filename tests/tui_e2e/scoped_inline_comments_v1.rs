@@ -1,9 +1,11 @@
 //! Actual initial top-level inline publication through the original scoped
 //! range and shared composer. No live service, synthetic source or handler calls.
 use super::*;
+#[path = "form_preview_visible_inline_v1.rs"]
+mod form_preview_visible_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};
-const BODY: &str = "Native exact inline body 界\nsecond line";
-fn source_phase(h: &history::GitImagesV1, two_parents: bool) -> Vec<GhStep> {
+pub(super) const BODY: &str = "Native exact inline body 界\nsecond line";
+pub(super) fn source_phase(h: &history::GitImagesV1, two_parents: bool) -> Vec<GhStep> {
     let mut parent = parent_resource();
     h.bind_parent(&mut parent);
     let mut steps = principal(42);
@@ -19,7 +21,7 @@ fn source_phase(h: &history::GitImagesV1, two_parents: bool) -> Vec<GhStep> {
 fn receipt(h: &history::GitImagesV1, side: &str) -> Value {
     json!({"id":901,"node_id":"PRRC_native_901","pull_request_url":format!("https://{HOST}/repos/{FIRST}/pulls/7"),"user":{"id":42,"login":"octocat","type":"User"},"path":history::PATH,"side":side,"line":2,"start_line":1,"start_side":side,"commit_id":h.h,"body":BODY})
 }
-fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep> {
+pub(super) fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep> {
     let mut parent = parent_resource();
     h.bind_parent(&mut parent);
     let mut steps = principal(42);
@@ -60,12 +62,12 @@ fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep> {
     assert_eq!(steps.len(), 22);
     steps
 }
-fn stable_drafts(fixture: &Fixture) -> Vec<String> {
+pub(super) fn stable_drafts(fixture: &Fixture) -> Vec<String> {
     let db = raw(fixture);
     let rows=db.prepare("SELECT json_array(host,login,resource,body) FROM drafts WHERE resource NOT LIKE 'inline/%' ORDER BY host,login,resource").unwrap().query_map([],|row|row.get(0)).unwrap().map(Result::unwrap).collect();
     rows
 }
-fn exact_commands(session: &Session, fixture: &Fixture, steps: &[GhStep], posts: usize) {
+pub(super) fn exact_commands(session: &Session, fixture: &Fixture, steps: &[GhStep], posts: usize) {
     let rows = commands(session, fixture);
     assert_eq!(rows.len(), steps.len());
     for (ordinal, (actual, step)) in rows.iter().zip(steps).enumerate() {
@@ -95,7 +97,7 @@ fn exact_commands(session: &Session, fixture: &Fixture, steps: &[GhStep], posts:
         .iter()
         .any(|arg| matches!(arg.as_str(), Some("PUT" | "PATCH" | "DELETE")))));
 }
-fn editing_ready(session: &mut Session, body: &str) {
+pub(super) fn editing_ready(session: &mut Session, body: &str) {
     session.try_wait_for_condition(|screen|{
         let lines=screen.lines().collect::<Vec<_>>();
         lines.iter().position(|line|line.contains("PR INTENT • Preview first")).is_some_and(|phase|{
@@ -566,12 +568,44 @@ fn held_preview_paste(mouse: bool) {
         &mut session,
         &[
             "READ-ONLY PREVIEW • Confirm action",
-            BODY.split('\n').next().unwrap(),
             "[Keep draft / Close]",
             "@octocat",
             "[?]",
         ],
     );
+    let title = format!("Inline comment • {FIRST}#7 • LEFT 1–2");
+    let original_body = BODY.split('\n').next().unwrap();
+    if !session
+        .completed_cursorless_screen()
+        .unwrap()
+        .contents()
+        .contains(original_body)
+    {
+        // At 80x24 the bounded prepared source/anchor explanation fills the
+        // initial viewport. Verify the preserved body through actual input,
+        // not by accepting hidden text or increasing terminal dimensions.
+        let before = session.completed_cursorless_end();
+        if mouse {
+            session.wheel(30, 12, true);
+        } else {
+            session.send_key(b"\x1b[6~");
+        }
+        session.wait_for_new_cursorless_condition(
+            before,
+            |frame| {
+                crate::support::overlay_body(frame, &title).is_some_and(|body| {
+                    body.contains("READ-ONLY PREVIEW • Confirm action")
+                        && body.contains(original_body)
+                        && body.contains("[Keep draft / Close]")
+                        && body.contains("@octocat")
+                        && body.contains("[?]")
+                })
+            },
+            "Actual owned scrolled Preview visibly retains original body after rejected pending paste",
+            Duration::from_secs(8),
+        );
+    }
+    ready(&mut session, &[original_body]);
     assert!(!session
         .screen()
         .contains("PASTE_MUST_NOT_EDIT_AN_INFLIGHT_PREVIEW"));

@@ -1,5 +1,7 @@
 use anyhow::{bail, Result};
 use crossterm::event;
+use ghtui::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3 as review_operation_ui_v3;
+use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui as comment_ui_v2;
 use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use ghtui::{app::App, ui};
 use ghtui::{
@@ -7,6 +9,9 @@ use ghtui::{
     config::{Config, Paths, ThemeName},
     scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::{
         native_v1 as inline_native, ui_v1 as inline_ui,
+    },
+    scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::{
+        native_v2 as reviews_native, ui_v2 as reviews_ui,
     },
 };
 use ghtui::{
@@ -85,6 +90,7 @@ fn run() -> Result<()> {
     let runner = CommandRunner::default();
     let mut draft_writer = ghtui::drafts::DraftWriter::new(paths.database.clone());
     let mut avatar_cache: Option<(String, ghtui::identity::AvatarCache)> = None;
+    let mut review_avatar_lease_v7 = None;
     let mut catalogue_avatar_active = false;
     let mut next_refresh = Instant::now() + Duration::from_secs(config.refresh_seconds);
     let mut next_actions_refresh = Instant::now() + Duration::from_secs(5);
@@ -114,7 +120,11 @@ fn run() -> Result<()> {
             form.view() != ghtui::app::View::Repository
                 && !matches!(
                     form.purpose,
-                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                    ghtui::forms::FormPurpose::PrInline(_)
+                        | ghtui::forms::FormPurpose::PrThread(_)
+                        | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                 )
         }) {
             ghtui::remote_scope_gate_v1::refuse_legacy_request(
@@ -214,6 +224,14 @@ fn run() -> Result<()> {
             background.cancel_scoped_threads_v1(&mut app);
         }
         background.retire_stale_scoped_threads_v1(&mut app);
+        if app.scoped_reviews_cancel_v2 {
+            app.scoped_reviews_cancel_v2 = false;
+            background.cancel_scoped_reviews_v2(&mut app);
+        }
+        background.retire_stale_scoped_reviews_v2(&mut app);
+        reviews_ui::retire_invalid_form(&mut app);
+        review_operation_ui_v3::retire_invalid_form(&mut app);
+        reviews_native::retire_invalid(&mut app);
         if app.scoped_inline_cancel_v1 {
             app.scoped_inline_cancel_v1 = false;
             background.cancel_scoped_inline_v1(&mut app);
@@ -224,17 +242,46 @@ fn run() -> Result<()> {
         }
         background.retire_stale_pr_native_diff_v1(&mut app);
         background.retire_stale_scoped_inline_v1(&mut app);
+        ghtui::scoped_actions_native_v1::synchronize(&mut app);
+        if app.scoped_actions_cancel_v1 {
+            app.scoped_actions_cancel_v1 = false;
+            background.cancel_scoped_actions_v1(&mut app);
+        }
+        background.retire_stale_scoped_actions_v1(&mut app);
         background.poll(&mut app);
         app.observe_navigation();
         inline_ui::retire_invalid_form(&mut app);
         thread_ui::retire_invalid_form(&mut app);
+        comment_ui_v2::retire_invalid_form(&mut app);
+        reviews_ui::retire_invalid_form(&mut app);
+        reviews_native::retire_invalid(&mut app);
         if let Some(form) = &mut app.form {
-            if form.dirty && !form.submitting {
+            if form.dirty
+                && !form.submitting
+                && (!matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrInline(_)
+                        | ghtui::forms::FormPurpose::PrReviewV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                ) || !app.form_dismissed && app.overlay == Some(ghtui::app::Overlay::Form))
+            {
                 form.invalidate_plan();
                 let encoded = if matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)) {
                     inline_ui::encoded_draft(form)
                 } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrThread(_)) {
                     thread_ui::encoded_draft(form)
+                } else if matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                ) {
+                    comment_ui_v2::encoded_draft(form)
+                } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrReviewV2(_)) {
+                    reviews_ui::encoded_draft(form)
+                } else if matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                ) {
+                    review_operation_ui_v3::encoded_draft(form)
                 } else {
                     Ok(form.draft())
                 };
@@ -293,6 +340,23 @@ fn run() -> Result<()> {
                         view.message =
                             "Thread provider unavailable • Back returns to original Files";
                     }
+                }
+            }
+        }
+        reviews_native::capture_form(&mut app);
+        if let Some(work) = app.scoped_reviews_work_v2.take() {
+            match GithubProvider::new(&work.scope().host) {
+                Ok(provider) => {
+                    background.submit_scoped_reviews_v2(
+                        &mut app,
+                        work,
+                        provider.with_runner(runner.clone()),
+                        paths.database.clone(),
+                        draft_writer.client(),
+                    );
+                }
+                Err(_) => {
+                    app.status = "Original review provider unavailable • nothing queued".into()
                 }
             }
         }
@@ -383,7 +447,11 @@ fn run() -> Result<()> {
             form.preview_requested
                 && !matches!(
                     form.purpose,
-                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                    ghtui::forms::FormPurpose::PrInline(_)
+                        | ghtui::forms::FormPurpose::PrThread(_)
+                        | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                 )
         }) {
             // Capture one original clock and accepted autosave cutoff BEFORE
@@ -450,7 +518,10 @@ fn run() -> Result<()> {
                     };
                 match &mut form.purpose {
                     ghtui::forms::FormPurpose::PrThread(_) => return Err("Original thread preview requires its purpose-specific worker; no legacy fallback".into()),
+                    ghtui::forms::FormPurpose::PrThreadCommentV2(_) => return Err("Original selected-comment preview requires its purpose-specific worker • no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrInline(_) => return Err("Original scoped inline previews require their purpose-specific worker; no legacy fallback".into()),
+                    ghtui::forms::FormPurpose::PrReviewV2(_)=>return Err("Original scoped review previews require their purpose-specific worker; no legacy fallback".into()),
+                    ghtui::forms::FormPurpose::PrReviewOperationV3(_)=>return Err("Original pending operation requires its same Review worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrMetadata(_) => unreachable!("metadata worker routed above"),
                     ghtui::forms::FormPurpose::Corpus(intent) => {
                         let fence = corpus_fence.as_ref().ok_or("Original repository preview draft cutoff unavailable")?;
@@ -527,7 +598,12 @@ fn run() -> Result<()> {
                 form.preview = true;
                 form.preview_scroll = 0;
                 form.submitting = false;
-                if let Some(fence) = &corpus_fence { fence.check_current(&cancel)?; }
+                if let Some(fence) = &corpus_fence {
+                    // Original Corpus ACK/source clock, not the independent
+                    // legacy presentation bound in Background::submit.
+                    form.prepare_preview_display_v1(&cancel,fence.deadline()).map_err(|error|error.to_string())?;
+                    fence.check_current(&cancel)?;
+                }
                 Ok(PreparedView {
                     lines: vec![],
                     context: None,
@@ -571,13 +647,21 @@ fn run() -> Result<()> {
             if app.form.as_ref().is_some_and(|form| {
                 matches!(
                     form.purpose,
-                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                    ghtui::forms::FormPurpose::PrInline(_)
+                        | ghtui::forms::FormPurpose::PrThread(_)
+                        | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                 )
             }) {
                 let form = app.form.as_mut().expect("checked inline form");
                 form.editor_requested = false;
                 let is_thread = matches!(form.purpose, ghtui::forms::FormPurpose::PrThread(_));
-                let admitted = if is_thread {
+                let is_comment = matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                );
+                let admitted = if is_comment {
+                    comment_ui_v2::validate_input(form, "")
+                } else if is_thread {
                     thread_ui::validate_input(form, "")
                 } else {
                     inline_ui::validate_input(form, "")
@@ -593,7 +677,9 @@ fn run() -> Result<()> {
                         terminal.resize(terminal.size()?.into())?;
                         match edited {
                             Ok(text) => {
-                                let replaced = if is_thread {
+                                let replaced = if is_comment {
+                                    comment_ui_v2::replace_editor_result(form, &text)
+                                } else if is_thread {
                                     thread_ui::replace_editor_result(form, &text)
                                 } else {
                                     inline_ui::replace_editor_result(form, &text)
@@ -605,6 +691,38 @@ fn run() -> Result<()> {
                             Err(error) => {
                                 form.error = format!("Editor error: {error:#} • draft retained")
                             }
+                        }
+                    }
+                }
+            } else if app.form.as_ref().is_some_and(|form| {
+                matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrReviewV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                )
+            }) {
+                let form = app.form.as_mut().expect("checked original review form");
+                form.editor_requested = false;
+                if let Some(field) = form.fields.get(form.active_field) {
+                    let edited = external_editor_bounded(&mut guard, &field.editor.text, 65_536);
+                    terminal.resize(terminal.size()?.into())?;
+                    match edited {
+                        Ok(text) => {
+                            let replaced = if matches!(
+                                form.purpose,
+                                ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                            ) {
+                                review_operation_ui_v3::replace_editor_result(form, &text)
+                            } else {
+                                reviews_ui::replace_editor_result(form, &text)
+                            };
+                            if let Err(error) = replaced {
+                                form.error = error;
+                            }
+                        }
+                        Err(error) => {
+                            form.error =
+                                format!("Editor error: {error:#} • original review text retained")
                         }
                     }
                 }
@@ -638,7 +756,11 @@ fn run() -> Result<()> {
             form.submit_requested
                 && !matches!(
                     form.purpose,
-                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                    ghtui::forms::FormPurpose::PrInline(_)
+                        | ghtui::forms::FormPurpose::PrThread(_)
+                        | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewV2(_)
+                        | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                 )
         }) {
             let mut form = app.form.as_mut().unwrap().clone();
@@ -880,13 +1002,18 @@ fn run() -> Result<()> {
                 )
             });
         }
-        let related_avatar_owned = ghtui::repository_related_pr_v1::avatars_v1::poll_related(
-            &mut app,
-            &mut avatar_cache,
-            &paths.avatars,
-            config.avatars,
+        let review_avatar_owned = ghtui::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::avatars_v7::poll_review(
+            &mut app,&mut avatar_cache,&paths.avatars,config.avatars,&mut review_avatar_lease_v7,
         );
-        let catalogue_avatar_owned = !related_avatar_owned
+        let related_avatar_owned = !review_avatar_owned
+            && ghtui::repository_related_pr_v1::avatars_v1::poll_related(
+                &mut app,
+                &mut avatar_cache,
+                &paths.avatars,
+                config.avatars,
+            );
+        let catalogue_avatar_owned = !review_avatar_owned
+            && !related_avatar_owned
             && ghtui::repository_catalogue_avatars_v1::poll_catalogue(
                 &mut app,
                 &mut avatar_cache,
@@ -894,7 +1021,8 @@ fn run() -> Result<()> {
                 config.avatars,
                 &mut catalogue_avatar_active,
             );
-        let remote_avatar_owned = !related_avatar_owned
+        let remote_avatar_owned = !review_avatar_owned
+            && !related_avatar_owned
             && !catalogue_avatar_owned
             && ghtui::remote_repository_native_v1::sync_avatars(
                 &mut app,
@@ -911,6 +1039,7 @@ fn run() -> Result<()> {
             && !remote_avatar_owned
             && !catalogue_avatar_owned
             && !related_avatar_owned
+            && !review_avatar_owned
             && !ghtui::repository_commit_actor_avatars_v1::poll_repository(
                 &app.local_commit_actors,
                 app.view == ghtui::app::View::Repository && app.remote_repository.is_none(),
@@ -1748,7 +1877,7 @@ fn run() -> Result<()> {
                             Ok(workspace)
                         }
                         Some(GithubAction::ClearCache) => previous.clear_cache(&database),
-                        Some(GithubAction::Resource(_)) => {
+                        Some(GithubAction::Resource(_)|GithubAction::ThreadHistoryV1|GithubAction::ReviewOperationHistoryV3) => {
                             return Err("Loaded scoped resource controls require the original scoped page; no legacy read sent".into());
                         }
                         Some(GithubAction::Compose(kind)) => {
@@ -1820,6 +1949,24 @@ fn run() -> Result<()> {
             });
         }
         // Scoped finite watch is distinct from legacy workspace.watching.
+        if app.refresh_requested {
+            ghtui::scoped_actions_native_v1::forward_refresh(&mut app);
+        }
+        if let Some(work) = ghtui::scoped_actions_native_v1::take_work(&mut app) {
+            match GithubProvider::new(work.host())
+                .map(|provider| provider.with_runner(runner.clone()))
+            {
+                Ok(provider) => {
+                    background.submit_scoped_actions_v1(
+                        &mut app,
+                        work,
+                        provider,
+                        paths.database.clone(),
+                    );
+                }
+                Err(_) => ghtui::scoped_actions_native_v1::submission_failed(&mut app, &work),
+            }
+        }
         ghtui::pr_checks_native::scoped::choices::continuations_v2::tick(&mut app);
         if app.pr_check_continuation_cancel_v2 {
             app.pr_check_continuation_cancel_v2 = false;

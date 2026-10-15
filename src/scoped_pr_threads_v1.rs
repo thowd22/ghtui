@@ -7,6 +7,10 @@ use crate::{
     providers::gh::{MetricsReviewThreadsSnapshot, MetricsThreadLimits, MetricsThreadSubjectV1},
 };
 use std::time::Instant;
+#[path = "scoped_pr_thread_comments_v2.rs"]
+pub mod comments_v2;
+#[path = "scoped_pr_thread_history_v1.rs"]
+pub mod history_v1;
 #[path = "scoped_pr_threads_native_v1.rs"]
 pub mod native_v1;
 #[path = "scoped_pr_thread_intent_v1.rs"]
@@ -25,6 +29,8 @@ pub struct ThreadBrowseIntentV1 {
     original_view: Arc<ScopedPrResourceViewV1>,
     file_index: usize,
     selected_row: usize,
+    #[cfg(test)]
+    after_preparation_test: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 impl std::fmt::Debug for ThreadBrowseIntentV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -82,6 +88,8 @@ impl ThreadBrowseIntentV1 {
             original_view: view.clone(),
             file_index,
             selected_row: app.selected,
+            #[cfg(test)]
+            after_preparation_test: None,
         });
         if app.overlay.is_some()
             || !result.owns(app)
@@ -127,6 +135,18 @@ impl ThreadBrowseIntentV1 {
     }
 }
 
+/// Instrument one genuine uniquely captured intent. The observer runs only
+/// after actual bounded preparation and cannot supply rows, source or proof.
+#[cfg(test)]
+pub(crate) fn after_preparation_for_test(
+    mut intent: Arc<ThreadBrowseIntentV1>,
+    observer: Arc<dyn Fn() + Send + Sync>,
+) -> Arc<ThreadBrowseIntentV1> {
+    Arc::get_mut(&mut intent)
+        .expect("Genuine thread intent must be uniquely held before work")
+        .after_preparation_test = Some(observer);
+    intent
+}
 pub struct ThreadLineV1 {
     pub text: String,
     pub role: SemanticToken,
@@ -233,6 +253,14 @@ pub fn load(
     let snapshot = bounded
         .metrics_review_threads(&identity, &expected, &limits, cancel)
         .map_err(source_error)?;
+    // Materialize all bounded private rows while the original operation is
+    // still open. Source/SQL/principal closure comes AFTER this work, not
+    // before it. The closing identity is attached below without rebuilding.
+    let mut prepared = prepare(intent.clone(), snapshot, identity, cancel)?;
+    original_check(cancel, deadline).map_err(source_error)?;
+    local
+        .validate(database, &intent.source)
+        .map_err(source_error)?;
     bounded
         .pr_inline_original_parent_v1(
             current,
@@ -258,7 +286,7 @@ pub fn load(
         })
         .map_err(source_error)?;
     original_check(cancel, deadline).map_err(source_error)?;
-    let prepared = prepare(intent, snapshot, closed.identity().clone(), cancel)?;
+    prepared.identity = closed.identity().clone();
     original_check(cancel, deadline).map_err(source_error)?;
     Ok(Arc::new(prepared))
 }
@@ -500,6 +528,10 @@ fn prepare(
     ];
     for reason in &snapshot.state_coverage.reasons {
         header.push(budget.line(reason, SemanticToken::Pending, None)?.text);
+    }
+    #[cfg(test)]
+    if let Some(observer) = &intent.after_preparation_test {
+        observer();
     }
     Ok(PreparedThreadsV1 {
         intent,

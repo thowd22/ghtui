@@ -40,6 +40,7 @@ impl Case {
             workspace,
             sql_before,
             git_before,
+            ..
         } = setup;
         let mut app = App {
             view: View::Inbox,
@@ -718,8 +719,17 @@ fn scoped_pr_native_diff_genuine_options_all_mouse_actions_and_keyboard_focus_40
         let screen = draw_native(&mut case, width, 40);
         assert!(screen.contains("[a Stage disabled]"));
         assert!(screen.contains("[F Full Old]"));
+        assert!(screen.contains("[T Threads]"));
         let layout = &mut case.app.pr_native_diff_layout_v1;
-        assert_eq!(layout.hits().len(), 27);
+        assert_eq!(layout.hits().len(), 30);
+        assert_eq!(
+            layout
+                .hits()
+                .iter()
+                .filter(|hit| hit.action == A::Threads)
+                .count(),
+            1
+        );
         let hits = layout.hits().to_vec();
         for hit in &hits {
             assert!(hit.rect.x >= 1 && hit.rect.right() < width.min(514) && hit.rect.bottom() < 40);
@@ -874,11 +884,108 @@ fn scoped_pr_native_diff_actual_mixed_prepared_facet_cannot_retire_slot_or_publi
     queued(0, true);
 }
 fn queued(outcome: u8, mixed: bool) {
+    queued_kind(outcome, mixed, false);
+}
+#[test]
+fn native_external_diff_scoped_pr_actual_caught_panic_newer_inputs_veto_before_all_effects() {
+    queued_kind(2, false, true);
+}
+#[test]
+fn native_external_diff_scoped_pr_account_or_head_loss_cancels_original_display_before_private_draw(
+) {
+    for account_loss in [true, false] {
+        let mut case = Case::new(true);
+        let mut background = Background::new();
+        case.open(&mut background, true);
+        draw_native(&mut case, 120, 40);
+        case.key('E');
+        case.app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        let display = case
+            .app
+            .pr_native_diff_v1
+            .as_ref()
+            .unwrap()
+            .pending()
+            .unwrap()
+            .external_display_v4()
+            .unwrap()
+            .clone();
+        let admission = case.app.native_external_admission_v4.clone();
+        assert!(
+            !admission.blocked(),
+            "capture is not a live child or provider permission"
+        );
+        if account_loss {
+            case.app.github.as_mut().unwrap().identity.account_id = Some(43);
+        } else {
+            case.app
+                .github
+                .as_mut()
+                .unwrap()
+                .pr
+                .as_mut()
+                .unwrap()
+                .details
+                .summary
+                .head_sha = "f".repeat(64);
+        }
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::ui::draw(frame, &mut case.app))
+            .unwrap();
+        let screen = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(display.cancellation().is_cancelled());
+        assert!(case.app.pr_native_diff_v1.is_none());
+        assert!(case.app.pr_native_diff_work_v1.is_none());
+        assert!(case.app.pr_native_diff_layout_v1.hits().is_empty());
+        assert!(!screen.contains("Optional external diff"));
+        if account_loss {
+            assert!(!screen.contains(&case.h.h));
+        }
+        assert!(Arc::ptr_eq(
+            &admission,
+            &case.app.native_external_admission_v4
+        ));
+        assert!(
+            !admission.blocked(),
+            "source retirement may not replace the stable mechanical lifecycle"
+        );
+        case.intact();
+    }
+}
+fn queued_kind(outcome: u8, mixed: bool, external: bool) {
     for mutation in 0..if mixed { 1 } else { 14 } {
         let mut case = Case::new(true);
         let mut background = Background::new();
         case.open(&mut background, true);
-        {
+        if external {
+            draw_native(&mut case, 120, 40);
+            case.key('E');
+            case.app.handle_event(Event::Key(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )));
+            assert!(case
+                .app
+                .pr_native_diff_v1
+                .as_ref()
+                .unwrap()
+                .pending()
+                .unwrap()
+                .external_display_v4()
+                .is_some());
+            assert!(case.app.pr_native_diff_work_v1.is_some());
+        } else {
             let state = case.app.pr_native_diff_v1.as_mut().unwrap();
             state.query.insert("new").unwrap();
             if outcome == 1 {

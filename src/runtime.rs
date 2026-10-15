@@ -14,7 +14,9 @@ use std::{
 
 #[derive(Default)]
 pub struct PreparedView {
+    pub scoped_actions_v1: Option<Box<crate::scoped_actions_v1::PreparedScopedActionsV1>>,
     pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::PreparedScopedThreadsV1>,
+    pub scoped_reviews_v2: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::PreparedScopedReviewsV2>,
     pub scoped_inline_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::PreparedScopedInlineV1>,
     pub original_stash_recovery_v1: Option<crate::repository_stash_recovery_v1::PreparedStashRecoveryV1>,
     pub original_diff_result_v1:
@@ -97,6 +99,8 @@ mod original_tree_background_v1;
 pub(crate) mod pr_check_continuation_corrective_v3_test_support;
 #[path = "runtime/related_pr_background_v1.rs"]
 mod related_pr_background_v1;
+#[path = "runtime/scoped_actions_v1.rs"]
+mod scoped_actions_v1;
 #[path = "runtime/scoped_inline_background_v1.rs"]
 mod scoped_inline_background_v1;
 #[cfg(test)]
@@ -104,6 +108,11 @@ mod scoped_inline_background_v1;
 pub(crate) mod scoped_inline_test_support_v1;
 #[path = "runtime/scoped_pr_native_diff_background_v1.rs"]
 pub(crate) mod scoped_pr_native_diff_background_v1;
+#[path = "runtime/scoped_reviews_background_v2.rs"]
+mod scoped_reviews_background_v2;
+#[cfg(test)]
+#[path = "runtime/scoped_reviews_test_support_v2.rs"]
+pub(crate) mod scoped_reviews_test_support_v2;
 #[path = "runtime/scoped_threads_background_v1.rs"]
 mod scoped_threads_background_v1;
 #[cfg(test)]
@@ -113,8 +122,10 @@ pub(crate) mod scoped_threads_test_support_v1;
 type Work = Box<dyn FnOnce(CancellationToken) -> Result<PreparedView, String> + Send>;
 
 struct ScopedRemoteOwner {
+    actions_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
     pr_native_diff_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>>,
     threads_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
+    reviews_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsOwnerV2>>,
     inline_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     scope: Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
     source: Arc<crate::storage::CatalogueIntentSource>,
@@ -125,12 +136,51 @@ struct ScopedRemoteOwner {
     >,
 }
 impl ScopedRemoteOwner {
+    /// A completed original PR read may observe a renamed login for the same
+    /// positive numeric account. This is presentation continuity, not renewed
+    /// repository access, and is unavailable to untagged/retired completions.
+    fn same_original_pr_principal(
+        &self,
+        app: &App,
+        identity: &crate::providers::gh::HostIdentity,
+    ) -> bool {
+        self.navigation.is_some()
+            && self.owns(app)
+            && identity.account_id.is_some_and(|id| id > 0)
+            && crate::storage::Scope::github(&identity.host, identity.account_id)
+                .is_ok_and(|scope| &scope == self.source.scope())
+            && app.github.as_ref().is_some_and(|github| {
+                github.identity.host == identity.host
+                    && github.identity.account_id == identity.account_id
+            })
+    }
+
     fn owns(&self, app: &App) -> bool {
-        self.pr_native_diff_v1
-            .as_ref()
-            .is_none_or(|owner| owner.owns(app))
+        self.actions_v1.as_ref().is_none_or(|owner| owner.owns(app))
+            && self
+                .pr_native_diff_v1
+                .as_ref()
+                .is_none_or(|owner| owner.owns(app))
             && self.threads_v1.as_ref().is_none_or(|owner| owner.owns(app))
             && self.inline_v1.as_ref().is_none_or(|owner| owner.owns(app))
+            && self.reviews_v2.as_ref().is_none_or(|owner| owner.owns(app))
+            && [
+                self.actions_v1.is_some(),
+                self.pr_native_diff_v1.is_some(),
+                self.threads_v1.is_some(),
+                self.inline_v1.is_some(),
+                self.reviews_v2.is_some(),
+            ]
+            .into_iter()
+            .filter(|present| *present)
+            .count()
+                <= 1
+            && (self.actions_v1.is_none()
+                || (self.check_origin.is_none()
+                    && self.continuation_v2.is_none()
+                    && self.navigation.is_none()))
+            && (self.reviews_v2.is_none()
+                || (self.check_origin.is_none() && self.continuation_v2.is_none()))
             && app
                 .remote_scope
                 .as_ref()
@@ -198,9 +248,13 @@ struct Completion {
 }
 
 pub struct Background {
+    current_scoped_actions_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
+    current_scoped_actions_generation_v1: Option<u64>,
     current_pr_native_diff_v1: Option<(u64, Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>)>,
     current_threads_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
     current_threads_generation_v1: Option<u64>,
+    current_reviews_owner_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsOwnerV2>>,
+    current_reviews_generation_v2: Option<u64>,
     #[cfg(test)]
     inline_completion_sender_v1: SyncSender<Completion>,
     current_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
@@ -278,9 +332,13 @@ impl Background {
             }));
         }
         Self {
+            current_scoped_actions_v1: None,
+            current_scoped_actions_generation_v1: None,
             current_pr_native_diff_v1: None,
             current_threads_owner_v1: None,
             current_threads_generation_v1: None,
+            current_reviews_owner_v2: None,
+            current_reviews_generation_v2: None,
             #[cfg(test)]
             inline_completion_sender_v1: sender,
             current_inline_owner_v1: None,
@@ -307,7 +365,29 @@ impl Background {
         view: View,
         work: impl FnOnce(CancellationToken) -> Result<PreparedView, String> + Send + 'static,
     ) -> bool {
-        self.submit_with_owner(app, view, None, work)
+        // Legacy presentation-only bound captured at INPUT admission, before
+        // queueing. Never passed to a provider/Confirm or used as source proof.
+        // Specialized original protocols prepare their own display under their
+        // actual existing token/deadline and do NOT use this generic wrapper.
+        let display_deadline_v1 = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        self.submit_with_owner(app, view, None, move |cancel| {
+            let mut prepared = work(cancel.clone())?;
+            if let Some(form) = prepared.form.as_mut().filter(|form| {
+                form.preview
+                    && form.uses_prepared_preview()
+                    && !form.submitted
+                    && form.preview_display_v1.document.is_none()
+            }) {
+                if let Err(error) = form.prepare_preview_display_v1(&cancel, display_deadline_v1) {
+                    form.preview_display_v1 = Default::default();
+                    form.preview_display_v1.geometry_rejected = true;
+                    form.preview_display_v1.failure = Some(error);
+                    // Preserve original mutation/status/error/publication and
+                    // raw draft; a display failure cannot erase actual effects.
+                }
+            }
+            Ok(prepared)
+        })
     }
 
     /// Bind successes, errors and caught panics to BOTH original navigation
@@ -324,6 +404,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            actions_v1: None,
             threads_v1: None,
             scope,
             source,
@@ -332,6 +413,7 @@ impl Background {
             continuation_v2: None,
             pr_native_diff_v1: None,
             inline_v1: None,
+            reviews_v2: None,
         };
         if !owner.owns(app) {
             return false;
@@ -353,6 +435,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            actions_v1: None,
             threads_v1: None,
             scope,
             source,
@@ -361,6 +444,7 @@ impl Background {
             continuation_v2: None,
             pr_native_diff_v1: None,
             inline_v1: None,
+            reviews_v2: None,
         };
         if !owner.owns(app) {
             return false;
@@ -386,6 +470,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            actions_v1: None,
             threads_v1: None,
             scope: scope.clone(),
             source: source.clone(),
@@ -394,6 +479,7 @@ impl Background {
             continuation_v2: None,
             pr_native_diff_v1: None,
             inline_v1: None,
+            reviews_v2: None,
         };
         if !owner.owns(app) {
             return false;
@@ -422,6 +508,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            actions_v1: None,
             threads_v1: None,
             scope: scope.clone(),
             source: source.clone(),
@@ -430,6 +517,7 @@ impl Background {
             continuation_v2: Some(continuation),
             pr_native_diff_v1: None,
             inline_v1: None,
+            reviews_v2: None,
         };
         if !owner.owns(app) {
             return false;
@@ -554,6 +642,8 @@ impl Background {
         if view == View::Inbox {
             self.current_threads_owner_v1 = None;
             self.current_threads_generation_v1 = None;
+            self.current_reviews_owner_v2 = None;
+            self.current_reviews_generation_v2 = None;
             self.current_inline_owner_v1 = None;
             self.current_inline_generation_v1 = None;
         }
@@ -754,7 +844,10 @@ impl Background {
         &mut self,
         app: &mut App,
         identity: &crate::providers::gh::HostIdentity,
+        original_pr_owner: Option<&ScopedRemoteOwner>,
     ) {
+        let same_original_pr_principal =
+            original_pr_owner.is_some_and(|owner| owner.same_original_pr_principal(app, identity));
         {
             let actor_was_pending = app.local_commit_actors.is_pending();
             if app.local_commit_actors.observe_principal(identity) {
@@ -774,10 +867,9 @@ impl Background {
             crate::navigation_trail::NavigationScope::github(&identity.host, id).ok()
         });
         let _ = app.navigation_trail.remote_identity(scope);
-        let old_github = app
-            .github
-            .as_ref()
-            .is_some_and(|github| !github.identity.same_account(identity));
+        let old_github = app.github.as_ref().is_some_and(|github| {
+            !same_original_pr_principal && !github.identity.same_account(identity)
+        });
         let old_actions = app
             .actions
             .as_ref()
@@ -826,11 +918,28 @@ impl Background {
                 app.form_dismissed = true;
             }
         }
+        if same_original_pr_principal {
+            if let Some(github) = app.github.as_mut() {
+                github.identity = identity.clone();
+            }
+        }
     }
 
     pub fn poll(&mut self, app: &mut App) -> bool {
         let mut changed = false;
         while let Ok(mut completion) = self.completions.try_recv() {
+            if let Some(admitted) = self.poll_scoped_actions_v1(app, &mut completion) {
+                changed |= admitted;
+                continue;
+            }
+            if (app.scoped_actions_work_v1.is_some() || app.scoped_actions_cancel_v1)
+                && completion
+                    .remote_scope_owner
+                    .as_ref()
+                    .is_none_or(|owner| owner.actions_v1.is_none())
+            {
+                continue;
+            }
             let slot = if completion.remote_repository_owner.is_some() {
                 6
             } else if completion.catalogue_owner.is_some() {
@@ -867,6 +976,82 @@ impl Background {
                     || app.original_stash_recovery_cancel_requested_v1)
             {
                 continue; // New original stash intent precedes every old success/error/panic effect.
+            }
+            if slot == View::Inbox.index()
+                && (self.current_reviews_owner_v2.is_some()
+                    || app.scoped_reviews_work_v2.is_some()
+                    || app.scoped_reviews_cancel_v2
+                    || app.form.as_ref().is_some_and(|form| {
+                        matches!(
+                            form.purpose,
+                            crate::forms::FormPurpose::PrReviewV2(_)
+                                | crate::forms::FormPurpose::PrReviewOperationV3(_)
+                        ) && (form.preview_requested || form.submit_requested)
+                    }))
+                && completion
+                    .remote_scope_owner
+                    .as_ref()
+                    .is_none_or(|remote| remote.reviews_v2.is_none())
+            {
+                continue;
+            }
+            if let Some(owner) = completion
+                .remote_scope_owner
+                .as_ref()
+                .and_then(|remote| remote.reviews_v2.as_ref())
+                .cloned()
+            {
+                let remote = completion.remote_scope_owner.as_ref().expect("same owner");
+                if slot != View::Inbox.index()
+                    || completion.view != View::Inbox
+                    || completion.catalogue_owner.is_some()
+                    || completion.catalogue_recovery.is_some()
+                    || completion.local_actor_owner.is_some()
+                    || completion.remote_repository_owner.is_some()
+                    || completion.local_navigation_owner.is_some()
+                    || completion.original_tree_owner_v1.is_some()
+                    || completion.original_diff_owner_v1.is_some()
+                    || remote.check_origin.is_some()
+                    || remote.inline_v1.is_some()
+                    || remote.threads_v1.is_some()
+                    || remote.pr_native_diff_v1.is_some()
+                    || completion.original_stash_recovery_owner_v1.is_some()
+                    || remote.continuation_v2.is_some()
+                    || self.current_reviews_generation_v2 != Some(completion.generation)
+                    || self
+                        .current_reviews_owner_v2
+                        .as_ref()
+                        .is_none_or(|current| !Arc::ptr_eq(current, &owner))
+                    || !remote.owns(app)
+                    || completion.result.as_ref().is_ok_and(|prepared| {
+                        !scoped_reviews_background_v2::only_reviews(prepared)
+                            || prepared
+                                .scoped_reviews_v2
+                                .as_ref()
+                                .is_none_or(|result| !result.matches(&owner))
+                    })
+                {
+                    continue;
+                }
+                // ALL original/mixed/newer-intent gates precede slot removal
+                // and success, error, panic, status, principal/privacy effects.
+                self.current.remove(&slot);
+                self.current_reviews_owner_v2 = None;
+                self.current_reviews_generation_v2 = None;
+                if owner.expired() {
+                    crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::fail(app,self);
+                } else {
+                    match completion.result {Ok(mut prepared)=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::publish(app,self,&owner,prepared.scoped_reviews_v2.take().expect("checked closed facet")),Err(_)=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::fail(app,self)}
+                }
+                changed = true;
+                continue;
+            }
+            if completion
+                .result
+                .as_ref()
+                .is_ok_and(|prepared| prepared.scoped_reviews_v2.is_some())
+            {
+                continue;
             }
             if slot == View::Inbox.index()
                 && self.current_inline_owner_v1.is_some()
@@ -1194,6 +1379,8 @@ impl Background {
                     || app.pr_native_diff_cancel_v1
                     || app.scoped_inline_work_v1.is_some()
                     || app.scoped_inline_cancel_v1
+                    || app.scoped_reviews_work_v2.is_some()
+                    || app.scoped_reviews_cancel_v2
                     || app.original_stash_recovery_request_v1.is_some()
                     || app.original_stash_recovery_cancel_requested_v1
                     || app.repository_action.is_some()
@@ -1391,7 +1578,11 @@ impl Background {
                         // an actual user dismissal while clearing old private views.
                         let dismissed = app.form_dismissed;
                         self.clear_remote_search(app, Some(identity));
-                        self.accept_remote_principal(app, identity);
+                        self.accept_remote_principal(
+                            app,
+                            identity,
+                            completion.remote_scope_owner.as_ref(),
+                        );
                         app.form_dismissed = dismissed;
                     }
                     if prepared.clear_private {
@@ -1438,7 +1629,7 @@ impl Background {
                         }
                     }
                     if let Some(catalogue) = prepared.catalogue {
-                        if matches!(catalogue.kind,crate::repository_catalogue_native::CataloguePreparedKind::Activated {..} | crate::repository_catalogue_native::CataloguePreparedKind::Opened {..}) {
+                        if matches!(catalogue.kind,crate::repository_catalogue_native::CataloguePreparedKind::Activated {..} | crate::repository_catalogue_native::CataloguePreparedKind::Opened {..} | crate::repository_catalogue_native::CataloguePreparedKind::OpenedActions(..)) {
                             for view in [View::Inbox,View::Actions,View::Search,View::Dashboard] {self.cancel(view);}
                         }
                         if !crate::repository_catalogue_native::accept(app, catalogue) {
@@ -1504,7 +1695,7 @@ impl Background {
                     }
                     if let Some(search) = prepared.search {
                         if let Some(identity) = &search.remote_identity {
-                            self.accept_remote_principal(app, identity);
+                            self.accept_remote_principal(app, identity, None);
                         }
                         if prepared.restore_search_input {
                             app.search_controls.query =

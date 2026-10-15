@@ -84,11 +84,11 @@ impl GithubProvider {
         Ok(self)
     }
 }
-impl RepositoryCatalogueAccessSession<'_> {
+impl OriginalRepositoryAccessCoreV13<'_> {
     /// Preserve actual pre-consumed original bytes, planned remaining parent
     /// GET caps and final principal69,632 bytes, then allocate UP TO requested
     /// shared pool once. No requests*1MiB charge or first-member truncation.
-    pub fn reserve_measured_external_reads(
+    pub(super) fn reserve_measured_external_reads(
         &mut self,
         max_requests: usize,
         max_child_bytes: usize,
@@ -201,6 +201,26 @@ impl RepositoryCatalogueAccessSession<'_> {
             .as_ref()
             .map(|budget| budget.seal(cancel).map_err(GithubError::from))
             .transpose()
+    }
+}
+
+impl RepositoryCatalogueAccessSession<'_> {
+    /// Delegate into the SAME original core; no replacement pool or clock.
+    pub fn reserve_measured_external_reads(
+        &mut self,
+        max_requests: usize,
+        max_child_bytes: usize,
+        max_pool_bytes: usize,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        self.core.reserve_measured_external_reads(
+            max_requests,
+            max_child_bytes,
+            max_pool_bytes,
+            remaining_repository_reads,
+            cancel,
+        )
     }
 }
 

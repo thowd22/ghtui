@@ -177,6 +177,11 @@ pub(super) fn parent(
     Ok(PrResourceParentV1 {
         summary,
         database_id,
+        // Only the actual raw numeric author is usable for self-review checks.
+        // Unknown/deleted authors stay readable without an invented identity.
+        author_account_id: raw["user"]["id"]
+            .as_u64()
+            .filter(|id| *id > 0 && *id <= i64::MAX as u64),
         repository_id: repository.id,
         repository_node: repository.node_id.as_ref().unwrap().clone(),
         head_repository,
@@ -188,6 +193,7 @@ pub(super) fn parent(
 }
 pub(super) fn same_parent(first: &PrResourceParentV1, last: &PrResourceParentV1) -> bool {
     first.database_id == last.database_id
+        && first.author_account_id == last.author_account_id
         && first.repository_id == last.repository_id
         && first.repository_node == last.repository_node
         && first.head_repository == last.head_repository

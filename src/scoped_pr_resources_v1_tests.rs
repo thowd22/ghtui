@@ -340,7 +340,8 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
                 .scoped_threads_work_v1
                 .as_ref()
                 .unwrap()
-                .intent
+                .files_intent()
+                .expect("Actual Files-origin thread operation")
                 .owns(&app));
             crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::close(&mut app);
             terminal
@@ -366,7 +367,8 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
                 .scoped_threads_work_v1
                 .as_ref()
                 .unwrap()
-                .intent
+                .files_intent()
+                .expect("Actual Files-origin thread operation")
                 .owns(&app));
             crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::close(&mut app);
             continue;

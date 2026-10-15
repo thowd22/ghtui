@@ -1,8 +1,20 @@
 //! Durable duplicate-write protection. SQLite work belongs in application workers.
 #[path = "pr_write_original.rs"]
 mod original_publication;
+#[path = "pr_write_review_operation_history_v3.rs"]
+pub(crate) mod review_operation_history_v3;
 #[path = "pr_source_metadata.rs"]
 mod source_metadata;
+#[path = "pr_write_thread_comment_history_v2.rs"]
+pub(crate) mod thread_comment_history_v2;
+#[path = "pr_write_thread_history_v1.rs"]
+pub(crate) mod thread_history_v1;
+// Closed producer-specific union, never an arbitrary transaction callback.
+enum ObservedOriginV2<'a> {
+    ThreadV1(&'a thread_history_v1::ThreadOriginSeedV1),
+    CommentV2(&'a thread_comment_history_v2::ThreadCommentOriginSeedV2),
+    ReviewOperationV3(&'a review_operation_history_v3::ReviewOperationOriginSeedV3),
+}
 
 use crate::{
     config::validate_repository,
@@ -254,7 +266,10 @@ impl PrWriteJournal {
         // malformed receipt cannot revive older already-fenced evidence. The
         // closed thread helper still requires exact lowercase digest, command,
         // effect and node before any source fence/private read admission.
-        let selector=match category {PullRequestBody=>"(command IN('legacy-title','legacy-description'))",ConversationComment=>"(command IN('new-comment','edit-comment','delete-comment') AND (selected_resource LIKE 'Conversation/%' OR (command='new-comment' AND selected_resource='pr')))",Review=>"(command IN('legacy-approve','legacy-request-changes','legacy-review-comment'))",InlineComment=>"((command IN('new-comment','edit-comment','delete-comment') AND selected_resource LIKE 'Review/%') OR (command='inline-comment' AND selected_resource LIKE 'inline/%' AND length(selected_resource)=71 AND substr(selected_resource,8) NOT GLOB '*[^0-9a-f]*') OR command IN('thread-reply','thread-resolve','thread-reopen'))",IssueBody=>return Ok(None)};
+        // New review commands enter BOTH relevant selectors by purpose before
+        // parsing. Never filter malformed owned resources out and revive an
+        // older apparently valid receipt; the closed impact validator refuses.
+        let selector=match category {PullRequestBody=>"(command IN('legacy-title','legacy-description'))",ConversationComment=>"(command IN('new-comment','edit-comment','delete-comment') AND (selected_resource LIKE 'Conversation/%' OR (command='new-comment' AND selected_resource='pr')))",Review=>"(command IN('legacy-approve','legacy-request-changes','legacy-review-comment','review-create-pending-v2','review-update-pending-v2','review-submit-v2','review-discard-v2','review-dismiss-v2','review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3'))",InlineComment=>"((command IN('new-comment','edit-comment','delete-comment') AND selected_resource LIKE 'Review/%') OR (command='inline-comment' AND selected_resource LIKE 'inline/%' AND length(selected_resource)=71 AND substr(selected_resource,8) NOT GLOB '*[^0-9a-f]*') OR command IN('review-create-pending-v2','review-submit-v2','review-discard-v2','thread-reply','thread-resolve','thread-reopen','thread-comment-edit-v2','thread-comment-delete-v2','review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3'))",IssueBody=>return Ok(None)};
         let bounded = source_metadata::METADATA_BYTES_SQL;
         let sql=format!("SELECT attempt_id,{bounded} FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND state='confirmed' AND {selector} ORDER BY attempt_id DESC LIMIT 1");
         let found: Option<(i64, usize)> = self
@@ -312,6 +327,9 @@ impl PrWriteJournal {
           WHERE state IN('pending','uncertain');
           CREATE INDEX IF NOT EXISTS pr_write_source_receipts
           ON pr_write_attempts(host,principal,pr_node,state,attempt_id);")?;
+        thread_history_v1::migrate(&transaction)?;
+        thread_comment_history_v2::migrate(&transaction)?;
+        review_operation_history_v3::migrate(&transaction)?;
         transaction.commit()?;
         Ok(Self { connection, path })
     }
@@ -320,32 +338,7 @@ impl PrWriteJournal {
         target: &PrWriteTarget,
         intent: &PrWriteIntent,
     ) -> Result<PrWritePermit> {
-        let digest = intent.digest()?;
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if blocking_row(&transaction, target)?.is_some() {
-            bail!("This PR has an unresolved publication. Inspect and explicitly acknowledge it before another write, including a different action or body.");
-        }
-        advance(&transaction, target)?;
-        transaction.execute("INSERT INTO pr_write_attempts(host,principal,pr_node,repository,pr_number,command,selected_resource,observed_head,payload_sha256,state,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'pending',?10)",params![target.scope.host,target.scope.login,target.pr_node_id,target.repository,target.number as i64,intent.command,intent.selected_resource,intent.observed_head,digest,now()])?;
-        let attempt_id = transaction.last_insert_rowid();
-        transaction.commit()?;
-        Ok(PrWritePermit {
-            issuer: self.path.clone(),
-            claimed: AtomicBool::new(false),
-            marker: PrWriteMarker {
-                attempt_id,
-                target: target.clone(),
-                command: intent.command.clone(),
-                selected_resource: intent.selected_resource.clone(),
-                observed_head: intent.observed_head.clone(),
-                payload_sha256: digest,
-                state: PrWriteState::Pending,
-                confirmed: None,
-                created_at: now(),
-            },
-        })
+        self.begin_with_thread_origin_v1(target, intent, None)
     }
     pub fn blocking(&self, target: &PrWriteTarget) -> Result<Option<PrWriteMarker>> {
         blocking_row(&self.connection, target)

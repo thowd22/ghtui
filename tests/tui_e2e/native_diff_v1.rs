@@ -1,5 +1,7 @@
 //! Actual saved Native pane. Parent owns the genuine Git/SQL/fake-gh fixtures.
 use super::*;
+#[path = "native_external_diff_v4.rs"]
+mod native_external_diff_v4;
 const NATIVE_TITLE: &str = "Native saved diff • original source";
 fn ready(session: &mut Session, text: &str) {
     session.wait_for_cursorless_condition(
@@ -82,6 +84,7 @@ fn journey(mouse: bool) {
     let mut session = launch(&native, mouse);
     open(&native, &mut session, mouse);
     shared(&native, &mut session, mouse);
+    session.capture_completed_terminal_v1("git-native-diff");
     let before = starts(&native).len();
     session.resize_owned_modal(600, 24, NATIVE_TITLE, &["[Esc Close]", "[o Options]"]);
     ready(&mut session, "bounded 512-column pane");

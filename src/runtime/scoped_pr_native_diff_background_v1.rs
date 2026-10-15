@@ -2,7 +2,12 @@
 use super::*;
 use crate::scoped_pr_native_diff_native_v1 as native;
 pub(super) fn only_native(p: &PreparedView) -> bool {
+    if p.scoped_actions_v1.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_actions_v1: _,
+        scoped_reviews_v2,
         scoped_threads_v1,
         scoped_inline_v1,
         original_stash_recovery_v1,
@@ -53,6 +58,7 @@ pub(super) fn only_native(p: &PreparedView) -> bool {
         remote_repository,
     } = p;
     scoped_threads_v1.is_none()
+        && scoped_reviews_v2.is_none()
         && scoped_inline_v1.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
@@ -134,6 +140,8 @@ impl Background {
         let generation = self.generation;
         app.pr_native_diff_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            actions_v1: None,
+            reviews_v2: None,
             pr_native_diff_v1: Some(owner.clone()),
             threads_v1: None,
             inline_v1: None,

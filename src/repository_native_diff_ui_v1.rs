@@ -24,6 +24,10 @@ pub enum NativeDiffActionV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1>
     Close,
     Quit,
     Controls,
+    External,
+    Comment,
+    Threads,
+    CancelInline,
     FocusQuery,
     FocusBody,
     FocusNext(bool),
@@ -83,6 +87,10 @@ impl<S: NativeDiffPurposeV2> Clone for NativeDiffActionV1<S> {
             Self::Close => Self::Close,
             Self::Quit => Self::Quit,
             Self::Controls => Self::Controls,
+            Self::External => Self::External,
+            Self::Comment => Self::Comment,
+            Self::Threads => Self::Threads,
+            Self::CancelInline => Self::CancelInline,
             Self::FocusQuery => Self::FocusQuery,
             Self::FocusBody => Self::FocusBody,
             Self::FocusNext(value) => Self::FocusNext(*value),
@@ -144,6 +152,9 @@ impl<S: NativeDiffPurposeV2> PartialEq for NativeDiffActionV1<S> {
             (Self::Close, Self::Close) => true,
             (Self::Quit, Self::Quit) => true,
             (Self::Controls, Self::Controls) => true,
+            (Self::External, Self::External) => true,
+            (Self::Comment, Self::Comment) | (Self::CancelInline, Self::CancelInline) => true,
+            (Self::Threads, Self::Threads) => true,
             (Self::FocusQuery, Self::FocusQuery) => true,
             (Self::FocusBody, Self::FocusBody) => true,
             (Self::FocusNext(a), Self::FocusNext(b)) => a == b,
@@ -243,6 +254,7 @@ pub struct NativeDiffHitV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> 
     pub action: NativeDiffActionV1<S>,
 }
 pub struct NativeDiffLayoutV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    pub(crate) area: Rect,
     pub(crate) hits: Vec<NativeDiffHitV1<S>>,
     pub(crate) body: Rect,
     pub(crate) query: Rect,
@@ -262,6 +274,7 @@ impl<S: NativeDiffPurposeV2> Clone for NativeDiffHitV1<S> {
 impl<S: NativeDiffPurposeV2> Default for NativeDiffLayoutV1<S> {
     fn default() -> Self {
         Self {
+            area: Rect::default(),
             hits: Vec::new(),
             body: Rect::default(),
             query: Rect::default(),
@@ -386,6 +399,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
         match code {
             KeyCode::Char('q') => Some(A::Quit),
             KeyCode::Char('o') => Some(A::Controls),
+            KeyCode::Char('E') => Some(A::External),
+            KeyCode::Char('P') if S::supports_inline_comment() => Some(A::Comment),
+            KeyCode::Char('T') if S::supports_review_threads() => Some(A::Threads),
             KeyCode::Char('/') => Some(A::FocusQuery),
             KeyCode::Char('r') => Some(A::Regex),
             KeyCode::Char('l') => Some(A::Option(NativeDiffOptionChangeV1::Layout)),
@@ -497,7 +513,16 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
                     .selected(SemanticToken::Focus)
                     .add_modifier(Modifier::UNDERLINED)
             } else {
-                theme.style(SemanticToken::Reference)
+                theme.style(
+                    if (action == NativeDiffActionV1::Comment
+                        || action == NativeDiffActionV1::Threads)
+                        && label.contains("disabled")
+                    {
+                        SemanticToken::Muted
+                    } else {
+                        SemanticToken::Reference
+                    },
+                )
             }),
             rect,
         );
@@ -511,6 +536,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
         theme: Theme,
     ) {
         // Do not retire an in-progress drag merely because another frame draws.
+        self.area = area;
         self.hits.clear();
         self.body = Rect::default();
         self.query = Rect::default();
@@ -691,12 +717,31 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             ("[h Hunk]", NativeDiffActionV1::SelectHunk),
             ("[x Clear]", NativeDiffActionV1::ClearRange),
             ("[I Source]", NativeDiffActionV1::Source),
+            ("[E External]", NativeDiffActionV1::External),
             ("[[ File]", NativeDiffActionV1::File(-1)),
             ("[] File]", NativeDiffActionV1::File(1)),
             ("[n Match]", NativeDiffActionV1::Match(1)),
         ];
         let mut x = inner.x;
-        for (label, action) in controls {
+        for (label, action) in controls
+            .into_iter()
+            .chain(S::supports_inline_comment().then_some((
+                if state.inline_selection_available_v1() {
+                    "[P Comment]"
+                } else {
+                    "[P Comment disabled]"
+                },
+                NativeDiffActionV1::Comment,
+            )))
+            .chain(S::supports_review_threads().then_some((
+                if state.current_frame().is_some() {
+                    "[T Threads]"
+                } else {
+                    "[T Threads disabled]"
+                },
+                NativeDiffActionV1::Threads,
+            )))
+        {
             let width = (label.len() as u16).min(inner.width);
             if x + width > inner.right() {
                 x = inner.x;
@@ -883,6 +928,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
         use NativeDiffOptionChangeV1 as O;
         let entries = [
             ("[o Back to diff]", A::Controls),
+            ("[E External]", A::External),
             ("[Esc Close]", A::Close),
             ("[F Full Old]", A::FullSide(DiffSide::Old)),
             ("[V Full New]", A::FullSide(DiffSide::New)),
@@ -915,7 +961,25 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
         ];
         let mut x = inner.x;
         let mut y = inner.y;
-        for (label, action) in entries {
+        for (label, action) in entries
+            .into_iter()
+            .chain(S::supports_inline_comment().then_some((
+                if state.inline_selection_available_v1() {
+                    "[P Comment]"
+                } else {
+                    "[P Comment disabled]"
+                },
+                A::Comment,
+            )))
+            .chain(S::supports_review_threads().then_some((
+                if state.current_frame().is_some() {
+                    "[T Threads]"
+                } else {
+                    "[T Threads disabled]"
+                },
+                A::Threads,
+            )))
+        {
             let width = (label.len() as u16).min(inner.width);
             if x + width > inner.right() {
                 x = inner.x;

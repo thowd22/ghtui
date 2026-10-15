@@ -198,6 +198,7 @@ pub enum CataloguePreparedKind {
         scope: Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
         guard: Arc<CatalogueIntentSource>,
     },
+    OpenedActions(Box<crate::scoped_actions_v1::InitialScopedActionsV1>),
     RemoteRepository(Box<crate::remote_repository_native_v1::RemoteRepositoryNativeV1>),
     Hidden,
 }
@@ -838,6 +839,16 @@ pub fn accept(app: &mut App, prepared: CataloguePrepared) -> bool {
         crate::remote_repository_native_v1::install_initial(app, *state);
         return false;
     }
+    if let CataloguePreparedKind::OpenedActions(state) = prepared.kind {
+        if let Some(modal) = &mut app.catalogue {
+            modal.discovery.retire();
+            modal.discovery.allow_close();
+        }
+        dispatch(app, CatalogueUiAction::Close);
+        retire_remote_views(app);
+        crate::scoped_actions_native_v1::install_initial(app, *state);
+        return false;
+    }
     if let CataloguePreparedKind::Opened { scope, guard } = prepared.kind {
         if let Some(modal) = &mut app.catalogue {
             modal.discovery.retire();
@@ -917,7 +928,9 @@ pub fn accept(app: &mut App, prepared: CataloguePrepared) -> bool {
             app.remote_scope = Some(scope);
             app.remote_scope_source = Some(guard);
         }
-        CataloguePreparedKind::Opened { .. } | CataloguePreparedKind::RemoteRepository(..) => {
+        CataloguePreparedKind::Opened { .. }
+        | CataloguePreparedKind::OpenedActions(..)
+        | CataloguePreparedKind::RemoteRepository(..) => {
             unreachable!()
         }
         CataloguePreparedKind::Hidden => {}
@@ -925,6 +938,7 @@ pub fn accept(app: &mut App, prepared: CataloguePrepared) -> bool {
     false
 }
 pub fn retire_remote_views(app: &mut App) {
+    crate::scoped_actions_native_v1::retire(app);
     crate::pr_checks_native::retire(app, true);
     app.github = None;
     app.github_action = None;
@@ -1294,6 +1308,7 @@ fn open_target(
         .clone()
         .with_scoped_read_window(window.deadline(), window.max_output_bytes())
         .map_err(|_| "Original bounded child window unavailable")?;
+    let mut actions_read = None;
     let (mut view, mut github) = match destination {
         CatalogueDestination::RemoteRepository => {
             unreachable!("remote browsing has its own guarded read")
@@ -1331,22 +1346,21 @@ fn open_target(
             (view, Some(workspace))
         }
         CatalogueDestination::Actions => {
-            let mut workspace = crate::actions_workspace::ActionsWorkspace::new(
-                session.identity().clone(),
-                vec![canonical.clone()],
-            );
-            workspace
-                .load_catalog(&scoped, cancel)
+            let read = scoped
+                .scoped_actions_catalogue_v1(
+                    session
+                        .observed_original_v1(reference.id)
+                        .ok_or("Actual original Actions row unavailable")?,
+                    &crate::providers::gh::RunFilter::default(),
+                    cancel,
+                )
                 .map_err(|_| "Fresh explicit Actions catalog unavailable")?;
-            if !workspace.coverage.complete {
-                return Err("Explicit Actions inventory failed or remains incomplete; no previous catalog admitted".into());
-            }
+            actions_read = Some(crate::scoped_actions_v1::prepare_initial_read(
+                read,
+                session.identity(),
+                cancel,
+            )?);
             let view = PreparedView {
-                context: Some(workspace.context()),
-                status: "Actions • original repository ID verified • non-atomic current read"
-                    .into(),
-                navigate_to: Some(View::Actions),
-                actions: Some(workspace),
                 ..Default::default()
             };
             (view, None)
@@ -1366,6 +1380,16 @@ fn open_target(
     scope
         .observe_closed_access(original.source(), &closed)
         .map_err(|_| "Original closed navigation cannot replace its target")?;
+    let scope = Arc::new(scope);
+    if let Some(read) = actions_read {
+        let state = crate::scoped_actions_v1::initial(
+            original, scope, reference, read, &closed, provider, cancel,
+        )?;
+        return Ok(prepared(
+            owner,
+            CataloguePreparedKind::OpenedActions(Box::new(state)),
+        ));
+    }
     if let Some(workspace) = &mut github {
         workspace.identity = closed.identity().clone();
         workspace.inbox.identity = closed.identity().clone();
@@ -1378,7 +1402,7 @@ fn open_target(
     view.catalogue = Some(CataloguePrepared {
         owner,
         kind: CataloguePreparedKind::Opened {
-            scope: Arc::new(scope),
+            scope,
             guard: original,
         },
     });

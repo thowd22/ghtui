@@ -125,6 +125,9 @@ impl ThreadComposerRequestV1 {
             }
             && body(form).is_ok_and(|body| body == self.body.as_ref())
     }
+    pub(crate) fn owns_presentation(&self, form: &Form) -> bool {
+        matches!(&form.purpose,FormPurpose::PrThread(state)if Arc::ptr_eq(&self.ticket,&state.ticket)&&Arc::ptr_eq(&self.intent,&state.intent))
+    }
     pub(crate) fn retire_busy_presentation(&self, form: &mut Form) -> bool {
         let FormPurpose::PrThread(state) = &form.purpose else {
             return false;
@@ -255,12 +258,14 @@ pub fn accept_preview(
     };
     state.identity = preview.identity().clone();
     state.lines = preview.prepared_lines().clone();
+    let display_v1 = preview.display_v1().clone();
     state.preview = Some(preview);
     form.preview = true;
     form.preview_requested = false;
     form.submit_requested = false;
     form.preview_scroll = 0;
     form.error.clear();
+    form.install_prepared_preview_display_v1(display_v1);
     true
 }
 pub fn confirmed_preview(form: &Form) -> Result<Arc<ScopedThreadPreviewV1>, String> {

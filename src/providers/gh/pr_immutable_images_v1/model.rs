@@ -119,6 +119,7 @@ impl PrImmutableImageV1 {
     }
 }
 pub(super) struct SelectedPatchV1 {
+    pub raw: Arc<[u8]>,
     pub old_path: Option<Vec<u8>>,
     pub new_path: Option<Vec<u8>>,
     pub old_lookup: Vec<u8>,
@@ -129,6 +130,7 @@ pub(super) struct SelectedPatchV1 {
 /// Produced ONLY from actual current API/tree/blob traversal; still intermediate
 /// until original session closes repository, local epoch and principal guards.
 pub struct PrImmutableFileReadV1 {
+    pub(super) selected_raw_patch: Arc<[u8]>,
     pub(super) canonical_file: Arc<crate::diff::FileDiff>,
     pub(super) parent: PrResourceParentV1,
     pub(super) merge_base: String,
@@ -150,6 +152,9 @@ impl std::fmt::Debug for PrImmutableFileReadV1 {
     }
 }
 impl PrImmutableFileReadV1 {
+    pub(crate) fn selected_raw_patch_v4(&self) -> &[u8] {
+        &self.selected_raw_patch
+    }
     /// The SAME parsed member whose raw patch was associated byte-for-byte
     /// with both verified images. No display reparse or synthetic coordinates.
     pub(crate) fn canonical_file_v1(&self) -> &crate::diff::FileDiff {
@@ -186,6 +191,8 @@ impl PrImmutableFileReadV1 {
             + self.old.path.capacity()
             + self.new.path.capacity()
             + self.patch_digest.capacity()
+            + self.selected_raw_patch.len()
+            + 64
             + self.merge_base.capacity()
             + self.head_tree.capacity()
             + self.old_tree.capacity()

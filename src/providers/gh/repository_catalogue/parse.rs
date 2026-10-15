@@ -114,9 +114,45 @@ fn flag(value: &Value, field: &str, limitations: &mut Vec<String>) -> Option<boo
     }
 }
 
+/// Closed parser-only context. It never constructs a source/read receipt or
+/// grants access; catalogue provenance and PublicUser privacy stay explicit.
+pub(super) struct RepositoryParseContextV13<'a> {
+    expected_owner: Option<&'a RepositoryCatalogueOwner>,
+    public_user: bool,
+}
+impl<'a> RepositoryParseContextV13<'a> {
+    fn catalogue(context: &'a RepositoryCatalogueContext) -> Self {
+        Self {
+            expected_owner: context.owner.as_ref(),
+            public_user: matches!(context.source, RepositoryCatalogueSource::PublicUser(_)),
+        }
+    }
+    pub(super) fn current_catalogue(
+        original: &RepositoryCatalogueContext,
+        current_owner: &'a RepositoryCatalogueOwner,
+    ) -> Self {
+        Self {
+            expected_owner: original.owner.as_ref().map(|_| current_owner),
+            public_user: matches!(original.source, RepositoryCatalogueSource::PublicUser(_)),
+        }
+    }
+}
 pub(super) fn repository(
     value: &Value,
     context: &RepositoryCatalogueContext,
+    max_bytes: usize,
+    metadata_left: usize,
+) -> Result<(RepositoryCatalogueRepository, usize), &'static str> {
+    repository_with_context_v13(
+        value,
+        &RepositoryParseContextV13::catalogue(context),
+        max_bytes,
+        metadata_left,
+    )
+}
+pub(super) fn repository_with_context_v13(
+    value: &Value,
+    context: &RepositoryParseContextV13<'_>,
     max_bytes: usize,
     metadata_left: usize,
 ) -> Result<(RepositoryCatalogueRepository, usize), &'static str> {
@@ -146,7 +182,7 @@ pub(super) fn repository(
         .next()
         .ok_or("Repository owner missing")?;
     if context
-        .owner
+        .expected_owner
         .as_ref()
         .is_some_and(|owner| !owner.login.eq_ignore_ascii_case(owner_name))
     {
@@ -182,7 +218,7 @@ pub(super) fn repository(
         }
         let actor_id = optional_id(owner)?;
         let actor_node = node(owner)?;
-        if let Some(expected) = &context.owner {
+        if let Some(expected) = &context.expected_owner {
             if actor_id.is_some_and(|id| id != expected.id)
                 || actor_node
                     .zip(expected.node_id.as_deref())
@@ -192,7 +228,7 @@ pub(super) fn repository(
             }
         }
         let actor_type = text(owner, "type", 128)?;
-        if let Some(expected) = &context.owner {
+        if let Some(expected) = &context.expected_owner {
             let expected = match expected.kind {
                 RepositoryCatalogueOwnerKind::Organization => "Organization",
                 RepositoryCatalogueOwnerKind::User => "User",
@@ -214,7 +250,7 @@ pub(super) fn repository(
     };
     let mut limitations = Vec::new();
     let private = flag(value, "private", &mut limitations);
-    if matches!(context.source, RepositoryCatalogueSource::PublicUser(_)) && private == Some(true) {
+    if context.public_user && private == Some(true) {
         return Err(
             "Public-user inventory cannot admit a private repository or claim private coverage",
         );

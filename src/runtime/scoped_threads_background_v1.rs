@@ -2,7 +2,12 @@
 use super::*;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1 as threads;
 pub(super) fn only_threads(p: &PreparedView) -> bool {
+    if p.scoped_actions_v1.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_actions_v1: _,
+        scoped_reviews_v2,
         scoped_threads_v1,
         scoped_inline_v1,
         original_stash_recovery_v1,
@@ -53,6 +58,7 @@ pub(super) fn only_threads(p: &PreparedView) -> bool {
         remote_repository,
     } = p;
     scoped_threads_v1.is_some()
+        && scoped_reviews_v2.is_none()
         && scoped_inline_v1.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
@@ -144,7 +150,7 @@ impl Background {
             return false;
         }
         let intent = &owner.intent;
-        if crate::remote_scope_gate_v1::stop_before_fallback(Some(&intent.active)).is_some() {
+        if crate::remote_scope_gate_v1::stop_before_fallback(Some(intent.active())).is_some() {
             return false;
         }
         self.cancel(View::Inbox);
@@ -152,10 +158,12 @@ impl Background {
         let generation = self.generation;
         app.scoped_threads_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            actions_v1: None,
+            reviews_v2: None,
             pr_native_diff_v1: None,
-            scope: intent.active.clone(),
-            source: intent.source.clone(),
-            navigation: Some(intent.navigation.clone()),
+            scope: intent.active().clone(),
+            source: intent.source().clone(),
+            navigation: Some(intent.navigation().clone()),
             check_origin: None,
             continuation_v2: None,
             inline_v1: None,
@@ -271,6 +279,7 @@ impl Background {
             || completion.original_diff_owner_v1.is_some()
             || completion.original_stash_recovery_owner_v1.is_some()
             || remote.pr_native_diff_v1.is_some()
+            || remote.reviews_v2.is_some()
             || remote.inline_v1.is_some()
             || remote.check_origin.is_some()
             || remote.continuation_v2.is_some()
@@ -317,6 +326,9 @@ impl Background {
         Some(true)
     }
     pub fn retire_stale_scoped_threads_v1(&mut self, app: &mut App) {
+        crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::retire_invalid(
+            app,
+        );
         let Some(owner) = self.current_threads_owner_v1.clone() else {
             if let Some(old) = app
                 .scoped_threads_owner_v1
@@ -325,22 +337,35 @@ impl Background {
                 .cloned()
             {
                 old.cancellation().cancel();
-                if old.phase() == threads::ScopedThreadPhaseV1::Confirm
-                    && old.original_private_source_is_current(app)
-                {
-                    threads::fail(app, self);
-                    app.status = "Original thread presentation retired • outcome may be unknown • protection retained; refresh explicitly".into();
+                if old.phase() == threads::ScopedThreadPhaseV1::Confirm {
+                    if app
+                        .scoped_threads_owner_v1
+                        .as_ref()
+                        .is_some_and(|current| Arc::ptr_eq(current, &old))
+                    {
+                        app.scoped_threads_owner_v1 = None;
+                    }
+                    threads::retire_orphaned_confirm_presentation(app, &old);
                     return;
                 }
                 old.release_busy_presentation(app);
                 app.scoped_threads_owner_v1 = None;
-                if app
-                    .scoped_threads_v1
-                    .as_ref()
-                    .is_some_and(|view| Arc::ptr_eq(&view.intent, &old.intent))
-                {
+                if app.scoped_threads_v1.as_ref().is_some_and(|view| {
+                    old.files_intent()
+                        .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
+                }) {
                     app.scoped_threads_v1 = None;
                     if app.overlay == Some(crate::app::Overlay::PrThreadsV1) {
+                        app.overlay = None;
+                    }
+                    app.hits.clear();
+                }
+                if app.scoped_thread_history_v1.as_ref().is_some_and(|view| {
+                    old.history_intent()
+                        .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
+                }) {
+                    app.scoped_thread_history_v1 = None;
+                    if app.overlay == Some(crate::app::Overlay::PrThreadHistoryV1) {
                         app.overlay = None;
                     }
                     app.hits.clear();
@@ -376,13 +401,24 @@ impl Background {
         {
             app.scoped_threads_owner_v1 = None;
         }
-        if app
-            .scoped_threads_v1
-            .as_ref()
-            .is_some_and(|x| Arc::ptr_eq(&x.intent, &owner.intent))
-        {
+        if app.scoped_threads_v1.as_ref().is_some_and(|x| {
+            owner
+                .files_intent()
+                .is_some_and(|intent| Arc::ptr_eq(&x.intent, intent))
+        }) {
             app.scoped_threads_v1 = None;
             if app.overlay == Some(crate::app::Overlay::PrThreadsV1) {
+                app.overlay = None;
+            }
+            app.hits.clear();
+        }
+        if app.scoped_thread_history_v1.as_ref().is_some_and(|view| {
+            owner
+                .history_intent()
+                .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
+        }) {
+            app.scoped_thread_history_v1 = None;
+            if app.overlay == Some(crate::app::Overlay::PrThreadHistoryV1) {
                 app.overlay = None;
             }
             app.hits.clear();
@@ -417,9 +453,7 @@ impl Background {
             return true;
         }
         owner.release_busy_presentation(app);
-        app.status =
-            "Original thread read canceled • previous Files observation preserved • no writes"
-                .into();
+        app.status = if owner.history_intent().is_some(){"Original thread history read canceled • previous Summary observation preserved • no writes"}else{"Original thread read canceled • previous Files observation preserved • no writes"}.into();
         true
     }
 }

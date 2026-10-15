@@ -2,6 +2,9 @@
 //! opaque-ID decoding, implicit root selection or repeat-write capability.
 use super::*;
 use std::time::Instant;
+#[path = "pr_thread_comment_v2.rs"]
+mod comment_v2;
+pub use comment_v2::*;
 
 #[derive(Debug)]
 pub enum ThreadPublicationFailureV1 {

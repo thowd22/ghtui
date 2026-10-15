@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::sync::Arc;
 mod artifact;
 mod commands;
+pub(crate) mod scoped_read_v1;
 pub use commands::*;
 mod approvals;
 mod publication_targets;

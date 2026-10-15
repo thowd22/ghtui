@@ -8,6 +8,9 @@ pub use inline_v1::{InlineCommentReceiptV1, InlinePublicationFailureV1};
 #[path = "pr_thread_publication_v1.rs"]
 mod thread_publication_v1;
 pub use thread_publication_v1::*;
+#[path = "pr_pending_review_v2.rs"]
+mod pending_review_v2;
+pub use pending_review_v2::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestedTeam {

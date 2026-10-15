@@ -190,6 +190,63 @@ pub fn actions_control_position(
     )
 }
 
+/// Run and Jobs retain the same job labels but paint them at different rows.
+/// Only the completed Jobs layout may supply the next mouse coordinate.
+pub fn scoped_actions_jobs_position_v2(
+    completed: &CursorlessFrames,
+    after: usize,
+    job: &str,
+    head: &str,
+) -> Option<(u16, u16)> {
+    let page = actions_page(completed, after)?;
+    let frame = completed.last.as_ref()?;
+    let text = frame.contents();
+    if !matches!(head.len(), 40 | 64)
+        || !head.bytes().all(|b| b.is_ascii_hexdigit())
+        || !text.contains(head)
+        || !text.contains("/ Jobs and steps /")
+        || !text.contains("Retained observed attempt")
+        || text.contains("[b Cancel read]")
+    {
+        return None;
+    }
+    unique_position(
+        frame,
+        job,
+        page.controls_bottom..page.bounds.bottom,
+        page.bounds.left + 1..page.bounds.right,
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ActionsControlFocusV2 {
+    pub target_focused: bool,
+    /// Observe the actual host-wide underline, including header/footer hits.
+    /// Tab can legitimately leave the Actions box before returning to it.
+    pub underlined: Vec<(u16, u16)>,
+}
+
+pub fn actions_control_focus_v2(
+    completed: &CursorlessFrames,
+    page: &ActionsPage,
+    label: &str,
+) -> Option<ActionsControlFocusV2> {
+    let (x, y) = actions_control_position(completed, page, label)?;
+    let frame = completed.last.as_ref()?;
+    let mut underlined = Vec::new();
+    for row in 0..frame.size().0 {
+        for column in 0..frame.size().1 {
+            if frame.cell(row, column)?.underline() {
+                underlined.push((column, row));
+            }
+        }
+    }
+    Some(ActionsControlFocusV2 {
+        target_focused: frame.cell(y, x)?.underline(),
+        underlined,
+    })
+}
+
 /// Coordinates are only input hints from one complete frame, never resource
 /// identity. Reject a nested modal even when its parent's old footer survives.
 pub fn owned_action_position(
@@ -298,7 +355,9 @@ pub fn owned_focus_v1(
     controls: &[&str],
     notices: &[&str],
 ) -> Option<OwnedFocusV1> {
-    if !controls.contains(&target) || controls.len() + notices.len() > 16 {
+    // The review browser has nineteen individually focusable controls. Keep
+    // the observation bounded without excluding its complete declared toolbar.
+    if !controls.contains(&target) || controls.len().saturating_add(notices.len()) > 32 {
         return None;
     }
     let owner = topmost_box_v1(frame, title)?;

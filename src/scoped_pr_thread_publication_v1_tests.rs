@@ -1,8 +1,12 @@
 //! SOURCE-ONLY strict provider contracts. All factories below perform genuine
 //! original Files/source/account/parent reads; no receipt constructor exists.
 use super::*;
+#[path = "scoped_pr_thread_comment_v2_tests.rs"]
+mod comment_v2;
 #[path = "scoped_pr_thread_composer_v1_tests.rs"]
 mod composer_v1;
+#[path = "scoped_pr_thread_history_v1_tests.rs"]
+mod history_v1;
 use crate::providers::gh::{
     GithubError, GithubErrorKind, HostIdentity, OriginalThreadPublicationV1,
     ThreadPublicationFailureV1, METRICS_THREAD_COMMENTS_QUERY,
@@ -89,7 +93,7 @@ fn state_readback(node: Value) -> GhStep {
 struct AttemptV2<'a> {
     provider: &'a GithubProvider,
     measured: &'a GithubProvider,
-    actual: &'a OriginalThreadPublicationV1,
+    actual: &'a Arc<OriginalThreadPublicationV1>,
     identity: &'a HostIdentity,
     captures: &'a mut crate::providers::gh::PostWriteCaptureAllowanceV2,
     cancel: &'a CancellationToken,
@@ -147,6 +151,13 @@ impl AttemptV2<'_> {
     }
 }
 fn with_original<T>(real: &Real, call: impl FnOnce(AttemptV2<'_>) -> T) -> T {
+    with_original_limits(real, 10, call)
+}
+fn with_original_limits<T>(
+    real: &Real,
+    requests: usize,
+    call: impl FnOnce(AttemptV2<'_>) -> T,
+) -> T {
     let intent = threads::ThreadBrowseIntentV1::capture(&real.app).unwrap();
     assert!(intent.owns(&real.app));
     let observed = real
@@ -169,7 +180,7 @@ fn with_original<T>(real: &Real, call: impl FnOnce(AttemptV2<'_>) -> T) -> T {
         .reserve_postwrite_capture_v2(&crate::providers::gh::THREAD_POSTWRITE_CAPS_V2, 2, &cancel)
         .unwrap();
     let window = session
-        .reserve_measured_external_reads(10, 1024 * 1024, 8 * 1024 * 1024, 2, &cancel)
+        .reserve_measured_external_reads(requests, 1024 * 1024, 8 * 1024 * 1024, 2, &cancel)
         .unwrap();
     let bounded = phase.clone().with_measured_read_window(window).unwrap();
     let current = session
@@ -185,9 +196,11 @@ fn with_original<T>(real: &Real, call: impl FnOnce(AttemptV2<'_>) -> T) -> T {
         parent.summary(),
     )
     .unwrap();
-    let actual = bounded
-        .original_thread_publication_v1(parent, "THREAD_ACTUAL_9", &cancel, deadline)
-        .unwrap();
+    let actual = Arc::new(
+        bounded
+            .original_thread_publication_v1(parent, "THREAD_ACTUAL_9", &cancel, deadline)
+            .unwrap(),
+    );
     let mut pending = Some(session);
     let closed = std::cell::RefCell::new(None);
     let mut close = || {

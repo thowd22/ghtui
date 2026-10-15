@@ -432,6 +432,7 @@ pub struct ScopedThreadPreviewV1 {
     write: PrWriteIntent,
     draft_key: String,
     lines: Arc<[String]>,
+    display_v1: Arc<crate::prepared_form_text_v1::PreparedFormTextV1>,
     started: AtomicBool,
 }
 impl std::fmt::Debug for ScopedThreadPreviewV1 {
@@ -454,6 +455,9 @@ impl ScopedThreadPreviewV1 {
     }
     pub fn prepared_lines(&self) -> &Arc<[String]> {
         &self.lines
+    }
+    pub(crate) fn display_v1(&self) -> &Arc<crate::prepared_form_text_v1::PreparedFormTextV1> {
+        &self.display_v1
     }
     pub fn draft_key(&self) -> &str {
         &self.draft_key
@@ -623,8 +627,14 @@ impl ScopedThreadPreviewV1 {
         if lines.len() > 65_536 || lines.iter().map(String::len).sum::<usize>() > 512 * 1024 {
             return Err(refused("Thread preview body presentation exceeds bounds"));
         }
+        let display_v1 = crate::prepared_form_text_v1::PreparedFormTextV1::prepare(
+            &lines, cancel, deadline,
+        )
+        .map_err(|_| {
+            refused("Thread Preview display exceeds bounded native presentation; draft retained")
+        })?;
         check(cancel, deadline)?;
-        Ok(Arc::new(Self {
+        let result = Arc::new(Self {
             intent,
             body,
             identity: closed.identity,
@@ -632,8 +642,11 @@ impl ScopedThreadPreviewV1 {
             write,
             draft_key,
             lines: lines.into(),
+            display_v1,
             started: AtomicBool::new(false),
-        }))
+        });
+        check(cancel, deadline)?;
+        Ok(result)
     }
 }
 pub fn encode_draft(
@@ -843,7 +856,17 @@ impl ScopedThreadPreviewV1 {
             .validate(database, &self.intent)
             .map_err(unavailable)?;
         let mut journal = PrWriteJournal::open(database).map_err(unavailable)?;
-        let permit = journal.begin(&target, &self.write).map_err(unavailable)?;
+        let origin = crate::pr_write_journal::thread_history_v1::ThreadOriginSeedV1::from_producer(
+            database,
+            &identity,
+            &actual,
+            self.intent.action.command(),
+            &self.draft_key,
+        )
+        .map_err(unavailable)?;
+        let permit = journal
+            .begin_thread_v1(&target, &self.write, &origin)
+            .map_err(unavailable)?;
         let marker = permit.marker();
         let reference = marker.publication_reference();
         let encoded = match encode_draft(&self.body, Some(&reference)) {

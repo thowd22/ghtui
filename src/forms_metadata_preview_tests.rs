@@ -173,6 +173,13 @@ fn pr_metadata_preview_form_layout_has_real_confirm_hits_readable_no_color_and_n
         let mut form = form(PrFormKind::Title);
         edit(&mut form, "Requested title");
         prepare(&mut form);
+        // The genuine prepared metadata model now crosses the SAME worker-only
+        // presentation boundary before this isolated renderer contract.
+        form.prepare_preview_display_v1(
+            &Default::default(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
+        .unwrap();
         let mut app = App {
             form: Some(form),
             overlay: Some(Overlay::Form),

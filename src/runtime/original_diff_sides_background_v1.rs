@@ -189,9 +189,13 @@ mod native_mutable_diff_before_poll_v2_tests;
 #[path = "native_mutable_plan_before_poll_v2_tests.rs"]
 mod native_mutable_plan_before_poll_v2_tests;
 pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
+    if prepared.scoped_actions_v1.is_some() {
+        return false;
+    }
     prepared.original_diff_result_v1.is_some()
         && prepared.scoped_inline_v1.is_none()
         && prepared.scoped_threads_v1.is_none()
+        && prepared.scoped_reviews_v2.is_none()
         && prepared.original_stash_recovery_v1.is_none()
         && prepared.related_pr_v1.is_none()
         && prepared.original_tree_result_v1.is_none()
@@ -247,7 +251,11 @@ pub(super) fn publish_original_diff_sides_v1(
         || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
         || app.scoped_inline_work_v1.is_some()
+        || app.scoped_reviews_work_v2.is_some()
+        || app.scoped_reviews_cancel_v2
         || app.scoped_inline_cancel_v1
+        || app.scoped_threads_work_v1.is_some()
+        || app.scoped_threads_cancel_v1
         || app.related_pr_requested_v1
         || app.original_stash_recovery_request_v1.is_some()
         || app.original_stash_recovery_cancel_requested_v1
@@ -405,6 +413,9 @@ pub(super) fn publish_original_diff_sides_v1(
         app.native_diff_layout_v1.clear();
         app.hits.clear();
         app.status = status;
+        crate::repository_native_diff_native_v1::start_admitted_external_v4::<
+            crate::git::OriginalComparisonSourceV1,
+        >(app);
         return true;
     }
     if let OriginalDiffWorkV1::MutableNative(request) = owner.work().as_ref() {
@@ -458,6 +469,9 @@ pub(super) fn publish_original_diff_sides_v1(
         app.native_mutable_diff_layout_v2.clear();
         app.hits.clear();
         app.status = status;
+        crate::repository_native_diff_native_v1::start_admitted_external_v4::<
+            crate::git::MutableDiffSourceV2,
+        >(app);
         return true;
     }
     if app.native_diff_v1.is_some() || app.native_mutable_diff_v2.is_some() {

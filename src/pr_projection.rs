@@ -8,6 +8,10 @@ use crate::{
 use serde_json::json;
 use std::{collections::BTreeSet, path::Path};
 mod discussion_invalidation;
+mod review_impact_v2;
+pub(crate) mod review_operation_impact_v3;
+pub mod review_rerequest_impact_v3;
+pub(crate) mod thread_comment_impact_v2;
 pub(crate) mod thread_impact_v1;
 pub(crate) use discussion_invalidation::unresolved_visibility_diagnostic;
 pub use discussion_invalidation::{

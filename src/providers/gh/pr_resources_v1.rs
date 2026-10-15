@@ -10,11 +10,16 @@ mod pr_checks_binding_v1;
 pub use model::*;
 #[path = "pr_immutable_images_v1.rs"]
 mod immutable_images;
+#[path = "pr_thread_history_parent_v1.rs"]
+mod thread_history_parent_v1;
 #[path = "pr_thread_postwrite_parent_v2.rs"]
 mod thread_postwrite_parent_v2;
 pub use immutable_images::*;
+#[path = "pr_review_postwrite_parent_v2.rs"]
+mod review_postwrite_parent_v2;
 use paging::*;
 use parse::*;
+pub use thread_history_parent_v1::ThreadHistoryParentObservationV1;
 
 fn safe(kind: GithubErrorKind) -> GithubError {
     error(

@@ -24,6 +24,10 @@ enum Kind {
     #[cfg(test)]
     ActualWorkerPanic(Arc<ScopedInlineWorkV1>),
     Open(Arc<ScopedInlineIntentV1>),
+    OpenNative {
+        intent: Arc<ScopedInlineIntentV1>,
+        origin: Arc<super::native_entry_v1::NativeInlineOriginV1>,
+    },
     Preview(Arc<ui_v1::InlineComposerRequestV1>),
     Confirm(Arc<ui_v1::InlineComposerRequestV1>),
 }
@@ -40,7 +44,7 @@ impl ScopedInlineWorkV1 {
         match self.kind {
             #[cfg(test)]
             Kind::ActualWorkerPanic(ref original) => original.phase(),
-            Kind::Open(_) => ScopedInlinePhaseV1::Open,
+            Kind::Open(_) | Kind::OpenNative { .. } => ScopedInlinePhaseV1::Open,
             Kind::Preview(_) => ScopedInlinePhaseV1::Preview,
             Kind::Confirm(_) => ScopedInlinePhaseV1::Confirm,
         }
@@ -49,7 +53,7 @@ impl ScopedInlineWorkV1 {
         match &self.kind {
             #[cfg(test)]
             Kind::ActualWorkerPanic(original) => original.intent(),
-            Kind::Open(intent) => intent,
+            Kind::Open(intent) | Kind::OpenNative { intent, .. } => intent,
             Kind::Preview(request) | Kind::Confirm(request) => request.intent(),
         }
     }
@@ -57,7 +61,7 @@ impl ScopedInlineWorkV1 {
         match &self.kind {
             #[cfg(test)]
             Kind::ActualWorkerPanic(original) => original.request(),
-            Kind::Open(_) => None,
+            Kind::Open(_) | Kind::OpenNative { .. } => None,
             Kind::Preview(request) | Kind::Confirm(request) => Some(request),
         }
     }
@@ -81,6 +85,9 @@ impl ScopedInlineWorkV1 {
                                 && intent.last == range.last
                         })
             }
+            Kind::OpenNative { intent, origin } => {
+                origin.matches_open(app) && origin.matches_intent(intent)
+            }
             Kind::Preview(request) | Kind::Confirm(request) => {
                 !app.form_dismissed
                     && app.overlay == Some(Overlay::Form)
@@ -89,6 +96,18 @@ impl ScopedInlineWorkV1 {
                         .as_ref()
                         .is_some_and(|form| request.matches_form(form))
             }
+        }
+    }
+}
+impl ScopedInlineWorkV1 {
+    pub(crate) fn native_origin(
+        &self,
+    ) -> Option<&Arc<super::native_entry_v1::NativeInlineOriginV1>> {
+        match &self.kind {
+            Kind::OpenNative { origin, .. } => Some(origin),
+            #[cfg(test)]
+            Kind::ActualWorkerPanic(original) => original.native_origin(),
+            _ => None,
         }
     }
 }
@@ -168,6 +187,12 @@ impl ScopedInlineOwnerV1 {
     }
 }
 pub fn newer_intent(app: &App) -> bool {
+    newer_intent_allowing_work(app, None)
+}
+pub(crate) fn newer_intent_allowing_work(app: &App, own: Option<&Arc<ScopedInlineWorkV1>>) -> bool {
+    if app.scoped_reviews_work_v2.is_some() || app.scoped_reviews_cancel_v2 {
+        return true;
+    }
     if app.scoped_threads_work_v1.is_some() || app.scoped_threads_cancel_v1 {
         return true;
     }
@@ -180,7 +205,10 @@ pub fn newer_intent(app: &App) -> bool {
     }
     app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
-        || app.scoped_inline_work_v1.is_some()
+        || app
+            .scoped_inline_work_v1
+            .as_ref()
+            .is_some_and(|queued| own.is_none_or(|own| !Arc::ptr_eq(queued, own)))
         || app.scoped_inline_cancel_v1
         || app.cancel_requested
         || app.refresh_requested
@@ -210,11 +238,27 @@ pub fn newer_intent(app: &App) -> bool {
         || app.navigation_restore.is_some()
         || app.navigation_restore_inflight
 }
+pub(crate) fn enqueue_native(
+    app: &mut App,
+    intent: Arc<ScopedInlineIntentV1>,
+    origin: Arc<super::native_entry_v1::NativeInlineOriginV1>,
+) {
+    let work = Arc::new(ScopedInlineWorkV1 {
+        kind: Kind::OpenNative { intent, origin },
+    });
+    if work.matches(app) && !newer_intent(app) {
+        app.scoped_inline_work_v1 = Some(work);
+        app.pr_native_diff_layout_v1.clear();
+        app.hits.clear();
+    }
+}
 pub fn open(app: &mut App) {
     if app.scoped_inline_owner_v1.is_some()
         || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
         || app.scoped_inline_work_v1.is_some()
+        || app.scoped_reviews_work_v2.is_some()
+        || app.scoped_reviews_cancel_v2
         || app.loading[View::Inbox.index()]
     {
         app.status = "Inline operation busy • Esc cancels original operation".into();
@@ -311,6 +355,9 @@ impl PreparedScopedInlineV1 {
                 (Kind::Open(intent), ResultKind::Opened(form)) => {
                     matches!(&form.purpose,crate::forms::FormPurpose::PrInline(state)if Arc::ptr_eq(state.intent(),intent))
                 }
+                (Kind::OpenNative { intent, origin }, ResultKind::Opened(form)) => {
+                    matches!(&form.purpose,crate::forms::FormPurpose::PrInline(state)if Arc::ptr_eq(state.intent(),intent)&&state.native_origin_v1.as_ref().is_some_and(|actual|Arc::ptr_eq(actual,origin)))
+                }
                 (Kind::Preview(request), ResultKind::Preview(preview)) => {
                     Arc::ptr_eq(request.intent(), preview.intent())
                         && request.body().as_ref() == preview.body()
@@ -337,7 +384,7 @@ pub fn execute(
     let kind = match &owner.work.kind {
         #[cfg(test)]
         Kind::ActualWorkerPanic(_) => panic!("ACTUAL_INLINE_WORKER_PANIC_PRIVATE_POISON"),
-        Kind::Open(intent) => match ScopedInlineDraftV1::open(
+        Kind::Open(intent) | Kind::OpenNative { intent, .. } => match ScopedInlineDraftV1::open(
             intent.clone(),
             provider,
             database,
@@ -347,7 +394,12 @@ pub fn execute(
             owner.deadline,
         ) {
             Ok(draft) => match ui_v1::form_from_draft(draft) {
-                Ok(form) => ResultKind::Opened(Box::new(form)),
+                Ok(mut form) => {
+                    if let Some(origin) = owner.work.native_origin() {
+                        ui_v1::bind_native_origin(&mut form, origin.clone());
+                    }
+                    ResultKind::Opened(Box::new(form))
+                }
                 Err(message) => ResultKind::Failed {
                     hide_private: true,
                     message,
@@ -393,6 +445,11 @@ pub fn execute(
 }
 pub fn retire_private(app: &mut App, background: &mut crate::runtime::Background) {
     use crate::active_remote_scope_v1::{RemoteScopeFenceV1, RemoteScopeStopV1};
+    // The caller has already admitted the exact original owner/source. A
+    // terminal publication/source failure retires the retained Native frame
+    // now, not on a later draw; it cannot become read-only Back authority.
+    app.pr_native_diff_v1 = None;
+    app.pr_native_diff_layout_v1 = Default::default();
     if let Some(scope) = &mut app.remote_scope {
         Arc::make_mut(scope).fence(RemoteScopeFenceV1::SourceUnavailable)
     }
@@ -443,6 +500,8 @@ pub fn publish(
             if hide_private || owner.work.phase() == ScopedInlinePhaseV1::Confirm {
                 retire_private(app, background);
                 app.status="Original inline source unavailable • private views hidden • draft/journal preserved • nothing resent".into();
+            } else if owner.work.native_origin().is_some() {
+                app.dispatch(crate::app::Action::Explain(message));
             } else if let Some(form) = &mut app.form {
                 form.submitting = false;
                 form.invalidate_plan();

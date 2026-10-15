@@ -11,6 +11,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
+#[path = "review_repair_selection_v8.rs"]
+mod review_repair_v8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrDiscussionImpact {
@@ -29,13 +31,23 @@ pub struct DiscussionReadGuard {
     label_fences: Vec<crate::pr_metadata_actions::PrMetadataLabelReadFence>,
     pub unavailable_sources: BTreeMap<String, String>,
     pub recovered_sources: Vec<String>,
+    review_selections_v8: Vec<review_repair_v8::ReviewRepairSelectionV8>,
+    historical_composite_v8: bool,
 }
 impl DiscussionReadGuard {
     pub fn blocked_sources(&self) -> &BTreeMap<String, String> {
         &self.unavailable_sources
     }
     pub fn status(&self) -> Vec<String> {
-        self.unavailable_sources.values().cloned().collect()
+        let mut status = self
+            .unavailable_sources
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        if self.historical_composite_v8 {
+            status.push("Original historical composite and newer single-category receipt validated; fresh source hydration remains required".into());
+        }
+        status
     }
     pub fn recovered_sources(&self) -> &[String] {
         &self.recovered_sources
@@ -79,9 +91,12 @@ pub fn guard_discussion_reads(
         label_fences: vec![],
         unavailable_sources: BTreeMap::new(),
         recovered_sources: vec![],
+        review_selections_v8: vec![],
+        historical_composite_v8: false,
     };
     let mut seen = BTreeSet::new();
     let mut receipts = BTreeSet::new();
+    let mut unresolved_receipts = BTreeSet::new();
     let mut label_reasons = BTreeMap::new();
     for target in targets {
         target.validate().map_err(|error| error.to_string())?;
@@ -133,13 +148,41 @@ pub fn guard_discussion_reads(
             .map_err(|error| error.to_string())?
         {
             require_source_marker(&key, &marker)?;
+            super::review_operation_impact_v3::validate_original(&marker, &journal, &key)?;
             let categories = impact_categories(&marker)?;
-            if categories != vec![bound.kind] {
+            if !super::review_impact_v2::matches_source(&marker, true, bound.kind, &categories)? {
                 return Err("Genuine source receipt does not match its exact closed text category; private text remains hidden".into());
             }
-            if receipts.insert((marker.attempt_id, bound.kind)) {
-                let result=cache.fence_resource_sync_once(scope,&SyncFence{namespace:SyncNamespace::Collaboration,repository_id:None,repository:key.repository().to_ascii_lowercase(),resource:key.node_id().into(),kinds:categories},marker.attempt_id as u64).map_err(|error|format!("Confirmed text visibility recovery failed; private metadata remains hidden, do not resend: {error}"))?;
-                guard.recovered_sources.extend(result.sources);
+            validate_discussion_read_guard(database, &guard)?;
+            let plan = review_repair_v8::ReviewRepairSelectionV8::prepare(
+                &journal,
+                &key,
+                &marker,
+                &categories,
+            )?;
+            let repairs = if let Some((selection, repairs)) = plan {
+                guard.historical_composite_v8 |= repairs.len() == 2;
+                if !guard
+                    .review_selections_v8
+                    .iter()
+                    .any(|old| old.same_selection(&selection))
+                {
+                    guard.review_selections_v8.push(selection);
+                }
+                repairs
+            } else {
+                vec![marker]
+            };
+            for receipt in repairs {
+                // Original database/generation and BOTH exact actual selected
+                // refs immediately precede every original atomic effect set.
+                validate_discussion_read_guard(database, &guard)?;
+                super::review_operation_impact_v3::validate_original(&receipt, &journal, &key)?;
+                let categories = impact_categories(&receipt)?;
+                if receipts.insert((receipt.attempt_id, categories.clone())) {
+                    let result=cache.fence_resource_sync_once(scope,&SyncFence{namespace:SyncNamespace::Collaboration,repository_id:None,repository:key.repository().to_ascii_lowercase(),resource:key.node_id().into(),kinds:categories},receipt.attempt_id as u64).map_err(|error|format!("Confirmed text visibility recovery failed; private metadata remains hidden, do not resend: {error}"))?;
+                    guard.recovered_sources.extend(result.sources);
+                }
             }
         }
         if let Some(marker) = journal
@@ -147,23 +190,26 @@ pub fn guard_discussion_reads(
             .map_err(|error| error.to_string())?
         {
             require_source_marker(&key, &marker)?;
+            super::review_operation_impact_v3::validate_original(&marker, &journal, &key)?;
             let possible = possible_text_categories(&marker)?;
-            if possible.contains(&bound.kind) {
+            if super::review_impact_v2::matches_source(&marker, false, bound.kind, &possible)? {
                 // A conservative read fence is not a claim of invocation/effect.
-                cache
-                    .fence_resource_sync(
-                        scope,
-                        &SyncFence {
-                            namespace: SyncNamespace::Collaboration,
-                            repository_id: Some(target.repository_id),
-                            repository: target.repository.to_ascii_lowercase(),
-                            resource: target.parent_node.clone(),
-                            kinds: vec![bound.kind],
-                        },
-                    )
-                    .map_err(|error| {
-                        format!("Unresolved source visibility is unavailable: {error}")
-                    })?;
+                if unresolved_receipts.insert((marker.attempt_id, possible.clone())) {
+                    cache
+                        .fence_resource_sync(
+                            scope,
+                            &SyncFence {
+                                namespace: SyncNamespace::Collaboration,
+                                repository_id: Some(target.repository_id),
+                                repository: target.repository.to_ascii_lowercase(),
+                                resource: target.parent_node.clone(),
+                                kinds: possible,
+                            },
+                        )
+                        .map_err(|error| {
+                            format!("Unresolved source visibility is unavailable: {error}")
+                        })?;
+                }
                 guard.unavailable_sources.insert(target.source(),format!("Unresolved PR publication ({:?}); this marker proves neither invocation nor success. Cached {:?} unavailable until explicit inspection/acknowledgement and fresh hydration.",marker.state,bound.kind));
             }
         }
@@ -197,6 +243,9 @@ pub fn validate_discussion_read_guard(
     }
     for fence in &guard.label_fences {
         fence.validate()?;
+    }
+    for selection in &guard.review_selections_v8 {
+        selection.validate(database, &journal)?;
     }
     Ok(())
 }
@@ -259,6 +308,7 @@ pub fn confirmed_discussion_impact(
         );
     }
     let categories = impact_categories(&marker)?;
+    super::review_operation_impact_v3::validate_original(&marker, &journal, &key)?;
     Ok(PrDiscussionImpact {
         scope: key.scope().clone(),
         repository: marker.target.repository().to_ascii_lowercase(),
@@ -326,6 +376,7 @@ pub fn invalidate_unresolved_discussions(
         })
         .ok_or("No exact original unresolved publication authorizes a possible-text fence")?;
     let categories = possible_text_categories(&marker)?;
+    super::review_operation_impact_v3::validate_original(&marker, &journal, &key)?;
     if categories.is_empty() {
         return Ok(None);
     }
@@ -368,7 +419,16 @@ fn comment_category(marker: &PrWriteMarker) -> Result<SyncBindingKind, String> {
 }
 
 fn possible_text_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
+    if let Some(categories) = super::review_rerequest_impact_v3::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::thread_comment_impact_v2::categories(marker, false)? {
+        return Ok(categories);
+    }
     if let Some(categories) = super::thread_impact_v1::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::review_impact_v2::categories(marker, false)? {
         return Ok(categories);
     }
     let category = match marker.command.as_str() {
@@ -414,7 +474,16 @@ pub(crate) fn unresolved_visibility_diagnostic(
 }
 
 fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
+    if let Some(categories) = super::review_rerequest_impact_v3::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::thread_comment_impact_v2::categories(marker, true)? {
+        return Ok(categories);
+    }
     if let Some(categories) = super::thread_impact_v1::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::review_impact_v2::categories(marker, true)? {
         return Ok(categories);
     }
     let receipt = marker

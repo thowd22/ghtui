@@ -24,6 +24,20 @@ pub fn action(app: &mut App, action: ui::PrImageUiActionV1) {
     if retire_invalid(app) {
         return;
     }
+    if app.scoped_reviews_owner_v2.is_some() {
+        match action {
+            ui::PrImageUiActionV1::Close | ui::PrImageUiActionV1::Back => {
+                app.scoped_reviews_cancel_v2 = true
+            }
+            ui::PrImageUiActionV1::Quit => app.dispatch(Action::Quit),
+            _ => app.status = "Original review read pending • Esc cancels".into(),
+        }
+        return;
+    }
+    if action == ui::PrImageUiActionV1::Batch {
+        super::reviews_v2::native_v2::open(app, true);
+        return;
+    }
     if app.scoped_inline_owner_v1.is_some() {
         match action {
             ui::PrImageUiActionV1::Close | ui::PrImageUiActionV1::Back => {

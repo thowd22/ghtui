@@ -409,6 +409,14 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         KeyCode::Char('j') if workspace.run.is_some() => {
             Some(ActionsAction::View(ActionsView::Jobs))
         }
+        KeyCode::Char('t')
+            if workspace
+                .controls
+                .iter()
+                .any(|control| control.label == "[t Run]") =>
+        {
+            Some(ActionsAction::View(ActionsView::Run))
+        }
         KeyCode::Char('l') if workspace.run.is_some() => Some(ActionsAction::Logs(
             workspace.run.as_ref().and_then(|run| run.selected_job),
         )),

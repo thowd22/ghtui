@@ -201,7 +201,13 @@ impl TextBuffer {
         } else if row >= self.top_line + height.max(1) {
             self.top_line = row + 1 - height.max(1);
         }
-        if column < self.left_column {
+        // A narrow field may have scrolled horizontally to keep its caret in
+        // view. Once the whole prefix up to that caret fits again, do not keep
+        // hiding it after a resize. This uses the already measured position,
+        // not an additional full-line scan, and preserves manual scrolling.
+        if column < width.max(1) {
+            self.left_column = 0;
+        } else if column < self.left_column {
             self.left_column = column;
         } else if column >= self.left_column + width.max(1) {
             self.left_column = column + 1 - width.max(1);
@@ -282,6 +288,41 @@ mod tests {
         assert!(buffer.insert(&"x".repeat(MAX_TEXT_BYTES)).is_err());
         assert_eq!(buffer.text, previous);
     }
+    #[test]
+    fn form_preview_visible_editor_growth_reveals_prefix_without_changing_text_cursor_or_selection()
+    {
+        for text in [
+            "Bounded preview only • never Confirm",
+            "Bounded 界e\u{301}\tpreview only",
+        ] {
+            let mut buffer = TextBuffer::new(text).unwrap();
+            buffer.anchor = Some(0);
+            let cursor = buffer.cursor;
+            let selection = buffer.selection();
+            buffer.ensure_visible(12, 1);
+            assert!(buffer.left_column > 0);
+            assert!(!display_line(text, buffer.left_column, 12).starts_with("Bounded"));
+            buffer.ensure_visible(94, 1);
+            assert_eq!(buffer.left_column, 0);
+            assert_eq!(
+                display_line(text, buffer.left_column, 94),
+                text.replace('\t', "    ")
+            );
+            assert_eq!(buffer.text, text);
+            assert_eq!(buffer.cursor, cursor);
+            assert_eq!(buffer.selection(), selection);
+            assert_eq!(buffer.top_line, 0);
+            buffer.ensure_visible(12, 1);
+            let manual_left = buffer.left_column;
+            buffer.scroll(0);
+            buffer.ensure_visible(94, 1);
+            assert_eq!(
+                buffer.left_column, manual_left,
+                "explicit manual scroll remains authoritative"
+            );
+        }
+    }
+
     #[test]
     fn composer_keyboard_and_mouse_use_identical_wide_cell_coordinates() {
         let mut buffer = TextBuffer::new("ab界d\nxy\nab界d").unwrap();

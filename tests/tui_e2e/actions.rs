@@ -9,6 +9,8 @@ mod approval_recovery;
 mod approvals;
 #[path = "actions/lease_selection.rs"]
 mod lease_selection;
+#[path = "actions/optional_attempt_v1.rs"]
+mod optional_attempt_v1;
 #[path = "actions/principal_freshness.rs"]
 mod principal_freshness;
 #[path = "../support/actions_publication.rs"]

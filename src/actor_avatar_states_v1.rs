@@ -20,6 +20,7 @@ const MAX_CONTEXT_BYTES: usize = 16 * 1024;
 pub struct ActorAvatarStatesV1 {
     states: HashMap<ActorIdentity, AvatarState>,
     scope: Option<String>,
+    projection_v7: Option<Arc<()>>,
 }
 impl std::fmt::Debug for ActorAvatarStatesV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,6 +33,16 @@ impl ActorAvatarStatesV1 {
     pub fn clear(&mut self) {
         self.states.clear();
         self.scope = None;
+        self.projection_v7 = None;
+    }
+    /// Display allocation only: no source/access/permission or historical data.
+    pub(crate) fn projection_v7(&self) -> Option<std::sync::Weak<()>> {
+        self.projection_v7.as_ref().map(Arc::downgrade)
+    }
+    pub(crate) fn matches_projection_v7(&self, original: &std::sync::Weak<()>) -> bool {
+        self.projection_v7
+            .as_ref()
+            .is_some_and(|current| std::sync::Weak::ptr_eq(original, &Arc::downgrade(current)))
     }
     pub fn len(&self) -> usize {
         self.states.len()
@@ -96,6 +107,7 @@ impl ActorAvatarStatesV1 {
         }
         self.states = next;
         self.scope = Some(scope);
+        self.projection_v7 = Some(Arc::new(()));
         true
     }
     /// Synchronize ONLY the active admitted surface's real actor observations.
@@ -133,6 +145,7 @@ impl ActorAvatarStatesV1 {
         }
         self.states = next;
         self.scope = Some(scope);
+        self.projection_v7 = Some(Arc::new(()));
         true
     }
 }

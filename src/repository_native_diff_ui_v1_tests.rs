@@ -146,7 +146,7 @@ fn native_diff_ui_all_options_click_and_keyboard_use_exact_same_actions_and_focu
         ..Default::default()
     };
     draw(&mut layout, &mut state, 40, 24);
-    assert_eq!(layout.hits.len(), 27);
+    assert_eq!(layout.hits.len(), 28);
     let hits = layout.hits.clone();
     for hit in hits {
         assert_eq!(
@@ -169,6 +169,10 @@ fn native_diff_ui_all_options_click_and_keyboard_use_exact_same_actions_and_focu
     assert_eq!(
         layout.key(KeyCode::Char('a'), KeyModifiers::NONE),
         Some(NativeDiffActionV1::Stage)
+    );
+    assert_eq!(
+        layout.key(KeyCode::Char('E'), KeyModifiers::NONE),
+        Some(NativeDiffActionV1::External)
     );
     assert_eq!(
         layout.key(KeyCode::Down, KeyModifiers::NONE),

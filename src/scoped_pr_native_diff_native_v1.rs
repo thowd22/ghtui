@@ -348,7 +348,20 @@ pub(crate) fn execute(
         #[cfg(test)]
         WorkKind::ActualWorkerPanic(_) => panic!("Actual original PR native worker panic control"),
         WorkKind::Projection(request) => {
-            PreparedKind::Projected(Box::new(request.prepare(&operation)?))
+            let prepared = if let Some(display) = request.external_display_v4() {
+                let bounds =
+                    crate::repository_native_external_v4::ExternalRendererBoundsV4::original(
+                        &operation,
+                        provider.native_external_runner_v4().clone(),
+                        owner.deadline,
+                        owner.cancel.clone(),
+                        display.clone(),
+                    )?;
+                request.prepare_external_v4(&operation, &bounds)?
+            } else {
+                request.prepare(&operation)?
+            };
+            PreparedKind::Projected(Box::new(prepared))
         }
         WorkKind::Images(slot) => {
             let input = slot
@@ -434,6 +447,9 @@ pub(crate) fn publish(app: &mut App, result: PreparedPrNativeV1) -> bool {
                 return false;
             }
             app.status = ScopedPrNativeSourceV1::ready_status().into();
+            crate::repository_native_diff_native_v1::start_admitted_external_v4::<
+                ScopedPrNativeSourceV1,
+            >(app);
         }
     }
     app.hits.clear();
@@ -509,6 +525,31 @@ pub(crate) fn actual_panic_work(original: Arc<PrNativeWorkV1>) -> Arc<PrNativeWo
 }
 
 impl crate::repository_native_diff_native_v1::NativeAppV2 for ScopedPrNativeSourceV1 {
+    fn threads(app: &mut App) {
+        let ready = app.overlay.is_none()
+            && app.form.as_ref().is_none_or(|_| app.form_dismissed)
+            && !app.loading[View::Inbox.index()]
+            && !crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::newer_intent(
+                app,
+            )
+            && app.pr_native_diff_v1.as_ref().is_some_and(|state| {
+                state.current_frame().is_some()
+                    && state.external_v4.is_none()
+                    && state
+                        .source()
+                        .is_some_and(|source| source.proof().owns(app))
+            });
+        if ready {
+            // Same actual Files/Nav capture. No images/range constructor, no
+            // native state mutation; pure browser Back reveals this exact view.
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open(app);
+        } else {
+            app.status="Threads require the current original PR patch; close other controls and wait/cancel pending work first. Full-file rows grant no thread/range authority.".into();
+        }
+    }
+    fn comment(app: &mut App) {
+        immutable_images::inline_v1::native_entry_v1::open(app);
+    }
     fn view() -> View {
         View::Inbox
     }

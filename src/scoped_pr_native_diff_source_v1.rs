@@ -140,6 +140,15 @@ impl NativeDiffContentV2 for ScopedPrNativeSourceV1 {
     }
 }
 impl NativeDiffPurposeV2 for ScopedPrNativeSourceV1 {
+    fn external_patch_v4(&self) -> crate::repository_native_external_v4::NativeExternalPatchV4<'_> {
+        crate::repository_native_external_v4::NativeExternalPatchV4::pr(self)
+    }
+    fn supports_inline_comment() -> bool {
+        true
+    }
+    fn supports_review_threads() -> bool {
+        true
+    }
     type Context = App;
     type Operation = PrNativePreparationV1;
     type Intent = ScopedPrNativeIntentV1;
@@ -271,7 +280,7 @@ impl NativeDiffPurposeV2 for ScopedPrNativeSourceV1 {
         "Stage disabled: a remote PR image has no local index/worktree authority. No Git or GitHub mutation was queued."
     }
     fn selection_help() -> &'static str {
-        "Original M/H patch ranges are read-only; return to verified Images for the separate explicit inline workflow. No publication approval is created."
+        "Explicit single-side canonical patch ranges can open P Comment for fresh verification; full-file/Both positions cannot. No publication approval is created by selection."
     }
     fn ready_status() -> &'static str {
         "Native PR diff ready • one verified file • original M/H • read-only"

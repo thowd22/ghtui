@@ -78,6 +78,15 @@ impl NativeDiffContentV2 for MutableDiffSourceV2 {
 /// immutable engine does not share saved authorization with unsaved content.
 pub type CapturedNativeDiffPurposeV2<S> = (Arc<<S as NativeDiffPurposeV2>::Intent>, Option<Arc<S>>);
 pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
+    /// Borrowed original provider bytes, not a permission or reconstructed diff.
+    #[doc(hidden)]
+    fn external_patch_v4(&self) -> crate::repository_native_external_v4::NativeExternalPatchV4<'_>;
+    fn supports_inline_comment() -> bool {
+        false
+    }
+    fn supports_review_threads() -> bool {
+        false
+    }
     type Context;
     type Operation: crate::native_diff_operation_v3::NativeDiffCheckV3;
     fn validate_full_side_v3(
@@ -113,6 +122,9 @@ pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
 }
 
 impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
+    fn external_patch_v4(&self) -> crate::repository_native_external_v4::NativeExternalPatchV4<'_> {
+        crate::repository_native_external_v4::NativeExternalPatchV4::saved(self)
+    }
     type Context = Workspace;
     type Operation = LocalGitNavigationReadV1;
     fn validate_full_side_v3(
@@ -222,6 +234,9 @@ impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
 }
 
 impl NativeDiffPurposeV2 for MutableDiffSourceV2 {
+    fn external_patch_v4(&self) -> crate::repository_native_external_v4::NativeExternalPatchV4<'_> {
+        crate::repository_native_external_v4::NativeExternalPatchV4::mutable(self)
+    }
     type Context = Workspace;
     type Operation = LocalGitNavigationReadV1;
     fn validate_full_side_v3(

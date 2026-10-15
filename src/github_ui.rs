@@ -59,6 +59,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let tabs = if scoped {
         let mut controls = vec![(String::from("[b Back]"), GithubAction::Back)];
         if !pending_observed {
+            if github
+                .pr
+                .as_ref()
+                .is_some_and(|page| page.tab == PrTab::Summary)
+            {
+                controls.push(("[J Thread history]".into(), GithubAction::ThreadHistoryV1));
+                controls.push((
+                    "[F9 Review history]".into(),
+                    GithubAction::ReviewOperationHistoryV3,
+                ));
+            }
             controls.extend(
                 PrTab::ALL
                     .iter()

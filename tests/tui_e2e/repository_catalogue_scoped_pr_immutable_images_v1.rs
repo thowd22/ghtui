@@ -5,6 +5,8 @@ use super::*;
 pub(super) mod history;
 #[path = "scoped_inline_comments_v1.rs"]
 mod inline_comments;
+#[path = "scoped_pending_reviews_v2.rs"]
+mod pending_reviews_v2;
 #[path = "scoped_pr_native_diff_v1.rs"]
 mod scoped_pr_native_diff_v1;
 

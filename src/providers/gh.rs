@@ -429,6 +429,11 @@ impl GithubProvider {
         self.runner = runner;
         self
     }
+    /// The original native worker uses this SAME runner for fixed optional
+    /// local renderer commands; never its authenticated scoped read window.
+    pub(crate) fn native_external_runner_v4(&self) -> &CommandRunner {
+        &self.runner
+    }
     pub fn host(&self) -> &str {
         &self.host
     }

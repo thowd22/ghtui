@@ -4,7 +4,7 @@ title: Evaluate and refine beginner-friendly Git PR and Actions workflows
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 16:38'
+updated_date: '2026-10-15 14:20'
 labels:
   - delivery
   - e2e
@@ -53,4 +53,8 @@ The product must be usable by someone with little Git knowledge. A polished feat
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-10-14 distribution now uses one macOS/Linux Bash bootstrap (doc-12). Include understandable gh/git prerequisites, first-run/PATH guidance and update terminology in this task's existing novice guidance criteria; actual shipped-script installation/usability and recovery are evaluated in TASK-68 after this task. Do not wait for a completed installer here: TASK-68 already depends on TASK-67. Dependencies/status/AC unchanged; no novice study or installer test executed by research.
+
+Task73 collateral long-path evidence (2026-10-14, no UI fix or Done claim): first isolated SQLite-update all-target run used TMPDIR and GIT_CEILING_DIRECTORIES=/home/admin2/CODE/ghtui/target/parallel-sqlite.rEbslh/test-tmp, preserving all existing source and assertions. Actual1798 code passed;568 native executed,562 passed/6 failed0ignored. Completed raw-ref/source-context labels at120columns and linked-worktree removal/inventory labels at80columns clipped full paths/raw ref bytes. Six raw artifacts retained: /home/admin2/CODE/ghtui/target/parallel-sqlite.rEbslh/target/tui-artifacts/1955083-1792019511786915988 (rawref keyboard), 1955083-1792019511840139843 (rawref mouse), 1955083-1792019513974352846 (stash/worktree keyboard), 1955083-1792019514020993430 (stash/worktree mouse), 1955083-1792019514141148397 (picker keyboard), 1955083-1792019514230585273 (picker mouse). Whole log target/sqlite-dependency-whole-first.log. This exposes a real product long-path visibility/usability gap: use bounded readable clipping plus discoverable full raw identity/path, both inputs/narrow layout/privacy/effect regression, under Task35/67 rather than pretending SQLite changes fix it. Subsequent fixture environment is private0700 mktemp /tmp/ghtui-sql73.OhndFL with matching Git ceiling; test/source/predicates unchanged. Short-prefix exact rawref/worktree/picker both-input focused filters returnedexit0; no claim that long-path UI gap is fixed. Short-prefix second broad run has separate fixture/build failures still under diagnosis, not accepted as whole-green.
+
+Concrete screenshot evidence for later usability work (no implementation scope/status changes): actual V32color captures target/build/root-real-terminal-screenshots-v32-rendered-20261015.json. Review80x24 exposes internal labels requester UID Some(42), dense19control toolbar and safely disabled resize/current-target state; Actions repeats long source context and repeated unavailable capability descriptions consume much of first page. Git Overview gives preserved edits/history; native diff actual red/green rows clear but sparse2-line fixture is not a rich beginner scenario. Keep numeric/current-source and honest disabled explanations available, but refine progressive disclosure, concise readable identity and beginner action guidance at TASK67 with real paired size/input/effect tests; do not hide failures, fake demo content or recolor captured images. Earlier native checks prove scoped workflows, not full usability/parity.
 <!-- SECTION:NOTES:END -->

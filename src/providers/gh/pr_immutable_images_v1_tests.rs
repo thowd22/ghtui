@@ -12,6 +12,39 @@ fn metadata(path: &str, status: &str, previous: Option<&str>) -> ObservedPrFileV
         patch_supplied: true,
     }
 }
+#[test]
+fn native_external_diff_provider_retains_exact_selected_raw_section_and_digest_not_whole_pr() {
+    use sha2::Digest;
+    for sha256 in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let (history, whole, _) = history::GitImagesV1::create_with_extra_file(
+            directory.path(),
+            sha256,
+            history::OLD,
+            history::NEW,
+        );
+        let selected = selected_patch(
+            &whole,
+            &metadata(history::PATH, "modified", None),
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(selected.raw.as_ref(), history.patch.as_slice());
+        assert_ne!(selected.raw.as_ref(), whole.as_slice());
+        assert_eq!(
+            selected.digest,
+            format!("{:x}", sha2::Sha256::digest(selected.raw.as_ref()))
+        );
+        assert!(!selected
+            .raw
+            .windows(b"z-other.rs".len())
+            .any(|bytes| bytes == b"z-other.rs"));
+        assert_eq!(
+            selected.file.new_path.as_deref(),
+            Some(history::PATH.as_bytes())
+        );
+    }
+}
 fn image(path: &str, bytes: &[u8], kind: PrImmutableImageKindV1) -> PrImmutableImageV1 {
     use sha1::Digest;
     let mut sha = sha1::Sha1::new();

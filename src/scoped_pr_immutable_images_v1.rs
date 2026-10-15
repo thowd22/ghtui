@@ -8,6 +8,8 @@ use crate::providers::gh::{
 pub mod inline_v1;
 #[path = "scoped_pr_immutable_image_native_v1.rs"]
 pub mod native;
+#[path = "scoped_pr_review_intent_v2.rs"]
+pub mod reviews_v2;
 #[path = "scoped_pr_immutable_image_ui_v1.rs"]
 pub mod ui;
 

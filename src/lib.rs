@@ -64,7 +64,9 @@ pub mod pr_progress;
 pub mod pr_projection;
 pub mod pr_ui;
 pub mod pr_write_journal;
+pub mod prepared_form_text_v1;
 pub mod providers;
+mod read_only_pty_pane_v4;
 pub mod remote_scope_gate_v1;
 pub mod repository_catalogue_avatars_v1;
 pub mod repository_catalogue_dialogs;
@@ -90,6 +92,9 @@ pub mod repository_native_diff_native_v1;
 pub mod repository_native_diff_projection_v1;
 pub mod repository_native_diff_ui_v1;
 pub mod repository_native_diff_v1;
+mod repository_native_external_ui_v4;
+#[doc(hidden)]
+pub mod repository_native_external_v4;
 pub mod repository_native_full_side_ui_v3;
 pub mod repository_native_full_side_v3;
 pub mod repository_native_mutable_plan_native_v2;
@@ -134,6 +139,9 @@ mod capability_app_tests;
 #[path = "../tests/support/immutable_git_v1.rs"]
 pub(crate) mod immutable_git_v1_test_support;
 #[cfg(test)]
+#[path = "../tests/support/owned_pty_processes_v1.rs"]
+pub(crate) mod owned_pty_processes_test_support;
+#[cfg(test)]
 #[allow(dead_code)]
 #[path = "../tests/support/providers.rs"]
 mod test_support;
@@ -150,3 +158,7 @@ mod remote_repository_v1_test_support;
 pub mod remote_repository_native_v1;
 pub mod remote_repository_v1;
 pub mod repository_stash_recovery_v1;
+pub mod scoped_actions_native_v1;
+#[cfg(test)]
+pub(crate) mod scoped_actions_test_support_v1;
+pub mod scoped_actions_v1;

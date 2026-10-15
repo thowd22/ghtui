@@ -324,6 +324,8 @@ pub struct ScopedInlinePreviewV1 {
     local: ResourceLocalGuard,
     write_intent: PrWriteIntent,
     lines: Arc<[String]>,
+    visible_lines_v1: Arc<[String]>,
+    display_v1: Arc<crate::prepared_form_text_v1::PreparedFormTextV1>,
     started: AtomicBool,
 }
 impl std::fmt::Debug for ScopedInlinePreviewV1 {
@@ -480,6 +482,32 @@ impl ScopedInlinePreviewV1 {
             format!("Old content M {} • {} body bytes", intent.merge_base(), body.len()),
             "Fresh observed preview only. Explicit Confirm rechecks source/account/head/storage before exactly one publication; no automatic retry.".into(),
         ];
+        if lines.iter().map(String::len).sum::<usize>() > 64 * 1024 {
+            return Err(refused(
+                "Inline Preview metadata exceeds bounded native presentation; draft retained",
+            ));
+        }
+        let mut visible_lines = lines.clone(); // bounded metadata, ORIGINAL worker only
+        visible_lines.push("Exact comment body (terminal control bytes escaped):".into());
+        visible_lines.extend(
+            body.split('\n')
+                .map(|line| crate::git::display_bytes(line.as_bytes())),
+        );
+        if visible_lines.len() > 65_536
+            || visible_lines.iter().map(String::len).sum::<usize>() > 512 * 1024
+        {
+            return Err(refused(
+                "Inline Preview display exceeds bounded native presentation; draft retained",
+            ));
+        }
+        let display_v1 = crate::prepared_form_text_v1::PreparedFormTextV1::prepare(
+            &visible_lines,
+            cancel,
+            original_deadline,
+        )
+        .map_err(|_| {
+            refused("Inline Preview display exceeds bounded native presentation; draft retained")
+        })?;
         check(cancel, original_deadline)?;
         let result = Arc::new(Self {
             intent,
@@ -488,6 +516,8 @@ impl ScopedInlinePreviewV1 {
             local,
             write_intent,
             lines: lines.into(),
+            visible_lines_v1: visible_lines.into(),
+            display_v1,
             started: AtomicBool::new(false),
         });
         check(cancel, original_deadline)?;
@@ -507,6 +537,12 @@ impl ScopedInlinePreviewV1 {
     }
     pub fn draft_key(&self) -> &str {
         &self.write_intent.selected_resource
+    }
+    pub(crate) fn visible_lines_v1(&self) -> &Arc<[String]> {
+        &self.visible_lines_v1
+    }
+    pub(crate) fn display_v1(&self) -> &Arc<crate::prepared_form_text_v1::PreparedFormTextV1> {
+        &self.display_v1
     }
 
     /// Only explicit Confirm can call this. Queueing captures a new absolute

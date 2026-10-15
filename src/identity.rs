@@ -645,6 +645,11 @@ pub struct AvatarCache {
     inner: Arc<Mutex<CacheInner>>,
 }
 impl AvatarCache {
+    /// Allocation identity only. Never proves source, lease or account access;
+    /// a newer surface can legitimately share this very same allocation.
+    pub(crate) fn same_instance_v7(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
     /// Metadata partition only, never current authentication/access authority.
     pub(crate) fn scope_key(&self) -> &str {
         &self.scope

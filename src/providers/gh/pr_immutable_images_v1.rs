@@ -194,6 +194,7 @@ impl GithubProvider {
         }
         checked_finished(self, cancel)?;
         Ok(PrImmutableFileReadV1 {
+            selected_raw_patch: original.selected.raw.clone(),
             canonical_file: original.selected.file.clone(),
             parent: closing,
             merge_base,
@@ -213,6 +214,7 @@ impl GithubProvider {
 }
 pub(super) fn original_parent(first: &PrResourceParentV1, last: &PrResourceParentV1) -> bool {
     first.database_id == last.database_id
+        && first.author_account_id() == last.author_account_id()
         && first.repository_id == last.repository_id
         && first.repository_node == last.repository_node
         && first.head_repository == last.head_repository

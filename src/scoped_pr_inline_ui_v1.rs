@@ -22,6 +22,7 @@ struct PresentationTicketV1;
 
 #[derive(Clone)]
 pub struct ScopedInlineComposerStateV1 {
+    pub(crate) native_origin_v1: Option<Arc<super::native_entry_v1::NativeInlineOriginV1>>,
     intent: Arc<ScopedInlineIntentV1>,
     identity: HostIdentity,
     ticket: Arc<PresentationTicketV1>,
@@ -196,6 +197,7 @@ pub fn form_from_draft(draft: ScopedInlineDraftV1) -> Result<Form, String> {
     }
     let anchor_text = Arc::from(anchor_lines.join("\n"));
     let state = ScopedInlineComposerStateV1 {
+        native_origin_v1: None,
         intent: intent.clone(),
         identity: identity.clone(),
         ticket: Arc::new(PresentationTicketV1),
@@ -225,6 +227,16 @@ pub fn form_from_draft(draft: ScopedInlineDraftV1) -> Result<Form, String> {
     form.restored_draft = !draft.body().is_empty() || draft.publication().is_some();
     form.purpose = FormPurpose::PrInline(Box::new(state));
     Ok(form)
+}
+pub(crate) fn bind_native_origin(
+    form: &mut Form,
+    origin: Arc<super::native_entry_v1::NativeInlineOriginV1>,
+) {
+    if let FormPurpose::PrInline(state) = &mut form.purpose {
+        if origin.matches_intent(state.intent()) {
+            state.native_origin_v1 = Some(origin);
+        }
+    }
 }
 
 /// Check bytes BEFORE trim, Arc allocation or any editor/worker body clone.
@@ -269,28 +281,19 @@ pub fn accept_preview(
     {
         return false;
     }
-    let mut visible = preview.lines().to_vec();
-    visible.push("Exact comment body (terminal control bytes escaped):".into());
-    visible.extend(
-        preview
-            .body()
-            .split('\n')
-            .map(|line| crate::git::display_bytes(line.as_bytes())),
-    );
-    if visible.len() > 65_536 || visible.iter().map(String::len).sum::<usize>() > 512 * 1024 {
-        return false;
-    }
     let FormPurpose::PrInline(state) = &mut form.purpose else {
         return false;
     };
     state.identity = preview.identity().clone();
-    state.preview_lines = visible.into();
+    state.preview_lines = preview.visible_lines_v1().clone();
+    let display_v1 = preview.display_v1().clone();
     state.preview = Some(preview);
     form.preview = true;
     form.preview_requested = false;
     form.submit_requested = false;
     form.preview_scroll = 0;
     form.error.clear();
+    form.install_prepared_preview_display_v1(display_v1);
     true
 }
 pub fn confirmed_preview(form: &Form) -> Result<Arc<ScopedInlinePreviewV1>, String> {

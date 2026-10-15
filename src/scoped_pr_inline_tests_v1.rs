@@ -4,9 +4,14 @@ use super::*;
 mod inline_runtime;
 #[path = "scoped_pr_inline_ui_tests_v1.rs"]
 mod inline_ui;
+#[path = "scoped_pr_native_inline_v1_tests.rs"]
+mod native_entry;
+#[path = "scoped_pr_review_author_v2_tests.rs"]
+mod review_author_v2;
+#[path = "scoped_pr_review_provider_v2_tests.rs"]
+mod review_provider_v2;
+use crate::owned_pty_processes_test_support as original_process_identity;
 use crate::{drafts::DraftWriter, pr_write_journal::PrWriteJournal, storage::Cache};
-#[path = "../tests/support/owned_pty_processes_v1.rs"]
-mod original_process_identity;
 
 struct HeldOriginalChild {
     identity: original_process_identity::ProcessIdentity,
@@ -630,6 +635,7 @@ fn inline_setup(append: impl FnOnce(&history::GitImagesV1, &mut Vec<GhStep>)) ->
         steps,
         source,
         active,
+        original_files: workspace.scoped_pr_resource.as_ref().unwrap().clone(),
         workspace,
         sql_before,
         git_before,
@@ -1230,6 +1236,7 @@ fn renamed_setup(sha256: bool) -> Setup {
         steps,
         source,
         active,
+        original_files: workspace.scoped_pr_resource.as_ref().unwrap().clone(),
         workspace,
         sql_before,
         git_before,

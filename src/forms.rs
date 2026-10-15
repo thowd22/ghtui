@@ -1,5 +1,9 @@
 //! Shared native input dialogs. Editing, previewing and closing never publish.
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1 as inline_ui;
+use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::avatars_v7 as review_avatars;
+use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3 as review_operation_ui_v3;
+use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::ui_v2 as review_ui;
+use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui as comment_ui_v2;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use crate::{
     app::{safe_text, Action, App, HitRegion},
@@ -89,7 +93,10 @@ pub struct PrActionIntent {
 #[derive(Clone, Debug)]
 pub enum FormPurpose {
     PrThread(Box<thread_ui::ThreadComposerStateV1>),
+    PrThreadCommentV2(Box<comment_ui_v2::CommentComposerStateV2>),
     PrInline(Box<inline_ui::ScopedInlineComposerStateV1>),
+    PrReviewV2(Box<review_ui::ReviewComposerStateV2>),
+    PrReviewOperationV3(Box<review_operation_ui_v3::ReviewOperationComposerStateV3>),
     Pr(Box<PrIntent>),
     PrMetadata(Box<crate::pr_metadata_native::PrMetadataIntent>),
     PrAction(Box<PrActionIntent>),
@@ -162,6 +169,7 @@ pub struct Form {
     pub submitted: bool,
     pub preview_requested: bool,
     pub preview_scroll: usize,
+    pub(crate) preview_display_v1: crate::prepared_form_text_v1::FormPreviewDisplayStateV1,
     pub error_scroll: usize,
     pub error_rect: Rect,
     pub field_top: usize,
@@ -181,6 +189,7 @@ pub struct Form {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormAction {
+    RemoveLocalReviewCommentV10,
     InlineAnchor,
     InlineAnchorScroll(i32),
     InspectStashV1,
@@ -239,6 +248,7 @@ impl Form {
             submitted: false,
             preview_requested: false,
             preview_scroll: 0,
+            preview_display_v1: Default::default(),
             error_scroll: 0,
             error_rect: Rect::default(),
             field_top: 0,
@@ -286,6 +296,7 @@ impl Form {
             submitted: false,
             preview_requested: false,
             preview_scroll: 0,
+            preview_display_v1: Default::default(),
             error_scroll: 0,
             error_rect: Rect::default(),
             field_top: 0,
@@ -340,6 +351,7 @@ impl Form {
             submitted: false,
             preview_requested: false,
             preview_scroll: 0,
+            preview_display_v1: Default::default(),
             error_scroll: 0,
             error_rect: Rect::default(),
             field_top: 0,
@@ -398,6 +410,7 @@ impl Form {
             submitted: false,
             preview_requested: false,
             preview_scroll: 0,
+            preview_display_v1: Default::default(),
             error_scroll: 0,
             error_rect: Rect::default(),
             field_top: 0,
@@ -451,6 +464,7 @@ impl Form {
             submitted: false,
             preview_requested: false,
             preview_scroll: 0,
+            preview_display_v1: Default::default(),
             error_scroll: 0,
             error_rect: Rect::default(),
             field_top: 0,
@@ -510,6 +524,7 @@ impl Form {
             submitted: false,
             preview_requested: false,
             preview_scroll: 0,
+            preview_display_v1: Default::default(),
             error_scroll: 0,
             error_rect: Rect::default(),
             field_top: 0,
@@ -563,8 +578,11 @@ impl Form {
     }
     pub fn view(&self) -> crate::app::View {
         match self.purpose {
-            FormPurpose::PrThread(_) => crate::app::View::Inbox,
-            FormPurpose::PrInline(_) => crate::app::View::Inbox,
+            FormPurpose::PrThread(_)
+            | FormPurpose::PrThreadCommentV2(_)
+            | FormPurpose::PrInline(_)
+            | FormPurpose::PrReviewV2(_)
+            | FormPurpose::PrReviewOperationV3(_) => crate::app::View::Inbox,
             FormPurpose::Pr(_) | FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_) => {
                 crate::app::View::Inbox
             }
@@ -589,6 +607,7 @@ impl Form {
                 || matches!(self.purpose, FormPurpose::PrMetadata(_)))
     }
     pub fn invalidate_plan(&mut self) {
+        self.preview_display_v1 = Default::default();
         self.metadata_preview = None;
         if matches!(
             self.purpose,
@@ -596,6 +615,9 @@ impl Form {
                 | FormPurpose::PrMetadata(_)
                 | FormPurpose::PrInline(_)
                 | FormPurpose::PrThread(_)
+                | FormPurpose::PrReviewV2(_)
+                | FormPurpose::PrReviewOperationV3(_)
+                | FormPurpose::PrThreadCommentV2(_)
         ) && self.uses_prepared_preview()
         {
             self.preview = false;
@@ -605,7 +627,10 @@ impl Form {
         }
         match &mut self.purpose {
             FormPurpose::PrThread(state) => state.invalidate(),
+            FormPurpose::PrThreadCommentV2(state) => state.invalidate(),
             FormPurpose::PrInline(state) => state.invalidate(),
+            FormPurpose::PrReviewV2(state) => state.invalidate(),
+            FormPurpose::PrReviewOperationV3(state) => state.invalidate(),
             FormPurpose::Local(intent) => intent.plan = None,
             FormPurpose::Actions(intent) => intent.plan = None,
             FormPurpose::Compare(intent) => intent.plan = None,
@@ -621,7 +646,10 @@ impl Form {
     pub fn plan_ready(&self) -> bool {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.ready(),
+            FormPurpose::PrThreadCommentV2(state) => state.ready(),
             FormPurpose::PrInline(state) => state.ready(),
+            FormPurpose::PrReviewV2(state) => state.ready(),
+            FormPurpose::PrReviewOperationV3(state) => state.ready(),
             FormPurpose::Local(intent) => intent.plan.is_some(),
             FormPurpose::Actions(intent) => intent.plan.is_some(),
             FormPurpose::Pr(_) => {
@@ -646,7 +674,10 @@ impl Form {
         }
         match &self.purpose {
             FormPurpose::PrThread(state) => state.plan_lines(),
+            FormPurpose::PrThreadCommentV2(state) => state.plan_lines(),
             FormPurpose::PrInline(state) => state.plan_lines(),
+            FormPurpose::PrReviewV2(state) => state.plan_lines(),
+            FormPurpose::PrReviewOperationV3(state) => state.plan_lines(),
             FormPurpose::Local(intent) => intent
                 .plan
                 .as_ref()
@@ -674,6 +705,34 @@ impl Form {
                 .map_or(&[], |plan| plan.preview.as_slice()),
         }
     }
+    /// ORIGINAL worker only. This display is not source/approval authority.
+    pub fn prepare_preview_display_v1(
+        &mut self,
+        cancel: &crate::providers::runner::CancellationToken,
+        original_deadline: std::time::Instant,
+    ) -> Result<(), crate::prepared_form_text_v1::PreparedFormTextErrorV1> {
+        let display = crate::prepared_form_text_v1::PreparedFormTextV1::prepare(
+            self.plan_lines(),
+            cancel,
+            original_deadline,
+        )?;
+        self.install_prepared_preview_display_v1(display);
+        Ok(())
+    }
+    pub(crate) fn install_prepared_preview_display_v1(
+        &mut self,
+        display: std::sync::Arc<crate::prepared_form_text_v1::PreparedFormTextV1>,
+    ) {
+        self.preview_display_v1.document = Some(display);
+        self.preview_display_v1.viewport = Default::default();
+        self.preview_display_v1.geometry_rejected = true; // no useful current paint yet
+        self.preview_display_v1.failure = None;
+    }
+    pub fn clear_preview_display_geometry_v1(&mut self) {
+        // INPUT-time resize rejection; retain exact desired display anchor and
+        // source/Preview. This marker can only restrict, never grant a write.
+        self.preview_display_v1.geometry_rejected = true;
+    }
     /// Worker-only exact-input recheck, before any remote request or journal claim.
     pub fn validate_metadata_preview(&self) -> Result<(), String> {
         if let FormPurpose::Pr(intent) = &self.purpose {
@@ -687,8 +746,24 @@ impl Form {
         Ok(())
     }
     fn confirmation_blocked_reason(&self) -> Option<&str> {
+        if self.preview && self.uses_prepared_preview() && self.preview_display_v1.geometry_rejected
+        {
+            return Some(self.preview_display_v1.failure.map_or(
+                "Resize to inspect prepared Preview (at least64 text cells); no confirmation from a hidden/partial display.",
+                |error|error.message()));
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) && self.publication.is_some() {
+            return Some("Protected selected-comment publication is inspect only • no resend");
+        }
         if matches!(self.purpose, FormPurpose::PrThread(_)) && self.publication.is_some() {
             return Some("Original thread publication is history, never permission to resend");
+        }
+        if matches!(
+            self.purpose,
+            FormPurpose::PrReviewV2(_) | FormPurpose::PrReviewOperationV3(_)
+        ) && self.publication.is_some()
+        {
+            return Some("Original review publication is history, never permission to resend");
         }
         if matches!(self.purpose, FormPurpose::PrInline(_)) && self.publication.is_some() {
             return Some("Original inline publication is history, never permission to resend");
@@ -711,7 +786,19 @@ impl Form {
             FormAction::Submit,
             FormAction::Close,
         ];
+        if review_ui::local_batch_v10::removal_candidate(self) {
+            actions.push(FormAction::RemoveLocalReviewCommentV10);
+        }
+        if matches!(&self.purpose,FormPurpose::PrReviewOperationV3(state)
+            if self.publication.is_some()||!state.operation_intent().action().needs_body())
+        {
+            actions.retain(|action| *action != FormAction::Editor);
+        }
         if matches!(&self.purpose, FormPurpose::PrThread(state) if self.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
+        {
+            actions.retain(|action| *action != FormAction::Editor);
+        }
+        if matches!(&self.purpose,FormPurpose::PrThreadCommentV2(state)if self.publication.is_some()||state.intent().action!=crate::pr_write_journal::thread_comment_history_v2::CommentActionV2::Edit)
         {
             actions.retain(|action| *action != FormAction::Editor);
         }
@@ -735,7 +822,10 @@ impl Form {
     pub fn resource(&self) -> String {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.draft_key().into(),
+            FormPurpose::PrThreadCommentV2(state) => state.draft_key().into(),
             FormPurpose::PrInline(state) => state.draft_key().into(),
+            FormPurpose::PrReviewV2(state) => state.draft_key().into(),
+            FormPurpose::PrReviewOperationV3(state) => state.draft_key().into(),
             FormPurpose::Pr(intent) => format!(
                 "{}/pull/{}/composer/{}",
                 intent.target.pr.repository,
@@ -780,7 +870,10 @@ impl Form {
     pub fn scope(&self) -> crate::storage::Scope {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.intent().scope().clone(),
+            FormPurpose::PrThreadCommentV2(state) => state.intent().scope().clone(),
             FormPurpose::PrInline(state) => state.intent().scope().clone(),
+            FormPurpose::PrReviewV2(state) => state.intent().scope().clone(),
+            FormPurpose::PrReviewOperationV3(state) => state.intent().scope().clone(),
             FormPurpose::Pr(intent) => crate::storage::Scope {
                 host: intent.identity.host.clone(),
                 login: format!("user-id:{}", intent.identity.account_id.unwrap_or(0)),
@@ -919,6 +1012,15 @@ impl Form {
         Ok(())
     }
     pub fn draft(&self) -> String {
+        if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
+            return review_operation_ui_v3::encoded_draft(self).unwrap_or_default();
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) {
+            return comment_ui_v2::encoded_draft(self).unwrap_or_default();
+        }
+        if matches!(self.purpose, FormPurpose::PrReviewV2(_)) {
+            return review_ui::encoded_draft(self).unwrap_or_default();
+        }
         let values: BTreeMap<&str, &str> = self
             .fields
             .iter()
@@ -965,8 +1067,17 @@ impl Form {
         }
     }
     pub fn restore_draft(&mut self, body: &str) -> Result<(), String> {
+        if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
+            return Err("Original pending operation text requires its fresh source opener; protected history cannot become a writer".into());
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) {
+            return Err("Comment drafts require the fresh original-source opener • protected history cannot be restored into a writer".into());
+        }
         if matches!(self.purpose, FormPurpose::PrThread(_)) {
             return Err("Thread drafts require fresh original-source opener; generic restore cannot adopt history or approval".into());
+        }
+        if matches!(self.purpose, FormPurpose::PrReviewV2(_)) {
+            return Err("Review text/anchors require their exact original-source opener; generic restore cannot recreate approval".into());
         }
         if matches!(self.purpose, FormPurpose::PrInline(_)) {
             return Err("Inline drafts require a fresh original-source draft opener; generic restore cannot adopt fields or approval".into());
@@ -1222,7 +1333,50 @@ impl Form {
         if self.submitting && !matches!(action, FormAction::Close) {
             return;
         }
+        if let FormPurpose::PrReviewOperationV3(state) = &self.purpose {
+            let return_to_fields_v1 =
+                self.preview && *action == FormAction::Preview && self.publication.is_none();
+            if matches!(
+                action,
+                FormAction::Preview | FormAction::Editor | FormAction::Submit
+            ) && !return_to_fields_v1
+                && (!state.input_visible() || self.publication.is_some())
+            {
+                self.error="Resize to inspect original pending operation; protected history is inspect only".into();
+                return;
+            }
+            if *action == FormAction::Submit
+                && review_operation_ui_v3::confirmed_preview(self).is_err()
+            {
+                self.error =
+                    "Fresh useful exact pending operation Preview required before Confirm".into();
+                return;
+            }
+        }
+        if let FormPurpose::PrReviewV2(state) = &self.purpose {
+            let return_to_fields_v1 =
+                self.preview && *action == FormAction::Preview && self.publication.is_none();
+            if matches!(
+                action,
+                FormAction::Preview | FormAction::Editor | FormAction::Submit
+            ) && !return_to_fields_v1
+                && (!state.input_visible() || self.publication.is_some())
+            {
+                self.error="Resize to inspect current review; original publication history is read-only, never resend approval".into();
+                return;
+            }
+            if *action == FormAction::Submit && review_ui::confirmed_preview(self).is_err() {
+                self.error =
+                    "Fresh usefully painted exact review Preview required before Confirm".into();
+                return;
+            }
+        }
         match action {
+            FormAction::RemoveLocalReviewCommentV10 => {
+                if let Err(reason) = review_ui::local_batch_v10::remove_selected(self) {
+                    self.error = reason;
+                }
+            }
             FormAction::InlineAnchor => inline_ui::anchor_action(self, None),
             FormAction::InlineAnchorScroll(delta) => inline_ui::anchor_action(self, Some(*delta)),
             FormAction::InspectStashV1 => {}
@@ -1264,6 +1418,12 @@ impl Form {
             }
             FormAction::Editor if matches!(self.purpose, FormPurpose::PrMetadata(_)) => {
                 self.error="Metadata values use genuine indexed choices; external JSON/text cannot grant selection or publication authority. Use F4 Choose.".into();
+            }
+            FormAction::Editor if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) => {
+                match comment_ui_v2::validate_input(self, "") {
+                    Ok(()) => self.editor_requested = true,
+                    Err(reason) => self.error = reason,
+                }
             }
             FormAction::Editor
                 if self
@@ -1458,6 +1618,9 @@ impl Form {
         if self.submitting {
             return None;
         }
+        if code == KeyCode::F(12) && review_ui::local_batch_v10::removal_candidate(self) {
+            return Some(FormAction::RemoveLocalReviewCommentV10);
+        }
         if code == KeyCode::F(3)
             && matches!(&self.purpose, FormPurpose::Local(intent) if intent.failed_stash_v1.is_some())
         {
@@ -1490,6 +1653,72 @@ impl Form {
                 _ => "",
             };
             if let Err(error) = thread_ui::validate_input(self, incoming) {
+                self.error = error;
+                return None;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_))
+            && self.focus < self.fields.len()
+        {
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter => "\n",
+                _ => "",
+            };
+            if let Err(reason) = comment_ui_v2::validate_input(self, incoming) {
+                self.error = reason;
+                return None;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
+            if self.publication.is_some()
+                && (matches!(code, KeyCode::Backspace | KeyCode::Delete)
+                    || matches!(code, KeyCode::Char(_))
+                        && !control
+                        && !modifiers.contains(KeyModifiers::ALT)
+                    || code == KeyCode::Enter && self.focus < self.fields.len())
+            {
+                self.error =
+                    "Original operation publication history is read-only; nothing resent".into();
+                return None;
+            }
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter if self.focus < self.fields.len() => "\n",
+                _ => "",
+            };
+            if let Err(error) = review_operation_ui_v3::validate_input(self, incoming) {
+                self.error = error;
+                return None;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrReviewV2(_)) {
+            if self.publication.is_some()
+                && (matches!(code, KeyCode::Backspace | KeyCode::Delete)
+                    || matches!(code, KeyCode::Char(_))
+                        && !control
+                        && !modifiers.contains(KeyModifiers::ALT)
+                    || code == KeyCode::Enter && self.focus < self.fields.len())
+            {
+                self.error =
+                    "Original review publication history is read-only; nothing resent".into();
+                return None;
+            }
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter if self.focus < self.fields.len() => "\n",
+                _ => "",
+            };
+            if let Err(error) = review_ui::validate_input(self, incoming) {
                 self.error = error;
                 return None;
             }
@@ -1635,6 +1864,24 @@ impl Form {
                 return;
             }
         }
+        if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) && !self.preview {
+            if let Err(error) = review_operation_ui_v3::validate_input(self, text) {
+                self.error = error;
+                return;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrReviewV2(_)) && !self.preview {
+            if let Err(error) = review_ui::validate_input(self, text) {
+                self.error = error;
+                return;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) {
+            if let Err(reason) = comment_ui_v2::validate_input(self, text) {
+                self.error = reason;
+                return;
+            }
+        }
         if !self.preview {
             if let Some(field) = self.fields.get_mut(self.focus) {
                 let before = field.editor.text.clone();
@@ -1714,14 +1961,138 @@ pub(crate) fn editor_line(
     Line::from(spans)
 }
 
+fn draw_prepared_resize_v1(
+    frame: &mut Frame,
+    form: &mut Form,
+    rect: Rect,
+    hits: &mut Vec<HitRegion>,
+    theme: crate::theme::Theme,
+) {
+    form.preview_display_v1.geometry_rejected = true;
+    form.field_rects.clear();
+    form.error_rect = Rect::default();
+    hits.clear();
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Preview • resize required ")
+            .style(theme.base()),
+        rect,
+    );
+    let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
+    let body_height = inner.height.saturating_sub(3);
+    let explanation = if form.error.is_empty() {
+        "Resize to inspect64 text cells. Preview is unchanged; Confirm cannot use hidden content. Edit fields or Close remain available."
+    } else {
+        "Confirm refused • resize to inspect Preview. No hidden confirmation; Edit fields or Close remain available."
+    };
+    frame.render_widget(
+        Paragraph::new(explanation)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .style(theme.style(SemanticToken::Pending)),
+        Rect::new(inner.x, inner.y, inner.width, body_height),
+    );
+    let controls = [
+        ("[Ctrl+P Edit fields]", FormAction::Preview),
+        ("[Ctrl+Enter Confirm unavailable]", FormAction::Submit),
+        ("[Esc Close]", FormAction::Close),
+    ];
+    for (index, (label, action)) in controls.into_iter().enumerate() {
+        if inner.height < 3 && action != FormAction::Close {
+            continue;
+        }
+        let offset = if inner.height < 3 {
+            inner.height.saturating_sub(1)
+        } else {
+            body_height + index as u16
+        };
+        if inner.height == 0 {
+            continue;
+        }
+        let target = Rect::new(
+            inner.x,
+            inner.y + offset,
+            (label.len() as u16).min(inner.width),
+            1,
+        );
+        frame.render_widget(
+            Paragraph::new(label).style(theme.style(if action == FormAction::Submit {
+                SemanticToken::Muted
+            } else {
+                SemanticToken::Focus
+            })),
+            target,
+        );
+        if !target.is_empty() {
+            hits.push(HitRegion {
+                rect: target,
+                action: Action::Form(action),
+            });
+        }
+    }
+}
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if inline_ui::retire_invalid_form(app) {
+        return;
+    }
+    if review_ui::retire_invalid_form(app) {
+        return;
+    }
+    if review_operation_ui_v3::retire_invalid_form(app) {
         return;
     }
     let theme = app.theme();
     let Some(form) = &mut app.form else {
         return;
     };
+    if matches!(
+        form.purpose,
+        FormPurpose::PrReviewV2(_) | FormPurpose::PrReviewOperationV3(_)
+    ) {
+        let usable = area.width >= 80 && area.height >= 20;
+        review_ui::begin_draw(form, usable);
+        review_operation_ui_v3::begin_draw(form, usable);
+        if !usable {
+            if form.preview && form.uses_prepared_preview() {
+                draw_prepared_resize_v1(frame, form, area, &mut app.hits, theme);
+                return;
+            }
+            form.field_rects.clear();
+            form.error_rect = Rect::default();
+            app.hits.clear();
+            frame.render_widget(Clear, area);
+            frame.render_widget(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Original review • resize required ")
+                    .style(theme.base()),
+                area,
+            );
+            let inner = area.inner(ratatui::layout::Margin::new(1, 1));
+            frame.render_widget(
+                Paragraph::new("Resize to80×20 to inspect exact review; actions disabled")
+                    .style(theme.style(SemanticToken::Pending)),
+                inner,
+            );
+            if inner.height > 3 && !form.error.is_empty() {
+                frame.render_widget(
+                    Paragraph::new(safe_text(&form.error))
+                        .style(theme.style(SemanticToken::Failure)),
+                    Rect::new(inner.x, inner.y + 2, inner.width, 1),
+                );
+            }
+            if inner.height > 1 {
+                let rect = Rect::new(inner.x, inner.bottom() - 1, inner.width.min(11), 1);
+                frame.render_widget(Paragraph::new("[Esc Close]"), rect);
+                app.hits.push(HitRegion {
+                    rect,
+                    action: Action::Form(FormAction::Close),
+                });
+            }
+            return;
+        }
+    }
     form.retire_changed_current_input();
     let width = area.width.saturating_sub(4).min(100);
     let height = area.height.saturating_sub(4).min(28);
@@ -1758,6 +2129,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         return;
     }
+    let preview_inner_v1 = rect.inner(ratatui::layout::Margin::new(2, 1));
+    if form.preview && form.uses_prepared_preview() && preview_inner_v1.width < 64 {
+        draw_prepared_resize_v1(frame, form, rect, &mut app.hits, theme);
+        return;
+    }
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
@@ -1771,7 +2147,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut y = inner.y;
     let context = match &form.purpose {
         FormPurpose::PrThread(state) => state.context(),
+        FormPurpose::PrThreadCommentV2(state) => state.context(),
         FormPurpose::PrInline(state) => state.context(),
+        FormPurpose::PrReviewV2(state) => state.context(),
+        FormPurpose::PrReviewOperationV3(state) => state.context(),
         FormPurpose::Pr(intent) => format!(
             "@{} on {} • head {}",
             intent.identity.login, intent.identity.host, intent.target.head_sha
@@ -1815,7 +2194,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     if !matches!(
         form.purpose,
-        FormPurpose::PrInline(_) | FormPurpose::PrThread(_)
+        FormPurpose::PrInline(_) | FormPurpose::PrThread(_) | FormPurpose::PrThreadCommentV2(_)
     ) {
         frame.render_widget(
             Paragraph::new(safe_text(&context)).style(theme.style(SemanticToken::Muted)),
@@ -1824,7 +2203,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let identity = match &form.purpose {
         FormPurpose::PrThread(state) => Some(state.identity()),
+        FormPurpose::PrThreadCommentV2(state) => Some(state.identity()),
         FormPurpose::PrInline(state) => Some(state.identity()),
+        FormPurpose::PrReviewV2(state) => Some(state.identity()),
+        FormPurpose::PrReviewOperationV3(state) => Some(state.identity()),
         FormPurpose::Pr(intent) => Some(&intent.identity),
         FormPurpose::PrAction(intent) => Some(&intent.context.identity),
         FormPurpose::PrMetadata(intent) => Some(&intent.identity),
@@ -1833,23 +2215,31 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         FormPurpose::Local(_) | FormPurpose::Compare(_) => None,
     };
     if let Some(identity) = identity {
-        let actor = crate::providers::gh::Actor {
-            login: identity.login.clone(),
-            ..Default::default()
-        };
-        let identity = crate::identity::ActorIdentity::github(&identity.host, &actor);
-        let image = match app.avatar_states.get(&identity) {
-            Some(crate::identity::AvatarState::Ready(image)) => Some(image.as_ref()),
-            _ => None,
-        };
-        frame.render_widget(
-            crate::identity::AvatarWidget {
-                identity: &identity,
-                image,
-                theme,
-            },
+        if !review_avatars::draw_form_requester(
+            frame,
             Rect::new(inner.x, y, 4.min(inner.width), 1),
-        );
+            form,
+            &app.avatar_states,
+            theme,
+        ) {
+            let actor = crate::providers::gh::Actor {
+                login: identity.login.clone(),
+                ..Default::default()
+            };
+            let identity = crate::identity::ActorIdentity::github(&identity.host, &actor);
+            let image = match app.avatar_states.get(&identity) {
+                Some(crate::identity::AvatarState::Ready(image)) => Some(image.as_ref()),
+                _ => None,
+            };
+            frame.render_widget(
+                crate::identity::AvatarWidget {
+                    identity: &identity,
+                    image,
+                    theme,
+                },
+                Rect::new(inner.x, y, 4.min(inner.width), 1),
+            );
+        }
         frame.render_widget(
             Paragraph::new(safe_text(&context)).style(theme.style(SemanticToken::Muted)),
             Rect::new(
@@ -1861,6 +2251,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     y += 1;
+    y += review_avatars::draw_form_author(
+        frame,
+        Rect::new(
+            inner.x,
+            y,
+            inner.width,
+            inner.bottom().saturating_sub(y + footer_height),
+        ),
+        form,
+        &app.avatar_states,
+        theme,
+    );
     frame.render_widget(
         Paragraph::new(if matches!(form.purpose, FormPurpose::Compare(_)) {
             "READ-ONLY COMPARISON • No checkout, fetch, index or working-file writes"
@@ -1882,6 +2284,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 | FormPurpose::PrMetadata(_)
                 | FormPurpose::PrInline(_)
                 | FormPurpose::PrThread(_)
+                | FormPurpose::PrReviewV2(_)
+                | FormPurpose::PrReviewOperationV3(_)
+                | FormPurpose::PrThreadCommentV2(_)
         ) || (matches!(form.purpose, FormPurpose::Pr(_)) && form.uses_prepared_preview())
         {
             if form.preview {
@@ -1979,31 +2384,47 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     form.field_rects = vec![Rect::default(); form.fields.len()];
     if form.uses_prepared_preview() && form.preview {
         let visible = inner.bottom().saturating_sub(y + footer_height) as usize;
-        let wrapped = form
-            .plan_lines()
-            .iter()
-            .flat_map(|line| crate::ui::notice_lines(&safe_text(line), inner.width))
-            .collect::<Vec<_>>();
-        form.preview_scroll = form
-            .preview_scroll
-            .min(wrapped.len().saturating_sub(visible));
-        let lines = form.preview_scroll;
-        frame.render_widget(
-            Paragraph::new(
-                wrapped
-                    .into_iter()
-                    .skip(lines)
-                    .take(visible)
-                    .collect::<Vec<_>>(),
-            )
-            .style(theme.base()),
+        form.preview_display_v1.geometry_rejected = true;
+        if !review_avatars::draw_form_preview(
+            frame,
             Rect::new(
                 inner.x,
                 y,
                 inner.width,
                 inner.bottom().saturating_sub(y + footer_height),
             ),
-        );
+            form,
+            &app.avatar_states,
+            theme,
+        ) {
+            let body = Rect::new(inner.x, y, inner.width, visible as u16);
+            let document = form.preview_display_v1.document.clone();
+            let window = document.as_ref().map(|document| {
+                document.window(
+                    &mut form.preview_display_v1.viewport,
+                    body.width,
+                    body.height,
+                    form.preview_scroll,
+                )
+            });
+            match window {
+                Some(Ok(window)) if window.total_rows()>0 => {
+                    form.preview_scroll=window.top();
+                    form.preview_display_v1.geometry_rejected=false;
+                    for (offset,row) in window.rows().enumerate() {
+                        frame.render_widget(Paragraph::new(row.text()).style(theme.base()),
+                            Rect::new(body.x,body.y+offset as u16,body.width,1));
+                    }
+                }
+                _=>frame.render_widget(Paragraph::new(form.preview_display_v1.failure.map_or(
+                    "Resize to inspect64 text cells, or choose Preview again • no hidden confirmation",|error|error.message()
+                )).style(theme.style(SemanticToken::Pending)),body),
+            }
+        }
+        let useful_preview_v1 =
+            !form.preview_display_v1.geometry_rejected && visible > 0 && inner.width >= 68;
+        review_ui::painted_preview(form, useful_preview_v1);
+        review_operation_ui_v3::painted_preview(form, useful_preview_v1);
     }
     let full_inputs = (0..form.fields.len())
         .map(|index| form.full_input_available(index))
@@ -2271,6 +2692,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     .filter(|(_, action)| {
         *action != FormAction::Editor
             || !matches!(&form.purpose, FormPurpose::PrThread(state) if form.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
+                &&!matches!(&form.purpose,FormPurpose::PrThreadCommentV2(state)if form.publication.is_some()||state.intent().action!=crate::pr_write_journal::thread_comment_history_v2::CommentActionV2::Edit)
+                &&!matches!(&form.purpose,FormPurpose::PrReviewOperationV3(state)if form.publication.is_some()||!state.operation_intent().action().needs_body())
     })
     .enumerate()
     {
@@ -2347,6 +2770,38 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     action: Action::Form(action),
                 });
             }
+        }
+    }
+    // This is a LOCAL draft operation, deliberately separate from Confirm or
+    // any GitHub delete. It is clickable only beside the ACTUALLY visible
+    // retained-comment selection; tiny/Preview/busy/protected modes paint none.
+    if review_ui::local_batch_v10::removal_candidate(form) {
+        let label = "[F12 Remove local comment]";
+        let target = Rect::new(
+            inner.x,
+            inner.bottom().saturating_sub(3),
+            label.len() as u16,
+            1,
+        );
+        if target.right() <= inner.right() && review_ui::local_batch_v10::mark_removal_painted(form)
+        {
+            let selected = form
+                .footer_actions()
+                .iter()
+                .position(|action| *action == FormAction::RemoveLocalReviewCommentV10)
+                .is_some_and(|offset| form.focus == form.fields.len() + offset);
+            frame.render_widget(
+                Paragraph::new(label).style(if selected {
+                    theme.selected(SemanticToken::Focus)
+                } else {
+                    theme.style(SemanticToken::Focus)
+                }),
+                target,
+            );
+            app.hits.push(HitRegion {
+                rect: target,
+                action: Action::Form(FormAction::RemoveLocalReviewCommentV10),
+            });
         }
     }
     if matches!(form.purpose, FormPurpose::Compare(_)) {

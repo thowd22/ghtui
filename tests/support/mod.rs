@@ -9,6 +9,7 @@ pub mod fixture_shell_publication_v1;
 pub mod inherited_fixture_writer_v1;
 pub mod owned_pty_processes_v1;
 pub mod receiver_delivery_gate_v1;
+pub mod terminal_screenshots_v1;
 use std::{
     fs,
     io::{Read, Write},
@@ -43,6 +44,7 @@ pub struct Fixture {
     pub temp: TempDir,
     pub root: PathBuf,
 }
+pub mod native_external_terminal_witness_v4;
 
 impl Fixture {
     pub fn new() -> Self {
@@ -221,6 +223,7 @@ impl Default for Fixture {
 pub enum ResizeToolbarV1 {
     Bottom,
     Header,
+    ControlBlock,
 }
 
 pub fn owned_resize_controls_ready_v1(
@@ -229,6 +232,9 @@ pub fn owned_resize_controls_ready_v1(
     actions: &[&str],
     placement: ResizeToolbarV1,
 ) -> bool {
+    if matches!(placement, ResizeToolbarV1::ControlBlock) {
+        return owned_control_block_ready_v3(screen, title, actions);
+    }
     let (rows, cols) = screen.size();
     let bottom = screen.rows(0, cols).last().unwrap_or_default();
     let controls = match placement {
@@ -242,6 +248,7 @@ pub fn owned_resize_controls_ready_v1(
             .take(3)
             .collect::<Vec<_>>()
             .join("\n"),
+        ResizeToolbarV1::ControlBlock => unreachable!(),
     };
     let title_ready = match placement {
         ResizeToolbarV1::Bottom => screen.contents().contains(title),
@@ -249,11 +256,88 @@ pub fn owned_resize_controls_ready_v1(
             .rows(0, cols)
             .next()
             .is_some_and(|row| row.contains(title)),
+        ResizeToolbarV1::ControlBlock => unreachable!(),
     };
     title_ready
         && actions.iter().all(|action| controls.contains(action))
         && bottom.contains('└')
         && bottom.contains('┘')
+}
+
+/// A distinct, strictly owned WRAPPED toolbar, not a relaxed single-row wait.
+/// Callers declare the full ordered control set so its footprint is bounded by
+/// the new inner width; body text or an old-sized footer cannot acknowledge it.
+pub fn owned_control_block_ready_v3(screen: &vt100::Screen, title: &str, actions: &[&str]) -> bool {
+    let (rows, cols) = screen.size();
+    let Some(width) = cols.checked_sub(2).filter(|width| *width > 0) else {
+        return false;
+    };
+    if title.is_empty()
+        || actions.len() < 2
+        || actions
+            .iter()
+            .any(|action| !complete_single_owned_control_v2(action))
+        || actions
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != actions.len()
+    {
+        return false;
+    }
+    let mut height = 1usize;
+    let mut used = 0usize;
+    for action in actions {
+        let size = ghtui::editor::display_width(action);
+        if size > usize::from(width) {
+            return false;
+        }
+        if used > 0 && used.saturating_add(size) > usize::from(width) {
+            height += 1;
+            used = 0;
+        }
+        used = used.saturating_add(size + 1);
+    }
+    let lines = screen.rows(0, cols).collect::<Vec<_>>();
+    let Some(end) = usize::from(rows).checked_sub(1) else {
+        return false;
+    };
+    let Some(start) = end.checked_sub(height).filter(|start| *start > 0) else {
+        return false;
+    };
+    let Some(header) = lines.first() else {
+        return false;
+    };
+    let Some(bottom) = lines.get(end) else {
+        return false;
+    };
+    if !header.starts_with('┌')
+        || !header.ends_with('┐')
+        || !header.contains(title)
+        || !bottom.starts_with('└')
+        || !bottom.ends_with('┘')
+        || !lines[end - 1].contains(actions.last().unwrap())
+    {
+        return false;
+    }
+    let block = lines[start..end].join("\n");
+    let mut offset = 0;
+    for action in actions {
+        let Some(found) = block[offset..].find(action) else {
+            return false;
+        };
+        offset += found + action.len();
+    }
+    true
+}
+
+pub fn complete_single_owned_control_v2(action: &str) -> bool {
+    action.len() > 2
+        && action.starts_with('[')
+        && action.ends_with(']')
+        && action[1..action.len() - 1]
+            .chars()
+            .all(|character| !character.is_control() && character != '[' && character != ']')
 }
 
 pub struct Session {
@@ -583,6 +667,58 @@ impl Session {
         self.cursorless_frames.end
     }
 
+    /// Explicit opt-in, completed PTY cells only. No App/renderer access or
+    /// live GitHub data: callers are strict offline real-binary test journeys.
+    pub fn capture_completed_terminal_v1(&self, label: &str) {
+        let Some(directory) = std::env::var_os("GHTUI_TEST_SCREENSHOT_DIR") else {
+            return;
+        };
+        assert!(
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        );
+        let directory = PathBuf::from(directory);
+        assert!(directory.is_absolute() && directory.is_dir());
+        let frame = self
+            .cursorless_frames
+            .last_cells
+            .as_ref()
+            .expect("completed terminal cells");
+        let end = self.cursorless_frames.cells_end;
+        assert!(end > 0 && end <= self.transcript.len());
+        let (rows, cols) = frame.size();
+        let stem = format!(
+            "{}-{label}-{cols}x{rows}-{end}",
+            self.owned_application_pid()
+        );
+        let create = |extension: &str, bytes: &[u8]| {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(directory.join(format!("{stem}.{extension}")))
+                .unwrap();
+            file.write_all(bytes).unwrap();
+        };
+        create("svg", terminal_screenshots_v1::svg(frame).as_bytes());
+        create("ansi", &frame.contents_formatted());
+        create("raw", &self.transcript[..end]);
+        create(
+            "json",
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "kind": "actual-completed-offline-fixture-pty", "test": thread::current().name(),
+                "label": label, "columns": cols, "rows": rows, "completed_byte_end": end,
+                "application_pid": self.owned_application_pid(), "input_paths": self.input_paths,
+                "palette": "xterm indexed/default; exact RGB; terminal font is presentation only"
+            }))
+            .unwrap()
+            .as_slice(),
+        );
+    }
+
     pub fn wait_for_owned_completed_action(
         &mut self,
         title: &str,
@@ -691,6 +827,83 @@ impl Session {
 
     pub fn completed_actions_page(&self) -> Option<completed_navigation_controls_v1::ActionsPage> {
         completed_navigation_controls_v1::actions_page(&self.cursorless_frames, 0)
+    }
+
+    pub fn wait_for_scoped_actions_jobs_row_v2(
+        &mut self,
+        after: usize,
+        job: &str,
+        head: &str,
+    ) -> (u16, u16) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some(point) = completed_navigation_controls_v1::scoped_actions_jobs_position_v2(
+                &self.cursorless_frames,
+                after,
+                job,
+                head,
+            ) {
+                return point;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No completed original Jobs layout with exact job/head\n{}",
+                self.screen()
+            );
+        }
+    }
+
+    pub fn focus_completed_actions_control_v2(&mut self, label: &str) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        for _ in 0..256 {
+            self.poll_output(Duration::from_millis(1));
+            let Some(page) = self.completed_actions_page() else {
+                assert!(
+                    Instant::now() < deadline,
+                    "No completed Actions page\n{}",
+                    self.screen()
+                );
+                continue;
+            };
+            let Some(before) = completed_navigation_controls_v1::actions_control_focus_v2(
+                &self.cursorless_frames,
+                &page,
+                label,
+            ) else {
+                assert!(
+                    page.current < page.total,
+                    "Final current Actions page lacks {label}\n{}",
+                    self.screen()
+                );
+                self.change_completed_actions_page(false, 1, page, deadline);
+                continue;
+            };
+            if before.target_focused {
+                return;
+            }
+            let after = self.completed_cursorless_end();
+            self.send_key(b"\t");
+            loop {
+                self.poll_output(Duration::from_millis(1));
+                if self.completed_cursorless_end() > after
+                    && completed_navigation_controls_v1::actions_control_focus_v2(
+                        &self.cursorless_frames,
+                        &page,
+                        label,
+                    )
+                    .is_some_and(|actual| actual.underlined != before.underlined)
+                {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "No actual Actions focus change after one Tab\n{}",
+                    self.screen()
+                );
+            }
+        }
+        panic!("Actual Actions focus did not reach {label} within256 inputs");
     }
 
     pub fn activate_completed_actions_control(&mut self, mouse: bool, label: &str, key: &[u8]) {
@@ -1232,6 +1445,24 @@ impl Session {
         );
         self.resize_with_footer(cols, rows, Some((title, actions, ResizeToolbarV1::Bottom)));
     }
+    /// Tiny resize-only surfaces genuinely expose just one complete control.
+    /// Keep the multi-control APIs strict; never substitute two label fragments
+    /// for independently painted actions. The same actual new-size border and
+    /// bottom-row ownership checks still acknowledge this resize.
+    pub fn resize_owned_single_action_modal_v2(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        title: &str,
+        action: &str,
+    ) {
+        assert!(!title.is_empty() && complete_single_owned_control_v2(action));
+        self.resize_with_footer(
+            cols,
+            rows,
+            Some((title, &[action], ResizeToolbarV1::Bottom)),
+        );
+    }
     /// A full-screen owned view with a wrapped toolbar in its first three
     /// interior rows. Still require an actual new-size bottom-border redraw;
     /// a title, old geometry or unrelated body text cannot acknowledge resize.
@@ -1242,6 +1473,28 @@ impl Session {
                 && actions.iter().all(|action| !action.is_empty())
         );
         self.resize_with_footer(cols, rows, Some((title, actions, ResizeToolbarV1::Header)));
+    }
+    /// Full ordered controls in a bounded wrapped bottom block, with a fresh
+    /// completed frame in addition to the existing SIGWINCH/border witness.
+    pub fn resize_owned_control_block_v3(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        title: &str,
+        actions: &[&str],
+    ) {
+        assert!(
+            !title.is_empty()
+                && actions.len() >= 2
+                && actions
+                    .iter()
+                    .all(|action| complete_single_owned_control_v2(action))
+        );
+        self.resize_with_footer(
+            cols,
+            rows,
+            Some((title, actions, ResizeToolbarV1::ControlBlock)),
+        );
     }
     fn resize_with_footer(
         &mut self,
@@ -1285,7 +1538,17 @@ impl Session {
             } else {
                 footer.contains("Help") && footer.contains("Quit")
             };
-            if new_frame && footer_ready {
+            let completed = match owned {
+                Some((title, actions, ResizeToolbarV1::ControlBlock)) => {
+                    self.completed_cursorless_end() > previous_bytes
+                        && self.completed_cursorless_screen().is_some_and(|frame| {
+                            frame.size() == (rows, cols)
+                                && owned_control_block_ready_v3(frame, title, actions)
+                        })
+                }
+                _ => true,
+            };
+            if new_frame && footer_ready && completed {
                 return;
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {

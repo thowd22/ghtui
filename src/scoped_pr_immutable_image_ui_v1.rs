@@ -31,6 +31,7 @@ pub enum PrImageUiActionV1 {
     Context,
     Range,
     Comment,
+    Batch,
     Close,
     Back,
     Quit,
@@ -284,7 +285,7 @@ impl PrImageViewerV1 {
         let before_scroll = self.scroll;
         let layout_changes = matches!(action, Old | New | Both | Layout | Context | Scroll(_));
         match action {
-            Close | Back | Quit | Comment | NativeDiff => return Some(action),
+            Close | Back | Quit | Comment | NativeDiff | Batch => return Some(action),
             Old | New | Both => {
                 self.visible = match action {
                     Old => ImageVisibleSideV1::Old,
@@ -396,7 +397,7 @@ impl PrImageViewerV1 {
         None
     }
 }
-const CONTROLS: [(PrImageUiActionV1, &str, char); 13] = [
+const CONTROLS: [(PrImageUiActionV1, &str, char); 14] = [
     (PrImageUiActionV1::NativeDiff, "Native diff", 'v'),
     (PrImageUiActionV1::Old, "Old", 'O'),
     (PrImageUiActionV1::New, "New", 'N'),
@@ -405,6 +406,7 @@ const CONTROLS: [(PrImageUiActionV1, &str, char); 13] = [
     (PrImageUiActionV1::Context, "Context", 'C'),
     (PrImageUiActionV1::Range, "Range", 'R'),
     (PrImageUiActionV1::Comment, "Comment", 'P'),
+    (PrImageUiActionV1::Batch, "Batch", 'V'),
     (PrImageUiActionV1::Horizontal(-8), "Left", '<'),
     (PrImageUiActionV1::Horizontal(8), "Right", '>'),
     (PrImageUiActionV1::Close, "Close", '\u{1b}'),

@@ -132,6 +132,7 @@ pub(crate) fn draw<S: NativeDiffPurposeV2>(
     }
     let controls = [
         ("[b Back patch]", A::BackToPatch),
+        ("[E External]", A::External),
         ("[F Full Old]", A::FullSide(DiffSide::Old)),
         ("[V Full New]", A::FullSide(DiffSide::New)),
         ("[o Options]", A::Controls),
@@ -140,7 +141,10 @@ pub(crate) fn draw<S: NativeDiffPurposeV2>(
         ("[Esc Close]", A::Close),
     ];
     let mut x = inner.x;
-    for (label, action) in controls {
+    for (label, action) in controls
+        .into_iter()
+        .chain(S::supports_inline_comment().then_some(("[P Comment disabled]", A::Comment)))
+    {
         let width = label.len() as u16;
         if width > inner.width {
             continue;
@@ -321,6 +325,7 @@ pub(crate) fn draw_controls<S: NativeDiffPurposeV2>(
     use crate::repository_native_diff_v1::NativeDiffOptionChangeV1 as O;
     let entries = [
         ("[o Back to file]", A::Controls),
+        ("[E External]", A::External),
         ("[b Back patch]", A::BackToPatch),
         ("[F Full Old]", A::FullSide(DiffSide::Old)),
         ("[V Full New]", A::FullSide(DiffSide::New)),

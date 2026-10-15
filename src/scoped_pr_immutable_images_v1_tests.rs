@@ -90,6 +90,9 @@ struct Setup {
     steps: Vec<GhStep>,
     source: Arc<CatalogueIntentSource>,
     active: Arc<ActiveRemoteScopeV1>,
+    // The real Files allocation precedes image-input consumption. Retaining
+    // this observation does not restore the selected page or confer permission.
+    original_files: Arc<ScopedPrResourceViewV1>,
     workspace: GithubWorkspace,
     sql_before: Vec<String>,
     git_before: (String, String, Vec<u8>, Vec<u8>),
@@ -103,8 +106,17 @@ fn setup_with_bytes(
     new: &[u8],
     alter: impl FnOnce(&mut Vec<GhStep>),
 ) -> Setup {
+    setup_with_history(
+        |repo| history::GitImagesV1::create_with_bytes(repo, sha256, old, new),
+        alter,
+    )
+}
+fn setup_with_history(
+    build: impl FnOnce(&std::path::Path) -> history::GitImagesV1,
+    alter: impl FnOnce(&mut Vec<GhStep>),
+) -> Setup {
     let fixture = Fixture::new();
-    let h = history::GitImagesV1::create_with_bytes(&fixture.repo(), sha256, old, new);
+    let h = build(&fixture.repo());
     let mut steps = script(&resource_steps(PrResourceKindV1::Files, REPO));
     bind_steps(&mut steps, &h);
     let mut read = image_steps(&h);
@@ -130,6 +142,7 @@ fn setup_with_bytes(
         steps,
         source,
         active,
+        original_files: workspace.scoped_pr_resource.as_ref().unwrap().clone(),
         workspace,
         sql_before,
         git_before,

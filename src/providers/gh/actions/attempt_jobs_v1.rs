@@ -7,17 +7,19 @@ const DEFINITION_NOTE: &str = "Matrix coordinates, reusable workflow call paths 
 
 /// Private/non-Serde: only `read` constructs it, after the real attempt GET.
 /// No caller may promote a DTO, URL or requested attempt into this evidence.
-struct ExactAttemptJobs {
-    run: WorkflowRun,
-    jobs_endpoint: String,
+pub(super) struct ExactAttemptJobs {
+    pub(super) run: WorkflowRun,
+    pub(super) jobs_endpoint: String,
+    pub(super) repository_id: Option<u64>,
+    pub(super) repository_node: Option<String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum JobAttemptOrigin {
+pub(super) enum JobAttemptOrigin {
     SuppliedAndMatched,
     ExactEndpointBound,
 }
 impl ExactAttemptJobs {
-    fn read(
+    pub(super) fn read(
         provider: &GithubProvider,
         repo: &str,
         id: u64,
@@ -45,9 +47,14 @@ impl ExactAttemptJobs {
         Ok(Self {
             run,
             jobs_endpoint: format!("{endpoint}/jobs?per_page=100"),
+            repository_id: raw["repository"]["id"].as_u64().filter(|id| *id > 0),
+            repository_node: raw["repository"]["node_id"]
+                .as_str()
+                .filter(|s| !s.is_empty() && s.len() <= 256)
+                .map(str::to_owned),
         })
     }
-    fn bind_job(&self, raw: &Value) -> GithubResult<(ActionsJob, JobAttemptOrigin)> {
+    pub(super) fn bind_job(&self, raw: &Value) -> GithubResult<(ActionsJob, JobAttemptOrigin)> {
         let origin = match raw.get("run_attempt") {
             None => JobAttemptOrigin::ExactEndpointBound,
             Some(value) => {

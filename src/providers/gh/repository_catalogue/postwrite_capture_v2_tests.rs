@@ -137,7 +137,7 @@ fn pending_reviews_v2_capture_reservation_too_small_original_budget_cannot_alloc
         .reserve_postwrite_capture_v2(&[256 * 1024, 256 * 1024], 2, &cancel)
         .is_err());
     exact(&fixture, &steps);
-    assert!(session.postwrite_reservation_v2.is_none());
+    assert!(session.core.postwrite_reservation_v2.is_none());
 }
 
 #[test]

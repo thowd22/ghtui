@@ -200,6 +200,122 @@ fn submit_tab(
 }
 
 #[test]
+fn pending_reviews_v2_scoped_principal_actual_worker_retains_numeric_rename_but_not_foreign_missing_or_untagged_identity(
+) {
+    for (account_id, tagged, retained) in [
+        (Some(42), true, true),
+        (Some(43), true, false),
+        (None, true, false),
+        (Some(42), false, false),
+    ] {
+        let (fixture, original, active, mut app, mut steps) = detail_setup();
+        steps.push(GhStep::read(
+            &["--version"],
+            "gh version 2.99.0 (2026-10-01)\n",
+        ));
+        steps.push(get(
+            "user",
+            json!({"id": account_id, "login":"actual-renamed-current-account"}),
+        ));
+        fixture.scripted_gh(&steps);
+        let before = effects(&fixture);
+        let original_nav = app
+            .github
+            .as_ref()
+            .unwrap()
+            .scoped_pr_navigation
+            .clone()
+            .unwrap();
+        let p = provider(&fixture);
+        let work = move |cancel: CancellationToken| {
+            let identity = p.identity(&cancel).map_err(|error| error.message)?;
+            Ok(PreparedView {
+                verified_identity: Some(identity),
+                status: "Actual numeric-principal read completed".into(),
+                ..Default::default()
+            })
+        };
+        let mut background = Background::new();
+        assert!(if tagged {
+            submit_tab(
+                &mut background,
+                &mut app,
+                original.clone(),
+                active.clone(),
+                work,
+            )
+        } else {
+            background.submit(&mut app, View::Inbox, work)
+        });
+        poll(&mut background, &mut app);
+        assert_eq!(app.github.is_some(), retained);
+        if retained {
+            let github = app.github.as_ref().unwrap();
+            assert_eq!(github.identity.account_id, Some(42));
+            assert_eq!(github.identity.login, "actual-renamed-current-account");
+            assert!(Arc::ptr_eq(
+                github.scoped_pr_navigation.as_ref().unwrap(),
+                &original_nav
+            ));
+            assert!(github.pr.is_some());
+        }
+        assert_eq!(app.status, "Actual numeric-principal read completed");
+        if account_id == Some(42) {
+            assert!(Arc::ptr_eq(
+                app.remote_scope_source.as_ref().unwrap(),
+                &original
+            ));
+            assert!(Arc::ptr_eq(app.remote_scope.as_ref().unwrap(), &active));
+        } else {
+            assert!(app.remote_scope_source.is_none());
+            assert!(!Arc::ptr_eq(app.remote_scope.as_ref().unwrap(), &active));
+        }
+        assert_eq!(effects(&fixture), before);
+        exact(&fixture, &steps);
+    }
+}
+
+#[test]
+fn pending_reviews_v2_scoped_principal_continuity_requires_actual_original_navigation_source_host_and_positive_uid(
+) {
+    let (fixture, original, active, mut app, steps) = detail_setup();
+    let owner = ScopedRemoteOwner {
+        actions_v1: None,
+        scope: active.clone(),
+        source: original.clone(),
+        navigation: app.github.as_ref().unwrap().scoped_pr_navigation.clone(),
+        check_origin: None,
+        continuation_v2: None,
+        pr_native_diff_v1: None,
+        threads_v1: None,
+        reviews_v2: None,
+        inline_v1: None,
+    };
+    let mut identity = app.github.as_ref().unwrap().identity.clone();
+    identity.login = "renamed-observation-not-permission".into();
+    let before = effects(&fixture);
+    assert!(owner.same_original_pr_principal(&app, &identity));
+    for id in [None, Some(0), Some(43)] {
+        let mut wrong = identity.clone();
+        wrong.account_id = id;
+        assert!(!owner.same_original_pr_principal(&app, &wrong));
+    }
+    let mut wrong = identity.clone();
+    wrong.host = "other.github.invalid".into();
+    assert!(!owner.same_original_pr_principal(&app, &wrong));
+    app.remote_scope_source = None;
+    assert!(!owner.same_original_pr_principal(&app, &identity));
+    app.remote_scope_source = Some(original);
+    app.remote_scope = None;
+    assert!(!owner.same_original_pr_principal(&app, &identity));
+    app.remote_scope = Some(active);
+    app.github.as_mut().unwrap().scoped_pr_navigation = None;
+    assert!(!owner.same_original_pr_principal(&app, &identity));
+    assert_eq!(effects(&fixture), before);
+    exact(&fixture, &steps);
+}
+
+#[test]
 fn scoped_pr_observed_tabs_runtime_navigation_pointer_retirement_rejects_success_error_and_panic_before_all_effects(
 ) {
     for outcome in 0..3 {

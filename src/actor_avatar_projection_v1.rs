@@ -246,6 +246,18 @@ pub fn active(app: &App) -> Option<(HostIdentity, String, Vec<Actor>)> {
     match app.view {
         View::Repository => None,
         View::Inbox => {
+            if app.overlay == Some(Overlay::PrThreadHistoryV1) {
+                let view = app
+                    .scoped_thread_history_v1
+                    .as_ref()
+                    .filter(|view| view.intent.owns(app))?;
+                let data = view.opened.as_ref().or(view.listed.as_ref())?;
+                return Some((
+                    data.identity.clone(),
+                    "Original protected thread history (observed actor only)".into(),
+                    vec![data.actor_observation.clone()],
+                ));
+            }
             if let Some(view) = app
                 .scoped_threads_v1
                 .as_ref()

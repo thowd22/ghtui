@@ -111,9 +111,14 @@ impl Background {
     }
 }
 pub(super) fn only_related(p: &PreparedView) -> bool {
+    if p.scoped_actions_v1.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_actions_v1: _,
         scoped_threads_v1,
         scoped_inline_v1,
+        scoped_reviews_v2,
         original_stash_recovery_v1,
         related_pr_v1,
         original_diff_result_v1,
@@ -164,6 +169,7 @@ pub(super) fn only_related(p: &PreparedView) -> bool {
     related_pr_v1.is_some()
         && scoped_threads_v1.is_none()
         && scoped_inline_v1.is_none()
+        && scoped_reviews_v2.is_none()
         && original_stash_recovery_v1.is_none()
         && original_diff_result_v1.is_none()
         && lines.is_empty()

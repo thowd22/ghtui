@@ -99,7 +99,10 @@ impl Background {
 }
 
 pub(super) fn original_local_prepared_only_v1(prepared: &PreparedView) -> bool {
-    if prepared.scoped_threads_v1.is_some() || prepared.scoped_inline_v1.is_some() {
+    if prepared.scoped_threads_v1.is_some()
+        || prepared.scoped_inline_v1.is_some()
+        || prepared.scoped_reviews_v2.is_some()
+    {
         return false;
     }
     if prepared.original_stash_recovery_v1.is_some() {
@@ -122,6 +125,7 @@ pub(super) fn original_local_prepared_only_v1(prepared: &PreparedView) -> bool {
         && prepared.lines.is_empty()
         && prepared.github.is_none()
         && prepared.actions.is_none()
+        && prepared.scoped_actions_v1.is_none()
         && prepared.search.is_none()
         && prepared.form.is_none()
         && prepared.metrics.is_none()

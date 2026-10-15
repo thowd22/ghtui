@@ -114,7 +114,7 @@ fn native_diff_worker_existing_background_moves_cached_frame_identity_zero_child
 }
 
 fn queued_native(kind: u8, source_only: bool) {
-    for input in 0..8 {
+    for input in 0..9 {
         let (real, a, b, _) = fixture::fixture("sha256");
         let mut workspace =
             fixture::workspace(&real, Comparison::BranchChanges { base: a, head: b });
@@ -214,7 +214,8 @@ fn queued_native(kind: u8, source_only: bool) {
             6 => {
                 app.native_diff_v1.as_mut().unwrap().clear_selection();
             }
-            _ => app.cancel_requested = true,
+            7 => app.cancel_requested = true,
+            _ => app.scoped_threads_cancel_v1 = true,
         }
         app.status = "New Native input owns status".into();
         app.loading[View::Repository.index()] = true;

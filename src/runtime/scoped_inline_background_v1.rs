@@ -2,9 +2,14 @@
 use super::*;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1 as inline;
 pub(super) fn only_inline(p: &PreparedView) -> bool {
+    if p.scoped_actions_v1.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_actions_v1: _,
         scoped_threads_v1,
         scoped_inline_v1,
+        scoped_reviews_v2,
         original_stash_recovery_v1,
         related_pr_v1,
         original_diff_result_v1,
@@ -54,6 +59,7 @@ pub(super) fn only_inline(p: &PreparedView) -> bool {
     } = p;
     scoped_inline_v1.is_some()
         && scoped_threads_v1.is_none()
+        && scoped_reviews_v2.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
         && original_diff_result_v1.is_none()
@@ -181,6 +187,7 @@ impl Background {
         let generation = self.generation;
         app.scoped_inline_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            actions_v1: None,
             threads_v1: None,
             scope,
             source,
@@ -189,6 +196,7 @@ impl Background {
             continuation_v2: None,
             pr_native_diff_v1: None,
             inline_v1: Some(owner.clone()),
+            reviews_v2: None,
         };
         if !remote.owns(app) {
             app.scoped_inline_owner_v1 = None;
@@ -276,6 +284,12 @@ impl Background {
         self.current.remove(&View::Inbox.index());
         self.current_inline_owner_v1 = None;
         self.current_inline_generation_v1 = None;
+        if let Some(origin) = owner.work().native_origin() {
+            app.scoped_inline_owner_v1 = None;
+            app.loading[View::Inbox.index()] = false;
+            crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::return_native(app,origin);
+            return true;
+        }
         if (owner.work().matches(app) && !inline::newer_intent(app))
             || (owner.work().phase() == inline::ScopedInlinePhaseV1::Confirm
                 && owner.original_private_source_is_current(app))

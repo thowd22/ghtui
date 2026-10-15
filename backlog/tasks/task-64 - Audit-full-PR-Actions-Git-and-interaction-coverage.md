@@ -4,6 +4,7 @@ title: Audit full PR Actions Git and interaction coverage
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
+updated_date: '2026-10-15 11:08'
 labels:
   - delivery
   - e2e
@@ -50,3 +51,19 @@ Broad feature promises need concrete release evidence. Audit native actions, hos
 - [ ] #2 Run cargo test --all-targets, cargo fmt --check, and cargo clippy --all-targets -- -D warnings; fix failures before marking Done.
 - [ ] #3 Verify mouse/keyboard parity and applicable resize/loading/error states using the shared framework; no placeholder or ignored required E2E tests.
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+2026-10-15 Root-authorized READ-ONLY Actions coverage audit: read doc5 and Tasks52-60 with dependencies/evidence; trace current executable scopedPR-to-Actions and direct Actions entrypoints, original source owners, provider/controller/UI/actions/forms and existing strict code+real-binary key/mouse tests. Separate reachable workflows, prepared-provider-only surfaces, unverified declarations and explicit host/platform limits. Produce concise evidence/path-based mandatory next implementation slices and testing needs; no Main source changes, builds, AC/DoD/status changes or broad implementation. Formal64 dependencies remain open; Root alone heavy verification.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root authorized a parallel SOURCE-ONLY TASK3 shared Form visible-only rendering correction; approved proposal 4c37302c4348c634287b8a2806f092e800f86357f695d66964ea4d2d0b60b419. This fixes a known whole-body per-redraw gap, not the TASK64 broad PR/Actions/Git/native/live/actor/color parity audit. TASK64 staysToDo with direct60/56/44/27/63 dependencies open; no AC/DoD checked. TASK66 measured hardware/release/p95/RSS/cold-warm work read and remains separate. Intended22code/8PTY source declarations ALLUNWRITTEN/UNRUN at plan time; Root sole bounded verifier.
+
+READ-ONLY Actions coverage audit frozen: target/build/parallel-tree-task64-actions-runtime-gap-audit-v1-20261015.json SHA2c5b517cdb4dbfd224cf274a314d0b0bb0b84794fcf7a880bb13909de6cb983c (35 current inspected source/test hashes; doc5 andTasks52-60 read). Real native legacy startup workflows/durable controller exist; do not confuse them with current tagged-source reachability. Catalogue OpenActions only initialcatalogue/pureselection; subsequentOpenRun/Refresh/View hits intentional legacy_entry(SomeScope) refusal. ScopedPRChecks permits exact member/log/annotations/loadedSearch/finiteWatch only, othercatalogues/drafts/recovery/publication disabled. Eight required nextslices remain: A1genuinecatalogueActionscontinuation; A2scopedread+durablewriteadapter; A3history/canonicalannotation/logexport; A4actualWorkflowYAMLlocalGitedit handoff; A5org-only settings scope seam (resource/planner/descriptor require repo), org/env secret andgroupnativeproof; A6provider-only deploymentpatterns/customAppnativecontrols; A7accepteddeploymentSIGKILL+unobservableLog/dispatch explicitACKnative matrix; A8commitCIindicators/crossrepoactivity+realcapability/platform/perfbudgets. Everyrow has actualpaths/evidence and meaningful code+bothinput GH/SQL/Git/config/TTY testing requirements, NOT newdeclarations/passcounts. Rootreviewed sourcegate/main andconfirmedA1gap. NoMain source,builds,runs,newtests,AC/DoD/status/dependencychanges; Task64 remainsToDo/formaldepsopen. Recommend firstboundedA1 source-bound originalowner/actualprovider/sharedActionsqueue plan forreview, no relaxedfallback or fullActionscompletionclaim.
+
+A1 concrete source-bound continuation review proposal prepared after the frozen READ-ONLY audit: target/build/parallel-tree-scoped-actions-read-a1-proposal-v1-20261015.json; no source implementation or execution and no acceptance/status/dependency changes. It retains all eight mandatory Actions slices and distinguishes first catalogue read navigation from full native support. Optional-A helper activation gap is explicitly tracked rather than counted as executable coverage.
+<!-- SECTION:NOTES:END -->

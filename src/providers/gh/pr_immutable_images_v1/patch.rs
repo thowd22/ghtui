@@ -188,6 +188,7 @@ pub(super) fn selected_patch(
     file.old_path = old_path.clone();
     file.new_path = new_path.clone();
     Ok(SelectedPatchV1 {
+        raw: Arc::from(selected),
         old_path,
         new_path,
         old_lookup: old.to_vec(),

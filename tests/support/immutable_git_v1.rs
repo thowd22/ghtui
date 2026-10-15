@@ -4,9 +4,11 @@ use serde_json::{json, Value};
 use std::{fs, path::Path, process::Command};
 
 pub const PATH: &str = "src/界.rs";
+pub const PREVIOUS_PATH: &str = "src/previous 界.rs";
 pub const OLD: &[u8] = b"context\r\nold-no-newline";
 pub const NEW: &[u8] = b"context\r\nnew-no-newline";
 pub struct GitImagesV1 {
+    pub previous_path: Option<String>,
     pub old_bytes: Vec<u8>,
     pub new_bytes: Vec<u8>,
     pub h: String,
@@ -43,9 +45,12 @@ fn text(repo: &Path, args: &[&str]) -> String {
     String::from_utf8(run(repo, args)).unwrap().trim().into()
 }
 fn trees(repo: &Path, root: &str) -> Vec<(String, Value)> {
+    trees_for(repo, root, PATH)
+}
+fn trees_for(repo: &Path, root: &str, path: &str) -> Vec<(String, Value)> {
     let mut sha = root.to_owned();
     let mut result = vec![];
-    for part in PATH.split('/') {
+    for part in path.split('/') {
         let raw = run(repo, &["ls-tree", "-z", &sha]);
         let mut selected = None;
         let rows = raw
@@ -84,6 +89,79 @@ fn trees(repo: &Path, root: &str) -> Vec<(String, Value)> {
     result
 }
 impl GitImagesV1 {
+    /// Genuine TWO-file M/H history for one-selected-file external-view scope.
+    /// All extra objects/trees/patches come from installed Git, never a DTO proof.
+    pub fn create_with_extra_file(
+        repo: &Path,
+        sha256: bool,
+        old: &[u8],
+        new: &[u8],
+    ) -> (Self, Vec<u8>, Value) {
+        let mut value = Self::create_with_bytes(repo, sha256, old, new);
+        run(repo, &["switch", "-c", "external-common", &value.m]);
+        fs::write(repo.join("z-other.rs"), b"OTHER old unchanged source\n").unwrap();
+        run(repo, &["add", "--", "z-other.rs"]);
+        run(repo, &["commit", "-m", "Actual second-file common"]);
+        value.m = text(repo, &["rev-parse", "HEAD"]);
+        run(repo, &["switch", "-c", "external-head"]);
+        fs::write(repo.join(PATH), new).unwrap();
+        fs::write(repo.join("z-other.rs"), b"OTHER new changed source\n").unwrap();
+        run(repo, &["add", "--", PATH, "z-other.rs"]);
+        run(repo, &["commit", "-m", "Actual two-file review head"]);
+        value.h = text(repo, &["rev-parse", "HEAD"]);
+        run(repo, &["switch", "-c", "external-base", &value.m]);
+        fs::write(repo.join("base-only"), b"base branch moved independently\n").unwrap();
+        run(repo, &["add", "--", "base-only"]);
+        run(repo, &["commit", "-m", "Actual two-file moved base"]);
+        value.b = text(repo, &["rev-parse", "HEAD"]);
+        assert_eq!(text(repo, &["merge-base", &value.b, &value.h]), value.m);
+        value.tm = text(repo, &["rev-parse", &format!("{}^{{tree}}", value.m)]);
+        value.th = text(repo, &["rev-parse", &format!("{}^{{tree}}", value.h)]);
+        value.old_trees = trees(repo, &value.tm);
+        value.new_trees = trees(repo, &value.th);
+        value.patch = run(
+            repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--full-index",
+                &value.m,
+                &value.h,
+                "--",
+                PATH,
+            ],
+        );
+        let whole = run(
+            repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--full-index",
+                &value.m,
+                &value.h,
+                "--",
+            ],
+        );
+        assert!(whole.len() > value.patch.len());
+        let other = run(
+            repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--full-index",
+                &value.m,
+                &value.h,
+                "--",
+                "z-other.rs",
+            ],
+        );
+        let start = other.windows(3).position(|bytes| bytes == b"@@ ").unwrap();
+        let metadata = json!({"filename":"z-other.rs","sha":text(repo,&["rev-parse",&format!("{}:z-other.rs",value.h)]),"status":"modified","additions":1,"deletions":1,"patch":std::str::from_utf8(&other[start..]).unwrap()});
+        (value, whole, metadata)
+    }
     pub fn create(repo: &Path, sha256: bool) -> Self {
         Self::create_with_bytes(repo, sha256, OLD, NEW)
     }
@@ -158,6 +236,7 @@ impl GitImagesV1 {
         )
         .unwrap();
         Self {
+            previous_path: None,
             old_bytes: old.to_vec(),
             new_bytes: new.to_vec(),
             h,
@@ -174,6 +253,83 @@ impl GitImagesV1 {
             new_trees,
         }
     }
+    /// Actual Git rename with divergent B and H, not a fixture-only filename.
+    pub fn create_renamed_with_bytes(repo: &Path, sha256: bool, old: &[u8], new: &[u8]) -> Self {
+        let mut value = Self::create_with_bytes(repo, sha256, old, new);
+        run(repo, &["switch", "-c", "renamed-base", &value.m]);
+        run(repo, &["mv", "--", PATH, PREVIOUS_PATH]);
+        run(repo, &["commit", "-m", "Actual original old path"]);
+        value.m = text(repo, &["rev-parse", "HEAD"]);
+        run(repo, &["switch", "-c", "renamed-head"]);
+        run(repo, &["mv", "--", PREVIOUS_PATH, PATH]);
+        fs::write(repo.join(PATH), new).unwrap();
+        run(repo, &["add", "--", PATH]);
+        run(repo, &["commit", "-m", "Actual renamed head"]);
+        value.h = text(repo, &["rev-parse", "HEAD"]);
+        run(repo, &["switch", "-c", "renamed-moved-base", &value.m]);
+        fs::write(
+            repo.join("base-only"),
+            b"renamed base independently moved\n",
+        )
+        .unwrap();
+        run(repo, &["add", "--", "base-only"]);
+        run(repo, &["commit", "-m", "Actual renamed divergent base"]);
+        value.b = text(repo, &["rev-parse", "HEAD"]);
+        assert_eq!(text(repo, &["merge-base", &value.b, &value.h]), value.m);
+        assert_ne!(value.b, value.m);
+        value.tm = text(repo, &["rev-parse", &format!("{}^{{tree}}", value.m)]);
+        value.th = text(repo, &["rev-parse", &format!("{}^{{tree}}", value.h)]);
+        assert_eq!(
+            text(
+                repo,
+                &["rev-parse", &format!("{}:{PREVIOUS_PATH}", value.m)]
+            ),
+            value.old_blob
+        );
+        assert_eq!(
+            text(repo, &["rev-parse", &format!("{}:{PATH}", value.h)]),
+            value.new_blob
+        );
+        value.old_trees = trees_for(repo, &value.tm, PREVIOUS_PATH);
+        value.new_trees = trees(repo, &value.th);
+        let names = run(
+            repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--find-renames",
+                "--name-status",
+                "-z",
+                &value.m,
+                &value.h,
+                "--",
+            ],
+        );
+        let fields = names.split(|byte| *byte == 0).collect::<Vec<_>>();
+        assert_eq!(fields.len(), 4);
+        assert!(
+            fields[0].starts_with(b"R"),
+            "installed Git must actually detect rename"
+        );
+        assert_eq!(fields[1], PREVIOUS_PATH.as_bytes());
+        assert_eq!(fields[2], PATH.as_bytes());
+        value.patch = run(
+            repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--find-renames",
+                "--full-index",
+                &value.m,
+                &value.h,
+                "--",
+            ],
+        );
+        value.previous_path = Some(PREVIOUS_PATH.into());
+        value
+    }
     pub fn bind_parent(&self, raw: &mut Value) {
         raw["head"]["sha"] = json!(self.h);
         raw["base"]["sha"] = json!(self.b);
@@ -188,7 +344,12 @@ impl GitImagesV1 {
             .position(|bytes| bytes == b"@@ ")
             .unwrap();
         let patch = std::str::from_utf8(&self.patch[start..]).unwrap();
-        json!({"filename":PATH,"sha":self.new_blob,"status":"modified","additions":self.additions,"deletions":self.deletions,"patch":patch})
+        let mut value = json!({"filename":PATH,"sha":self.new_blob,"status":"modified","additions":self.additions,"deletions":self.deletions,"patch":patch});
+        if let Some(previous) = &self.previous_path {
+            value["status"] = json!("renamed");
+            value["previous_filename"] = json!(previous);
+        }
+        value
     }
     pub fn commit(&self, head: bool) -> Value {
         json!({"sha":if head{&self.h}else{&self.m},"tree":{"sha":if head{&self.th}else{&self.tm}}})

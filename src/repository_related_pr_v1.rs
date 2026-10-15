@@ -63,6 +63,8 @@ impl RelatedPrOwnerV1 {
             && app.scoped_inline_work_v1.is_none()
             && app.pr_native_diff_work_v1.is_none()
             && !app.pr_native_diff_cancel_v1
+            && app.scoped_reviews_work_v2.is_none()
+            && !app.scoped_reviews_cancel_v2
             && !app.scoped_inline_cancel_v1
             && app.repository_action.is_none()
             && app.original_tree_work_v1.is_none()

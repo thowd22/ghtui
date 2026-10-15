@@ -10,6 +10,7 @@ use ratatui::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadUiActionV1 {
+    Comments,
     Publication(publication_v1::ThreadPublicationActionV1),
     Select(usize),
     Move(i32),
@@ -23,6 +24,7 @@ pub enum ThreadUiActionV1 {
     Quit,
 }
 pub struct ThreadBrowserV1 {
+    pub comments_v2: Option<comments_v2::ui::ThreadCommentsBrowserV2>,
     pub intent: Arc<ThreadBrowseIntentV1>,
     pub prepared: Option<Arc<PreparedThreadsV1>>,
     pub selected: usize,
@@ -37,6 +39,7 @@ pub struct ThreadBrowserV1 {
 impl ThreadBrowserV1 {
     pub fn pending(intent: Arc<ThreadBrowseIntentV1>) -> Self {
         Self {
+            comments_v2: None,
             intent,
             prepared: None,
             selected: 0,
@@ -103,15 +106,15 @@ pub fn retire_invalid(app: &mut App) -> bool {
     ) {
         return true;
     }
-    if app
-        .scoped_threads_work_v1
-        .as_ref()
-        .is_some_and(|owner| !Arc::ptr_eq(&owner.intent, &intent))
-        || app
-            .scoped_threads_owner_v1
-            .as_ref()
-            .is_some_and(|owner| !Arc::ptr_eq(&owner.intent, &intent))
-    {
+    if app.scoped_threads_work_v1.as_ref().is_some_and(|owner| {
+        owner
+            .files_intent()
+            .is_none_or(|files| !Arc::ptr_eq(files, &intent))
+    }) || app.scoped_threads_owner_v1.as_ref().is_some_and(|owner| {
+        owner
+            .files_intent()
+            .is_none_or(|files| !Arc::ptr_eq(files, &intent))
+    }) {
         if let Some(view) = &mut app.scoped_threads_v1 {
             view.hits.clear();
         }
@@ -126,6 +129,13 @@ pub fn event(app: &mut App, event: &Event) -> bool {
     }
     if app.overlay != Some(Overlay::PrThreadsV1) {
         return false;
+    }
+    if app
+        .scoped_threads_v1
+        .as_ref()
+        .is_some_and(|view| view.comments_v2.is_some())
+    {
+        return comments_v2::ui::event(app, event);
     }
     let action = match event {
         Event::Resize(_, _) => {
@@ -151,6 +161,7 @@ pub fn event(app: &mut App, event: &Event) -> bool {
                     KeyCode::Enter | KeyCode::Char(' ') => Some(ThreadUiActionV1::Toggle),
                     KeyCode::Char('a') => Some(ThreadUiActionV1::Filter),
                     KeyCode::Char('i') => Some(ThreadUiActionV1::Source),
+                    KeyCode::Char('c') => Some(ThreadUiActionV1::Comments),
                     KeyCode::Char('p') => Some(ThreadUiActionV1::Publication(
                         publication_v1::ThreadPublicationActionV1::Reply,
                     )),
@@ -193,6 +204,10 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
         return;
     }
     if app.loading[View::Inbox.index()] || app.scoped_threads_work_v1.is_some() {
+        return;
+    }
+    if action == ThreadUiActionV1::Comments {
+        native_v1::open_comments_v2(app);
         return;
     }
     if let ThreadUiActionV1::Publication(action) = action {
@@ -256,11 +271,20 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
         }
         ThreadUiActionV1::Back | ThreadUiActionV1::Quit => unreachable!("handled above"),
         ThreadUiActionV1::Publication(_) => unreachable!("handled above"),
+        ThreadUiActionV1::Comments => unreachable!("handled above"),
     }
     view.hits.clear();
 }
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if app.overlay != Some(Overlay::PrThreadsV1) {
+        return;
+    }
+    if app
+        .scoped_threads_v1
+        .as_ref()
+        .is_some_and(|view| view.comments_v2.is_some())
+    {
+        comments_v2::ui::draw(frame, app, area);
         return;
     }
     let theme = app.theme();
@@ -307,6 +331,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             ThreadUiActionV1::Publication(publication_v1::ThreadPublicationActionV1::Reopen),
         ),
         ("[i Source]", ThreadUiActionV1::Source),
+        ("[c Comments]", ThreadUiActionV1::Comments),
         ("[PgUp]", ThreadUiActionV1::Scroll(-10)),
         ("[PgDn]", ThreadUiActionV1::Scroll(10)),
         ("[Left]", ThreadUiActionV1::Horizontal(-32)),

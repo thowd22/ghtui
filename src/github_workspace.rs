@@ -88,6 +88,8 @@ impl PrTab {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GithubAction {
+    ThreadHistoryV1,
+    ReviewOperationHistoryV3,
     Filter(InboxFilter),
     Open(PrKey),
     Back,

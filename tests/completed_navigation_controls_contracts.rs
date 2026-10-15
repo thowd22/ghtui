@@ -201,6 +201,156 @@ fn form_focus(frame: &vt100::Screen) -> Option<controls::OwnedFocusV1> {
         &[],
     )
 }
+const REVIEW_FOCUS_CONTROLS: [&str; 19] = [
+    "[B New batch]",
+    "[R Resume selected]",
+    "[U Summary]",
+    "[C Submit comment]",
+    "[A Approve]",
+    "[X Request changes]",
+    "[D Discard pending]",
+    "[I Dismiss: eligibility UNKNOWN]",
+    "[< Left]",
+    "[> Right]",
+    "[Esc Close]",
+    "[Q Quit]",
+    "[F2 Next comment]",
+    "[F3 Edit pending]",
+    "[F4 Delete pending]",
+    "[G Add selected range]",
+    "[F5 Re-request reviewer]",
+    "[F6 Teams]",
+    "[F7 Re-request team]",
+];
+fn full_focus_box_bytes(title: &str, height: u16, width: u16) -> Vec<u8> {
+    let mut bytes = format!("\x1b[0m\x1b[2J\x1b[1;1H┌{title}\x1b[1;{width}H┐").into_bytes();
+    for row in 2..height {
+        bytes.extend_from_slice(format!("\x1b[{row};1H│\x1b[{row};{width}H│").as_bytes());
+    }
+    bytes.extend_from_slice(format!("\x1b[{height};1H└\x1b[{height};{width}H┘").as_bytes());
+    bytes
+}
+fn review_focus_bytes(height: u16, width: u16, selected: usize) -> Vec<u8> {
+    // Independently specified full nineteen-control layout, including wrapped
+    // rows, rather than borrowing the production toolbar or its geometry.
+    const ROWS: [&str; 11] = [
+        "[B New batch] [R Resume selected]",
+        "[U Summary] [C Submit comment]",
+        "[A Approve] [X Request changes]",
+        "[D Discard pending]",
+        "[I Dismiss: eligibility UNKNOWN]",
+        "[< Left] [> Right] [Esc Close]",
+        "[Q Quit] [F2 Next comment]",
+        "[F3 Edit pending] [F4 Delete pending]",
+        "[G Add selected range]",
+        "[F5 Re-request reviewer] [F6 Teams]",
+        "[F7 Re-request team]",
+    ];
+    let mut bytes = full_focus_box_bytes("Scoped reviews", height, width);
+    for (index, row) in ROWS.iter().enumerate() {
+        let row = row.replace(
+            REVIEW_FOCUS_CONTROLS[selected],
+            &format!("\x1b[7m{}\x1b[0m", REVIEW_FOCUS_CONTROLS[selected]),
+        );
+        bytes.extend_from_slice(
+            format!("\x1b[{};2H{row}", usize::from(height) - 11 + index).as_bytes(),
+        );
+    }
+    bytes
+}
+fn review_focus(frame: &vt100::Screen) -> Option<controls::OwnedFocusV1> {
+    controls::owned_focus_v1(
+        frame,
+        "Scoped reviews",
+        "[> Right]",
+        controls::FocusAttributeV1::Inverse,
+        &REVIEW_FOCUS_CONTROLS,
+        &[],
+    )
+}
+#[test]
+fn test_framework_review_focus_observes_all_nineteen_wrapped_controls_and_actual_change() {
+    for (height, width) in [(18, 40), (24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        complete(
+            &mut parser,
+            &mut frames,
+            &review_focus_bytes(height, width, 8),
+        );
+        for control in REVIEW_FOCUS_CONTROLS {
+            assert!(frames
+                .last_cells
+                .as_ref()
+                .unwrap()
+                .contents()
+                .contains(control));
+        }
+        let before = review_focus(frames.last_cells.as_ref().unwrap()).unwrap();
+        assert!(!before.target_focused);
+        let bytes = review_focus_bytes(height, width, 9);
+        complete(&mut parser, &mut frames, &bytes);
+        let current = review_focus(frames.last_cells.as_ref().unwrap()).unwrap();
+        assert!(current.target_focused);
+        assert!(current.acknowledges_change_from(&before));
+        assert_eq!(current.target, (10, height - 7));
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(!review_focus(frames.last_cells.as_ref().unwrap())
+            .unwrap()
+            .acknowledges_change_from(&current));
+    }
+}
+#[test]
+fn test_framework_review_focus_anchor_budget_is_thirty_two_including_notices() {
+    let labels: Vec<String> = (0..33).map(|index| format!("[K{index:02}]")).collect();
+    let controls: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let mut bytes = full_focus_box_bytes("Bounded focus", 24, 80);
+    for (index, label) in labels.iter().take(32).enumerate() {
+        let (row, column) = (5 + index / 4, 3 + (index % 4) * 12);
+        bytes.extend_from_slice(format!("\x1b[{row};{column}H{label}").as_bytes());
+    }
+    bytes.extend_from_slice(b"\x1b[12;39H\x1b[7m[K31]\x1b[0m");
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &bytes);
+    let frame = frames.last_cells.as_ref().unwrap();
+    let observe = |declared: &[&str], notices: &[&str]| {
+        controls::owned_focus_v1(
+            frame,
+            "Bounded focus",
+            "[K31]",
+            controls::FocusAttributeV1::Inverse,
+            declared,
+            notices,
+        )
+    };
+    assert!(observe(&controls[..32], &[]).unwrap().target_focused);
+    assert!(
+        observe(&controls[1..32], &["Query focus notice"])
+            .unwrap()
+            .target_focused
+    );
+    assert!(observe(&controls, &[]).is_none());
+    assert!(observe(&controls[..32], &["Query focus notice"]).is_none());
+}
+#[test]
+fn test_framework_review_focus_full_toolbar_still_refuses_ambiguity_and_nested_overlay() {
+    for case in 0..3 {
+        let mut parser = vt100::Parser::new(18, 40, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = review_focus_bytes(18, 40, 9);
+        bytes.extend_from_slice(
+            match case {
+                0 => "\x1b[3;2H[> Right]",
+                1 => "\x1b[7;2H\x1b[7m[B New batch]\x1b[0m",
+                _ => "\x1b[3;3H┌Nested owner\x1b[3;35H┐\x1b[5;3H└\x1b[5;35H┘",
+            }
+            .as_bytes(),
+        );
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(review_focus(frames.last_cells.as_ref().unwrap()).is_none());
+    }
+}
 #[test]
 fn owned_input_frames_v1_form_focus_requires_actual_declared_control_change() {
     for (height, width) in [(24, 80), (40, 120)] {
@@ -788,6 +938,96 @@ fn complete(parser: &mut vt100::Parser, frames: &mut CursorlessFrames, bytes: &[
     let base = frames.end;
     frames.process(parser, bytes, base);
     frames.process(parser, b"\x1b[?25l", base + bytes.len());
+}
+
+fn scoped_actions_layout_v2(jobs: bool) -> Vec<u8> {
+    let mut bytes = actions_bytes(24, 80, 1);
+    let view = if jobs { "Jobs and steps" } else { "Run" };
+    bytes.extend_from_slice(format!("\x1b[3;1Hhost / @octocat / example/ci / {view} / repository\x1b[10;2HRetained observed attempt\x1b[14;2H{SHA}\x1b[18;2HJob 501").as_bytes());
+    // The original shared Job label is deliberately also present in Run.
+    bytes.extend_from_slice(b"\x1b[13;2H                    ");
+    bytes
+}
+
+#[test]
+fn scoped_actions_test_framework_jobs_wait_rejects_old_shared_labels_and_partial_new_layout() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &scoped_actions_layout_v2(false));
+    assert!(frames.last.as_ref().unwrap().contents().contains("Job 501"));
+    assert!(controls::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", SHA).is_none());
+    let before = frames.end;
+    let bytes = scoped_actions_layout_v2(true);
+    frames.process(&mut parser, &bytes, before);
+    assert!(parser.screen().contents().contains("/ Jobs and steps /"));
+    assert!(controls::scoped_actions_jobs_position_v2(&frames, before, "Job 501", SHA).is_none());
+    frames.process(&mut parser, b"\x1b[?25l", before + bytes.len());
+    assert_eq!(
+        controls::scoped_actions_jobs_position_v2(&frames, before, "Job 501", SHA),
+        Some((1, 17))
+    );
+    assert!(
+        controls::scoped_actions_jobs_position_v2(&frames, frames.end, "Job 501", SHA).is_none()
+    );
+}
+
+#[test]
+fn scoped_actions_test_framework_jobs_refuses_duplicate_wrong_head_pending_or_modal() {
+    for suffix in [
+        "\x1b[19;2HJob 501",
+        "\x1b[15;2H[b Cancel read]",
+        "\x1b[15;2HAction unavailable",
+    ] {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = scoped_actions_layout_v2(true);
+        bytes.extend_from_slice(suffix.as_bytes());
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(controls::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", SHA).is_none());
+    }
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &scoped_actions_layout_v2(true));
+    assert!(
+        controls::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", &"a".repeat(40)).is_none()
+    );
+}
+
+#[test]
+fn scoped_actions_test_framework_focus_observes_header_to_current_disabled_control() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = actions_bytes(24, 80, 3);
+    bytes.extend_from_slice(b"\x1b[1;1H\x1b[4m[Back]\x1b[0m\x1b[8;2H[Rerun all jobs unavailable: original source required]");
+    complete(&mut parser, &mut frames, &bytes);
+    let page = controls::actions_page(&frames, 0).unwrap();
+    let before = controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
+    assert!(!before.target_focused);
+    assert!(before.underlined.contains(&(0, 0)));
+    complete(&mut parser, &mut frames, b"\x1b[1;1H\x1b[0m[Back]\x1b[8;2H\x1b[4m[Rerun all jobs unavailable: original source required]\x1b[0m");
+    let after = controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
+    assert!(after.target_focused);
+    assert_ne!(after.underlined, before.underlined);
+}
+
+#[test]
+fn scoped_actions_test_framework_focus_repaint_foreign_page_or_duplicate_cannot_supply_target() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = actions_bytes(24, 80, 3);
+    bytes.extend_from_slice(b"\x1b[8;2H[Rerun all jobs unavailable: original source required]");
+    complete(&mut parser, &mut frames, &bytes);
+    let page = controls::actions_page(&frames, 0).unwrap();
+    let before = controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
+    complete(&mut parser, &mut frames, &bytes);
+    assert_eq!(
+        controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap(),
+        before
+    );
+    complete(&mut parser, &mut frames, b"\x1b[9;2HRerun all jobs");
+    assert!(controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
+    complete(&mut parser, &mut frames, &actions_bytes(24, 80, 4));
+    assert!(controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
 }
 
 #[test]

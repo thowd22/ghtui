@@ -112,6 +112,7 @@ pub struct ObservedPrCheckV1 {
 pub struct PrResourceParentV1 {
     pub(super) summary: PrSummary,
     pub(super) database_id: u64,
+    pub(super) author_account_id: Option<u64>,
     pub(super) repository_id: u64,
     pub(super) repository_node: String,
     pub(super) head_repository: Option<(u64, String, String)>,
@@ -137,6 +138,11 @@ impl PrResourceParentV1 {
             // At most the three typed personal-queue memberships. Charge a
             // conservative full node per member; do not assume packed leaves.
             + p.queues.len()*512
+    }
+    /// Actual optional raw REST user.id. Unknown/deleted authors stay unknown;
+    /// a login, opaque node or Actor presentation never manufactures this ID.
+    pub fn author_account_id(&self) -> Option<u64> {
+        self.author_account_id
     }
     /// Crate-local journal/identity interoperability only. Non-bound legacy
     /// merge/count fields are not observed permission/rule/capability truth.

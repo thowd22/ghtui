@@ -1,5 +1,7 @@
 //! Actual gh/SQLite/Git session contracts and production-route regressions.
 use super::*;
+#[path = "original_repository_access_core_v13_tests.rs"]
+mod original_core_v13;
 #[path = "postwrite_capture_v2_tests.rs"]
 mod postwrite_capture_v2_tests;
 use crate::{
@@ -433,8 +435,8 @@ fn repo_catalog_measured_session_parent_and_closing_allowance_refuse_before_any_
             &CancellationToken::default()
         )
         .is_err());
-    assert!(session.measured_external.is_none());
-    assert_eq!(session.repository_reads, 0);
+    assert!(session.core.measured_external.is_none());
+    assert_eq!(session.core.repository_reads, 0);
     exact(&fixture, &steps);
     Cache::open(&database(&fixture))
         .unwrap()

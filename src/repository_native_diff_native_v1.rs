@@ -32,6 +32,8 @@ pub(crate) trait NativeAppV2: NativeDiffPurposeV2 {
         retire(app);
     }
     fn preview(app: &mut App);
+    fn comment(_app: &mut App) {}
+    fn threads(_app: &mut App) {}
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>>;
     fn parts(
         app: &mut App,
@@ -288,12 +290,41 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
     if app.native_mutable_plan_v2.is_some() {
         return;
     }
+    if S::state(app).is_some_and(|state| state.external_v4.is_some()) {
+        return; // One captured host pane; no synthetic behind-pane mutation.
+    }
+    if action == A::External {
+        let (state, layout) = S::parts(app);
+        let area = layout.area;
+        if let Some(state) = state.as_mut() {
+            if let Err(reason) = state.choose_external_v4(area) {
+                state.status = reason;
+            }
+        }
+        layout.clear();
+        layout.query_focused = false;
+        layout.controls = false;
+        layout.focus = None;
+        app.hits.clear();
+        return;
+    }
     if action == A::Stage {
         if S::state(app).is_some_and(|state| state.is_full_side()) {
             S::parts(app).0.as_mut().expect("native full side").status="Full-file context is read-only and has no canonical staging coordinates. Back to the original patch before previewing a selection.".into();
             return;
         }
         S::preview(app);
+        return;
+    }
+    if action == A::Comment {
+        S::comment(app);
+        return;
+    }
+    if action == A::Threads {
+        S::threads(app);
+        return;
+    }
+    if action == A::CancelInline {
         return;
     }
     if action == A::Source {
@@ -533,7 +564,19 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
                 }
             }
         }
-        A::First => state.selected = 0,
+        A::First => {
+            state.selected = 0;
+            // Split metadata headers have no right-hand cell. Keep Home's
+            // cursor visible without changing the canonical range or making
+            // a review/staging ticket from that read-only header.
+            state.right = state.right
+                && state.current_frame().is_some_and(|frame| {
+                    frame
+                        .rows()
+                        .first()
+                        .is_some_and(|row| row.right().is_some())
+                });
+        }
         A::Last => {
             if let Some(frame) = state.current_frame() {
                 state.selected = frame.rows().len().saturating_sub(1);
@@ -653,6 +696,9 @@ fn capture_for<S: NativeAppV2>(app: &mut App, event: &Event) -> bool {
     if S::state(app).is_none() || app.overlay.is_some() {
         return false;
     }
+    if external_event_v4::<S>(app, event) {
+        return true;
+    }
     match event {
         Event::Resize(width, _) => {
             let width = width.saturating_sub(2).min(512);
@@ -704,11 +750,138 @@ fn draw_for<S: NativeAppV2>(
     area: ratatui::layout::Rect,
 ) -> bool {
     synchronize(app);
+    let returned = S::parts(app)
+        .0
+        .as_mut()
+        .and_then(|state| state.external_v4.as_mut())
+        .is_some_and(|ui| ui.poll());
+    if returned {
+        return_external_v4::<S>(app);
+    }
+    if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::draw_pending(frame,app,area){return true;}
     let theme = app.theme();
+    let admission = app.native_external_admission_v4.clone();
     let (state, layout) = S::parts(app);
     let Some(state) = state.as_mut() else {
         return false;
     };
+    if let Some(ui) = state.external_v4.as_mut() {
+        layout.clear();
+        ui.draw(frame, area, theme, &admission);
+        return true;
+    }
     layout.draw(frame, state, area, theme);
     true
+}
+
+fn return_external_v4<S: NativeAppV2>(app: &mut App) {
+    let Some(state) = S::parts(app).0.as_mut() else {
+        return;
+    };
+    let Some(ui) = state.external_v4.as_ref() else {
+        return;
+    };
+    let width = ui.area().width;
+    let preparing = ui.is_preparing();
+    let reproject = state.return_external_v4(width);
+    if preparing {
+        S::cancel(app);
+    }
+    S::parts(app).1.clear();
+    app.hits.clear();
+    if reproject {
+        queue::<S>(app);
+    }
+    show_external_notice_v4::<S>(app);
+}
+fn show_external_notice_v4<S: NativeAppV2>(app: &mut App) {
+    if app.view != S::view()
+        || S::state(app)
+            .is_none_or(|state| S::context(app).is_none_or(|context| !state.owns(context)))
+    {
+        return;
+    }
+    let notice = S::parts(app)
+        .0
+        .as_mut()
+        .and_then(|state| state.take_external_notice_v4());
+    if let Some(notice) = notice {
+        app.dispatch(Action::Explain(format!("Optional external viewer • native retained\n{}\nNo mutation or new review/staging authority. Close to return to the exact native source/selection.",notice)));
+    }
+}
+fn external_event_v4<S: NativeAppV2>(app: &mut App, event: &Event) -> bool {
+    let admission = app.native_external_admission_v4.clone();
+    let Some(state) = S::parts(app).0.as_mut() else {
+        return false;
+    };
+    let can_launch = state.current_frame().is_some() || state.current_full_side().is_some();
+    let Some(ui) = state.external_v4.as_mut() else {
+        return false;
+    };
+    let input = ui.event(event, can_launch, &admission);
+    use crate::repository_native_external_ui_v4::ExternalInputV4;
+    match input {
+        ExternalInputV4::Back => return_external_v4::<S>(app),
+        ExternalInputV4::CancelPreparation => {
+            let state = S::parts(app)
+                .0
+                .as_mut()
+                .expect("captured external preparation");
+            let width = state
+                .external_v4
+                .as_ref()
+                .expect("captured chooser")
+                .area()
+                .width;
+            state.cancel_external_preparation_v4(width);
+            S::cancel(app);
+        }
+        ExternalInputV4::Launch(launch) => {
+            let state = S::parts(app).0.as_mut().expect("captured external Launch");
+            match state.begin_external_v4(launch) {
+                Ok(()) => queue::<S>(app),
+                Err(reason) => {
+                    state.status = reason;
+                    let width = state
+                        .external_v4
+                        .as_ref()
+                        .map(|ui| ui.area().width)
+                        .unwrap_or(0);
+                    state.return_external_v4(width);
+                }
+            }
+        }
+        ExternalInputV4::Captured => {}
+    }
+    S::parts(app).1.clear();
+    app.hits.clear();
+    true
+}
+/// Sole live-child start seam, called synchronously AFTER the existing exact
+/// publisher has admitted this closed request. Draw never starts/replays it.
+pub(crate) fn start_admitted_external_v4<S: NativeAppV2>(app: &mut App) {
+    if app.view != S::view()
+        || app.overlay.is_some()
+        || S::state(app)
+            .is_none_or(|state| S::context(app).is_none_or(|context| !state.owns(context)))
+    {
+        return;
+    }
+    let admission = app.native_external_admission_v4.clone();
+    show_external_notice_v4::<S>(app);
+    if app.overlay.is_some() {
+        return;
+    }
+    let Some(state) = S::parts(app).0.as_mut() else {
+        return;
+    };
+    let Some(ui) = state.external_v4.as_mut().filter(|ui| ui.is_ready()) else {
+        return;
+    };
+    if let Err(reason) = ui.start(&admission) {
+        let width = ui.area().width;
+        state.return_external_v4(width);
+        state.status = format!("{} • {reason}", S::ready_status());
+        app.dispatch(Action::Explain(reason));
+    }
 }

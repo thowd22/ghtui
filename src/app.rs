@@ -39,6 +39,8 @@ impl View {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    ScopedReviewsV2(crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::browser_v2::ReviewBrowserActionV2),
+    OpenScopedReviewsV2,
     StashRecoveryV1(crate::repository_stash_recovery_v1::StashRecoveryActionV1),
     View(View),
     Help,
@@ -131,8 +133,10 @@ pub enum Overlay {
     RepositorySource,
     RepositoryCatalogue,
     PrFileImages,
+    ScopedReviewsV2,
     PrCheckChoices,
     PrThreadsV1,
+    PrThreadHistoryV1,
     PrCheckContinuationV2,
     GraphRereadV3,
 }
@@ -166,6 +170,12 @@ impl DiffSelection {
 
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
+    pub scoped_actions_v1: Option<crate::scoped_actions_native_v1::ScopedActionsStateV1>,
+    pub scoped_actions_work_v1: Option<Arc<crate::scoped_actions_v1::ScopedActionsWorkV1>>,
+    pub scoped_actions_owner_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
+    pub scoped_actions_cancel_v1: bool,
+    /// Mechanical process-lifecycle fence only; never source/account authority.
+    pub native_external_admission_v4: Arc<crate::providers::owned_pty_viewer_v4::ViewerAdmissionV4>,
     pub pr_native_diff_v1: Option<crate::scoped_pr_native_diff_native_v1::PrNativeStateV1>,
     pub pr_native_diff_layout_v1: crate::scoped_pr_native_diff_native_v1::PrNativeLayoutV1,
     pub pr_native_diff_work_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeWorkV1>>,
@@ -175,9 +185,15 @@ pub struct App {
     pub scoped_threads_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
     pub scoped_threads_cancel_v1: bool,
     pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::ThreadBrowserV1>,
+    pub scoped_thread_history_v1:Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::ThreadHistoryBrowserV1>,
     pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
     pub scoped_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     pub scoped_inline_cancel_v1: bool,
+    pub scoped_reviews_work_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsWorkV2>>,
+    pub scoped_reviews_owner_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsOwnerV2>>,
+    pub scoped_reviews_cancel_v2: bool,
+    pub scoped_reviews_v2: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::browser_v2::ReviewBrowserV2>,
+    pub scoped_review_history_v3: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::history_v3::ui::ReviewOperationHistoryViewV3>,
     pub original_stash_recovery_request_v1:
         Option<std::sync::Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryIntentV1>>,
     pub original_stash_recovery_cancel_requested_v1: bool,
@@ -355,7 +371,13 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            native_external_admission_v4:
+                crate::providers::owned_pty_viewer_v4::ViewerAdmissionV4::new(),
             pr_native_diff_v1: None,
+            scoped_actions_v1: None,
+            scoped_actions_work_v1: None,
+            scoped_actions_owner_v1: None,
+            scoped_actions_cancel_v1: false,
             pr_native_diff_layout_v1: Default::default(),
             pr_native_diff_work_v1: None,
             pr_native_diff_owner_v1: None,
@@ -364,9 +386,15 @@ impl Default for App {
             scoped_threads_owner_v1: None,
             scoped_threads_cancel_v1: false,
             scoped_threads_v1: None,
+            scoped_thread_history_v1: None,
             scoped_inline_work_v1: None,
             scoped_inline_owner_v1: None,
             scoped_inline_cancel_v1: false,
+            scoped_reviews_work_v2: None,
+            scoped_reviews_owner_v2: None,
+            scoped_reviews_cancel_v2: false,
+            scoped_reviews_v2: None,
+            scoped_review_history_v3: None,
             original_stash_recovery_request_v1: None,
             original_stash_recovery_cancel_requested_v1: false,
             original_stash_recovery_v1: None,
@@ -701,6 +729,15 @@ impl App {
         controls
     }
     pub fn dispatch(&mut self, action: Action) {
+        if action == Action::Github(crate::github_workspace::GithubAction::ReviewOperationHistoryV3)
+        {
+            crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::open_history_v3(self);
+            return;
+        }
+        if action == Action::Github(crate::github_workspace::GithubAction::ThreadHistoryV1) {
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open_history(self);
+            return;
+        }
         if action
             == Action::Github(crate::github_workspace::GithubAction::Resource(
                 crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::Threads,
@@ -709,7 +746,10 @@ impl App {
             crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open(self);
             return;
         }
-        if self.overlay == Some(Overlay::PrThreadsV1) {
+        if matches!(
+            self.overlay,
+            Some(Overlay::PrThreadsV1 | Overlay::PrThreadHistoryV1)
+        ) {
             if matches!(action, Action::Close | Action::Cancel | Action::Quit) {
                 crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::close(self);
                 if action == Action::Quit {
@@ -919,6 +959,8 @@ impl App {
         }
         match action {
             Action::StashRecoveryV1(_) => {}
+            Action::OpenScopedReviewsV2=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::open(self,false),
+            Action::ScopedReviewsV2(action)=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::browser_action(self,action),
             Action::NativeDiffV1(action) => {
                 crate::repository_native_diff_native_v1::dispatch(self, action)
             }
@@ -1520,9 +1562,13 @@ impl App {
                 }
             }
             Action::Form(action) => {
+                if action == crate::forms::FormAction::Close && self.form.as_ref().is_some_and(|form|matches!(form.purpose,crate::forms::FormPurpose::PrReviewV2(_)|crate::forms::FormPurpose::PrReviewOperationV3(_)) && form.submitting) {
+                    self.scoped_reviews_cancel_v2=true;
+                    self.status="Canceling original review operation • awaiting owned cleanup; effects may exist".into();return;
+                }
                 if action == crate::forms::FormAction::Close
                     && self.form.as_ref().is_some_and(|form| {
-                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_))
+                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_) | crate::forms::FormPurpose::PrThreadCommentV2(_))
                             && form.submitting
                     })
                 {
@@ -1566,6 +1612,7 @@ impl App {
                     self.form_dismissed = true;
                     self.overlay = None;
                     self.status = "Composer closed • draft kept locally".into();
+                    crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::form_closed(self);
                 }
             }
             Action::LocalMenu => {
@@ -1623,6 +1670,7 @@ impl App {
             Action::SearchSource(action) => crate::search_sources::ui::dispatch(self, action),
             Action::RepositoryHunk => self.select_repository_hunk(),
             Action::Actions(action) => {
+                if crate::scoped_actions_native_v1::intercept(self,&action){return;}
                 if crate::pr_checks_native::scoped::choices::continuations_v2::intercept(
                     self, &action,
                 ) {
@@ -1692,18 +1740,32 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        if crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::event(
+            self, &event,
+        ) {
+            return;
+        }
         if crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::event(self, &event) {
             return;
         }
         crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1::retire_invalid_form(self);
+        if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::ui_v2::retire_invalid_form(self) {return;}
+        if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3::retire_invalid_form(self){return;}
         if crate::repository_stash_recovery_v1::event(self, event.clone()) {
             return;
         }
         if let Event::Resize(width, _) = &event {
+            crate::scoped_actions_native_v1::resize(self);
+            if let Some(form) = &mut self.form {
+                form.clear_preview_display_geometry_v1();
+                crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::ui_v2::clear_layout(form);
+                crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3::clear_layout(form);
+            }
             crate::repository_tree_viewport_native_v2::resize(self, *width);
         }
         // Native capture borrows the event before other handlers clone it,
         // including rejected oversized bracketed-paste payloads.
+        if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::event(self,&event){return;}
         if crate::repository_native_diff_native_v1::capture(self, &event) {
             return;
         }
@@ -1736,6 +1798,10 @@ impl App {
             crate::scoped_pr_observed_tabs_v1::resources::immutable_images::native::event(
                 self, event,
             );
+            return;
+        }
+        if self.overlay == Some(Overlay::ScopedReviewsV2) {
+            crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::event(self,event);
             return;
         }
         if self.overlay.is_none() && crate::repository_tree_native_v1::capture(self, event.clone())
@@ -2502,6 +2568,18 @@ impl App {
                         .as_ref()
                         .is_some_and(|github| github.pr.is_some());
                     if let KeyCode::Char(character) = key.code {
+                        if character == 'J'
+                            && self.github.as_ref().is_some_and(|github| {
+                                github.scoped_pr_navigation.is_some()
+                                    && github
+                                        .pr
+                                        .as_ref()
+                                        .is_some_and(|page| page.tab == PrTab::Summary)
+                            })
+                        {
+                            self.dispatch(Action::Github(GithubAction::ThreadHistoryV1));
+                            return;
+                        }
                         if self.github.as_ref().is_some_and(|github| {
                             github.scoped_pr_resource.is_some()
                                 && github
@@ -2606,6 +2684,12 @@ impl App {
                 }
                 match key.code {
                     KeyCode::F(1) => self.dispatch(Action::Help),
+                    KeyCode::F(10) if self.view == View::Inbox => {
+                        self.dispatch(Action::OpenScopedReviewsV2)
+                    }
+                    KeyCode::F(9) if self.view == View::Inbox => self.dispatch(Action::Github(
+                        crate::github_workspace::GithubAction::ReviewOperationHistoryV3,
+                    )),
                     KeyCode::Char('/') => self.dispatch(Action::View(View::Search)),
                     KeyCode::Esc if self.loading[self.view.index()] => {
                         self.dispatch(Action::Cancel)

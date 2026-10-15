@@ -1,8 +1,12 @@
 //! DECLARED / UNRUN: genuine initial source, selected thread and shared Form;
 //! actual transport/input/Git/SQL/TTY witnesses, never direct App dispatch.
 use super::*;
+#[path = "review_thread_comments_v2.rs"]
+mod comments_v2;
 #[path = "review_thread_draft_witness_v1.rs"]
 mod draft_witness_v1;
+#[path = "review_thread_history_v1.rs"]
+mod history_v1;
 use ghtui::providers::gh::{
     METRICS_THREAD_COMMENTS_QUERY, THREAD_RESOLUTION_MUTATION_FIELDS_V2,
     THREAD_RESOLUTION_STATE_QUERY_V2,

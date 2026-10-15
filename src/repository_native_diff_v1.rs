@@ -140,6 +140,7 @@ fn same_options(a: &NativeDiffOptionsV1, b: &NativeDiffOptionsV1) -> bool {
 /// No public field/serde constructor can turn display coordinates into a source.
 pub struct NativeDiffRequestV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
     purpose: NativeDiffPurposeV3,
+    external_launch: Option<Arc<crate::repository_native_external_ui_v4::NativeExternalLaunchV4>>,
     retained_full: Option<Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>>,
     full_selected: usize,
     session: Arc<()>,
@@ -177,7 +178,44 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
         self: &Arc<Self>,
         operation: &S::Operation,
     ) -> Result<PreparedNativeDiffV1<S>, String> {
+        self.prepare_impl_v4(operation, None)
+    }
+    pub(crate) fn external_display_v4(
+        &self,
+    ) -> Option<&Arc<crate::providers::owned_pty_viewer_v4::DisplayPermitV4>> {
+        self.external_launch.as_ref().map(|launch| &launch.display)
+    }
+    pub(crate) fn prepare_external_v4(
+        self: &Arc<Self>,
+        operation: &S::Operation,
+        bounds: &crate::repository_native_external_v4::ExternalRendererBoundsV4<'_, S::Operation>,
+    ) -> Result<PreparedNativeDiffV1<S>, String> {
+        self.prepare_impl_v4(operation, Some(bounds))
+    }
+    fn prepare_impl_v4(
+        self: &Arc<Self>,
+        operation: &S::Operation,
+        external_bounds: Option<
+            &crate::repository_native_external_v4::ExternalRendererBoundsV4<'_, S::Operation>,
+        >,
+    ) -> Result<PreparedNativeDiffV1<S>, String> {
         operation.check()?;
+        if let NativeDiffPurposeV3::External(tool) = self.purpose {
+            let launch = self
+                .external_launch
+                .as_ref()
+                .ok_or("Original explicit external Launch missing")?;
+            if launch.tool != tool
+                || external_bounds
+                    .is_none_or(|bounds| !bounds.matches_original(operation, &launch.display))
+            {
+                return Err("External preparation requires this SAME original operation and explicit Launch".into());
+            }
+        } else if self.external_launch.is_some() || external_bounds.is_some() {
+            return Err(
+                "External renderer bounds cannot be used for another native purpose".into(),
+            );
+        }
         if self.changes.len() > COMMAND_CAP || !(12..=512).contains(&self.width) {
             return Err("Native diff pending commands/width exceed bounded preparation".into());
         }
@@ -270,7 +308,104 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
             Some(RangeEditV1::Clear) => None,
             None => self.retained_range.clone(),
         };
-        let mut view = if let NativeDiffPurposeV3::FullSide(side) = self.purpose {
+        let mut view = if let NativeDiffPurposeV3::External(tool) = self.purpose {
+            if self.range_edit.is_some() || !self.changes.is_empty() || source.member_count() == 0 {
+                return Err(
+                    "External Launch requires an admitted unchanged native selection/options frame"
+                        .into(),
+                );
+            }
+            let bounds = external_bounds.ok_or("Original renderer bounds unavailable")?;
+            let launch = self
+                .external_launch
+                .as_ref()
+                .ok_or("Original external Launch unavailable")?;
+            use crate::repository_native_external_v4::{
+                prepare_external_v4, ExternalOriginalInputV4, ExternalToolV4,
+            };
+            let source_failure = std::cell::RefCell::new(None);
+            let validate = || {
+                source.validate_current(operation).inspect_err(|reason| {
+                    // Source failures are not optional-tool failures, even if
+                    // a later observation happens to succeed again.
+                    source_failure.replace(Some(reason.clone()));
+                })
+            };
+            let mut full_sides = None;
+            let rendered = match tool {
+                ExternalToolV4::Delta => {
+                    let input = source.external_patch_v4();
+                    prepare_external_v4(
+                        bounds,
+                        tool,
+                        input.input(),
+                        launch.geometry.cols(),
+                        validate,
+                    )
+                }
+                ExternalToolV4::Difftastic => {
+                    // These genuine factories and every renderer checkpoint
+                    // share the original clock/token/read ledger. The private
+                    // immutable inputs need not be fully reread six times.
+                    let old = source.prepare_full_side_v3(self.file, DiffSide::Old, operation)?;
+                    let new = source.prepare_full_side_v3(self.file, DiffSide::New, operation)?;
+                    let rendered = if [&old, &new].iter().any(|material| {
+                        material.kind().is_some_and(|kind| {
+                            *kind != crate::repository_view::BlobPreviewKind::Text
+                        })
+                    }) {
+                        Err("Optional structural view requires verified plain text or explicit absence; special content stays native".into())
+                    } else {
+                        let path = source
+                            .member_path(self.file, DiffSide::New)
+                            .or_else(|| source.member_path(self.file, DiffSide::Old));
+                        let suffix = path
+                            .map(crate::repository_native_external_v4::language_suffix_v4)
+                            .unwrap_or("txt");
+                        let input = ExternalOriginalInputV4::TextSides {
+                            old: old.content(),
+                            new: new.content(),
+                            old_absent: old.kind().is_none(),
+                            new_absent: new.kind().is_none(),
+                            suffix,
+                            new_material_bytes: old
+                                .external_new_material_bytes_v4()
+                                .saturating_add(new.external_new_material_bytes_v4()),
+                        };
+                        prepare_external_v4(bounds, tool, input, launch.geometry.cols(), validate)
+                    };
+                    full_sides = Some((old, new));
+                    rendered
+                }
+            };
+            if let Some(reason) = source_failure.into_inner() {
+                return Err(reason);
+            }
+            if let Some((old, new)) = full_sides {
+                // Close against exact current raw bytes, stamps and object
+                // identities after both success AND ordinary tool failure.
+                // These errors escape before any selectable native fallback.
+                source.validate_full_side_v3(&old, operation)?;
+                source.validate_full_side_v3(&new, operation)?;
+            }
+            match rendered {
+                Ok(prepared) => NativePreparedViewV1::External(Box::new(prepared)),
+                Err(reason) => {
+                    // A tool/protocol failure may restore the exact native
+                    // view ONLY after genuine source/operation validation.
+                    // Cancellation, changed raw/index state and source loss
+                    // remain Err, never this successful fallback proof.
+                    operation.check()?;
+                    source.validate_current(operation)?;
+                    let reason = if reason.len() <= 4096 {
+                        crate::providers::runner::sanitize_terminal(&reason)
+                    } else {
+                        "Optional renderer unavailable; diagnostic omitted".into()
+                    };
+                    NativePreparedViewV1::ExternalUnavailable(Arc::from(reason))
+                }
+            }
+        } else if let NativeDiffPurposeV3::FullSide(side) = self.purpose {
             match crate::repository_native_full_side_v3::NativeFullSideV3::prepare(
                 source.clone(),
                 (self.file, side),
@@ -329,6 +464,15 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
             .saturating_add(actors.prepared_bytes())
             > 8 * 1024 * 1024
         {
+            if matches!(
+                view,
+                NativePreparedViewV1::External(_) | NativePreparedViewV1::ExternalUnavailable(_)
+            ) {
+                return Err(
+                    "Optional prepared model plus actor material exceeds8MiB; native unchanged"
+                        .into(),
+                );
+            }
             view=NativePreparedViewV1::SourceOnly(Arc::from("Error: native model plus actor display material exceeds8MiB • original catalogue retained; no current row/range authority"));
         }
         let focus = if let NativePreparedViewV1::FullSide(frame) = &view {
@@ -387,6 +531,8 @@ pub struct PreparedNativeDiffV1<S: NativeDiffPurposeV2 = OriginalComparisonSourc
     focus: usize,
 }
 enum NativePreparedViewV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    External(Box<crate::repository_native_external_v4::PreparedNativeExternalV4>),
+    ExternalUnavailable(Arc<str>),
     FullSide(Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>),
     Rows(Arc<NativeDiffProjectionV1<S>>),
     // No synthetic cells, keys or changed membership can be constructed here.
@@ -396,11 +542,16 @@ impl<S: NativeDiffPurposeV2> NativePreparedViewV1<S> {
     fn frame(&self) -> Option<&Arc<NativeDiffProjectionV1<S>>> {
         match self {
             Self::Rows(frame) => Some(frame),
-            Self::SourceOnly(_) | Self::FullSide(_) => None,
+            Self::SourceOnly(_)
+            | Self::FullSide(_)
+            | Self::External(_)
+            | Self::ExternalUnavailable(_) => None,
         }
     }
     fn prepared_bytes(&self) -> usize {
         match self {
+            Self::External(prepared) => prepared.retained_bytes(),
+            Self::ExternalUnavailable(reason) => reason.len() + std::mem::size_of::<Self>() + 64,
             Self::Rows(frame) => frame.prepared_bytes(),
             Self::FullSide(frame) => frame.prepared_bytes(),
             Self::SourceOnly(note) => note.len() + std::mem::size_of::<Self>() + 64,
@@ -472,6 +623,17 @@ impl<S: NativeDiffPurposeV2> PreparedNativeDiffV1<S> {
 enum NativeDiffPurposeV3 {
     Patch,
     FullSide(DiffSide),
+    External(crate::repository_native_external_v4::ExternalToolV4),
+}
+#[derive(Clone, Copy)]
+struct NativeExternalReturnV4 {
+    purpose: NativeDiffPurposeV3,
+    selected: usize,
+    scroll: usize,
+    right: bool,
+    horizontal: u16,
+    width: u16,
+    available: bool,
 }
 #[derive(Clone, Copy)]
 struct NativePatchPositionV3 {
@@ -482,6 +644,10 @@ struct NativePatchPositionV3 {
 }
 pub struct NativeDiffStateV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
     purpose: NativeDiffPurposeV3,
+    pub(crate) external_v4: Option<crate::repository_native_external_ui_v4::NativeExternalUiV4>,
+    external_launch: Option<Arc<crate::repository_native_external_ui_v4::NativeExternalLaunchV4>>,
+    external_return: Option<NativeExternalReturnV4>,
+    external_notice_v4: Option<Arc<str>>,
     full_side: Option<Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>>,
     patch_position: Option<NativePatchPositionV3>,
     session: Arc<()>,
@@ -517,6 +683,24 @@ pub struct NativeCurrentRangeV2<S: NativeDiffPurposeV2> {
     range: Arc<NativeDiffRangeV1<S>>,
 }
 impl<S: NativeDiffPurposeV2> NativeCurrentRangeV2<S> {
+    /// Return-position metadata ONLY after a resize retired selection authority.
+    /// Writers and review capture must continue using strict `matches`.
+    pub(crate) fn matches_retained_return_v1(&self, state: &NativeDiffStateV1<S>) -> bool {
+        Arc::ptr_eq(&self.session, &state.session)
+            && state.pending.is_none()
+            && state
+                .frame
+                .as_ref()
+                .is_some_and(|frame| Arc::ptr_eq(frame, &self.frame))
+            && state
+                .source
+                .as_ref()
+                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+            && state
+                .range
+                .as_ref()
+                .is_some_and(|range| Arc::ptr_eq(range, &self.range))
+    }
     pub fn source(&self) -> &Arc<S> {
         &self.source
     }
@@ -537,6 +721,53 @@ impl<S: NativeDiffPurposeV2> NativeCurrentRangeV2<S> {
     }
 }
 impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
+    /// O(1) display hint only. The existing inline worker independently
+    /// validates source/one-hunk membership/endpoint before any request.
+    pub(crate) fn inline_selection_available_v1(&self) -> bool {
+        let Some(frame) = self.current_frame() else {
+            return false;
+        };
+        let Some(range) = self.range() else {
+            return false;
+        };
+        if range.side() == DiffSide::Both
+            || range.changed().is_empty()
+            || range.endpoints().0 .0 != range.endpoints().1 .0
+        {
+            return false;
+        }
+        let ((h, a), (_, b)) = range.endpoints();
+        let Some(hunk) = frame
+            .source()
+            .canonical_file(range.file())
+            .and_then(|file| file.hunks.get(h))
+        else {
+            return false;
+        };
+        let (Some(first), Some(last)) = (hunk.lines.get(a), hunk.lines.get(b)) else {
+            return false;
+        };
+        let pair = match range.side() {
+            DiffSide::Old if last.kind == crate::diff::LineKind::Removed => {
+                Some((first.old_line, last.old_line))
+            }
+            DiffSide::New
+                if matches!(
+                    last.kind,
+                    crate::diff::LineKind::Added | crate::diff::LineKind::Context
+                ) =>
+            {
+                Some((first.new_line, last.new_line))
+            }
+            _ => None,
+        };
+        pair.is_some_and(
+            |(first, last)| matches!((first,last),(Some(a),Some(b))if a>0&&a<=b&&b-a<=9999),
+        )
+    }
+    pub(crate) fn retire_presentation_for_inline_resize_v1(&mut self) {
+        self.projection_available = false;
+    }
     pub fn capture_current_range_v2(&self) -> Result<Arc<NativeCurrentRangeV2<S>>, String> {
         let frame = self
             .current_frame()
@@ -571,6 +802,10 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
     ) -> Self {
         Self {
             purpose: NativeDiffPurposeV3::Patch,
+            external_v4: None,
+            external_launch: None,
+            external_return: None,
+            external_notice_v4: None,
             full_side: None,
             patch_position: None,
             session: Arc::new(()),
@@ -656,6 +891,12 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
     }
     pub fn accepts(&self, request: &Arc<NativeDiffRequestV1<S>>) -> bool {
         self.purpose == request.purpose
+            && same_arc(&self.external_launch, &request.external_launch)
+            && request.external_launch.as_ref().is_none_or(|launch| {
+                self.external_v4
+                    .as_ref()
+                    .is_some_and(|ui| ui.launch_matches(launch))
+            })
             && same_arc(&self.full_side, &request.retained_full)
             && Arc::ptr_eq(&self.session, &request.session)
             && Arc::ptr_eq(&self.intent, &request.intent)
@@ -709,6 +950,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
             .map(|ticket| ticket.key().clone());
         let request = Arc::new(NativeDiffRequestV1::<S> {
             purpose: self.purpose,
+            external_launch: self.external_launch.clone(),
             retained_full: self.full_side.clone(),
             full_selected: self.selected,
             session: self.session.clone(),
@@ -752,6 +994,29 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         self.actors = Some(prepared.actors);
         self.options = prepared.options;
         match prepared.view {
+            NativePreparedViewV1::External(external) => {
+                let Some(launch) = &self.external_launch else {
+                    return false;
+                };
+                if !self
+                    .external_v4
+                    .as_mut()
+                    .is_some_and(|ui| ui.ready(launch, external))
+                {
+                    return false;
+                }
+                self.status =
+                    "Original optional capture admitted; starting host-owned read-only PTY".into();
+            }
+            NativePreparedViewV1::ExternalUnavailable(reason) => {
+                let width = self
+                    .external_v4
+                    .as_ref()
+                    .map(|ui| ui.area().width)
+                    .unwrap_or(0);
+                self.return_external_v4(width);
+                self.external_notice_v4 = Some(reason);
+            }
             NativePreparedViewV1::FullSide(frame) => {
                 self.projection_available = true;
                 self.metadata_note = None;
@@ -810,6 +1075,22 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         if !self.accepts(request) {
             return false;
         }
+        if matches!(request.purpose, NativeDiffPurposeV3::External(_)) {
+            let area = self
+                .external_v4
+                .as_ref()
+                .map(|ui| ui.area())
+                .unwrap_or_default();
+            self.return_external_v4(area.width);
+            self.projection_available = false;
+            let reason = if reason.len() <= 4096 {
+                crate::providers::runner::sanitize_terminal(reason)
+            } else {
+                "Optional renderer failed; diagnostic omitted".into()
+            };
+            self.status=format!("Error: {reason} • previous native snapshot NOT CURRENT; explicitly refresh before another read/preview");
+            return true;
+        }
         self.pending = None;
         self.projection_available = false;
         // Failed commands are not silently replayed by the next independent
@@ -831,6 +1112,117 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
         &self,
     ) -> Option<&Arc<crate::repository_native_full_side_v3::NativeFullSideV3<S>>> {
         self.full_side.as_ref()
+    }
+    pub(crate) fn choose_external_v4(&mut self, area: ratatui::layout::Rect) -> Result<(), String> {
+        if self.external_v4.is_some() {
+            return Ok(());
+        }
+        if self.current_frame().is_none() && self.current_full_side().is_none() {
+            return Err(
+                "Wait for the current original native source/query/options before optional tools"
+                    .into(),
+            );
+        }
+        let source = self
+            .source
+            .as_ref()
+            .ok_or("Original native source unavailable")?;
+        let header = self
+            .actors
+            .as_ref()
+            .map(|actors| actors.header_label.clone())
+            .ok_or("Prepared original actor header unavailable")?;
+        let scope = Arc::from(source.external_patch_v4().scope_label());
+        self.external_v4 = Some(
+            crate::repository_native_external_ui_v4::NativeExternalUiV4::choose(
+                area, header, scope,
+            ),
+        );
+        Ok(())
+    }
+    pub(crate) fn begin_external_v4(
+        &mut self,
+        launch: Arc<crate::repository_native_external_ui_v4::NativeExternalLaunchV4>,
+    ) -> Result<(), String> {
+        if self.current_frame().is_none() && self.current_full_side().is_none() {
+            return Err("Explicit Launch no longer has a current native source".into());
+        }
+        if !self
+            .external_v4
+            .as_ref()
+            .is_some_and(|ui| ui.launch_matches(&launch))
+        {
+            return Err("Explicit external chooser changed before Launch".into());
+        }
+        self.external_return = Some(NativeExternalReturnV4 {
+            purpose: self.purpose,
+            selected: self.selected,
+            scroll: self.scroll,
+            right: self.right,
+            horizontal: self.horizontal,
+            width: self.width,
+            available: self.projection_available,
+        });
+        self.purpose = NativeDiffPurposeV3::External(launch.tool);
+        self.external_launch = Some(launch);
+        Ok(())
+    }
+    /// Return preserves the genuine patch/full-side, range, native query and
+    /// options. A changed actual width requests explicit existing reprojection.
+    pub(crate) fn return_external_v4(&mut self, actual_outer_width: u16) -> bool {
+        let note = self
+            .external_v4
+            .as_ref()
+            .and_then(|ui| ui.return_note())
+            .map(str::to_owned);
+        let detail = self
+            .external_v4
+            .as_ref()
+            .and_then(|ui| ui.completed_return_note())
+            .map(Arc::from);
+        self.external_v4 = None;
+        if let Some(launch) = self.external_launch.take() {
+            launch.display.cancellation().cancel();
+        }
+        if let Some(previous) = self.external_return.take() {
+            self.purpose = previous.purpose;
+            self.selected = previous.selected;
+            self.scroll = previous.scroll;
+            self.right = previous.right;
+            self.horizontal = previous.horizontal;
+            self.width = previous.width;
+            self.projection_available = previous.available;
+        }
+        self.pending = None;
+        self.anchor = None;
+        let width = actual_outer_width.saturating_sub(2).min(512);
+        let changed = width != self.width;
+        self.width = width;
+        if changed {
+            self.projection_available = false;
+        }
+        self.status = if self.is_full_side() {
+            "Full-file context ready • original position/range retained after optional view".into()
+        } else {
+            S::ready_status().into()
+        };
+        if let Some(note) = note {
+            self.status.push_str(" • ");
+            self.status.push_str(&note);
+        }
+        self.external_notice_v4 = detail;
+        changed || !self.projection_available
+    }
+    pub(crate) fn take_external_notice_v4(&mut self) -> Option<Arc<str>> {
+        self.external_notice_v4.take()
+    }
+    pub(crate) fn cancel_external_preparation_v4(&mut self, outer_width: u16) {
+        let ui = self.external_v4.take();
+        self.return_external_v4(outer_width);
+        if let Some(mut ui) = ui {
+            ui.resized_while_preparing();
+            self.external_v4 = Some(ui);
+        }
     }
     pub fn is_full_side(&self) -> bool {
         matches!(self.purpose, NativeDiffPurposeV3::FullSide(_))

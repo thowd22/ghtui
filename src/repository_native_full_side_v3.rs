@@ -75,7 +75,7 @@ impl NativeFullSideMaterialV3 {
         operation.check()?;
         Ok(material)
     }
-    fn content(&self) -> &[u8] {
+    pub(crate) fn content(&self) -> &[u8] {
         match &self.value {
             MaterialV3::RemotePr(side) => side.content(),
             MaterialV3::Saved(side) => &side.preview().content,
@@ -83,7 +83,7 @@ impl NativeFullSideMaterialV3 {
             MaterialV3::Absent(_) => &[],
         }
     }
-    fn kind(&self) -> Option<&BlobPreviewKind> {
+    pub(crate) fn kind(&self) -> Option<&BlobPreviewKind> {
         match &self.value {
             MaterialV3::RemotePr(side) => side.kind.as_ref(),
             MaterialV3::Saved(side) => Some(&side.preview().kind),
@@ -157,6 +157,17 @@ impl NativeFullSideMaterialV3 {
             _ => 0,
         };
         content_capacity + self.label().len() + 512 + saved
+    }
+    pub(crate) fn external_new_material_bytes_v4(&self) -> usize {
+        if let MaterialV3::RemotePr(side) = &self.value {
+            // Both immutable images/proof already belong to this source. Only
+            // the newly allocated side adapter/label is new preparation here.
+            return std::mem::size_of::<Self>()
+                + std::mem::size_of_val(side.as_ref())
+                + side.label.capacity()
+                + 128;
+        }
+        self.retained_bytes()
     }
     fn actors(&self) -> (ActorIdentity, ActorIdentity) {
         match &self.value {

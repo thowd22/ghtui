@@ -32,6 +32,8 @@ mod local_picker;
 mod long_local_identity_v1;
 #[path = "tui_e2e/metrics.rs"]
 mod metrics;
+#[path = "support/native_external_tools_v4.rs"]
+mod native_external_tools_v4;
 #[path = "tui_e2e/navigation_local_palette.rs"]
 mod navigation_local_palette;
 #[path = "tui_e2e/owned_pty_cleanup_v1.rs"]

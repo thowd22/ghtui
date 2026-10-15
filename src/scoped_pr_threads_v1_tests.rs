@@ -1,6 +1,8 @@
 //! DECLARED/UNRUN until Root serializes verification. All source capabilities
 //! below come from the genuine existing Source/PR/Files worker factories.
 use super::*;
+#[path = "scoped_pr_threads_preparation_close_v4_tests.rs"]
+mod preparation_close_v4;
 #[path = "scoped_pr_thread_publication_v1_tests.rs"]
 mod publication_v1;
 use crate::providers::gh::METRICS_REVIEW_THREADS_QUERY;

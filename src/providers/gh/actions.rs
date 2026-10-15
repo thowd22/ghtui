@@ -1,7 +1,10 @@
 //! Native Actions transport. Accepted asynchronous writes are not advertised as completed.
 use super::pr::url_component;
 use super::*;
+mod attempt_jobs_v1;
+mod scoped_read_v1;
 mod settings;
+pub use scoped_read_v1::*;
 pub use settings::*;
 mod workflows;
 pub use workflows::*;
@@ -382,49 +385,7 @@ impl GithubProvider {
         attempt: u64,
         cancel: &CancellationToken,
     ) -> GithubResult<RunAttempt> {
-        validate_pr(repo, id)?;
-        if attempt == 0 {
-            return Err(error(
-                GithubErrorKind::InvalidTarget,
-                "Select a positive run attempt",
-            ));
-        }
-        let value = self.api(
-            &format!("repos/{repo}/actions/runs/{id}/attempts/{attempt}"),
-            "GET",
-            None,
-            None,
-            false,
-            cancel,
-        )?;
-        let run = run_from_json(&value);
-        if run.id != id || run.attempt != attempt || validate_sha(&run.head_sha).is_err() {
-            return Err(error(
-                GithubErrorKind::Json,
-                "Attempt response does not match the selected run/attempt",
-            ));
-        }
-        let jobs = self
-            .api_list(
-                &format!("repos/{repo}/actions/runs/{id}/attempts/{attempt}/jobs?per_page=100"),
-                Some("jobs"),
-                cancel,
-            )?
-            .iter()
-            .map(job_from_json)
-            .collect::<Vec<_>>();
-        if jobs.iter().any(|job| {
-            job.id == 0
-                || job.run_id != id
-                || job.attempt != attempt
-                || job.head_sha != run.head_sha
-        }) {
-            return Err(error(
-                GithubErrorKind::Json,
-                "Job response does not match the selected run/attempt/commit",
-            ));
-        }
-        Ok(RunAttempt{run,jobs,definition_note:"Matrix coordinates, reusable workflow call paths and dependency edges are not explicit in the jobs API; consult the exact-revision YAML. Expanded job names and runner labels are factual, not inferred dependencies.".into()})
+        attempt_jobs_v1::read_run_attempt_v1(self, repo, id, attempt, cancel)
     }
     pub fn job_annotations(
         &self,

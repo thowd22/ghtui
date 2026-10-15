@@ -117,10 +117,12 @@ impl OriginalDiffWorkerOwnerV1 {
                 request.prepare(operation).map(DiffResultV1::MutableConfirm)
             }
             OriginalDiffWorkV1::Native(request) => {
-                request.prepare(operation).map(DiffResultV1::Native)
+                crate::repository_native_external_v4::prepare_local_v4(request, operation)
+                    .map(DiffResultV1::Native)
             }
             OriginalDiffWorkV1::MutableNative(request) => {
-                request.prepare(operation).map(DiffResultV1::MutableNative)
+                crate::repository_native_external_v4::prepare_local_v4(request, operation)
+                    .map(DiffResultV1::MutableNative)
             }
             OriginalDiffWorkV1::Query(request) => {
                 OriginalDiffFrameV1::prepare(request.clone(), operation).map(DiffResultV1::Query)

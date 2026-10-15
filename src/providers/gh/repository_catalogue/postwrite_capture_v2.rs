@@ -3,6 +3,8 @@
 //! bounded ordinary post-close children spend these already-reserved slots.
 use super::*;
 use crate::providers::runner::ScopedReadBudgetV1;
+#[path = "postwrite_capture_v2/review_comment_delete_v2.rs"]
+mod review_comment_delete_v2;
 use std::sync::{
     atomic::{AtomicU8, Ordering},
     Arc, OnceLock, Weak,
@@ -181,6 +183,18 @@ impl PostWriteCaptureAllowanceV2 {
         write: Option<String>,
         cancel: &CancellationToken,
     ) -> GithubResult<Value> {
+        let bounded = self.spend_ordinary_slot_v2(provider, cancel)?;
+        let result = bounded.api(endpoint, method, input, write, false, &self.cancellation);
+        self.check_issuer(provider, cancel)?;
+        result
+    }
+    // A transport reservation only. Both the existing JSON path and the one
+    // closed HTTP-204 delete path spend this SAME cursor before one child.
+    fn spend_ordinary_slot_v2(
+        &mut self,
+        provider: &GithubProvider,
+        cancel: &CancellationToken,
+    ) -> GithubResult<GithubProvider> {
         self.check_issuer(provider, cancel)?;
         if self.lineage.state.load(Ordering::Acquire) != CLOSED
             || provider.scoped_read_budget.is_some()
@@ -203,18 +217,15 @@ impl PostWriteCaptureAllowanceV2 {
             .map_or((self.deadline, cap), |(original, original_cap)| {
                 (original.min(self.deadline), original_cap.min(cap))
             });
-        let bounded = provider.clone().with_scoped_read_window(deadline, cap)?;
-        let result = bounded.api(endpoint, method, input, write, false, &self.cancellation);
-        self.check_issuer(provider, cancel)?;
-        result
+        provider.clone().with_scoped_read_window(deadline, cap)
     }
 }
 
-impl RepositoryCatalogueAccessSession<'_> {
+impl OriginalRepositoryAccessCoreV13<'_> {
     /// Reserve exactly once BEFORE measured allocation. All bytes are a fixed
     /// conservative combined stdout/stderr capture charge, never measured wire
     /// bytes or mutation permission. Existing generic reservations stay separate.
-    pub fn reserve_postwrite_capture_v2(
+    pub(super) fn reserve_postwrite_capture_v2(
         &mut self,
         capture_caps: &[usize],
         remaining_repository_reads: usize,
@@ -305,5 +316,18 @@ impl RepositoryCatalogueAccessSession<'_> {
         self.postwrite_reservation_v2
             .as_ref()
             .map_or(0, |reservation| reservation.metadata.reserved_bytes)
+    }
+}
+
+impl RepositoryCatalogueAccessSession<'_> {
+    /// Same fixed original cursor/reservation, never a second allocation.
+    pub fn reserve_postwrite_capture_v2(
+        &mut self,
+        capture_caps: &[usize],
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<PostWriteCaptureAllowanceV2> {
+        self.core
+            .reserve_postwrite_capture_v2(capture_caps, remaining_repository_reads, cancel)
     }
 }

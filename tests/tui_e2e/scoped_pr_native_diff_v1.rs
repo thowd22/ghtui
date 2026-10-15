@@ -1,6 +1,12 @@
 //! Actual binary/keys/mouse. Genuine Git-built M/H trees/blobs; exact offline
 //! gh protocol, independent full Git/SQL/config and real terminal restoration.
 use super::*;
+#[path = "scoped_pr_native_inline_v1.rs"]
+mod inline_entry;
+#[path = "native_external_pr_diff_v4.rs"]
+mod native_external_pr_diff_v4;
+#[path = "scoped_pr_native_threads_v3.rs"]
+mod threads_v3;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};
 const NATIVE: &str = "Native PR diff";
 fn nready(session: &mut Session, text: &str) {
