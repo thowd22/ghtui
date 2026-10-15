@@ -6,6 +6,9 @@ use crate::repository_catalogue_intent_v1::IntentReference;
 #[path = "measured_reads_v1.rs"]
 mod measured_reads_v1;
 pub use measured_reads_v1::MeasuredExternalReadWindowV1;
+#[path = "postwrite_capture_v2.rs"]
+mod postwrite_capture_v2;
+pub use postwrite_capture_v2::{PostWriteCaptureAccountingV2, PostWriteCaptureAllowanceV2};
 
 const FINAL_PRINCIPAL_CAP: usize = 4096 + 64 * 1024;
 const MAX_REFERENCES: usize = 4096;
@@ -123,6 +126,7 @@ pub struct ClosedCatalogueAccess {
     external_requests_reserved: usize,
     external_capture_reserved_bytes: usize,
     measured_external_accounting: Option<crate::providers::runner::ScopedReadAccountingV1>,
+    postwrite_capture_v2: Option<PostWriteCaptureAccountingV2>,
 }
 impl std::fmt::Debug for ClosedCatalogueAccess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -159,13 +163,25 @@ impl ClosedCatalogueAccess {
         self.external_capture_reserved_bytes
     }
     pub fn charged_bytes(&self) -> usize {
-        self.accounting.charged_bytes().saturating_add(
-            self.measured_external_accounting
-                .as_ref()
-                .map_or(self.external_capture_reserved_bytes, |actual| {
-                    actual.charged_bytes()
-                }),
-        )
+        self.accounting
+            .charged_bytes()
+            .saturating_add(
+                self.measured_external_accounting
+                    .as_ref()
+                    .map_or(self.external_capture_reserved_bytes, |actual| {
+                        actual.charged_bytes()
+                    }),
+            )
+            .saturating_add(
+                self.postwrite_capture_v2
+                    .as_ref()
+                    .map_or(0, PostWriteCaptureAccountingV2::reserved_bytes),
+            )
+    }
+    /// Conservative reserved post-close captures, NOT observed bytes/children
+    /// or permission. Measured original prewrite observations stay separate.
+    pub fn postwrite_capture_v2(&self) -> Option<&PostWriteCaptureAccountingV2> {
+        self.postwrite_capture_v2.as_ref()
     }
     pub fn external_read_accounting(
         &self,
@@ -198,6 +214,7 @@ pub struct RepositoryCatalogueAccessSession<'a> {
     original_cancellation: CancellationToken,
     measured_external: Option<measured_reads_v1::MeasuredSessionPoolV1>,
     measured_parent_reads_remaining: usize,
+    postwrite_reservation_v2: Option<postwrite_capture_v2::PostWriteSessionReservationV2>,
     fatal: Option<GithubErrorKind>,
 }
 impl std::fmt::Debug for RepositoryCatalogueAccessSession<'_> {
@@ -250,6 +267,7 @@ impl GithubProvider {
             original_cancellation: cancel.clone(),
             measured_external: None,
             measured_parent_reads_remaining: 0,
+            postwrite_reservation_v2: None,
             fatal: None,
         })
     }
@@ -274,6 +292,7 @@ impl RepositoryCatalogueAccessSession<'_> {
         self.budget
             .remaining_bytes()
             .saturating_sub(self.external_capture_reserved_bytes)
+            .saturating_sub(self.postwrite_reserved_bytes_v2())
             .saturating_sub(self.measured_held_bytes())
     }
     pub fn reserve_external_reads(
@@ -283,7 +302,7 @@ impl RepositoryCatalogueAccessSession<'_> {
         cancel: &CancellationToken,
     ) -> GithubResult<ExternalCatalogueReadWindow> {
         self.budget.check(cancel)?;
-        if self.measured_external.is_some() {
+        if self.measured_external.is_some() || self.postwrite_reservation_v2.is_some() {
             return Err(error(
                 GithubErrorKind::InvalidTarget,
                 "Original measured pool cannot mix a legacy reservation/reset",
@@ -620,17 +639,34 @@ impl RepositoryCatalogueAccessSession<'_> {
         let current = principal(self.provider, &mut self.budget, cancel).map_err(safe_failure)?;
         same_principal(self.original.identity(), &current)?;
         self.budget.check(cancel)?;
-        if self.budget.accounting.charged_bytes().saturating_add(
-            measured_external_accounting
-                .as_ref()
-                .map_or(self.external_capture_reserved_bytes, |actual| {
-                    actual.charged_bytes()
-                }),
-        ) > self.limits.transport.max_response_bytes
+        if self
+            .budget
+            .accounting
+            .charged_bytes()
+            .saturating_add(
+                measured_external_accounting
+                    .as_ref()
+                    .map_or(self.external_capture_reserved_bytes, |actual| {
+                        actual.charged_bytes()
+                    }),
+            )
+            .saturating_add(self.postwrite_reserved_bytes_v2())
+            > self.limits.transport.max_response_bytes
         {
             return Err(error(GithubErrorKind::Transport,"Original transport plus conservative external capture budget exceeded; no publication"));
         }
-        Ok(ClosedCatalogueAccess {
+        let postwrite_capture_v2 = self
+            .postwrite_reservation_v2
+            .as_ref()
+            .map(|reservation| reservation.metadata());
+        let postwrite_reservation_v2 = self.postwrite_reservation_v2;
+        let deadline = postwrite_reservation_v2
+            .as_ref()
+            .map_or(self.budget.deadline(), |reservation| {
+                self.budget.deadline().min(reservation.deadline())
+            });
+        let original_cancellation = self.original_cancellation;
+        let result = ClosedCatalogueAccess {
             identity: current,
             original_source: self.original.source().clone(),
             original_owner: self.original.owner().cloned(),
@@ -644,7 +680,21 @@ impl RepositoryCatalogueAccessSession<'_> {
                     actual.capacity_bytes()
                 }),
             measured_external_accounting,
-        })
+            postwrite_capture_v2,
+        };
+        if cancel.is_cancelled()
+            || original_cancellation.is_cancelled()
+            || Instant::now() >= deadline
+        {
+            return Err(error(
+                GithubErrorKind::Transport,
+                "Original source close expired before post-write reservation activation",
+            ));
+        }
+        if let Some(reservation) = &postwrite_reservation_v2 {
+            reservation.complete()?;
+        }
+        Ok(result)
     }
 }
 fn validate_reference(reference: &IntentReference) -> GithubResult<()> {

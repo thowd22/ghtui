@@ -5,6 +5,9 @@ pub use inspect::*;
 #[path = "pr_inline_v1.rs"]
 mod inline_v1;
 pub use inline_v1::{InlineCommentReceiptV1, InlinePublicationFailureV1};
+#[path = "pr_thread_publication_v1.rs"]
+mod thread_publication_v1;
+pub use thread_publication_v1::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestedTeam {

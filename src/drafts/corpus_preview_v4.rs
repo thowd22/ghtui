@@ -20,6 +20,11 @@ struct LatestV4 {
     resource: String,
     outcome: Option<Result<(), String>>,
 }
+struct PublicationWaitV2 {
+    ticket: u64,
+    cutoff: u64,
+    failed: bool,
+}
 #[derive(Default)]
 pub(super) struct StateV4 {
     pub(super) revision: u64,
@@ -29,6 +34,8 @@ pub(super) struct StateV4 {
     active: Option<(u64, Option<String>)>,
     closed: bool,
     pub(super) legacy_active: usize,
+    publication_ticket_v2: u64,
+    publication_wait_v2: Option<PublicationWaitV2>,
 }
 pub(super) struct DraftProducerV4 {
     database: PathBuf,
@@ -36,6 +43,126 @@ pub(super) struct DraftProducerV4 {
     changed: Condvar,
 }
 impl DraftProducerV4 {
+    /// Publication-only metadata bridge. Ordinary and Corpus admission retain
+    /// their existing semantics; no per-key history or body replay is added.
+    pub(super) fn publication_snapshot_v2(
+        &self,
+        database: &Path,
+        scope: &Scope,
+        resource: &str,
+    ) -> Result<super::publication_v2::PublicationSnapshotV2, String> {
+        let mut state = self.lock()?;
+        if self.database != database || state.closed || state.legacy_active != 0 {
+            return Err("Original publication draft database/worker/activity unavailable".into());
+        }
+        // Only the affirmative brand-new producer state. A prior generic or
+        // publication activity has already advanced epoch even without a UI
+        // revision, and must register an actual initial autosave instead.
+        let observed_absence = state.revision == 0
+            && state.epoch == 0
+            && state.latest.is_none()
+            && state.outstanding.is_empty();
+        if !observed_absence
+            && state
+                .latest
+                .as_ref()
+                .is_none_or(|latest| latest.scope != *scope || latest.resource != resource)
+        {
+            return Err("Register this untouched publication intent through ordinary autosave before capture".into());
+        }
+        let ticket = state.publication_ticket_v2.checked_add(1).ok_or_else(|| {
+            state.closed = true;
+            "Draft publication capture ticket exhausted".to_owned()
+        })?;
+        let failed = state
+            .latest
+            .as_ref()
+            .is_some_and(|latest| latest.outcome.as_ref().is_some_and(Result::is_err));
+        state.publication_ticket_v2 = ticket;
+        state.publication_wait_v2 = Some(PublicationWaitV2 {
+            ticket,
+            cutoff: state.revision,
+            failed,
+        });
+        self.changed.notify_all();
+        Ok(super::publication_v2::PublicationSnapshotV2 {
+            revision: state.revision,
+            epoch: state.epoch,
+            ticket,
+            scope: scope.clone(),
+            resource: resource.into(),
+            observed_absence,
+        })
+    }
+    pub(super) fn publication_current_v2(
+        &self,
+        state: &StateV4,
+        snapshot: &super::publication_v2::PublicationSnapshotV2,
+        own_activity: bool,
+    ) -> Result<(), String> {
+        if state.closed {
+            return Err("Original draft writer closed".into());
+        }
+        let wait = state
+            .publication_wait_v2
+            .as_ref()
+            .filter(|wait| wait.ticket == snapshot.ticket && wait.cutoff == snapshot.revision)
+            .ok_or("Original publication capture ticket was superseded")?;
+        if wait.failed {
+            return Err("A captured outstanding or latest draft save failed; no publication draft or POST was started".into());
+        }
+        if state.revision != snapshot.revision
+            || state.epoch != snapshot.epoch
+            || state.legacy_active != usize::from(own_activity)
+            || if snapshot.observed_absence {
+                state.latest.is_some() || state.revision != 0
+            } else {
+                state.latest.as_ref().is_none_or(|latest| {
+                    latest.revision != snapshot.revision
+                        || latest.scope != snapshot.scope
+                        || latest.resource != snapshot.resource
+                })
+            }
+        {
+            return Err("Original publication draft revision was superseded/transferred or another publication started".into());
+        }
+        Ok(())
+    }
+    pub(super) fn publication_enter_v2(
+        self: &Arc<Self>,
+        state: &mut StateV4,
+        snapshot: &mut super::publication_v2::PublicationSnapshotV2,
+    ) -> Result<LegacyActivityV4, String> {
+        self.publication_current_v2(state, snapshot, false)?;
+        let epoch = state
+            .epoch
+            .checked_add(1)
+            .ok_or("Draft publication epoch exhausted")?;
+        state.legacy_active = 1;
+        state.epoch = epoch;
+        state.active = None;
+        snapshot.epoch = epoch;
+        self.changed.notify_all();
+        Ok(LegacyActivityV4(self.clone()))
+    }
+    pub(super) fn publication_wait_v2<'a>(
+        &self,
+        state: MutexGuard<'a, StateV4>,
+        duration: Duration,
+    ) -> Result<MutexGuard<'a, StateV4>, String> {
+        self.changed
+            .wait_timeout(state, duration)
+            .map(|waited| waited.0)
+            .map_err(|_| "Draft publication acknowledgement state unavailable".into())
+    }
+    /// Dequeue/capacity and enqueue/wait use the SAME mutex. Completion cannot
+    /// notify between a full-queue predicate and installation of its waiter.
+    pub(super) fn publication_capacity_v2(&self) {
+        if let Ok(state) = self.lock() {
+            drop(state);
+        }
+        self.changed.notify_all();
+    }
     pub fn new(database: PathBuf) -> Self {
         Self {
             database,
@@ -99,6 +226,17 @@ impl DraftProducerV4 {
             return;
         };
         if let Ok(mut state) = self.lock() {
+            // Only an ACTUAL outstanding completion can affect the current
+            // bounded cutoff. A stale duplicate cannot poison a newer ticket.
+            if state.outstanding.contains(&revision) && result.is_err() {
+                if let Some(wait) = state
+                    .publication_wait_v2
+                    .as_mut()
+                    .filter(|wait| revision <= wait.cutoff)
+                {
+                    wait.failed = true;
+                }
+            }
             if let Some(latest) = state
                 .latest
                 .as_mut()

@@ -246,6 +246,33 @@ pub fn active(app: &App) -> Option<(HostIdentity, String, Vec<Actor>)> {
     match app.view {
         View::Repository => None,
         View::Inbox => {
+            if let Some(view) = app
+                .scoped_threads_v1
+                .as_ref()
+                .filter(|view| app.overlay == Some(Overlay::PrThreadsV1) && view.intent.owns(app))
+            {
+                let prepared = view.prepared.as_ref()?;
+                let actors = collect(
+                    prepared
+                        .observation
+                        .threads
+                        .iter()
+                        .flat_map(|thread| {
+                            thread.comments.iter().filter_map(|comment| {
+                                comment.author.as_ref().map(|actor| &actor.actor)
+                            })
+                        })
+                        .chain(prepared.observation.threads.iter().filter_map(|thread| {
+                            thread.resolved_by.as_ref().map(|actor| &actor.actor)
+                        })),
+                )
+                .ok()?;
+                return Some((
+                    prepared.identity.clone(),
+                    "Original scoped PR thread observations".into(),
+                    actors,
+                ));
+            }
             let workspace = app.github.as_ref()?;
             if !context_preflight(&workspace.identity, &workspace.repositories) {
                 return None;

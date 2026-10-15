@@ -217,6 +217,45 @@ impl Default for Fixture {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum ResizeToolbarV1 {
+    Bottom,
+    Header,
+}
+
+pub fn owned_resize_controls_ready_v1(
+    screen: &vt100::Screen,
+    title: &str,
+    actions: &[&str],
+    placement: ResizeToolbarV1,
+) -> bool {
+    let (rows, cols) = screen.size();
+    let bottom = screen.rows(0, cols).last().unwrap_or_default();
+    let controls = match placement {
+        ResizeToolbarV1::Bottom => screen
+            .rows(0, cols)
+            .nth(usize::from(rows.saturating_sub(2)))
+            .unwrap_or_default(),
+        ResizeToolbarV1::Header => screen
+            .rows(0, cols)
+            .skip(1)
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    };
+    let title_ready = match placement {
+        ResizeToolbarV1::Bottom => screen.contents().contains(title),
+        ResizeToolbarV1::Header => screen
+            .rows(0, cols)
+            .next()
+            .is_some_and(|row| row.contains(title)),
+    };
+    title_ready
+        && actions.iter().all(|action| controls.contains(action))
+        && bottom.contains('└')
+        && bottom.contains('┘')
+}
+
 pub struct Session {
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
@@ -1191,9 +1230,25 @@ impl Session {
                 && actions.len() >= 2
                 && actions.iter().all(|action| !action.is_empty())
         );
-        self.resize_with_footer(cols, rows, Some((title, actions)));
+        self.resize_with_footer(cols, rows, Some((title, actions, ResizeToolbarV1::Bottom)));
     }
-    fn resize_with_footer(&mut self, cols: u16, rows: u16, owned: Option<(&str, &[&str])>) {
+    /// A full-screen owned view with a wrapped toolbar in its first three
+    /// interior rows. Still require an actual new-size bottom-border redraw;
+    /// a title, old geometry or unrelated body text cannot acknowledge resize.
+    pub fn resize_owned_header(&mut self, cols: u16, rows: u16, title: &str, actions: &[&str]) {
+        assert!(
+            !title.is_empty()
+                && actions.len() >= 2
+                && actions.iter().all(|action| !action.is_empty())
+        );
+        self.resize_with_footer(cols, rows, Some((title, actions, ResizeToolbarV1::Header)));
+    }
+    fn resize_with_footer(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        owned: Option<(&str, &[&str], ResizeToolbarV1)>,
+    ) {
         assert!(cols > 0 && rows > 0, "PTY dimensions must be nonzero");
         if self.parser.screen().size() == (rows, cols) {
             return;
@@ -1225,17 +1280,8 @@ impl Session {
             let new_frame = self.transcript[previous_bytes..]
                 .windows(footer_cursor.len())
                 .any(|bytes| bytes == footer_cursor.as_bytes());
-            let footer_ready = if let Some((title, actions)) = owned {
-                let owned_footer = self
-                    .parser
-                    .screen()
-                    .rows(0, cols)
-                    .nth(usize::from(rows.saturating_sub(2)))
-                    .unwrap_or_default();
-                self.screen().contains(title)
-                    && actions.iter().all(|action| owned_footer.contains(action))
-                    && footer.contains('└')
-                    && footer.contains('┘')
+            let footer_ready = if let Some((title, actions, placement)) = owned {
+                owned_resize_controls_ready_v1(self.parser.screen(), title, actions, placement)
             } else {
                 footer.contains("Help") && footer.contains("Quit")
             };

@@ -561,6 +561,28 @@ impl Cache {
         Ok(())
     }
 
+    /// Publication-only exact-body cleanup. ONE conditional statement, never a
+    /// separate observation then unconditional delete. A missing/replaced row
+    /// is refusal, not proof that cleanup succeeded or permission to retry.
+    pub(crate) fn remove_publication_draft_exact_v2(
+        &self,
+        scope: &Scope,
+        resource: &str,
+        body: &str,
+    ) -> Result<()> {
+        if body.len() > 128 * 1024 {
+            bail!("Original acknowledged draft exceeds publication cleanup bound");
+        }
+        let affected=self.connection.execute(
+            "DELETE FROM drafts WHERE host=?1 AND login=?2 AND resource=?3 AND body=?4 COLLATE BINARY",
+            params![scope.host,scope.login,resource,body],
+        )?;
+        if affected != 1 {
+            bail!("Original acknowledged draft changed or is absent; newer draft retained, no cleanup retry");
+        }
+        Ok(())
+    }
+
     pub fn save_view(&self, scope: &Scope, name: &str, value: &Value) -> Result<()> {
         self.connection.execute("INSERT INTO saved_views VALUES (?1,?2,?3,?4) ON CONFLICT(host,login,name) DO UPDATE SET payload=excluded.payload", params![scope.host,scope.login,name,serde_json::to_string(value)?])?;
         Ok(())

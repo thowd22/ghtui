@@ -3,6 +3,7 @@ use super::*;
 use crate::scoped_pr_native_diff_native_v1 as native;
 pub(super) fn only_native(p: &PreparedView) -> bool {
     let PreparedView {
+        scoped_threads_v1,
         scoped_inline_v1,
         original_stash_recovery_v1,
         related_pr_v1,
@@ -51,7 +52,8 @@ pub(super) fn only_native(p: &PreparedView) -> bool {
         remote_scope_source,
         remote_repository,
     } = p;
-    scoped_inline_v1.is_none()
+    scoped_threads_v1.is_none()
+        && scoped_inline_v1.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
         && original_diff_result_v1.is_none()
@@ -133,6 +135,7 @@ impl Background {
         app.pr_native_diff_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
             pr_native_diff_v1: Some(owner.clone()),
+            threads_v1: None,
             inline_v1: None,
             scope,
             source,
@@ -262,7 +265,7 @@ impl Background {
             || completion.local_actor_owner.is_some() || completion.remote_repository_owner.is_some()
             || completion.local_navigation_owner.is_some() || completion.original_tree_owner_v1.is_some()
             || completion.original_diff_owner_v1.is_some() || completion.original_stash_recovery_owner_v1.is_some()
-            || remote.inline_v1.is_some() || remote.check_origin.is_some() || remote.continuation_v2.is_some()
+            || remote.threads_v1.is_some() || remote.inline_v1.is_some() || remote.check_origin.is_some() || remote.continuation_v2.is_some()
             || self.current_pr_native_diff_v1.as_ref().is_none_or(|(generation, current)| *generation != completion.generation || !Arc::ptr_eq(current, &owner))
             || !remote.owns(app)
             || completion.result.as_ref().is_ok_and(|prepared| !only_native(prepared) || match prepared.scoped_pr_resource.as_ref() {

@@ -168,6 +168,9 @@ impl ScopedInlineOwnerV1 {
     }
 }
 pub fn newer_intent(app: &App) -> bool {
+    if app.scoped_threads_work_v1.is_some() || app.scoped_threads_cancel_v1 {
+        return true;
+    }
     if app
         .form
         .as_ref()

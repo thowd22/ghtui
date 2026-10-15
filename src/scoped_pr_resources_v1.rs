@@ -20,6 +20,8 @@ use std::{
 pub mod immutable_images;
 #[path = "scoped_pr_resources_native_v1.rs"]
 pub mod native;
+#[path = "scoped_pr_threads_v1.rs"]
+pub mod threads_v1;
 
 pub const OLD_IMAGE_UNVERIFIED: &str =
     "Old image unverified: base-branch tip is NOT an immutable merge-base snapshot";
@@ -31,6 +33,7 @@ pub enum PrResourcePhaseV1 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrResourceUiActionV1 {
     NativeDiff,
+    Threads,
     NextFile,
     NextHunk,
     Layout,

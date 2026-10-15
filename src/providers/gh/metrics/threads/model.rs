@@ -106,6 +106,9 @@ pub struct MetricsOriginalCommentCandidate {
 pub struct MetricsReviewThreadObservation {
     pub parent_node_id: String,
     pub node_id: String,
+    /// Actual schema enum only. Nullable/omitted/unknown is never inferred
+    /// from line coordinates (file-level and outdated threads may have none).
+    pub subject_type: Option<MetricsThreadSubjectV1>,
     pub resolved: Option<bool>,
     pub outdated: Option<bool>,
     pub viewer_can_reply: Option<bool>,
@@ -118,6 +121,11 @@ pub struct MetricsReviewThreadObservation {
     pub original_comment: Option<MetricsOriginalCommentCandidate>,
     pub state_reasons: Vec<String>,
     pub provenance_reasons: Vec<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetricsThreadSubjectV1 {
+    File,
+    Line,
 }
 #[derive(Clone, Debug)]
 pub struct MetricsThreadProvenanceCoverage {

@@ -13,8 +13,8 @@ use parse::*;
 pub const METRICS_REVIEW_THREADS_QUERY: &str = r#"query($id:ID!,$first:Int!,$after:String,$commentsFirst:Int!,$includeComments:Boolean!){node(id:$id){__typename ... on PullRequest{id fullDatabaseId number headRefOid repository{id databaseId nameWithOwner} reviewThreads(first:$first,after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{...MetricThread}}}}}
 fragment MetricParent on PullRequest{id fullDatabaseId number headRefOid repository{id databaseId nameWithOwner}}
 fragment MetricComment on PullRequestReviewComment{id fullDatabaseId body createdAt updatedAt path line startLine originalLine originalStartLine originalCommit{oid} commit{oid} replyTo{id} author{__typename login avatarUrl ... on User{databaseId name}} pullRequest{...MetricParent} repository{id databaseId nameWithOwner}}
-fragment MetricThread on PullRequestReviewThread{id isResolved isOutdated path diffSide startDiffSide line startLine originalLine originalStartLine viewerCanReply viewerCanResolve viewerCanUnresolve resolvedBy{__typename databaseId login name avatarUrl} pullRequest{...MetricParent} repository{id databaseId nameWithOwner} comments(first:$commentsFirst) @include(if:$includeComments){totalCount pageInfo{hasNextPage endCursor} nodes{...MetricComment}}}"#;
-pub const METRICS_THREAD_COMMENTS_QUERY: &str = r#"query($id:ID!,$first:Int!,$after:String){node(id:$id){__typename ... on PullRequestReviewThread{id isResolved isOutdated path diffSide startDiffSide line startLine originalLine originalStartLine viewerCanReply viewerCanResolve viewerCanUnresolve resolvedBy{__typename databaseId login name avatarUrl} pullRequest{...MetricParent} repository{id databaseId nameWithOwner} comments(first:$first,after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{...MetricComment}}}}}
+fragment MetricThread on PullRequestReviewThread{id subjectType isResolved isOutdated path diffSide startDiffSide line startLine originalLine originalStartLine viewerCanReply viewerCanResolve viewerCanUnresolve resolvedBy{__typename databaseId login name avatarUrl} pullRequest{...MetricParent} repository{id databaseId nameWithOwner} comments(first:$commentsFirst) @include(if:$includeComments){totalCount pageInfo{hasNextPage endCursor} nodes{...MetricComment}}}"#;
+pub const METRICS_THREAD_COMMENTS_QUERY: &str = r#"query($id:ID!,$first:Int!,$after:String){node(id:$id){__typename ... on PullRequestReviewThread{id subjectType isResolved isOutdated path diffSide startDiffSide line startLine originalLine originalStartLine viewerCanReply viewerCanResolve viewerCanUnresolve resolvedBy{__typename databaseId login name avatarUrl} pullRequest{...MetricParent} repository{id databaseId nameWithOwner} comments(first:$first,after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{...MetricComment}}}}}
 fragment MetricParent on PullRequest{id fullDatabaseId number headRefOid repository{id databaseId nameWithOwner}}
 fragment MetricComment on PullRequestReviewComment{id fullDatabaseId body createdAt updatedAt path line startLine originalLine originalStartLine originalCommit{oid} commit{oid} replyTo{id} author{__typename login avatarUrl ... on User{databaseId name}} pullRequest{...MetricParent} repository{id databaseId nameWithOwner}}"#;
 
@@ -205,6 +205,7 @@ fn collect_comments(
         let raw = node_value(&value, "PullRequestReviewThread")?;
         let fresh = thread(raw, parent)?;
         if fresh.node_id != target.node_id
+            || fresh.subject_type != target.subject_type
             || fresh.resolved != target.resolved
             || fresh.outdated != target.outdated
             || fresh.placement != target.placement
@@ -297,6 +298,105 @@ fn provenance(
     coverage
 }
 impl GithubProvider {
+    /// Purpose-specific actual selected-node read for the thread publication
+    /// worker. The caller owns the original source/account/local closure; this
+    /// intermediate observation is not a permission or publication receipt.
+    pub(crate) fn pr_selected_thread_observation_v1(
+        &self,
+        original: &PrResourceParentV1,
+        node: &str,
+        cancel: &CancellationToken,
+        deadline: std::time::Instant,
+    ) -> GithubResult<MetricsReviewThreadObservation> {
+        if !opaque(node) || cancel.is_cancelled() || std::time::Instant::now() >= deadline {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Original thread node/phase unavailable",
+            ));
+        }
+        let parent = self.pr_thread_resource_parent_v1(original, cancel)?;
+        let limits = MetricsThreadLimits {
+            max_thread_pages: 1,
+            thread_page_size: 1,
+            max_threads: 1,
+            max_comment_pages_per_thread: 3,
+            comment_page_size: 100,
+            max_comments: 300,
+            max_graphql_pages: 3,
+            max_document_bytes: 128 * 1024,
+            max_response_bytes: 4 * 1024 * 1024,
+            max_duration: deadline.saturating_duration_since(std::time::Instant::now()),
+        };
+        let mut budget = ThreadBudget::new(&limits)?;
+        let value = budget.graphql(
+            self,
+            METRICS_THREAD_COMMENTS_QUERY,
+            json!({"id":node,"first":100,"after":null}),
+            cancel,
+        )?;
+        let raw = node_value(&value, "PullRequestReviewThread")?;
+        let mut actual = thread(raw, &parent)?;
+        if actual.node_id != node {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Selected thread node changed",
+            ));
+        }
+        collect_comments(
+            self,
+            &parent,
+            &mut actual,
+            &raw["comments"],
+            100,
+            (&mut budget, &mut SeenComments::default()),
+            cancel,
+        )?;
+        if cancel.is_cancelled() || std::time::Instant::now() >= deadline {
+            return Err(error(
+                GithubErrorKind::Transport,
+                "Original thread observation phase expired",
+            ));
+        }
+        Ok(actual)
+    }
+    /// A genuine fresh REST producer for the native thread reader. Partial
+    /// Files metadata is an expectation, never a fabricated Metrics DTO.
+    pub(crate) fn pr_thread_resource_parent_v1(
+        &self,
+        original: &PrResourceParentV1,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MetricsPrObservation> {
+        let endpoint = format!("repos/{}", original.repository());
+        let raw_repo = self.api(&endpoint, "GET", None, None, false, cancel)?;
+        let repo = super::parse::repository(&self.host, original.repository(), &raw_repo)?;
+        if repo.id != original.repository_id() || repo.node_id != original.repository_node() {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Original thread repository was replaced",
+            ));
+        }
+        let raw = self.api(
+            &format!("{endpoint}/pulls/{}", original.number()),
+            "GET",
+            None,
+            None,
+            false,
+            cancel,
+        )?;
+        let parent = super::parse::parse_pr(&repo, &raw)?;
+        if parent.id != original.database_id()
+            || parent.node_id != original.node_id()
+            || parent.number != original.number()
+            || parent.head_sha.as_deref() != Some(original.head_sha())
+            || raw["base"]["sha"].as_str() != Some(original.base_tip_sha())
+        {
+            return Err(error(
+                GithubErrorKind::StaleHead,
+                "Original thread parent or comparison changed",
+            ));
+        }
+        Ok(parent)
+    }
     /// Fresh current source evidence only: user/repository/PR/GraphQL pages/
     /// repository/PR/user in one budget (minimum7), no source generation/history.
     pub fn metrics_review_threads(

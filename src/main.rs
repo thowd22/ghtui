@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use crossterm::event;
+use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use ghtui::{app::App, ui};
 use ghtui::{
     cli::{Command as CliCommand, Options},
@@ -111,7 +112,10 @@ fn run() -> Result<()> {
         ghtui::remote_scope_gate_v1::enforce_stopped_intent(&mut app, &mut background);
         if app.form.as_ref().is_some_and(|form| {
             form.view() != ghtui::app::View::Repository
-                && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
+                && !matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                )
         }) {
             ghtui::remote_scope_gate_v1::refuse_legacy_request(
                 &mut app,
@@ -204,6 +208,12 @@ fn run() -> Result<()> {
                 Err(error) => app.status = format!("Settings error: {error:#}"),
             }
         }
+        ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::retire_invalid(&mut app);
+        if app.scoped_threads_cancel_v1 {
+            app.scoped_threads_cancel_v1 = false;
+            background.cancel_scoped_threads_v1(&mut app);
+        }
+        background.retire_stale_scoped_threads_v1(&mut app);
         if app.scoped_inline_cancel_v1 {
             app.scoped_inline_cancel_v1 = false;
             background.cancel_scoped_inline_v1(&mut app);
@@ -217,11 +227,14 @@ fn run() -> Result<()> {
         background.poll(&mut app);
         app.observe_navigation();
         inline_ui::retire_invalid_form(&mut app);
+        thread_ui::retire_invalid_form(&mut app);
         if let Some(form) = &mut app.form {
             if form.dirty && !form.submitting {
                 form.invalidate_plan();
                 let encoded = if matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)) {
                     inline_ui::encoded_draft(form)
+                } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrThread(_)) {
+                    thread_ui::encoded_draft(form)
                 } else {
                     Ok(form.draft())
                 };
@@ -259,6 +272,30 @@ fn run() -> Result<()> {
             }
         }
         inline_native::capture_form(&mut app);
+        ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::capture_form_with_drafts(
+            &mut app,
+            &paths.database,
+            &draft_writer.client(),
+        );
+        if let Some(owner) = app.scoped_threads_work_v1.take() {
+            match GithubProvider::new(&owner.intent.scope().host) {
+                Ok(provider) => {
+                    background.submit_scoped_threads_with_drafts_v1(
+                        &mut app,
+                        owner,
+                        provider.with_runner(runner.clone()),
+                        paths.database.clone(),
+                        draft_writer.client(),
+                    );
+                }
+                Err(_) => {
+                    if let Some(view) = &mut app.scoped_threads_v1 {
+                        view.message =
+                            "Thread provider unavailable • Back returns to original Files";
+                    }
+                }
+            }
+        }
         if let Some(work) = app.scoped_inline_work_v1.take() {
             match GithubProvider::new(&work.intent().scope().host) {
                 Ok(provider) => {
@@ -344,7 +381,10 @@ fn run() -> Result<()> {
         }
         if app.form.as_ref().is_some_and(|form| {
             form.preview_requested
-                && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
+                && !matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                )
         }) {
             // Capture one original clock and accepted autosave cutoff BEFORE
             // queueing. The worker waits for acknowledgements only: it never
@@ -409,6 +449,7 @@ fn run() -> Result<()> {
                         None
                     };
                 match &mut form.purpose {
+                    ghtui::forms::FormPurpose::PrThread(_) => return Err("Original thread preview requires its purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrInline(_) => return Err("Original scoped inline previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrMetadata(_) => unreachable!("metadata worker routed above"),
                     ghtui::forms::FormPurpose::Corpus(intent) => {
@@ -527,14 +568,21 @@ fn run() -> Result<()> {
             }
         }
         if app.form.as_ref().is_some_and(|form| form.editor_requested) {
-            if app
-                .form
-                .as_ref()
-                .is_some_and(|form| matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)))
-            {
+            if app.form.as_ref().is_some_and(|form| {
+                matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                )
+            }) {
                 let form = app.form.as_mut().expect("checked inline form");
                 form.editor_requested = false;
-                match inline_ui::validate_input(form, "") {
+                let is_thread = matches!(form.purpose, ghtui::forms::FormPurpose::PrThread(_));
+                let admitted = if is_thread {
+                    thread_ui::validate_input(form, "")
+                } else {
+                    inline_ui::validate_input(form, "")
+                };
+                match admitted {
                     Err(error) => form.error = error,
                     Ok(()) => {
                         let edited = external_editor_bounded(
@@ -545,7 +593,12 @@ fn run() -> Result<()> {
                         terminal.resize(terminal.size()?.into())?;
                         match edited {
                             Ok(text) => {
-                                if let Err(error) = inline_ui::replace_editor_result(form, &text) {
+                                let replaced = if is_thread {
+                                    thread_ui::replace_editor_result(form, &text)
+                                } else {
+                                    inline_ui::replace_editor_result(form, &text)
+                                };
+                                if let Err(error) = replaced {
                                     form.error = error;
                                 }
                             }
@@ -582,7 +635,11 @@ fn run() -> Result<()> {
             }
         }
         if app.form.as_ref().is_some_and(|form| {
-            form.submit_requested && !matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_))
+            form.submit_requested
+                && !matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrInline(_) | ghtui::forms::FormPurpose::PrThread(_)
+                )
         }) {
             let mut form = app.form.as_mut().unwrap().clone();
             app.form.as_mut().unwrap().submit_requested = false;

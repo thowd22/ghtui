@@ -14,6 +14,7 @@ use std::{
 
 #[derive(Default)]
 pub struct PreparedView {
+    pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::PreparedScopedThreadsV1>,
     pub scoped_inline_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::PreparedScopedInlineV1>,
     pub original_stash_recovery_v1: Option<crate::repository_stash_recovery_v1::PreparedStashRecoveryV1>,
     pub original_diff_result_v1:
@@ -103,11 +104,17 @@ mod scoped_inline_background_v1;
 pub(crate) mod scoped_inline_test_support_v1;
 #[path = "runtime/scoped_pr_native_diff_background_v1.rs"]
 pub(crate) mod scoped_pr_native_diff_background_v1;
+#[path = "runtime/scoped_threads_background_v1.rs"]
+mod scoped_threads_background_v1;
+#[cfg(test)]
+#[path = "runtime/scoped_threads_test_support_v1.rs"]
+pub(crate) mod scoped_threads_test_support_v1;
 
 type Work = Box<dyn FnOnce(CancellationToken) -> Result<PreparedView, String> + Send>;
 
 struct ScopedRemoteOwner {
     pr_native_diff_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>>,
+    threads_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
     inline_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     scope: Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
     source: Arc<crate::storage::CatalogueIntentSource>,
@@ -122,6 +129,7 @@ impl ScopedRemoteOwner {
         self.pr_native_diff_v1
             .as_ref()
             .is_none_or(|owner| owner.owns(app))
+            && self.threads_v1.as_ref().is_none_or(|owner| owner.owns(app))
             && self.inline_v1.as_ref().is_none_or(|owner| owner.owns(app))
             && app
                 .remote_scope
@@ -191,6 +199,8 @@ struct Completion {
 
 pub struct Background {
     current_pr_native_diff_v1: Option<(u64, Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>)>,
+    current_threads_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
+    current_threads_generation_v1: Option<u64>,
     #[cfg(test)]
     inline_completion_sender_v1: SyncSender<Completion>,
     current_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
@@ -269,6 +279,8 @@ impl Background {
         }
         Self {
             current_pr_native_diff_v1: None,
+            current_threads_owner_v1: None,
+            current_threads_generation_v1: None,
             #[cfg(test)]
             inline_completion_sender_v1: sender,
             current_inline_owner_v1: None,
@@ -312,6 +324,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            threads_v1: None,
             scope,
             source,
             navigation: None,
@@ -340,6 +353,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            threads_v1: None,
             scope,
             source,
             navigation: Some(navigation),
@@ -372,6 +386,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            threads_v1: None,
             scope: scope.clone(),
             source: source.clone(),
             navigation: Some(navigation.clone()),
@@ -407,6 +422,7 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            threads_v1: None,
             scope: scope.clone(),
             source: source.clone(),
             navigation: Some(navigation.clone()),
@@ -536,6 +552,8 @@ impl Background {
     }
     pub fn cancel(&mut self, view: View) {
         if view == View::Inbox {
+            self.current_threads_owner_v1 = None;
+            self.current_threads_generation_v1 = None;
             self.current_inline_owner_v1 = None;
             self.current_inline_generation_v1 = None;
         }
@@ -765,6 +783,9 @@ impl Background {
             .as_ref()
             .is_some_and(|actions| !actions.identity.same_account(identity));
         if old_github {
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::retire_private(
+                app,
+            );
             app.pr_reactions = None;
             app.pr_reaction_display.clear();
             app.pr_inspection = None;
@@ -832,6 +853,10 @@ impl Background {
             {
                 continue;
             }
+            if let Some(admitted) = self.poll_threads_completion_v1(app, &mut completion, slot) {
+                changed |= admitted;
+                continue;
+            }
             if completion.original_stash_recovery_owner_v1.is_none()
                 && (completion.view == View::Repository
                     || completion
@@ -874,6 +899,7 @@ impl Background {
                     || completion.original_diff_owner_v1.is_some()
                     || remote.check_origin.is_some()
                     || remote.pr_native_diff_v1.is_some()
+                    || remote.threads_v1.is_some()
                     || completion.original_stash_recovery_owner_v1.is_some()
                     || remote.continuation_v2.is_some()
                     || self.current_inline_generation_v1 != Some(completion.generation)

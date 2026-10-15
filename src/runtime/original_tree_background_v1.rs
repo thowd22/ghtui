@@ -127,7 +127,7 @@ impl Background {
 }
 /// Must run before generic loading/status/private/identity/model effects.
 pub(super) fn original_tree_prepared_only_v1(prepared: &PreparedView) -> bool {
-    if prepared.scoped_inline_v1.is_some() {
+    if prepared.scoped_threads_v1.is_some() || prepared.scoped_inline_v1.is_some() {
         return false;
     }
     if prepared.original_stash_recovery_v1.is_some() {

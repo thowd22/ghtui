@@ -17,6 +17,10 @@ pub(crate) use scoped_read_budget_v1::ScopedReadBudgetV1;
 #[derive(Clone, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
 impl CancellationToken {
+    /// Allocation identity only, never permission or publication authority.
+    pub(crate) fn same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Release);
     }

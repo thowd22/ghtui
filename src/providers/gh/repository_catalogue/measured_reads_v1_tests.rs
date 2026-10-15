@@ -1,5 +1,7 @@
 //! Actual gh/SQLite/Git session contracts and production-route regressions.
 use super::*;
+#[path = "postwrite_capture_v2_tests.rs"]
+mod postwrite_capture_v2_tests;
 use crate::{
     github_workspace::GithubWorkspace,
     repository_catalogue_save_v1::load_catalogue_intent_source,

@@ -250,7 +250,11 @@ impl PrWriteJournal {
         category: crate::storage::SyncBindingKind,
     ) -> Result<Option<PrWriteMarker>> {
         use crate::storage::SyncBindingKind::*;
-        let selector=match category {PullRequestBody=>"(command IN('legacy-title','legacy-description'))",ConversationComment=>"(command IN('new-comment','edit-comment','delete-comment') AND (selected_resource LIKE 'Conversation/%' OR (command='new-comment' AND selected_resource='pr')))",Review=>"(command IN('legacy-approve','legacy-request-changes','legacy-review-comment'))",InlineComment=>"((command IN('new-comment','edit-comment','delete-comment') AND selected_resource LIKE 'Review/%') OR (command='inline-comment' AND selected_resource LIKE 'inline/%' AND length(selected_resource)=71 AND substr(selected_resource,8) NOT GLOB '*[^0-9a-f]*'))",IssueBody=>return Ok(None)};
+        // Known thread PURPOSE is selected before shape validation so a newer
+        // malformed receipt cannot revive older already-fenced evidence. The
+        // closed thread helper still requires exact lowercase digest, command,
+        // effect and node before any source fence/private read admission.
+        let selector=match category {PullRequestBody=>"(command IN('legacy-title','legacy-description'))",ConversationComment=>"(command IN('new-comment','edit-comment','delete-comment') AND (selected_resource LIKE 'Conversation/%' OR (command='new-comment' AND selected_resource='pr')))",Review=>"(command IN('legacy-approve','legacy-request-changes','legacy-review-comment'))",InlineComment=>"((command IN('new-comment','edit-comment','delete-comment') AND selected_resource LIKE 'Review/%') OR (command='inline-comment' AND selected_resource LIKE 'inline/%' AND length(selected_resource)=71 AND substr(selected_resource,8) NOT GLOB '*[^0-9a-f]*') OR command IN('thread-reply','thread-resolve','thread-reopen'))",IssueBody=>return Ok(None)};
         let bounded = source_metadata::METADATA_BYTES_SQL;
         let sql=format!("SELECT attempt_id,{bounded} FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND state='confirmed' AND {selector} ORDER BY attempt_id DESC LIMIT 1");
         let found: Option<(i64, usize)> = self

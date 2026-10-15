@@ -165,10 +165,56 @@ fn local_search_action(action: Option<&crate::search::workspace::SearchAction>) 
     )
 }
 
+/// Retire private presentation only when the exact original source/scope pair
+/// is still current but its numeric account is lost. No I/O or new authority;
+/// independently newer sources and durable drafts/receipts remain untouched.
+pub(crate) fn retire_original_account_mismatch(
+    app: &mut App,
+    source: &std::sync::Arc<crate::storage::CatalogueIntentSource>,
+    active: &std::sync::Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
+) -> bool {
+    let original_account_lost = app
+        .remote_scope_source
+        .as_ref()
+        .is_some_and(|current| std::sync::Arc::ptr_eq(current, source))
+        && app
+            .remote_scope
+            .as_ref()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, active))
+        && app
+            .github
+            .as_ref()
+            .is_some_and(|github| github.scope().ok().as_ref() != Some(source.scope()));
+    if !original_account_lost {
+        return false;
+    }
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::retire_private(app);
+    app.pr_file_images = None;
+    crate::repository_catalogue_native::privacy(app);
+    crate::repository_catalogue_native::retire_remote_views(app);
+    let keep_local = app.view == View::Repository
+        || app.view == View::Search && independent_local_search(app.search.as_ref());
+    if !keep_local {
+        let reason = ScopeEntryStopV1::Intent(RemoteScopeStopV1::Fenced(
+            crate::active_remote_scope_v1::RemoteScopeFenceV1::PrivacyFence,
+        ))
+        .label();
+        app.context = reason.into();
+        app.status = reason.into();
+        app.selected = 0;
+        app.scroll = 0;
+        app.focus = 0;
+        app.github_content_focused = false;
+    }
+    app.hits.clear();
+    true
+}
+
 /// UI/job retirement only: no provider, SQL, Git, refresh, reserve, claim/ACK or
 /// intent persistence. Never fences/resets a merely empty/unresolved scope or
 /// destroys the live catalogue source/owner. Durable drafts/receipts untouched.
 pub fn retire_remote(app: &mut App, background: &mut Background, reason: ScopeEntryStopV1) {
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::retire_private(app);
     let keep_local_search = independent_local_search(app.search.as_ref());
     let keep_local_request = keep_local_search
         && local_search_action(app.search_action.as_ref())

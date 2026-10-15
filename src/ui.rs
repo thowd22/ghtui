@@ -28,7 +28,13 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::retire_invalid(app);
     crate::repository_native_diff_native_v1::synchronize_pr_source_v1(app);
+    if app.overlay == Some(Overlay::PrThreadsV1) {
+        let area = frame.area();
+        crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::draw(frame, app, area);
+        return;
+    }
     if crate::repository_stash_recovery_v1::draw(frame, app) {
         return;
     }
@@ -406,6 +412,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         frame.render_widget(Clear, rect);
         let title = match overlay {
+            Overlay::PrThreadsV1 => unreachable!("Owned threads drawn above"),
             Overlay::PrFileImages => unreachable!("Immutable images drawn above"),
             Overlay::PrCheckChoices => unreachable!("Owned check choices drawn above"),
             Overlay::PrCheckContinuationV2 => unreachable!("Owned check continuation drawn above"),
@@ -437,6 +444,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
         match overlay {
+            Overlay::PrThreadsV1 => unreachable!("Owned threads drawn above"),
             Overlay::PrFileImages => unreachable!("Immutable images drawn above"),
             Overlay::PrCheckChoices => unreachable!("Owned check choices drawn above"),
             Overlay::PrCheckContinuationV2 => unreachable!("Owned check continuation drawn above"),

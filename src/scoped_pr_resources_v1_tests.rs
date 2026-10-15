@@ -3,6 +3,8 @@
 use super::*;
 #[path = "scoped_pr_immutable_images_v1_tests.rs"]
 mod immutable_images;
+#[path = "scoped_pr_threads_v1_tests.rs"]
+mod review_threads;
 #[path = "scoped_pr_checks_v1_tests.rs"]
 mod scoped_checks;
 use crate::providers::gh::{
@@ -296,6 +298,22 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
         use crossterm::event::{
             Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         };
+        if action == PrResourceUiActionV1::Threads {
+            app.selected = (0..app.github.as_ref().unwrap().pr.as_ref().unwrap().rows.len())
+                .find(|index| {
+                    matches!(
+                        app.github
+                            .as_ref()
+                            .unwrap()
+                            .scoped_pr_resource
+                            .as_ref()
+                            .unwrap()
+                            .row(*index),
+                        Some(PrResourceRowV1::FileList(0))
+                    )
+                })
+                .unwrap();
+        }
         app.hits.clear();
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
@@ -315,6 +333,44 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             KeyCode::Char(key),
             KeyModifiers::NONE,
         )));
+        if action == PrResourceUiActionV1::Threads {
+            assert!(app.github_action.is_none());
+            assert_eq!(app.overlay, Some(crate::app::Overlay::PrThreadsV1));
+            assert!(app
+                .scoped_threads_work_v1
+                .as_ref()
+                .unwrap()
+                .intent
+                .owns(&app));
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::close(&mut app);
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    crate::github_ui::draw(frame, &mut app, area)
+                })
+                .unwrap();
+            let current = app
+                .hits
+                .iter()
+                .find(|hit| hit.action == Action::Github(GithubAction::Resource(action)))
+                .unwrap()
+                .rect;
+            app.handle_event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: current.x,
+                row: current.y,
+                modifiers: KeyModifiers::NONE,
+            }));
+            assert_eq!(app.overlay, Some(crate::app::Overlay::PrThreadsV1));
+            assert!(app
+                .scoped_threads_work_v1
+                .as_ref()
+                .unwrap()
+                .intent
+                .owns(&app));
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::close(&mut app);
+            continue;
+        }
         if action == PrResourceUiActionV1::NativeDiff {
             assert!(app.github_action.is_none());
             let work = app

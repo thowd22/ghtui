@@ -74,11 +74,11 @@ impl ThreadBudget {
             args.extend(["--input".into(), "-".into()]);
         }
         let mut spec = provider.spec(args);
-        spec.output_limit = remaining.min(if body.is_some() {
+        spec.output_limit = spec.output_limit.min(remaining.min(if body.is_some() {
             4 * 1024 * 1024
         } else {
             self.limits.max_document_bytes
-        });
+        }));
         spec.timeout = provider.timeout.min(time);
         let output_cap = spec.output_limit;
         if let Some(body) = body {

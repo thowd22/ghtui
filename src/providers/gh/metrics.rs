@@ -7,10 +7,12 @@ mod metadata_catalogue;
 mod model;
 mod paging;
 mod parse;
+mod threads;
 pub use metadata_catalogue::*;
 pub use model::*;
 use paging::*;
 use parse::*;
+pub use threads::*;
 
 impl GithubProvider {
     /// Explicit selected-repository ALL-state inventory, never a personal queue

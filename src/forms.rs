@@ -1,5 +1,6 @@
 //! Shared native input dialogs. Editing, previewing and closing never publish.
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1 as inline_ui;
+use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use crate::{
     app::{safe_text, Action, App, HitRegion},
     editor::{grapheme_width, TextBuffer},
@@ -87,6 +88,7 @@ pub struct PrActionIntent {
 }
 #[derive(Clone, Debug)]
 pub enum FormPurpose {
+    PrThread(Box<thread_ui::ThreadComposerStateV1>),
     PrInline(Box<inline_ui::ScopedInlineComposerStateV1>),
     Pr(Box<PrIntent>),
     PrMetadata(Box<crate::pr_metadata_native::PrMetadataIntent>),
@@ -561,6 +563,7 @@ impl Form {
     }
     pub fn view(&self) -> crate::app::View {
         match self.purpose {
+            FormPurpose::PrThread(_) => crate::app::View::Inbox,
             FormPurpose::PrInline(_) => crate::app::View::Inbox,
             FormPurpose::Pr(_) | FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_) => {
                 crate::app::View::Inbox
@@ -589,7 +592,10 @@ impl Form {
         self.metadata_preview = None;
         if matches!(
             self.purpose,
-            FormPurpose::Pr(_) | FormPurpose::PrMetadata(_) | FormPurpose::PrInline(_)
+            FormPurpose::Pr(_)
+                | FormPurpose::PrMetadata(_)
+                | FormPurpose::PrInline(_)
+                | FormPurpose::PrThread(_)
         ) && self.uses_prepared_preview()
         {
             self.preview = false;
@@ -598,6 +604,7 @@ impl Form {
             self.submit_requested = false;
         }
         match &mut self.purpose {
+            FormPurpose::PrThread(state) => state.invalidate(),
             FormPurpose::PrInline(state) => state.invalidate(),
             FormPurpose::Local(intent) => intent.plan = None,
             FormPurpose::Actions(intent) => intent.plan = None,
@@ -613,6 +620,7 @@ impl Form {
     }
     pub fn plan_ready(&self) -> bool {
         match &self.purpose {
+            FormPurpose::PrThread(state) => state.ready(),
             FormPurpose::PrInline(state) => state.ready(),
             FormPurpose::Local(intent) => intent.plan.is_some(),
             FormPurpose::Actions(intent) => intent.plan.is_some(),
@@ -637,6 +645,7 @@ impl Form {
             return &self.actions_original_lines;
         }
         match &self.purpose {
+            FormPurpose::PrThread(state) => state.plan_lines(),
             FormPurpose::PrInline(state) => state.plan_lines(),
             FormPurpose::Local(intent) => intent
                 .plan
@@ -678,6 +687,9 @@ impl Form {
         Ok(())
     }
     fn confirmation_blocked_reason(&self) -> Option<&str> {
+        if matches!(self.purpose, FormPurpose::PrThread(_)) && self.publication.is_some() {
+            return Some("Original thread publication is history, never permission to resend");
+        }
         if matches!(self.purpose, FormPurpose::PrInline(_)) && self.publication.is_some() {
             return Some("Original inline publication is history, never permission to resend");
         }
@@ -699,6 +711,10 @@ impl Form {
             FormAction::Submit,
             FormAction::Close,
         ];
+        if matches!(&self.purpose, FormPurpose::PrThread(state) if self.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
+        {
+            actions.retain(|action| *action != FormAction::Editor);
+        }
         if !self.error.is_empty() {
             actions.extend([FormAction::ErrorScroll(-3), FormAction::ErrorScroll(3)]);
         }
@@ -718,6 +734,7 @@ impl Form {
     }
     pub fn resource(&self) -> String {
         match &self.purpose {
+            FormPurpose::PrThread(state) => state.draft_key().into(),
             FormPurpose::PrInline(state) => state.draft_key().into(),
             FormPurpose::Pr(intent) => format!(
                 "{}/pull/{}/composer/{}",
@@ -762,6 +779,7 @@ impl Form {
     }
     pub fn scope(&self) -> crate::storage::Scope {
         match &self.purpose {
+            FormPurpose::PrThread(state) => state.intent().scope().clone(),
             FormPurpose::PrInline(state) => state.intent().scope().clone(),
             FormPurpose::Pr(intent) => crate::storage::Scope {
                 host: intent.identity.host.clone(),
@@ -913,6 +931,7 @@ impl Form {
                 | FormPurpose::PrAction(_)
                 | FormPurpose::PrMetadata(_)
                 | FormPurpose::PrInline(_)
+                | FormPurpose::PrThread(_)
         ) {
             serde_json::to_string(
                 &serde_json::json!({"version":2,"values":values,"publication":self.publication}),
@@ -946,6 +965,9 @@ impl Form {
         }
     }
     pub fn restore_draft(&mut self, body: &str) -> Result<(), String> {
+        if matches!(self.purpose, FormPurpose::PrThread(_)) {
+            return Err("Thread drafts require fresh original-source opener; generic restore cannot adopt history or approval".into());
+        }
         if matches!(self.purpose, FormPurpose::PrInline(_)) {
             return Err("Inline drafts require a fresh original-source draft opener; generic restore cannot adopt fields or approval".into());
         }
@@ -1234,6 +1256,12 @@ impl Form {
             FormAction::Editor if self.fields.is_empty() => {
                 self.error = "This operation has no text field to edit.".into()
             }
+            FormAction::Editor
+                if self.publication.is_some()
+                    && matches!(self.purpose, FormPurpose::PrThread(_)) =>
+            {
+                self.error = "Original thread publication is inspect-only; its saved body is not a new draft or resend approval.".into();
+            }
             FormAction::Editor if matches!(self.purpose, FormPurpose::PrMetadata(_)) => {
                 self.error="Metadata values use genuine indexed choices; external JSON/text cannot grant selection or publication authority. Use F4 Choose.".into();
             }
@@ -1452,6 +1480,20 @@ impl Form {
                 return None;
             }
         }
+        if matches!(self.purpose, FormPurpose::PrThread(_)) && self.focus < self.fields.len() {
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter => "\n",
+                _ => "",
+            };
+            if let Err(error) = thread_ui::validate_input(self, incoming) {
+                self.error = error;
+                return None;
+            }
+        }
         if code == KeyCode::F(2) && self.full_input_available(self.active_field) {
             return Some(FormAction::FullInput(self.active_field));
         }
@@ -1527,6 +1569,17 @@ impl Form {
         if self.preview {
             return None;
         }
+        if self.publication.is_some()
+            && matches!(self.purpose, FormPurpose::PrThread(_))
+            && (matches!(code, KeyCode::Backspace | KeyCode::Delete | KeyCode::Enter)
+                || matches!(code, KeyCode::Char('u')) && control
+                || matches!(code, KeyCode::Char(_)) && !control)
+        {
+            self.error =
+                "Original thread publication is inspect-only; saved body and protection retained."
+                    .into();
+            return None;
+        }
         let before = field.editor.text.clone();
         let field_key = field.key.clone();
         match code {
@@ -1560,9 +1613,11 @@ impl Form {
         None
     }
     pub fn paste(&mut self, text: &str) {
-        // Same pending-operation boundary as keyboard editing and dispatch.
-        // In particular an in-flight Preview is not yet `preview == true`.
-        if self.submitting {
+        // Same pending/read-only boundary as keyboard editing. A paste that
+        // cannot edit must not invalidate an already prepared approval just
+        // because the earlier draft still awaits autosave (dirty == true).
+        // An in-flight Preview is not yet `preview == true`.
+        if self.submitting || self.preview {
             return;
         }
         if inline_ui::anchor_open(self) {
@@ -1570,6 +1625,12 @@ impl Form {
         }
         if matches!(self.purpose, FormPurpose::PrInline(_)) && !self.preview {
             if let Err(error) = inline_ui::validate_input(self, text) {
+                self.error = error;
+                return;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrThread(_)) && !self.preview {
+            if let Err(error) = thread_ui::validate_input(self, text) {
                 self.error = error;
                 return;
             }
@@ -1709,6 +1770,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         if form.error.is_empty() { 3 } else { 6 } + if form.fields.len() > 1 { 1 } else { 0 };
     let mut y = inner.y;
     let context = match &form.purpose {
+        FormPurpose::PrThread(state) => state.context(),
         FormPurpose::PrInline(state) => state.context(),
         FormPurpose::Pr(intent) => format!(
             "@{} on {} • head {}",
@@ -1751,13 +1813,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             intent.intent.directory.display()
         ),
     };
-    if !matches!(form.purpose, FormPurpose::PrInline(_)) {
+    if !matches!(
+        form.purpose,
+        FormPurpose::PrInline(_) | FormPurpose::PrThread(_)
+    ) {
         frame.render_widget(
             Paragraph::new(safe_text(&context)).style(theme.style(SemanticToken::Muted)),
             Rect::new(inner.x, y, inner.width, 1),
         );
     }
     let identity = match &form.purpose {
+        FormPurpose::PrThread(state) => Some(state.identity()),
         FormPurpose::PrInline(state) => Some(state.identity()),
         FormPurpose::Pr(intent) => Some(&intent.identity),
         FormPurpose::PrAction(intent) => Some(&intent.context.identity),
@@ -1812,7 +1878,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         } else if matches!(
             form.purpose,
-            FormPurpose::PrAction(_) | FormPurpose::PrMetadata(_) | FormPurpose::PrInline(_)
+            FormPurpose::PrAction(_)
+                | FormPurpose::PrMetadata(_)
+                | FormPurpose::PrInline(_)
+                | FormPurpose::PrThread(_)
         ) || (matches!(form.purpose, FormPurpose::Pr(_)) && form.uses_prepared_preview())
         {
             if form.preview {
@@ -2199,6 +2268,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
     ]
     .into_iter()
+    .filter(|(_, action)| {
+        *action != FormAction::Editor
+            || !matches!(&form.purpose, FormPurpose::PrThread(state) if form.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
+    })
     .enumerate()
     {
         let width = (label.len() as u16).min(inner.right().saturating_sub(x));

@@ -368,6 +368,9 @@ fn comment_category(marker: &PrWriteMarker) -> Result<SyncBindingKind, String> {
 }
 
 fn possible_text_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
+    if let Some(categories) = super::thread_impact_v1::categories(marker, false)? {
+        return Ok(categories);
+    }
     let category = match marker.command.as_str() {
         "new-comment" | "inline-comment" | "edit-comment" | "delete-comment" => {
             Some(comment_category(marker)?)
@@ -411,6 +414,9 @@ pub(crate) fn unresolved_visibility_diagnostic(
 }
 
 fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
+    if let Some(categories) = super::thread_impact_v1::categories(marker, true)? {
+        return Ok(categories);
+    }
     let receipt = marker
         .confirmed
         .as_ref()

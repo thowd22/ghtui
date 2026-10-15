@@ -3,6 +3,7 @@ use super::*;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1 as inline;
 pub(super) fn only_inline(p: &PreparedView) -> bool {
     let PreparedView {
+        scoped_threads_v1,
         scoped_inline_v1,
         original_stash_recovery_v1,
         related_pr_v1,
@@ -52,6 +53,7 @@ pub(super) fn only_inline(p: &PreparedView) -> bool {
         remote_repository,
     } = p;
     scoped_inline_v1.is_some()
+        && scoped_threads_v1.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
         && original_diff_result_v1.is_none()
@@ -179,6 +181,7 @@ impl Background {
         let generation = self.generation;
         app.scoped_inline_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            threads_v1: None,
             scope,
             source,
             navigation: Some(navigation),

@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "discussion_metadata_budget_tests.rs"]
 mod budget_tests;
+#[path = "discussion_thread_receipt_recovery_v2_tests.rs"]
+mod thread_receipt_recovery_v2;
 use crate::{
     pr_write_journal::{PrConfirmedEffect, PrWriteIntent, PrWriteState},
     search::{

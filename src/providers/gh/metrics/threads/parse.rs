@@ -312,6 +312,11 @@ pub(super) fn thread(
     Ok(MetricsReviewThreadObservation {
         parent_node_id: parent.node_id.clone(),
         node_id: actual_node(raw, "id")?,
+        subject_type: match raw["subjectType"].as_str() {
+            Some("FILE") => Some(MetricsThreadSubjectV1::File),
+            Some("LINE") => Some(MetricsThreadSubjectV1::Line),
+            _ => None,
+        },
         resolved,
         outdated,
         viewer_can_reply: boolean(raw, "viewerCanReply", &mut provenance_reasons),

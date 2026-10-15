@@ -5,6 +5,34 @@ use ghtui::providers::gh::{
     METRICS_REVIEW_THREADS_QUERY, METRICS_THREAD_COMMENTS_QUERY,
 };
 
+#[test]
+fn review_threads_v1_provider_existing_64_byte_child_cap_is_not_overwritten_by_thread_budget() {
+    let fixture = Fixture::new();
+    let first = get(
+        "user",
+        json!({"id":42,"login":"octocat","extra": "x".repeat(256)}),
+    );
+    assert!(first.stdout.len() > 64);
+    let (gh, parent) = prepare(&fixture, vec![first]);
+    let result = gh
+        .with_scoped_read_window(Instant::now() + Duration::from_secs(30), 64)
+        .unwrap()
+        .metrics_review_threads(
+            &current(),
+            &parent,
+            &Default::default(),
+            &CancellationToken::default(),
+        );
+    assert!(
+        result.is_err(),
+        "Actual raw child output exceeds the original64-byte provider window"
+    );
+    let rows = journal(&fixture);
+    assert_eq!(rows.len(),4,"Three genuine parent-producer reads plus ONE capped user child; no repository/PR/GraphQL child may follow");
+    assert!(rows.iter().all(|row| row["matched"] == true));
+    assert_eq!(rows[3]["args"], json!(api_args("user")));
+}
+
 fn current() -> HostIdentity {
     HostIdentity {
         account_id: Some(42),
@@ -520,13 +548,7 @@ fn metrics_threads_provider_duplicate_nodes_and_contradictory_totals_cannot_prov
             }
             _ => {}
         };
-        let total = if variation == 0 {
-            2
-        } else if variation == 3 {
-            2
-        } else {
-            1
-        };
+        let total = if matches!(variation, 0 | 3) { 2 } else { 1 };
         let (provider, parent) = prepare(&fixture, complete(outer(rows, total, None), &limits));
         let result = provider.metrics_review_threads(
             &current(),

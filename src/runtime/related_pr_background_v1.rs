@@ -112,6 +112,7 @@ impl Background {
 }
 pub(super) fn only_related(p: &PreparedView) -> bool {
     let PreparedView {
+        scoped_threads_v1,
         scoped_inline_v1,
         original_stash_recovery_v1,
         related_pr_v1,
@@ -161,6 +162,7 @@ pub(super) fn only_related(p: &PreparedView) -> bool {
         remote_repository,
     } = p;
     related_pr_v1.is_some()
+        && scoped_threads_v1.is_none()
         && scoped_inline_v1.is_none()
         && original_stash_recovery_v1.is_none()
         && original_diff_result_v1.is_none()

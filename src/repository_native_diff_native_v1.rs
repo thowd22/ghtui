@@ -146,49 +146,18 @@ pub fn synchronize(app: &mut App) {
 /// Source notices are overlays, so this must run even when drawing them rather
 /// than the native underlay. Never clear/fence a different newly chosen source.
 pub fn synchronize_pr_source_v1(app: &mut App) {
-    let original_account_lost = app
+    let original = app
         .pr_native_diff_v1
         .as_ref()
         .and_then(|state| state.source())
-        .is_some_and(|source| {
+        .map(|source| {
             let proof = source.proof();
-            app.remote_scope_source
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &proof.source))
-                && app
-                    .remote_scope
-                    .as_ref()
-                    .is_some_and(|current| Arc::ptr_eq(current, &proof.active))
-                && app.github.as_ref().is_some_and(|github| {
-                    github.scope().ok().as_ref() != Some(proof.source_scope())
-                })
+            (proof.source.clone(), proof.active.clone())
         });
-    if original_account_lost {
+    if original.is_some_and(|(source, active)| {
+        crate::remote_scope_gate_v1::retire_original_account_mismatch(app, &source, &active)
+    }) {
         retire_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(app);
-        app.pr_file_images = None;
-        crate::repository_catalogue_native::privacy(app);
-        // The catalogue fence alone does not retire an already loaded Inbox.
-        // Hide its private presentation synchronously, before this draw, using
-        // the existing no-I/O retirement path. Background owners observe the
-        // fenced source and cancel on the next coordinating iteration.
-        crate::repository_catalogue_native::retire_remote_views(app);
-        let keep_local = app.view == View::Repository
-            || app.view == View::Search
-                && crate::remote_scope_gate_v1::independent_local_search(app.search.as_ref());
-        if !keep_local {
-            let reason = crate::remote_scope_gate_v1::ScopeEntryStopV1::Intent(
-                crate::active_remote_scope_v1::RemoteScopeStopV1::Fenced(
-                    crate::active_remote_scope_v1::RemoteScopeFenceV1::PrivacyFence,
-                ),
-            )
-            .label();
-            app.context = reason.into();
-            app.status = reason.into();
-            app.selected = 0;
-            app.scroll = 0;
-            app.focus = 0;
-            app.github_content_focused = false;
-        }
     } else {
         synchronize_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(app);
     }

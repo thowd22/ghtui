@@ -120,17 +120,38 @@ impl RepositoryCatalogueAccessSession<'_> {
                     "Original parent/final-proof capacity overflow; no child launched",
                 )
             })?;
-        let capacity=self.budget.remaining_bytes().checked_sub(own_capacity)
+        let capacity=self.remaining_bytes().checked_sub(own_capacity)
             .map(|remaining|remaining.min(max_pool_bytes)).filter(|bytes|*bytes>0)
             .ok_or_else(||error(GithubErrorKind::Transport,"Whole read budget cannot preserve all original parent reads/final principal and a shared pool; no narrower scope chosen"))?;
+        let measured_deadline = self
+            .postwrite_reservation_v2
+            .as_ref()
+            .map_or(self.deadline(), |postwrite| {
+                self.deadline().min(postwrite.deadline())
+            });
+        // New post-write lineage also hard-binds its ORIGINAL issuer's child
+        // cap inside the immutable pool, not merely a replaceable clone spec.
+        // Existing generic (no post-write reservation) behavior is unchanged.
+        let max_child_bytes = if self.postwrite_reservation_v2.is_some() {
+            self.provider
+                .scoped_read_window
+                .map_or(max_child_bytes, |(_, original_cap)| {
+                    max_child_bytes.min(original_cap)
+                })
+        } else {
+            max_child_bytes
+        };
         let budget = ScopedReadBudgetV1::new(
-            self.deadline(),
+            measured_deadline,
             capacity,
             max_requests,
             max_child_bytes,
             &self.original_cancellation,
         )
         .map_err(GithubError::from)?;
+        if let Some(postwrite) = &self.postwrite_reservation_v2 {
+            postwrite.bind(&budget)?;
+        }
         // The original session already bound its cancellation to parent/final
         // commands. The shared pool retains that same token for external clones.
         self.measured_parent_reads_remaining = remaining_repository_reads;

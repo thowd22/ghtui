@@ -1,6 +1,57 @@
 mod support;
 
 #[test]
+fn test_framework_owned_resize_toolbar_requires_declared_location_title_and_new_bottom_border() {
+    use support::{owned_resize_controls_ready_v1 as ready, ResizeToolbarV1};
+    for (rows, cols) in [(24, 80), (40, 120)] {
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        let title = "PR review threads • read only";
+        let actions = ["[Esc Back]", "[q Quit]"];
+        parser.process(format!("\x1b[1;1H┌ {title}\x1b[2;2H[Esc Back] [q Quit]").as_bytes());
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &actions,
+            ResizeToolbarV1::Header
+        ));
+        parser.process(format!("\x1b[{rows};1H└\x1b[{rows};{cols}H┘").as_bytes());
+        assert!(ready(
+            parser.screen(),
+            title,
+            &actions,
+            ResizeToolbarV1::Header
+        ));
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &actions,
+            ResizeToolbarV1::Bottom
+        ));
+        parser
+            .process(format!("\x1b[2;1H\x1b[2K\x1b[{};2H[Esc Back] [q Quit]", rows - 1).as_bytes());
+        assert!(ready(
+            parser.screen(),
+            title,
+            &actions,
+            ResizeToolbarV1::Bottom
+        ));
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &actions,
+            ResizeToolbarV1::Header
+        ));
+        parser.process(b"\x1b[1;1H\x1b[2K\x1b[2;2H[Esc Back] [q Quit]");
+        assert!(!ready(
+            parser.screen(),
+            title,
+            &actions,
+            ResizeToolbarV1::Header
+        ));
+    }
+}
+
+#[test]
 fn test_framework_git_maintenance_environment_and_actual_git_contracts() {
     let result = std::process::Command::new("node")
         .args(["--test", "tests/test_env.test.mjs"])

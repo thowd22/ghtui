@@ -191,6 +191,7 @@ mod native_mutable_plan_before_poll_v2_tests;
 pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.original_diff_result_v1.is_some()
         && prepared.scoped_inline_v1.is_none()
+        && prepared.scoped_threads_v1.is_none()
         && prepared.original_stash_recovery_v1.is_none()
         && prepared.related_pr_v1.is_none()
         && prepared.original_tree_result_v1.is_none()

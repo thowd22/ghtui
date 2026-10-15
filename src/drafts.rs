@@ -9,8 +9,10 @@ use std::{
 };
 
 mod corpus_preview_v4;
+mod publication_v2;
 pub use corpus_preview_v4::CorpusDraftFenceV4;
 use corpus_preview_v4::{DraftProducerV4, PendingDraftV4};
+pub use publication_v2::{DraftPublicationAckV2, DraftPublicationErrorV2, DraftPublicationFenceV2};
 
 #[cfg(test)]
 mod corpus_preview_v4_tests;
@@ -19,6 +21,7 @@ enum Message {
     Save(Scope, String, String, Option<u64>),
     SaveAndWait(Scope, String, String, SyncSender<Result<(), String>>),
     Remove(Scope, String, SyncSender<Result<(), String>>),
+    PublicationV2(Box<publication_v2::PublicationMessageV2>),
     Shutdown,
 }
 pub struct DraftAck {
@@ -87,7 +90,9 @@ impl DraftWriter {
             let _lifetime = corpus_preview_v4::WorkerLifetimeV4(worker_producer.clone());
             let cache = Cache::open(&path).map_err(|error| error.to_string());
             while let Ok(message) = requests.recv() {
+                worker_producer.publication_capacity_v2();
                 match message {
+                    Message::PublicationV2(message) => message.run(&cache),
                     Message::Save(scope, resource, body, revision) => {
                         let result = cache.as_ref().map_err(Clone::clone).and_then(|cache| {
                             cache

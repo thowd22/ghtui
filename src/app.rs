@@ -132,6 +132,7 @@ pub enum Overlay {
     RepositoryCatalogue,
     PrFileImages,
     PrCheckChoices,
+    PrThreadsV1,
     PrCheckContinuationV2,
     GraphRereadV3,
 }
@@ -170,6 +171,10 @@ pub struct App {
     pub pr_native_diff_work_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeWorkV1>>,
     pub pr_native_diff_owner_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>>,
     pub pr_native_diff_cancel_v1: bool,
+    pub scoped_threads_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
+    pub scoped_threads_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
+    pub scoped_threads_cancel_v1: bool,
+    pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::ThreadBrowserV1>,
     pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
     pub scoped_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     pub scoped_inline_cancel_v1: bool,
@@ -355,6 +360,10 @@ impl Default for App {
             pr_native_diff_work_v1: None,
             pr_native_diff_owner_v1: None,
             pr_native_diff_cancel_v1: false,
+            scoped_threads_work_v1: None,
+            scoped_threads_owner_v1: None,
+            scoped_threads_cancel_v1: false,
+            scoped_threads_v1: None,
             scoped_inline_work_v1: None,
             scoped_inline_owner_v1: None,
             scoped_inline_cancel_v1: false,
@@ -692,6 +701,23 @@ impl App {
         controls
     }
     pub fn dispatch(&mut self, action: Action) {
+        if action
+            == Action::Github(crate::github_workspace::GithubAction::Resource(
+                crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::Threads,
+            ))
+        {
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open(self);
+            return;
+        }
+        if self.overlay == Some(Overlay::PrThreadsV1) {
+            if matches!(action, Action::Close | Action::Cancel | Action::Quit) {
+                crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::close(self);
+                if action == Action::Quit {
+                    self.quit = true;
+                }
+            }
+            return;
+        }
         if let Action::StashRecoveryV1(input) = &action {
             crate::repository_stash_recovery_v1::dispatch(self, input.clone());
             return;
@@ -1496,6 +1522,16 @@ impl App {
             Action::Form(action) => {
                 if action == crate::forms::FormAction::Close
                     && self.form.as_ref().is_some_and(|form| {
+                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_))
+                            && form.submitting
+                    })
+                {
+                    self.scoped_threads_cancel_v1 = true;
+                    self.status = "Canceling original thread operation • awaiting owned cleanup; effects may exist".into();
+                    return;
+                }
+                if action == crate::forms::FormAction::Close
+                    && self.form.as_ref().is_some_and(|form| {
                         matches!(form.purpose, crate::forms::FormPurpose::PrInline(_))
                             && form.submitting
                     })
@@ -1656,6 +1692,9 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        if crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::event(self, &event) {
+            return;
+        }
         crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1::retire_invalid_form(self);
         if crate::repository_stash_recovery_v1::event(self, event.clone()) {
             return;
