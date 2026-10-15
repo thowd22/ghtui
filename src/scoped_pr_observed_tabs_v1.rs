@@ -414,13 +414,13 @@ fn presentation_fits(
                 if cancel.is_cancelled() {
                     return Err(ObservedPrTabFailureV1::Cancelled);
                 }
+                if !crate::github_workspace::timeline_projection_v1::actor_fields_fit(event) {
+                    return Ok(false);
+                }
                 let Some(bytes) = json_upper_bytes(event, 0) else {
                     return Ok(false);
                 };
-                let rows = event["body"]
-                    .as_str()
-                    .map_or(0, |body| body.lines().count())
-                    .saturating_add(3);
+                let rows = crate::github_workspace::timeline_projection_v1::row_upper(event);
                 if !budget.add(rows, bytes) {
                     return Ok(false);
                 }
@@ -441,7 +441,7 @@ fn actor_bytes(actor: &crate::providers::gh::Actor) -> Option<usize> {
     .map(str::len)
     .try_fold(0usize, usize::checked_add)
 }
-fn json_upper_bytes(value: &Value, depth: usize) -> Option<usize> {
+pub(crate) fn json_upper_bytes(value: &Value, depth: usize) -> Option<usize> {
     if depth > 64 {
         return None;
     }

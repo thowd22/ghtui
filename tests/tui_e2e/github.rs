@@ -8,6 +8,8 @@ use ghtui::{
 use serde_json::{json, Value};
 #[path = "sqlite_dependency.rs"]
 mod sqlite_dependency;
+#[path = "timeline_actor_legacy_v1.rs"]
+pub(crate) mod timeline_actor_v1;
 
 fn configured() -> Fixture {
     let fixture = Fixture::new();

@@ -4,7 +4,7 @@ title: Author preview and safely apply suggested changes
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-12 23:13'
+updated_date: '2026-10-15 00:37'
 labels:
   - review
   - e2e
@@ -51,3 +51,9 @@ Code suggestions are part of the review workflow. Applying them must show the ex
 - [ ] #2 Run cargo test --all-targets, cargo fmt --check, and cargo clippy --all-targets -- -D warnings; fix failures before marking Done.
 - [ ] #3 Verify mouse/keyboard parity and applicable resize/loading/error states using the shared framework; no placeholder or ignored required E2E tests.
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Read-only current native prerequisite audit after Timeline freeze (2026-10-15): Task23 remains ToDo/isReadyfalse and21/11/34/35 dependencies OPEN. Actual src/pr_actions.rs PrCommand ALL8 exposes only conversation new/edit/delete/react/subscription/viewed; src/forms.rs has no Inline/Suggestion/Pending/Thread purposes. Existing verified immutable M/H RIGHT ranges are explicitly read-only, not current publication/apply authority. src/providers/gh/pr.rs inline_comment returns raw Value; exact readback currently checks path/commit_id/line/body but not the positive node/current numeric author/side/start-side/start-line/parent receipt used by stronger typed create_review. Pending ownership still login/state based, native restart-safe pending-review lifecycle/thread workflows absent. Inventory pr-inline/pr-pending-reviews/pr-threads/pr-suggestions remains implementedfalse. Do not expose apply or claim a public apply endpoint/capability without verification; do not promote readonly range labels into writes. Potential safe progression: first strengthen typed inline receipt +durable single-submit journal/native exactRIGHT range publication; suggestion authoring must carry source/path/H/range/code and actual New(H) resulting-blob preview; apply requires explicit verified isolated-worktree commit/push+conflict/head/attribution confirmation. Pure unpublishable suggestion editor would be only partial and does not satisfy task. Root selected dependency-ready genuine mutable diff source/fingerprint factory under Task31 instead, while these corePR prerequisites are resolved; no implementation/status/dependency/AC changes for Task23 and no live writes.
+<!-- SECTION:NOTES:END -->

@@ -30,6 +30,7 @@ pub mod local_actions;
 pub mod local_availability;
 #[cfg(test)]
 pub(crate) mod local_commit_actor_origin_v1_test_support;
+pub mod local_identity_readability_v1;
 pub mod local_picker;
 pub mod metrics;
 pub mod metrics_repository;
@@ -82,6 +83,10 @@ pub mod repository_graph_reread_native_v3;
 pub mod repository_graph_reread_v3;
 pub mod repository_graph_ui_v1;
 pub mod repository_graph_v1;
+pub mod repository_native_diff_native_v1;
+pub mod repository_native_diff_projection_v1;
+pub mod repository_native_diff_ui_v1;
+pub mod repository_native_diff_v1;
 pub mod repository_related_pr_v1;
 pub mod repository_source_identity;
 pub mod repository_source_ui;

@@ -686,6 +686,7 @@ fn run() -> Result<()> {
         if app.graph_reread_dialog_v3.is_none()
             && app.original_tree_jump_v1.is_none()
             && app.original_diff_picker_v1.is_none()
+            && app.native_diff_v1.is_none()
             && !remote_avatar_owned
             && !catalogue_avatar_owned
             && !related_avatar_owned

@@ -417,12 +417,22 @@ pub fn dispatch(app: &mut App, action: RelatedPrActionV1) {
                     .as_mut()
                     .and_then(|v| v.pr.as_mut())
                     .expect("visible PR");
+                let old_tab = page.tab;
                 page.tab = tab;
-                if page.prepare_rows().is_err() {
-                    state.viewer = None;
-                    state.snapshot = None;
+                let mut display_limited = false;
+                if let Err(error) = page.prepare_rows() {
+                    if crate::github_workspace::timeline_projection_v1::is_display_limit(&error) {
+                        page.tab = old_tab;
+                        display_limited = true;
+                        state.status = "Timeline display limit reached • original observed section/selection retained • no extra reads".into();
+                    } else {
+                        state.viewer = None;
+                        state.snapshot = None;
+                    }
                 }
-                state.scroll = 0;
+                if !display_limited {
+                    state.scroll = 0;
+                }
             } else {
                 state.status = "This original association grants no Checks/metadata/mutation authority • use an explicitly activated remote scope".into();
             }
@@ -740,3 +750,6 @@ fn retire_invalid(app: &mut App) {
 #[cfg(test)]
 #[path = "repository_related_pr_v1_tests.rs"]
 pub(crate) mod tests;
+#[cfg(test)]
+#[path = "repository_related_pr_timeline_v1_tests.rs"]
+mod timeline_tests_v1;

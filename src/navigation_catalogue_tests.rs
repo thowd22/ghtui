@@ -132,11 +132,14 @@ fn navigation_catalogue_missing_repository_keeps_discoverable_disabled_operation
         .collect::<Vec<_>>();
     assert_eq!(
         contextual.len(),
-        RepositoryMode::ALL.len() + LocalCommand::ALL.len() + 11
+        RepositoryMode::ALL.len() + LocalCommand::ALL.len() + 12
     );
     assert!(contextual
         .iter()
         .all(|entry| matches!(entry.action, Action::Explain(_))));
+    assert!(
+        matches!(&contextual.iter().find(|entry|entry.id=="repository.native-diff").expect("native comparison discovery stays explicit when unavailable").action,Action::Explain(reason) if reason.contains("actual local saved comparison"))
+    );
     for id in [
         "repository.tree.jump",
         "repository.tree.next",

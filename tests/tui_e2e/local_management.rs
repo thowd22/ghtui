@@ -47,7 +47,9 @@ fn fill(session: &mut Session, mouse: bool, fields: &[(&str, &str)]) {
         }
         session.send_key(b"\x15");
         session.paste(value);
-        if !value.is_empty() {
+        if *label == "Exact linked worktree directory" && !value.is_empty() {
+            crate::long_local_identity_v1::verify_full_input(session, mouse, value);
+        } else if !value.is_empty() {
             session.wait_for_screen(value);
         }
     }

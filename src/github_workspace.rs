@@ -12,6 +12,9 @@ use crate::providers::gh::{
 use crate::providers::runner::CancellationToken;
 use crate::storage::{now, Cache, Record, Scope};
 
+#[path = "github_timeline_projection_v1.rs"]
+pub(crate) mod timeline_projection_v1;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PrKey {
     pub host: String,
@@ -384,31 +387,7 @@ impl PrPage {
                     }
                 },
             ),
-            PrTab::Timeline => self
-                .details
-                .timeline
-                .iter()
-                .flat_map(|event| {
-                    let mut rows = vec![PrRow::actor(
-                        format!(
-                            "{} • {}",
-                            event["event"].as_str().unwrap_or("activity"),
-                            event["created_at"].as_str().unwrap_or("time not provided")
-                        ),
-                        value_actor(&event["actor"]),
-                    )];
-                    if let Some(body) = event["body"].as_str() {
-                        rows.extend(body.lines().map(PrRow::text));
-                    }
-                    if let Some(label) = event["label"]["name"].as_str() {
-                        rows.push(PrRow::text(format!("Label: {label}")));
-                    }
-                    if let Some(sha) = event["commit_id"].as_str() {
-                        rows.push(PrRow::text(format!("Commit: {sha}")));
-                    }
-                    rows
-                })
-                .collect(),
+            PrTab::Timeline => timeline_projection_v1::prepare(&self.details.timeline)?,
             PrTab::Progress => self.review_progress.as_ref().map_or_else(
                 || vec![PrRow { role: SemanticToken::Pending, ..PrRow::text("Review progress UNAVAILABLE • no viewed state inferred. Refresh this exact PR, then open Review progress again.") }],
                 |progress| progress.rows().into_iter().map(|(label,role)|PrRow {role, ..PrRow::text(label)}).collect(),

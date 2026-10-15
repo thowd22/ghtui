@@ -184,6 +184,7 @@ pub enum FormAction {
     ErrorScroll(i32),
     FieldScroll(i32),
     OpenPicker(usize),
+    FullInput(usize),
     Picker(crate::local_picker::PickerAction),
     MetadataPicker(crate::pr_metadata_picker::PrMetadataPickerAction),
     Swap,
@@ -1127,11 +1128,70 @@ impl Form {
         self.invalidate_plan();
         Ok(())
     }
+    fn full_input_available(&self, index: usize) -> bool {
+        !self.preview
+            && !self.submitting
+            && matches!(&self.purpose,FormPurpose::Local(intent)if intent.command==crate::local_actions::LocalCommand::RemoveWorktree)
+            && self
+                .fields
+                .get(index)
+                .is_some_and(|field| field.key == "path" && !field.secret)
+    }
+    fn retire_changed_current_input(&mut self) -> bool {
+        let Some(picker) = self
+            .picker
+            .as_ref()
+            .filter(|picker| picker.is_current_input())
+        else {
+            return false;
+        };
+        let valid = match &self.purpose {
+            FormPurpose::Local(intent)
+                if intent.command == crate::local_actions::LocalCommand::RemoveWorktree =>
+            {
+                self.fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, field)| field.key == "path" && !field.secret)
+                    .is_some_and(|(index, field)| {
+                        self.full_input_available(index)
+                            && picker.current_input_matches(
+                                &intent.context.directory,
+                                &field.key,
+                                &field.editor.text,
+                            )
+                    })
+            }
+            _ => false,
+        };
+        if !valid {
+            self.picker = None;
+            self.error =
+                "Full input view retired after its intent changed; nothing chosen or verified."
+                    .into();
+        }
+        !valid
+    }
     pub fn dispatch(&mut self, action: &FormAction) {
         if self.submitting && !matches!(action, FormAction::Close) {
             return;
         }
         match action {
+            FormAction::FullInput(index) if self.full_input_available(*index) => {
+                let FormPurpose::Local(intent) = &self.purpose else {
+                    return;
+                };
+                let field = &self.fields[*index];
+                match crate::local_picker::LocalPicker::current_input(
+                    &intent.context.directory,
+                    &field.key,
+                    &field.editor.text,
+                ) {
+                    Ok(picker) => self.picker = Some(picker),
+                    Err(error) => self.error = error,
+                }
+            }
+            FormAction::FullInput(_) => {}
             FormAction::Field(index) => {
                 self.focus = (*index).min(self.fields.len().saturating_sub(1));
                 self.active_field = self.focus;
@@ -1195,6 +1255,9 @@ impl Form {
                 self.preview = false;
             }
             FormAction::Picker(action) => {
+                if self.retire_changed_current_input() {
+                    return;
+                }
                 let outcome = self
                     .picker
                     .as_mut()
@@ -1329,6 +1392,9 @@ impl Form {
         }
         if self.submitting {
             return None;
+        }
+        if code == KeyCode::F(2) && self.full_input_available(self.active_field) {
+            return Some(FormAction::FullInput(self.active_field));
         }
         if code == KeyCode::F(4) && self.field_has_picker(self.active_field) {
             return Some(FormAction::OpenPicker(self.active_field));
@@ -1519,6 +1585,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(form) = &mut app.form else {
         return;
     };
+    form.retire_changed_current_input();
     let width = area.width.saturating_sub(4).min(100);
     let height = area.height.saturating_sub(4).min(28);
     let rect = Rect::new(
@@ -1768,6 +1835,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             ),
         );
     }
+    let full_inputs = (0..form.fields.len())
+        .map(|index| form.full_input_available(index))
+        .collect::<Vec<_>>();
     let pickers = (0..form.fields.len())
         .map(|index| form.field_has_picker(index))
         .collect::<Vec<_>>();
@@ -1799,6 +1869,24 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 rect: button,
                 action: Action::Form(FormAction::OpenPicker(index)),
             });
+        }
+        if full_inputs[index] {
+            let button = Rect::new(
+                inner.right().saturating_sub(30).max(inner.x),
+                y,
+                16.min(inner.width),
+                1,
+            );
+            frame.render_widget(
+                Paragraph::new("[F2 Full input]").style(theme.style(SemanticToken::Reference)),
+                button,
+            );
+            if !button.is_empty() {
+                app.hits.push(HitRegion {
+                    rect: button,
+                    action: Action::Form(FormAction::FullInput(index)),
+                });
+            }
         }
         y += 1;
         let height = if field.multiline {

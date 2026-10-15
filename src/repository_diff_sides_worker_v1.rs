@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum OriginalDiffWorkV1 {
+    Native(Arc<crate::repository_native_diff_v1::NativeDiffRequestV1>),
     Query(Arc<OriginalDiffQueryV1>),
     Side(OriginalDiffSideTicketV1),
     Back(Arc<PreparedOriginalDiffSideV1>),
@@ -23,6 +24,7 @@ impl std::fmt::Debug for OriginalDiffWorkV1 {
 impl OriginalDiffWorkV1 {
     pub fn owns(&self, workspace: &Workspace, picker: Option<&OriginalDiffPickerV1>) -> bool {
         match self {
+            Self::Native(request) => request.owns(workspace),
             Self::Query(request) => {
                 request.intent().owns(workspace)
                     && picker
@@ -97,6 +99,9 @@ impl OriginalDiffWorkerOwnerV1 {
         let operation = self.original.operation();
         operation.check()?;
         let result = match self.work.as_ref() {
+            OriginalDiffWorkV1::Native(request) => {
+                request.prepare(operation).map(DiffResultV1::Native)
+            }
             OriginalDiffWorkV1::Query(request) => {
                 OriginalDiffFrameV1::prepare(request.clone(), operation).map(DiffResultV1::Query)
             }
@@ -110,6 +115,7 @@ impl OriginalDiffWorkerOwnerV1 {
         let result=result.and_then(|result| {
             operation.check()?;
             let (source,side)=match &result {
+                DiffResultV1::Native(prepared)=>(prepared.source().as_ref(),None),
                 DiffResultV1::Query(frame)=>(frame.source().as_ref(),None),
                 DiffResultV1::Side {side,..}=>(side.source().as_ref(),Some(side.as_ref())),
                 DiffResultV1::Back(_)=>match self.work.as_ref(){OriginalDiffWorkV1::Back(side)=>(side.source().as_ref(),None),_=>return Err("Original comparison Back source unavailable".into())},
@@ -137,6 +143,7 @@ impl OriginalDiffWorkerOwnerV1 {
     }
 }
 enum DiffResultV1 {
+    Native(crate::repository_native_diff_v1::PreparedNativeDiffV1),
     Query(Arc<OriginalDiffFrameV1>),
     Side {
         side: Arc<PreparedOriginalDiffSideV1>,
@@ -157,6 +164,13 @@ impl PreparedOriginalDiffWorkV1 {
     }
     pub fn matches(&self, owner: &Arc<OriginalDiffWorkerOwnerV1>) -> bool {
         Arc::ptr_eq(&self.owner, owner)
+            && match (&self.result, owner.work().as_ref()) {
+                (DiffResultV1::Native(prepared), OriginalDiffWorkV1::Native(request)) => {
+                    Arc::ptr_eq(prepared.request(), request)
+                }
+                (DiffResultV1::Native(_), _) | (_, OriginalDiffWorkV1::Native(_)) => false,
+                _ => true,
+            }
             && owner
                 .accounting()
                 .is_ok_and(|accounting| accounting.sealed() && accounting.in_flight_requests() == 0)
@@ -172,6 +186,9 @@ impl PreparedOriginalDiffWorkV1 {
             return Err("Original comparison request retired; no prepared result admitted".into());
         }
         match self.result {
+            DiffResultV1::Native(_) => {
+                Err("Native projection needs its exact capturing controller".into())
+            }
             DiffResultV1::Query(frame) => {
                 frame.source().install(workspace)?;
                 if !picker.as_mut().is_some_and(|picker| picker.accept(frame)) {
@@ -190,6 +207,29 @@ impl PreparedOriginalDiffWorkV1 {
                 Ok(Some(focus))
             }
         }
+    }
+    pub fn publish_native_v1(
+        self,
+        workspace: &Workspace,
+        state: &mut crate::repository_native_diff_v1::NativeDiffStateV1,
+    ) -> Result<(), String> {
+        let OriginalDiffWorkV1::Native(request) = self.owner.work().as_ref() else {
+            return Err("This is not an original native projection request".into());
+        };
+        if !self.owner.can_admit(workspace, None, true)
+            || !self.matches(&self.owner)
+            || !state.owns(workspace)
+            || !state.accepts(request)
+        {
+            return Err("Original native source/query/options/width request retired".into());
+        }
+        let DiffResultV1::Native(prepared) = self.result else {
+            return Err("Native request returned another prepared kind".into());
+        };
+        if !state.accept(prepared) {
+            return Err("Original native controller changed before publication".into());
+        }
+        Ok(())
     }
 }
 

@@ -5,6 +5,8 @@ mod pid_publication_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession, ProcessIdentity};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use std::io::Cursor;
+#[path = "timeline_actor_related_v1.rs"]
+mod timeline_actor_v1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {

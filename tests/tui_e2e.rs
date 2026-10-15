@@ -26,6 +26,8 @@ mod local;
 mod local_management;
 #[path = "tui_e2e/local_picker.rs"]
 mod local_picker;
+#[path = "tui_e2e/long_local_identity_v1.rs"]
+mod long_local_identity_v1;
 #[path = "tui_e2e/metrics.rs"]
 mod metrics;
 #[path = "tui_e2e/navigation_local_palette.rs"]

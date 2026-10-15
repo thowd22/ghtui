@@ -207,6 +207,26 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     ),
                 });
             }
+            x = rect.right().saturating_add(1);
+            let label = "[v Native diff]";
+            let rect = Rect::new(
+                x.min(area.right()),
+                area.y + 2,
+                (label.len() as u16).min(area.right().saturating_sub(x)),
+                1,
+            );
+            frame.render_widget(
+                Paragraph::new(label).style(theme.style(SemanticToken::Changed)),
+                rect,
+            );
+            if !rect.is_empty() {
+                app.hits.push(HitRegion {
+                    rect,
+                    action: Action::NativeDiffV1(
+                        crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
+                    ),
+                });
+            }
         }
         for control in
             file_history::controls(workspace, app.loading[crate::app::View::Repository.index()])

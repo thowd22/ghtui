@@ -58,6 +58,7 @@ pub enum Action {
     RepositoryMode(crate::workspace::RepositoryMode),
     RepositoryRow(crate::workspace::RowAction),
     OriginalDiffSidesV1(crate::repository_diff_sides_v1::OriginalDiffActionV1),
+    NativeDiffV1(crate::repository_native_diff_ui_v1::NativeDiffActionV1),
     OriginalTreeV1(crate::repository_tree_jump_v1::OriginalTreeJumpActionV1),
     OriginalTreeViewportV2(crate::repository_tree_viewport_v2::TreeViewportActionV2),
     GraphRereadV3(crate::repository_graph_reread_native_v3::GraphRereadActionV3),
@@ -181,6 +182,8 @@ pub struct App {
     pub navigation_trail: crate::navigation_trail::NavigationTrail,
     pub original_saved_visits: crate::navigation_local_source_v1::OriginalSavedVisitsV1,
     pub original_diff_picker_v1: Option<crate::repository_diff_sides_v1::OriginalDiffPickerV1>,
+    pub native_diff_v1: Option<crate::repository_native_diff_v1::NativeDiffStateV1>,
+    pub native_diff_layout_v1: crate::repository_native_diff_ui_v1::NativeDiffLayoutV1,
     pub original_diff_work_v1:
         Option<Arc<crate::repository_diff_sides_worker_v1::OriginalDiffWorkV1>>,
     pub original_diff_layout_v1: crate::repository_diff_sides_ui_v1::OriginalDiffLayoutV1,
@@ -367,6 +370,8 @@ impl Default for App {
             navigation_trail: Default::default(),
             original_saved_visits: Default::default(),
             original_diff_picker_v1: None,
+            native_diff_v1: None,
+            native_diff_layout_v1: Default::default(),
             original_diff_work_v1: None,
             original_diff_layout_v1: Default::default(),
             original_diff_cancel_v1: false,
@@ -817,8 +822,12 @@ impl App {
         ) {
             crate::repository_tree_native_v1::retire(self);
             crate::repository_diff_sides_native_v1::retire(self);
+            crate::repository_native_diff_native_v1::retire(self);
         }
         match action {
+            Action::NativeDiffV1(action) => {
+                crate::repository_native_diff_native_v1::dispatch(self, action)
+            }
             Action::RelatedPrV1(_) => (), // Handled before global dispatch.
             Action::OriginalTreeViewportV2(action) => {
                 crate::repository_tree_viewport_native_v2::dispatch(self, action)
@@ -1559,11 +1568,16 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
-        if crate::repository_related_pr_v1::event(self, event.clone()) {
-            return;
-        }
         if let Event::Resize(width, _) = &event {
             crate::repository_tree_viewport_native_v2::resize(self, *width);
+        }
+        // Native capture borrows the event before other handlers clone it,
+        // including rejected oversized bracketed-paste payloads.
+        if crate::repository_native_diff_native_v1::capture(self, &event) {
+            return;
+        }
+        if crate::repository_related_pr_v1::event(self, event.clone()) {
+            return;
         }
         if crate::repository_tree_viewport_native_v2::folder_event(self, event.clone()) {
             return;
@@ -2173,6 +2187,12 @@ impl App {
                     if key.code == KeyCode::Char('f') {
                         self.dispatch(Action::OriginalDiffSidesV1(
                             crate::repository_diff_sides_v1::OriginalDiffActionV1::Open,
+                        ));
+                        return;
+                    }
+                    if key.code == KeyCode::Char('v') {
+                        self.dispatch(Action::NativeDiffV1(
+                            crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
                         ));
                         return;
                     }

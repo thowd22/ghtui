@@ -1,6 +1,8 @@
 //! Real-binary observed PR sections, both input paths across six sessions;
 //! each drives renamed observed tabs, bounded-display refusal and rapid Back.
 use super::*;
+#[path = "timeline_actor_scoped_v1.rs"]
+mod timeline_actor_v1;
 
 const RENAMED: &str = "example/renamed0000";
 fn protocol(case: u8) -> Vec<GhStep> {

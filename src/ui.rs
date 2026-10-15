@@ -36,6 +36,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
     let area = frame.area();
+    if app.overlay.is_none() && crate::repository_native_diff_native_v1::draw(frame, app, area) {
+        return;
+    }
     if crate::repository_tree_viewport_native_v2::folder_draw(frame, app, area) {
         return;
     }
@@ -108,8 +111,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let context_width = rows[2]
         .width
         .saturating_sub(if source_control { 18 } else { 0 });
+    let context = safe_text(&app.context);
+    let context = if source_control {
+        crate::local_identity_readability_v1::compact_context(&context, context_width)
+    } else {
+        context
+    };
     frame.render_widget(
-        Paragraph::new(safe_text(&app.context)),
+        Paragraph::new(context),
         Rect::new(rows[2].x, rows[2].y, context_width, 1),
     );
     if source_control {

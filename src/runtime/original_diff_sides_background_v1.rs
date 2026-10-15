@@ -8,6 +8,17 @@ impl Background {
         app: &mut App,
         work: Arc<OriginalDiffWorkV1>,
     ) -> bool {
+        if let OriginalDiffWorkV1::Native(request) = work.as_ref() {
+            if app.native_diff_v1.as_ref().is_none_or(|state| {
+                !state.accepts(request)
+                    || app
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|workspace| !state.owns(workspace))
+            }) {
+                return false;
+            }
+        }
         if app
             .workspace
             .as_ref()
@@ -127,6 +138,9 @@ impl Background {
 #[cfg(test)]
 #[path = "original_diff_before_poll_v1_tests.rs"]
 mod before_poll_v1_tests;
+#[cfg(test)]
+#[path = "native_diff_before_poll_v1_tests.rs"]
+mod native_diff_before_poll_v1_tests;
 pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.original_diff_result_v1.is_some()
         && prepared.related_pr_v1.is_none()
@@ -214,6 +228,60 @@ pub(super) fn publish_original_diff_sides_v1(
         {
             return false;
         }
+    }
+    if let OriginalDiffWorkV1::Native(request) = owner.work().as_ref() {
+        if app.native_diff_v1.as_ref().is_none_or(|state| {
+            !state.accepts(request)
+                || app
+                    .workspace
+                    .as_ref()
+                    .is_none_or(|workspace| !state.owns(workspace))
+        }) {
+            return false;
+        }
+        // Exact closed Native work is a distinct result branch under the SAME
+        // B owner/token/ledger. No legacy picker/Workspace publication occurs.
+        let status = match result {
+            Ok(mut prepared) => {
+                let result = prepared
+                    .original_diff_result_v1
+                    .take()
+                    .expect("typed result checked");
+                let source_identity = result.source_identity_v1().clone();
+                let workspace = app
+                    .workspace
+                    .as_ref()
+                    .expect("original native source checked");
+                let state = app
+                    .native_diff_v1
+                    .as_mut()
+                    .expect("exact native request checked");
+                if result.publish_native_v1(workspace, state).is_err() {
+                    return false;
+                }
+                app.repository_source_identity = Some(source_identity);
+                state.status.clone()
+            }
+            Err(reason) => {
+                let state = app
+                    .native_diff_v1
+                    .as_mut()
+                    .expect("exact native request checked");
+                if !state.fail(request, &reason) {
+                    return false;
+                }
+                state.status.clone()
+            }
+        };
+        app.retire_command_context();
+        app.loading[View::Repository.index()] = false;
+        app.native_diff_layout_v1.clear();
+        app.hits.clear();
+        app.status = status;
+        return true;
+    }
+    if app.native_diff_v1.is_some() {
+        return false; // A newly capturing Native purpose supersedes the picker.
     }
     // No global/private/loading/hit effect precedes exact owner/result proof.
     app.retire_command_context();

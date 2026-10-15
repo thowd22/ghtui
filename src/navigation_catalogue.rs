@@ -167,6 +167,20 @@ impl Builder {
             )?;
         }
         self.push("repository.compare".into(), "Compare saved versions".into(), &["compare", "commits", "branches", "changes"], if app.workspace.as_ref().is_some_and(|workspace| workspace.status.head.is_some()) { Action::Compare } else { Action::Explain("A comparison needs a loaded repository with saved commits. An unborn repository has no saved version yet.".into()) }, true)?;
+        let saved_native = app.remote_repository.is_none()
+            && app.workspace.as_ref().is_some_and(|workspace| {
+                workspace.file_provenance.is_none()
+                    && workspace.actor_profile.is_none()
+                    && workspace.comparison_v1().is_some_and(|comparison| {
+                        matches!(
+                            comparison.comparison,
+                            crate::git::Comparison::Snapshots { .. }
+                                | crate::git::Comparison::BranchChanges { .. }
+                                | crate::git::Comparison::CommitChanges { .. }
+                        )
+                    })
+            });
+        self.push("repository.native-diff".into(),"Explore native saved diff".into(),&["native","diff","split","unified","changes"],if saved_native {Action::NativeDiffV1(crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open)} else {Action::Explain("Open an actual local saved comparison first. Native mutable/PR diff sources are not inferred from a directory or display label.".into())},true)?;
         self.push(
             "repository.operations".into(),
             "Open local operations".into(),

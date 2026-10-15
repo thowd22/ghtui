@@ -36,10 +36,21 @@ fn filter(session: &mut Session, mouse: bool, query: &str) {
 }
 
 fn choose(session: &mut Session, mouse: bool, field: &str, label: &str) {
-    session.wait_for_screen(label);
-    if mouse {
+    if field == "path" {
+        crate::long_local_identity_v1::activate(session, mouse, "[F2 Details]", b"\x1bOQ");
+        crate::long_local_identity_v1::assert_complete_detail(
+            session,
+            mouse,
+            "Full observed target • read-only",
+            &format!("Observed worktree directory: {label}"),
+        );
+        crate::long_local_identity_v1::activate(session, mouse, "[Esc Back]", b"\x1b");
+        crate::long_local_identity_v1::activate(session, mouse, "[Enter Choose]", b"\r");
+    } else if mouse {
+        session.wait_for_screen(label);
         session.click_visible_action(label);
     } else {
+        session.wait_for_screen(label);
         session.send_key(b"\r");
     }
     let title = format!("Choose {field} • local inventory");

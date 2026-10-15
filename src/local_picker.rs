@@ -13,7 +13,14 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use std::{os::unix::ffi::OsStrExt, path::PathBuf};
+use std::{
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
+#[path = "local_picker_details_v1.rs"]
+mod details_v1;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LocalValue {
@@ -355,6 +362,8 @@ fn bounded_label(text: &str) -> String {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PickerAction {
+    Details,
+    DetailEdge(bool),
     FocusFilter,
     Select(usize),
     Move(i32),
@@ -379,7 +388,7 @@ pub struct PickerHit {
     pub action: PickerAction,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct LocalPicker {
     pub title: String,
     pub field: String,
@@ -390,6 +399,32 @@ pub struct LocalPicker {
     pub scroll: usize,
     pub page_size: usize,
     pub message: String,
+    instance: Arc<()>,
+    generation: u64,
+    details: Option<details_v1::Details>,
+}
+
+impl Clone for LocalPicker {
+    fn clone(&self) -> Self {
+        Self {
+            title: if self.is_current_input() {
+                "Full input retired • no target selected".into()
+            } else {
+                self.title.clone()
+            },
+            field: self.field.clone(),
+            query: self.query.clone(),
+            options: self.options.clone(),
+            visible: self.visible.clone(),
+            selected: self.selected,
+            scroll: self.scroll,
+            page_size: self.page_size,
+            message: self.message.clone(),
+            instance: Arc::new(()),
+            generation: 0,
+            details: None,
+        }
+    }
 }
 
 impl LocalPicker {
@@ -420,10 +455,75 @@ impl LocalPicker {
             scroll: 0,
             page_size: 8,
             message: message.into(),
+            instance: Arc::new(()),
+            generation: 0,
+            details: None,
+        }
+    }
+
+    /// No LocalChoice or Git authority is manufactured for editable input text.
+    pub fn current_input(directory: &Path, field: &str, text: &str) -> Result<Self, String> {
+        let mut picker = Self::from_choices(
+            "Full current worktree input • read-only".into(),
+            field,
+            vec![],
+            "Read-only input; Preview verifies the actual Git target.",
+        );
+        picker.details = Some(details_v1::Details::input(
+            Arc::clone(&picker.instance),
+            directory,
+            field,
+            text,
+        )?);
+        Ok(picker)
+    }
+    pub fn is_current_input(&self) -> bool {
+        self.details
+            .as_ref()
+            .is_some_and(details_v1::Details::is_input)
+    }
+    pub fn current_input_matches(&self, directory: &Path, field: &str, text: &str) -> bool {
+        self.details
+            .as_ref()
+            .is_some_and(|details| details.input_matches(directory, field, text))
+    }
+    fn details_valid(&self) -> bool {
+        self.details
+            .as_ref()
+            .is_none_or(|details| details.matches(self))
+    }
+    fn retire_details(&mut self) {
+        self.details = None;
+        self.generation = self.generation.checked_add(1).unwrap_or_else(|| {
+            self.instance = Arc::new(());
+            0
+        });
+    }
+    fn open_details(&mut self) {
+        let Some(slot) = self.visible.get(self.selected).copied() else {
+            self.message = "No selected observed target; nothing chosen or verified.".into();
+            return;
+        };
+        let Some(choice) = self.options.get(slot) else {
+            self.message = "Selected inventory row is unavailable; nothing chosen.".into();
+            return;
+        };
+        match details_v1::Details::observed(
+            Arc::clone(&self.instance),
+            self.generation,
+            slot,
+            &self.title,
+            &self.field,
+            &self.query.text,
+            choice,
+        ) {
+            Ok(details) => self.details = Some(details),
+            Err(error) => self.message = error,
         }
     }
 
     fn filter(&mut self) {
+        self.retire_details();
         let items = self
             .options
             .iter()
@@ -464,6 +564,9 @@ impl LocalPicker {
 
     pub fn key(event: KeyEvent) -> Option<PickerAction> {
         Some(match event.code {
+            KeyCode::F(2) => PickerAction::Details,
+            KeyCode::Home => PickerAction::DetailEdge(false),
+            KeyCode::End => PickerAction::DetailEdge(true),
             KeyCode::Esc => PickerAction::Close,
             KeyCode::Enter => PickerAction::Choose,
             KeyCode::Up => PickerAction::Move(-1),
@@ -486,15 +589,42 @@ impl LocalPicker {
     }
 
     pub fn dispatch(&mut self, action: PickerAction) -> PickerOutcome {
+        if !self.details_valid() {
+            self.retire_details();
+            self.message="Observed details retired after their presentation changed; nothing chosen or verified.".into();
+            return PickerOutcome::None;
+        }
+        if let Some(details) = &mut self.details {
+            match action {
+                PickerAction::Close | PickerAction::Details => {
+                    let input = details.is_input();
+                    self.retire_details();
+                    return if input {
+                        PickerOutcome::Closed
+                    } else {
+                        PickerOutcome::None
+                    };
+                }
+                PickerAction::Move(amount) => details.scroll(amount, false),
+                PickerAction::Page(amount) => details.scroll(amount, true),
+                PickerAction::DetailEdge(last) => details.edge(last),
+                _ => {}
+            }
+            return PickerOutcome::None;
+        }
         match action {
+            PickerAction::Details => self.open_details(),
+            PickerAction::DetailEdge(_) => {}
             PickerAction::FocusFilter => {}
             PickerAction::Close => return PickerOutcome::Closed,
             PickerAction::Choose => return self.choose(),
             PickerAction::Select(index) => {
+                self.retire_details();
                 self.selected = index.min(self.visible.len().saturating_sub(1));
                 return self.choose();
             }
             PickerAction::Move(delta) | PickerAction::Page(delta) => {
+                self.retire_details();
                 let amount = if matches!(action, PickerAction::Page(_)) {
                     delta.saturating_mul(self.page_size as i32)
                 } else {
@@ -553,6 +683,13 @@ impl LocalPicker {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: Theme) -> Vec<PickerHit> {
+        if !self.details_valid() {
+            self.retire_details();
+            self.message="Observed details retired after their presentation changed; nothing chosen or verified.".into();
+        }
+        if let Some(details) = &mut self.details {
+            return details.draw(frame, area, theme);
+        }
         let mut hits = vec![];
         frame.render_widget(
             Block::default()
@@ -598,12 +735,25 @@ impl LocalPicker {
             .take(self.page_size)
             .enumerate()
         {
-            let choice = &self.options[self.visible[index]];
+            let Some(choice) = self
+                .visible
+                .get(index)
+                .and_then(|slot| self.options.get(*slot))
+            else {
+                continue;
+            };
             let row = Rect::new(inner.x, inner.y + offset as u16 + 1, inner.width, 1);
             let label = format!(
                 "{} {} • {}{}",
                 if index == self.selected { ">" } else { " " },
-                choice.label,
+                if matches!(choice.value, LocalValue::Worktree { .. }) {
+                    crate::local_identity_readability_v1::compact_context(
+                        &choice.label,
+                        row.width.saturating_sub(3).min(48),
+                    )
+                } else {
+                    choice.label.clone()
+                },
                 choice.detail,
                 choice
                     .disabled_reason
@@ -633,6 +783,7 @@ impl LocalPicker {
             ("[Esc Close]", PickerAction::Close),
             ("[PgUp Previous]", PickerAction::Page(-1)),
             ("[PgDn More]", PickerAction::Page(1)),
+            ("[F2 Details]", PickerAction::Details),
         ] {
             let rect = Rect::new(
                 x.min(inner.right()),

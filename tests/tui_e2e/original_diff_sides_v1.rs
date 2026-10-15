@@ -16,6 +16,8 @@ use std::{
     time::Instant,
 };
 const TITLE: &str = "Compare saved file sides • original comparison";
+#[path = "native_diff_v1.rs"]
+mod native_diff_v1;
 const DRAFT: &str = "original-diff-side-unsent42";
 const INTENT: &str = "original-diff-side-observed42";
 struct Native {
