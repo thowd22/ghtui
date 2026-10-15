@@ -340,9 +340,22 @@ pub fn process_identity(pid: i32) -> io::Result<Option<ProcessIdentity>> {
         }
         Ok(identity)
     })();
+    finish_identity_read(result)
+}
+
+/// A process can disappear while its kernel identity file is being read.
+/// Only explicit absence errors may mean None; invalid/foreign data never does.
+pub fn finish_identity_read(
+    result: io::Result<ProcessIdentity>,
+) -> io::Result<Option<ProcessIdentity>> {
     match result {
         Ok(identity) => Ok(Some(identity)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            Ok(None)
+        }
         Err(error) => Err(error),
     }
 }

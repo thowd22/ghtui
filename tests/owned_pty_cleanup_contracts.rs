@@ -2,6 +2,101 @@
 mod owned;
 use owned::{OwnedPtySession, ProcessIdentity};
 
+struct ExactChild(std::process::Child);
+impl ExactChild {
+    fn new() -> Self {
+        Self(
+            std::process::Command::new("/bin/sleep")
+                .arg("30")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        )
+    }
+    fn reap(&mut self) {
+        self.0.kill().unwrap();
+        self.0.wait().unwrap();
+    }
+}
+impl Drop for ExactChild {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+        }
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn test_framework_process_identity_only_absence_errno_is_none_not_permission_or_invalid_data() {
+    for errno in [libc::ENOENT, libc::ESRCH] {
+        assert!(
+            owned::finish_identity_read(Err(std::io::Error::from_raw_os_error(errno)))
+                .unwrap()
+                .is_none()
+        );
+    }
+    for errno in [libc::EACCES, libc::EPERM, libc::EIO] {
+        let error =
+            owned::finish_identity_read(Err(std::io::Error::from_raw_os_error(errno))).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(errno));
+    }
+    let error = owned::finish_identity_read(Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "Malformed process ownership",
+    )))
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn test_framework_process_identity_actual_reaped_child_kernel_probe_esrch_is_gone_not_fatal() {
+    let mut child = ExactChild::new();
+    let pid = i32::try_from(child.0.id()).unwrap();
+    assert!(pid > 0 && pid != std::process::id() as i32);
+    #[cfg(target_os = "linux")]
+    let mut file = std::fs::File::open(format!("/proc/{pid}/stat")).unwrap();
+    child.reap();
+    #[cfg(target_os = "linux")]
+    let error = {
+        use std::io::Read;
+        // The actual open kernel descriptor outlives this specific process.
+        // Reading it now returns ESRCH rather than a fabricated NotFound.
+        file.read_to_end(&mut Vec::new()).unwrap_err()
+    };
+    #[cfg(target_os = "macos")]
+    let error = {
+        // SAFETY: read-only positive exact direct-child PID, already reaped.
+        assert_eq!(unsafe { libc::getsid(pid) }, -1);
+        std::io::Error::last_os_error()
+    };
+    assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+    assert!(owned::finish_identity_read(Err(error)).unwrap().is_none());
+    assert!(owned::process_identity(pid).unwrap().is_none());
+}
+
+#[test]
+fn test_framework_process_identity_live_child_retains_actual_uid_birth_and_session_then_disappears()
+{
+    let mut child = ExactChild::new();
+    let pid = i32::try_from(child.0.id()).unwrap();
+    let current = owned::process_identity(pid).unwrap().unwrap();
+    assert_eq!(current.pid, pid);
+    assert_eq!(current.parent, std::process::id() as i32);
+    assert_eq!(current.uid, unsafe { libc::geteuid() });
+    assert_eq!(current.session, unsafe { libc::getsid(pid) });
+    assert!(current.birth.0 > 0 && !current.zombie);
+    assert_eq!(
+        owned::finish_identity_read(Ok(current.clone())).unwrap(),
+        Some(current)
+    );
+    child.reap();
+    assert!(owned::process_identity(pid).unwrap().is_none());
+    assert!(owned::process_identity(0).is_err() && owned::process_identity(-1).is_err());
+}
+
 #[cfg(target_os = "linux")]
 fn stat(pid: &str, state: &str, birth: &str) -> Vec<u8> {
     // Non-UTF8 and closing parentheses are legal command bytes. They must not

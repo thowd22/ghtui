@@ -1030,11 +1030,13 @@ esac
     session.quit_and_assert_restored_terminal(mouse);
 }
 #[test]
-fn original_diff_sides_keyboard_two_workers_queued_cancel_before_start_zero_repo_child() {
+fn original_diff_sides_keyboard_test_framework_process_identity_two_workers_queued_cancel_before_start_zero_repo_child(
+) {
     queued(false);
 }
 #[test]
-fn original_diff_sides_mouse_two_workers_queued_cancel_before_start_zero_repo_child() {
+fn original_diff_sides_mouse_test_framework_process_identity_two_workers_queued_cancel_before_start_zero_repo_child(
+) {
     queued(true);
 }
 fn queued(mouse: bool) {

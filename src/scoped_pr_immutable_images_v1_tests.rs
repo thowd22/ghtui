@@ -1,6 +1,8 @@
 //! UNREGISTERED child of genuine scoped resource contracts. Thirteen declarations,
 //! strict subprocess + SQLite + actual divergent Git objects, not proof builders.
 use super::*;
+#[path = "scoped_pr_inline_tests_v1.rs"]
+mod inline_comments;
 use crate::immutable_git_v1_test_support as history;
 use crate::providers::gh::{PrImageSideV1, PrImmutableFileLimitsV1};
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::{self as images, ui};

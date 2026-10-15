@@ -4,6 +4,8 @@ use super::*;
 use crate::providers::gh::{
     PrImageSideV1, PrImmutableFileLimitsV1, PrImmutableFileOriginalV1, PrImmutableFileReadV1,
 };
+#[path = "scoped_pr_inline_intent_v1.rs"]
+pub mod inline_v1;
 #[path = "scoped_pr_immutable_image_native_v1.rs"]
 pub mod native;
 #[path = "scoped_pr_immutable_image_ui_v1.rs"]
