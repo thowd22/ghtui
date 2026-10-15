@@ -14,6 +14,8 @@ mod search;
 #[path = "scoped_pr_check_continuations_ui_v2.rs"]
 pub mod ui;
 pub use quota::PrCheckWatchModeV2;
+pub(crate) use quota::{PrCheckWatchClaimV2, PrCheckWatchQuotaV2};
+pub(crate) use search::prepare_loaded_log_indices_v3;
 pub use search::{LoadedLogMatchesV2, LoadedLogSearchModeV2};
 
 /// A stable original run/attempt pin, not an access lease. Holds no capture
@@ -232,6 +234,9 @@ fn queue(
 }
 /// Intercept BEFORE legacy Compose/draft handling and BEFORE generic apply.
 pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
+    if app.scoped_actions_v1.is_some() {
+        return false;
+    }
     let Some(route) = app.pr_checks_route.clone().filter(|r| r.scoped_v1()) else {
         return false;
     };
@@ -360,6 +365,9 @@ pub fn retire(app: &mut App) {
 }
 /// One scheduler; legacy workspace.watching remains false. No capture history.
 pub fn tick(app: &mut App) {
+    if app.scoped_actions_v1.is_some() {
+        return;
+    }
     let Some(watch) = app.pr_check_watch_v2.clone() else {
         return;
     };

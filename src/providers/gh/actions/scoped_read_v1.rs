@@ -23,6 +23,54 @@ impl std::fmt::Debug for ScopedActionsRunTargetV1 {
     }
 }
 impl ScopedActionsRunTargetV1 {
+    pub(crate) fn node_v2(&self) -> Option<&str> {
+        self.node.as_deref()
+    }
+    pub(crate) fn same_watch_pin_v2(&self, old: &Self) -> bool {
+        self.producer.same_instance(&old.producer)
+            && self.repository_id == old.repository_id
+            && self.repository_node == old.repository_node
+            && self.node == old.node
+            && self.suite == old.suite
+            && run_identity(&self.run, &old.run)
+    }
+    pub(crate) fn from_pr_observation_v2(
+        observed: &Arc<PrCheckRunObservation>,
+    ) -> GithubResult<Arc<Self>> {
+        let selected = observed.selected_run_v1().ok_or_else(|| {
+            error(
+                GithubErrorKind::InvalidTarget,
+                "Genuine selected PR run unavailable",
+            )
+        })?;
+        let run = &selected.attempt().run;
+        if run.id == 0
+            || run.attempt == 0
+            || run.head_sha != observed.head_sha()
+            || selected.node_v2().is_empty()
+        {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Actual PR run/head/node required",
+            ));
+        }
+        Ok(Arc::new(Self {
+            producer: observed.producing_runner_v2().clone(),
+            repository_id: observed.repository().id,
+            repository_node: Some(observed.repository().node_id.clone()),
+            repository: observed.repository().full_name.clone(),
+            run: run.clone(),
+            node: Some(selected.node_v2().into()),
+            suite: Some(observed.suite_id()),
+        }))
+    }
+    pub(super) fn current_resource_v2(
+        &self,
+        provider: &GithubProvider,
+        current: &CurrentCatalogueRepository,
+    ) -> bool {
+        self.current(provider, current)
+    }
     pub fn run(&self) -> &WorkflowRun {
         &self.run
     }
@@ -62,6 +110,50 @@ impl std::fmt::Debug for ScopedActionsJobTargetV1 {
     }
 }
 impl ScopedActionsJobTargetV1 {
+    pub(crate) fn node_v2(&self) -> Option<&str> {
+        self.node.as_deref()
+    }
+    pub(crate) fn from_pr_observation_v2(
+        observed: &Arc<PrCheckRunObservation>,
+        run: &Arc<ScopedActionsRunTargetV1>,
+    ) -> GithubResult<Arc<[Arc<Self>]>> {
+        let selected = observed.selected_run_v1().ok_or_else(|| {
+            error(
+                GithubErrorKind::InvalidTarget,
+                "Original selected PR jobs unavailable",
+            )
+        })?;
+        let mut result = Vec::with_capacity(selected.members().len());
+        for member in selected.members() {
+            let job = selected
+                .attempt()
+                .jobs
+                .iter()
+                .find(|job| job.id == member.id())
+                .ok_or_else(|| {
+                    error(
+                        GithubErrorKind::IdentityChanged,
+                        "Genuine member/model differs",
+                    )
+                })?;
+            if job.run_id != run.run.id
+                || job.head_sha != run.run.head_sha
+                || job.check_run_url.len() > 4096
+            {
+                return Err(error(
+                    GithubErrorKind::IdentityChanged,
+                    "Original PR job differs",
+                ));
+            }
+            result.push(Arc::new(Self {
+                run: run.clone(),
+                id: member.id(),
+                node: Some(member.node().into()),
+                check_url: job.check_run_url.clone(),
+            }));
+        }
+        Ok(result.into())
+    }
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -82,8 +174,12 @@ pub struct ScopedActionsCatalogueReadV1 {
     repository: String,
     targets: Arc<[Arc<ScopedActionsRunTargetV1>]>,
     catalog: RunCatalog,
+    window: Arc<ScopedRunWindowV2>,
 }
 impl ScopedActionsCatalogueReadV1 {
+    pub(crate) fn window(&self) -> &Arc<ScopedRunWindowV2> {
+        &self.window
+    }
     pub(crate) fn catalogue(&self) -> &RunCatalog {
         &self.catalog
     }
@@ -102,8 +198,14 @@ impl ScopedActionsCatalogueReadV1 {
     pub fn same_producer(&self, provider: &GithubProvider) -> bool {
         self.producer.same_instance(&provider.runner)
     }
-    pub fn into_parts(self) -> (RunCatalog, Arc<[Arc<ScopedActionsRunTargetV1>]>) {
-        (self.catalog, self.targets)
+    pub fn into_parts(
+        self,
+    ) -> (
+        RunCatalog,
+        Arc<[Arc<ScopedActionsRunTargetV1>]>,
+        Arc<ScopedRunWindowV2>,
+    ) {
+        (self.catalog, self.targets, self.window)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,7 +217,7 @@ pub enum ScopedActionsReadKindV1 {
 
 pub enum ScopedActionsReadBodyV1 {
     Attempt,
-    Logs(String),
+    Logs(Arc<ScopedActionsLogSnapshotV2>),
     Annotations(Vec<CheckAnnotation>),
     Unavailable(&'static str),
 }
@@ -182,11 +284,38 @@ fn unavailable(error: &GithubError) -> bool {
     )
 }
 impl GithubProvider {
+    pub(super) fn scoped_resource_run_current_v2(
+        &self,
+        current: &CurrentCatalogueRepository,
+        target: &ScopedActionsRunTargetV1,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
+        if !target.current(self, current) {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Actual original run source required",
+            ));
+        }
+        self.scoped_actions_run_raw_v1(&current.repository().full_name, target, cancel)
+            .map(|_| ())
+    }
     /// Same existing catalogue transport/parser; only this real read mints targets.
     pub fn scoped_actions_catalogue_v1(
         &self,
         current: &CurrentCatalogueRepository,
         filter: &RunFilter,
+        cancel: &CancellationToken,
+    ) -> GithubResult<ScopedActionsCatalogueReadV1> {
+        self.scoped_actions_catalogue_page_v2(
+            current,
+            ScopedRunQueryV2::first(filter.clone())?,
+            cancel,
+        )
+    }
+    pub fn scoped_actions_catalogue_page_v2(
+        &self,
+        current: &CurrentCatalogueRepository,
+        query: Arc<ScopedRunQueryV2>,
         cancel: &CancellationToken,
     ) -> GithubResult<ScopedActionsCatalogueReadV1> {
         let row = current.repository();
@@ -196,11 +325,13 @@ impl GithubProvider {
                 "Current original Actions repository required",
             ));
         }
-        let catalog = self.run_catalog(&row.full_name, filter, cancel)?;
-        if catalog.runs.len() > MAX_RUNS || !catalog.coverage.complete {
+        let (catalog, window) = self
+            .scoped_run_page_v2(&row.full_name, query, cancel)?
+            .into_parts();
+        if catalog.runs.len() > MAX_RUNS {
             return Err(error(
                 GithubErrorKind::Unsupported,
-                "Actions catalogue exceeds bounded complete observed target coverage",
+                "Actions catalogue exceeds bounded observed page coverage",
             ));
         }
         let proof_bound = catalog.runs.iter().fold(0usize, |sum, run| {
@@ -240,6 +371,7 @@ impl GithubProvider {
             repository: row.full_name.clone(),
             targets,
             catalog,
+            window,
         })
     }
     fn scoped_actions_run_raw_v1(
@@ -478,17 +610,15 @@ impl GithubProvider {
         let body = match kind {
             ScopedActionsReadKindV1::Attempt => ScopedActionsReadBodyV1::Attempt,
             ScopedActionsReadKindV1::Logs => {
-                let job = &current_job.as_ref().expect("selected member checked").0;
-                match self.run_logs_at(repo, &observed.run, Some(job), cancel) {
-                    Ok(text) if text.len() <= 512 * 1024 && text.lines().count() <= 5000 => {
-                        ScopedActionsReadBodyV1::Logs(text)
-                    }
-                    Ok(_) => {
-                        return Err(error(
-                            GithubErrorKind::Unsupported,
-                            "Log capture exceeds bounded view; no complete output claimed",
-                        ))
-                    }
+                let (job, target) = current_job.as_ref().expect("selected member checked");
+                match self.scoped_actions_capture_logs_v2(
+                    current,
+                    observed.clone(),
+                    target.clone(),
+                    job,
+                    cancel,
+                ) {
+                    Ok(snapshot) => ScopedActionsReadBodyV1::Logs(snapshot),
                     Err(e) if unavailable(&e) => ScopedActionsReadBodyV1::Unavailable(
                         "Selected job logs unavailable on this host/account",
                     ),

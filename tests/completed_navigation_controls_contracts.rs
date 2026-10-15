@@ -949,6 +949,69 @@ fn scoped_actions_layout_v2(jobs: bool) -> Vec<u8> {
     bytes
 }
 
+fn scoped_actions_ready_bytes_v4() -> Vec<u8> {
+    let mut bytes = actions_bytes(24, 80, 1);
+    bytes.extend_from_slice(
+        b"\x1b[7;2H[) Next runs]\x1b[23;1HOriginal scoped Actions target verified",
+    );
+    bytes
+}
+#[test]
+fn scoped_actions_test_framework_ready_control_rejects_pending_decorated_caption_and_old_frame() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut pending = scoped_actions_ready_bytes_v4();
+    pending.extend_from_slice(
+        b"\x1b[7;2H[[) Next runs] unavailable: Original current read pending; Cancel or wait]",
+    );
+    complete(&mut parser, &mut frames, &pending);
+    assert!(frames
+        .last
+        .as_ref()
+        .unwrap()
+        .contents()
+        .contains("[) Next runs]"));
+    assert!(
+        controls::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]").is_none()
+    );
+    let before = frames.end;
+    let ready = scoped_actions_ready_bytes_v4();
+    frames.process(&mut parser, &ready, before);
+    assert!(
+        controls::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]")
+            .is_none()
+    );
+    frames.process(&mut parser, b"\x1b[?25l", before + ready.len());
+    assert_eq!(
+        controls::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]"),
+        Some((1, 6))
+    );
+    assert!(controls::scoped_actions_ready_control_position_v4(
+        &frames,
+        frames.end,
+        "[) Next runs]"
+    )
+    .is_none());
+}
+#[test]
+fn scoped_actions_test_framework_ready_control_refuses_wrong_page_ghost_body_and_notice() {
+    for suffix in [
+        "\x1b[7;2H                    \x1b[18;2H[) Next runs]",
+        "\x1b[15;2H[b Cancel read]",
+        "\x1b[15;2HAction unavailable",
+    ] {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = scoped_actions_ready_bytes_v4();
+        bytes.extend_from_slice(suffix.as_bytes());
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(
+            controls::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]")
+                .is_none()
+        );
+    }
+}
+
 #[test]
 fn scoped_actions_test_framework_jobs_wait_rejects_old_shared_labels_and_partial_new_layout() {
     let mut parser = vt100::Parser::new(24, 80, 0);

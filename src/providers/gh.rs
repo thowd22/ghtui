@@ -462,6 +462,18 @@ impl GithubProvider {
         });
         self
     }
+    /// Bounds only for the single closed Actions archive protocol. No public
+    /// window maximum is raised and an original narrower capture stays narrow.
+    pub(crate) fn with_actions_archive_read_deadline_v2(
+        mut self,
+        deadline: std::time::Instant,
+    ) -> Self {
+        self.scoped_read_window = Some(match self.scoped_read_window {
+            Some((original, cap)) => (original.min(deadline), cap.min(4 * 1024 * 1024)),
+            None => (deadline, 4 * 1024 * 1024),
+        });
+        self
+    }
     /// GitHub owner/repository/organization names are case-insensitive, unlike Git refs
     /// and filesystem paths. Normalize only those identity segments of provider keys.
     /// The generic command runner intentionally keeps local Git resource keys intact.
@@ -523,7 +535,20 @@ impl GithubProvider {
     }
     /// Escape-bearing raw output is consumed as data, never written directly to a terminal.
     /// Older gh releases reject this flag before requesting data; only that safe read is retried.
-    fn raw_spec(&self, spec: CommandSpec, cancel: &CancellationToken) -> GithubResult<Vec<u8>> {
+    fn raw_spec(&self, mut spec: CommandSpec, cancel: &CancellationToken) -> GithubResult<Vec<u8>> {
+        // Raw callers may apply legacy per-operation defaults AFTER spec().
+        // Reapply an original scoped bound here rather than widening its cap
+        // or replacing its absolute deadline (unscoped legacy stays unchanged).
+        if let Some((deadline, cap)) = self.scoped_read_window {
+            spec.output_limit = spec.output_limit.min(cap);
+            spec.absolute_deadline_v1 = Some(
+                spec.absolute_deadline_v1
+                    .map_or(deadline, |original| original.min(deadline)),
+            );
+            spec.timeout = spec
+                .timeout
+                .min(deadline.saturating_duration_since(std::time::Instant::now()));
+        }
         let mut modern = spec.clone();
         modern.args.push("--allow-escape-sequences".into());
         match self.runner.run(modern, cancel) {
@@ -1485,12 +1510,7 @@ impl GithubProvider {
                 cancel,
             )?
             .iter()
-            .map(|v| Workflow {
-                id: number(v, "id"),
-                name: text(v, "name"),
-                path: text(v, "path"),
-                state: text(v, "state"),
-            })
+            .map(actions::workflow_from_json_v2)
             .collect())
     }
     pub fn runs(

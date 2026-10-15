@@ -55,8 +55,8 @@ pub(crate) fn initial_steps() -> Vec<GhStep> {
         crate::repository_catalogue_read_limits_test_support_v1::collection(&[repo()], 1, 42, 42);
     steps.extend(principal(42));
     steps.push(get(&format!("repos/{REPO}"), repo()));
-    steps.push(list(
-        &format!("repos/{REPO}/actions/runs?per_page=100"),
+    steps.push(get(
+        &format!("repos/{REPO}/actions/runs?per_page=100&page=1"),
         json!({"total_count":1,"workflow_runs":[run()]}),
     ));
     steps.push(get(&format!("repos/{REPO}"), repo()));
@@ -68,8 +68,8 @@ pub(crate) fn operation(kind: ScopedActionsRequestKindV1, final_uid: u64) -> Vec
     let mut steps = principal(42);
     steps.push(get(&format!("repos/{REPO}"), repo()));
     if kind == ScopedActionsRequestKindV1::Catalogue {
-        steps.push(list(
-            &format!("repos/{REPO}/actions/runs?per_page=100"),
+        steps.push(get(
+            &format!("repos/{REPO}/actions/runs?per_page=100&page=1"),
             json!({"total_count":1,"workflow_runs":[run()]}),
         ));
     } else {

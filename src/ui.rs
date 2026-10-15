@@ -206,12 +206,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             app,
             rows[3].inner(ratatui::layout::Margin::new(1, 1)),
         );
-        let actions_area =
+        let actions_area = if app.scoped_actions_v1.is_some() {
+            actions_area
+        } else {
             crate::pr_checks_native::scoped::choices::continuations_v2::ui::draw_controls(
                 frame,
                 app,
                 actions_area,
-            );
+            )
+        };
         crate::pr_checks_native::scoped::draw_pending_v1(frame, app, actions_area);
         if let Some(actions) = &mut app.actions {
             let rendered =
@@ -349,6 +352,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             return;
         }
         app.hits.clear();
+        if overlay == Overlay::ScopedActionsReadV2 {
+            crate::scoped_actions_native_v1::read_ui_v2::draw(frame, app, area);
+            return;
+        }
         if overlay == Overlay::ScopedReviewsV2 {
             crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::draw(frame,app,area);
             return;
@@ -442,6 +449,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             Overlay::ScopedReviewsV2 => unreachable!("Original reviews drawn above"),
             Overlay::PrCheckChoices => unreachable!("Owned check choices drawn above"),
             Overlay::PrCheckContinuationV2 => unreachable!("Owned check continuation drawn above"),
+            Overlay::ScopedActionsReadV2 => unreachable!("Owned Actions editor drawn above"),
             Overlay::GraphRereadV3 => unreachable!("Original Graph reread drawn above"),
             Overlay::RepositoryCatalogue => unreachable!("Repository catalogue drawn above"),
             Overlay::RepositorySource => unreachable!("Repository source drawn above"),
@@ -477,6 +485,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             Overlay::ScopedReviewsV2 => unreachable!("Original reviews drawn above"),
             Overlay::PrCheckChoices => unreachable!("Owned check choices drawn above"),
             Overlay::PrCheckContinuationV2 => unreachable!("Owned check continuation drawn above"),
+            Overlay::ScopedActionsReadV2 => unreachable!("Owned Actions editor drawn above"),
             Overlay::GraphRereadV3 => unreachable!("Original Graph reread drawn above"),
             Overlay::RepositoryCatalogue => unreachable!("Repository catalogue drawn above"),
             Overlay::RepositorySource => unreachable!("Repository source drawn above"),

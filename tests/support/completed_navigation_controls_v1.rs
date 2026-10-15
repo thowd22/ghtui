@@ -190,6 +190,33 @@ pub fn actions_control_position(
     )
 }
 
+/// A retained page's pending repaint still contains the old body and decorates
+/// old button captions as unavailable. Neither can supply a new click target.
+pub fn scoped_actions_ready_control_position_v4(
+    completed: &CursorlessFrames,
+    after: usize,
+    label: &str,
+) -> Option<(u16, u16)> {
+    if label.len() <= 2
+        || !label.starts_with('[')
+        || !label.ends_with(']')
+        || label[1..label.len() - 1]
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '[' | ']'))
+    {
+        return None;
+    }
+    let page = actions_page(completed, after)?;
+    let text = completed.last.as_ref()?.contents();
+    if !text.contains("Original scoped Actions target verified")
+        || text.contains("Original current read pending")
+        || text.contains("[b Cancel read]")
+    {
+        return None;
+    }
+    actions_control_position(completed, &page, label)
+}
+
 /// Run and Jobs retain the same job labels but paint them at different rows.
 /// Only the completed Jobs layout may supply the next mouse coordinate.
 pub fn scoped_actions_jobs_position_v2(

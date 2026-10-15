@@ -16,6 +16,8 @@ use crate::{
     storage::{CatalogueIntentSource, Scope},
 };
 
+#[path = "scoped_pr_actions_origin_v2.rs"]
+pub mod actions_origin_v2;
 #[path = "scoped_pr_check_choices_v1.rs"]
 pub mod choices;
 
@@ -693,6 +695,7 @@ fn preserve_scoped_controls_v1(
             control.label = "[b Back to PR checks]".into();
         }
         let allowed = allowed
+            || actions_origin_v2::resource_entry_action(&control.action)
             || matches!(control.action, ActionsAction::Logs(job) if job.is_some_and(|id| observation.selected_run_v1().is_some_and(|run| run.members().iter().any(|member| member.id()==id))));
         if !allowed {
             control.disabled_reason = Some("Additional scoped PR-check action needs its own original access/draft/publication admission; nothing sent.".into());

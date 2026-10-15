@@ -368,6 +368,21 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         KeyCode::Char('r') => Some(ActionsAction::Refresh),
         KeyCode::Char('w') => Some(ActionsAction::Watch),
         KeyCode::Char('R') => Some(ActionsAction::View(ActionsView::Runs)),
+        KeyCode::Char(key @ ('(' | ')' | 'A' | 'F' | 'I')) => {
+            use crate::scoped_actions_resources_v2::ScopedActionsReadActionV2 as Read;
+            let action = ActionsAction::ScopedReadV2(match key {
+                '(' => Read::RunPage(-1),
+                ')' => Read::RunPage(1),
+                'A' => Read::AllRunStatuses,
+                'F' => Read::FailedRuns,
+                _ => Read::ActiveRuns,
+            });
+            workspace
+                .controls
+                .iter()
+                .any(|control| control.action == action)
+                .then_some(action)
+        }
         KeyCode::Char('W') => Some(ActionsAction::View(ActionsView::Workflows)),
         KeyCode::Char('[') => Some(ActionsAction::ControlsPage(-1)),
         KeyCode::Char(']') => Some(ActionsAction::ControlsPage(1)),
@@ -406,7 +421,13 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
             ))
         }
         KeyCode::Char('u') => Some(ActionsAction::View(ActionsView::Usage)),
-        KeyCode::Char('j') if workspace.run.is_some() => {
+        KeyCode::Char('j')
+            if workspace.run.is_some()
+                || workspace
+                    .controls
+                    .iter()
+                    .any(|control| control.action == ActionsAction::View(ActionsView::Jobs)) =>
+        {
             Some(ActionsAction::View(ActionsView::Jobs))
         }
         KeyCode::Char('t')

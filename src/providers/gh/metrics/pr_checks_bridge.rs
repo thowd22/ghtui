@@ -167,6 +167,11 @@ impl fmt::Debug for PrCheckRunObservation {
     }
 }
 impl PrCheckRunObservation {
+    /// Borrow original producer identity for a closed read-only Actions
+    /// adapter. No read/write/account permission is granted by this handle.
+    pub(crate) fn producing_runner_v2(&self) -> &CommandRunner {
+        &self.producer
+    }
     pub fn identity(&self) -> &HostIdentity {
         &self.identity
     }

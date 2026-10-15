@@ -1,5 +1,98 @@
 mod support;
 
+const VERTICAL_TITLE_V4: &str = "Original repository run filters";
+const VERTICAL_ACTIONS_V4: [&str; 3] = ["[Apply filters]", "[Esc Close editor]", "[Ctrl-C Quit]"];
+fn vertical_frame_v4(rows: u16, cols: u16) -> vt100::Parser {
+    let mut parser = vt100::Parser::new(rows, cols, 0);
+    parser.process(format!("\x1b[1;1H┌ {VERTICAL_TITLE_V4}\x1b[1;{cols}H┐").as_bytes());
+    for row in 2..rows {
+        parser.process(format!("\x1b[{row};1H│\x1b[{row};{cols}H│").as_bytes());
+    }
+    for (i, action) in VERTICAL_ACTIONS_V4.iter().enumerate() {
+        parser.process(format!("\x1b[{};2H{action}", 13 + i).as_bytes());
+    }
+    parser.process(format!("\x1b[{rows};1H└\x1b[{rows};{cols}H┘").as_bytes());
+    parser
+}
+#[test]
+fn test_framework_vertical_editor_resize_requires_complete_actual_rows_and_full_border() {
+    for (rows, cols) in [(20, 64), (24, 80), (40, 120)] {
+        let parser = vertical_frame_v4(rows, cols);
+        assert!(support::owned_vertical_controls_ready_v4(
+            parser.screen(),
+            VERTICAL_TITLE_V4,
+            12,
+            &VERTICAL_ACTIONS_V4
+        ));
+        assert!(support::owned_resize_controls_ready_v1(
+            parser.screen(),
+            VERTICAL_TITLE_V4,
+            &VERTICAL_ACTIONS_V4,
+            support::ResizeToolbarV1::VerticalControls { first_row: 12 }
+        ));
+        assert!(!support::owned_vertical_controls_ready_v4(
+            parser.screen(),
+            VERTICAL_TITLE_V4,
+            11,
+            &VERTICAL_ACTIONS_V4
+        ));
+    }
+}
+#[test]
+fn test_framework_vertical_editor_refuses_missing_reordered_duplicate_or_fragment_controls() {
+    for changed in [
+        "\x1b[14;2H                 ",
+        "\x1b[14;2H[Ctrl-C Quit]    ",
+        "\x1b[17;2H[Apply filters]",
+    ] {
+        let mut parser = vertical_frame_v4(24, 80);
+        parser.process(changed.as_bytes());
+        assert!(!support::owned_vertical_controls_ready_v4(
+            parser.screen(),
+            VERTICAL_TITLE_V4,
+            12,
+            &VERTICAL_ACTIONS_V4
+        ));
+    }
+    let parser = vertical_frame_v4(24, 80);
+    for controls in [
+        vec!["Apply filters", "Close editor"],
+        vec!["[Apply", "[Esc Close editor]"],
+        vec!["[Apply filters]"],
+    ] {
+        assert!(!support::owned_vertical_controls_ready_v4(
+            parser.screen(),
+            VERTICAL_TITLE_V4,
+            12,
+            &controls
+        ));
+    }
+}
+#[test]
+fn test_framework_vertical_editor_refuses_foreign_title_old_geometry_and_bottom_control_rows() {
+    let parser = vertical_frame_v4(24, 80);
+    assert!(!support::owned_vertical_controls_ready_v4(
+        parser.screen(),
+        "Other original editor",
+        12,
+        &VERTICAL_ACTIONS_V4
+    ));
+    assert!(!support::owned_vertical_controls_ready_v4(
+        parser.screen(),
+        VERTICAL_TITLE_V4,
+        23,
+        &VERTICAL_ACTIONS_V4
+    ));
+    let mut parser = vertical_frame_v4(24, 80);
+    parser.set_size(40, 120);
+    assert!(!support::owned_vertical_controls_ready_v4(
+        parser.screen(),
+        VERTICAL_TITLE_V4,
+        12,
+        &VERTICAL_ACTIONS_V4
+    ));
+}
+
 #[test]
 fn test_framework_control_block_resize_requires_complete_ordered_bottom_controls_and_current_geometry(
 ) {

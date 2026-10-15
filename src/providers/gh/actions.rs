@@ -2,12 +2,23 @@
 use super::pr::url_component;
 use super::*;
 mod attempt_jobs_v1;
+mod scoped_loaded_logs_v2;
 mod scoped_read_v1;
+mod scoped_resources_v2;
+mod scoped_run_catalogue_v2;
 mod settings;
+pub use scoped_loaded_logs_v2::ScopedActionsLogSnapshotV2;
 pub use scoped_read_v1::*;
+pub(crate) use scoped_resources_v2::artifact_model_bytes_v2;
+pub use scoped_resources_v2::*;
+pub use scoped_run_catalogue_v2::{
+    ScopedRunQueryV2, ScopedRunWindowV2, SCOPED_RUN_MAX_PAGE_V2, SCOPED_RUN_PAGE_SIZE_V2,
+};
 pub use settings::*;
 mod workflows;
+pub(super) use workflows::workflow_from_json_v2;
 pub use workflows::*;
+mod archive_allocation_guard_v2;
 mod artifacts;
 pub use artifacts::*;
 mod policies;
@@ -21,6 +32,127 @@ pub use approvals::*;
 mod resource_keys;
 pub use resource_keys::canonical_actions_resource_keys;
 pub(crate) use resource_keys::{canonical_actions_host, canonical_github_resource};
+
+/// Shared exact endpoint and canonical model parser for legacy slurped reads
+/// and scoped single-page reads. No second run grammar or default identity.
+fn run_catalog_endpoint_v2(repo: &str, filter: &RunFilter) -> GithubResult<String> {
+    validate_repo(repo)?;
+    if let Some(sha) = &filter.head_sha {
+        validate_sha(sha)?;
+    }
+    if filter.workflow_id == Some(0) {
+        return Err(error(
+            GithubErrorKind::InvalidTarget,
+            "Select a valid workflow ID",
+        ));
+    }
+    let mut endpoint = match filter.workflow_id {
+        Some(id) => format!("repos/{repo}/actions/workflows/{id}/runs?per_page=100"),
+        None => format!("repos/{repo}/actions/runs?per_page=100"),
+    };
+    let params = [
+        ("actor", &filter.actor),
+        ("branch", &filter.branch),
+        ("event", &filter.event),
+        ("status", &filter.status),
+        ("head_sha", &filter.head_sha),
+        ("created", &filter.created),
+    ];
+    for (key, value) in params {
+        if let Some(value) = value {
+            nonempty_parameter(value)?;
+            endpoint.push_str(&format!("&{key}={}", url_component(value)));
+        }
+    }
+    Ok(endpoint)
+}
+fn parse_run_catalogue_v2(pages: &[Value], filter: &RunFilter) -> GithubResult<RunCatalog> {
+    let filtered = [
+        &filter.actor,
+        &filter.branch,
+        &filter.event,
+        &filter.status,
+        &filter.head_sha,
+        &filter.created,
+    ]
+    .iter()
+    .any(|field| field.is_some());
+    let total = pages
+        .first()
+        .and_then(|page| page["total_count"].as_u64())
+        .ok_or_else(|| {
+            error(
+                GithubErrorKind::Json,
+                "Run catalog omitted its total_count coverage; no complete inventory is inferred",
+            )
+        })?;
+    let mut runs = Vec::new();
+    let mut ids = BTreeSet::new();
+    for page in pages {
+        let values = page["workflow_runs"].as_array().ok_or_else(|| {
+            error(
+                GithubErrorKind::Json,
+                "Run catalog page has no workflow_runs",
+            )
+        })?;
+        for value in values {
+            let run = run_from_json(value);
+            if run.id == 0
+                || run.workflow_id == 0
+                || run.attempt == 0
+                || validate_sha(&run.head_sha).is_err()
+            {
+                return Err(error(
+                    GithubErrorKind::Json,
+                    "Run catalog contains an incomplete run identity",
+                ));
+            }
+            if filter.workflow_id.is_some_and(|id| id != run.workflow_id)
+                || filter
+                    .branch
+                    .as_ref()
+                    .is_some_and(|branch| branch != &run.head_branch)
+                || filter
+                    .event
+                    .as_ref()
+                    .is_some_and(|event| event != &run.event)
+                || filter
+                    .actor
+                    .as_ref()
+                    .is_some_and(|actor| !actor.eq_ignore_ascii_case(&run.actor.login))
+            {
+                return Err(error(GithubErrorKind::StaleHead,"Run catalog returned a different workflow/ref/event/actor than the requested scope"));
+            }
+            if let Some(sha) = &filter.head_sha {
+                if run.head_sha != *sha {
+                    return Err(error(
+                        GithubErrorKind::StaleHead,
+                        "Run catalog returned a different commit than the requested SHA",
+                    ));
+                }
+            }
+            if ids.insert(run.id) {
+                runs.push(run);
+            }
+        }
+    }
+    let mut reasons = Vec::new();
+    if filtered && total > 1000 {
+        reasons.push("GitHub limits filtered workflow-run searches to 1,000 results; narrow the date/ref filter".into());
+    }
+    if (runs.len() as u64) < total {
+        reasons.push(format!("Loaded {} of {total} matching runs", runs.len()));
+    }
+    Ok(RunCatalog {
+        coverage: Coverage {
+            loaded: runs.len(),
+            total_matches: total,
+            complete: reasons.is_empty(),
+            reasons,
+        },
+        runs,
+    })
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobStep {
@@ -276,107 +408,12 @@ impl GithubProvider {
         filter: &RunFilter,
         cancel: &CancellationToken,
     ) -> GithubResult<RunCatalog> {
-        validate_repo(repo)?;
-        if let Some(sha) = &filter.head_sha {
-            validate_sha(sha)?;
-        }
-        if filter.workflow_id == Some(0) {
-            return Err(error(
-                GithubErrorKind::InvalidTarget,
-                "Select a valid workflow ID",
-            ));
-        }
-        let mut endpoint = match filter.workflow_id {
-            Some(id) => format!("repos/{repo}/actions/workflows/{id}/runs?per_page=100"),
-            None => format!("repos/{repo}/actions/runs?per_page=100"),
-        };
-        let params = [
-            ("actor", &filter.actor),
-            ("branch", &filter.branch),
-            ("event", &filter.event),
-            ("status", &filter.status),
-            ("head_sha", &filter.head_sha),
-            ("created", &filter.created),
-        ];
-        let mut filtered = false;
-        for (key, value) in params {
-            if let Some(value) = value {
-                nonempty_parameter(value)?;
-                endpoint.push_str(&format!("&{key}={}", url_component(value)));
-                filtered = true;
-            }
-        }
+        let endpoint = run_catalog_endpoint_v2(repo, filter)?;
         let pages = self.api(&endpoint, "GET", None, None, true, cancel)?;
         let pages = pages
             .as_array()
             .ok_or_else(|| error(GithubErrorKind::Json, "Run pagination returned no pages"))?;
-        let total=pages.first().and_then(|page|page["total_count"].as_u64()).ok_or_else(||error(GithubErrorKind::Json,"Run catalog omitted its total_count coverage; no complete inventory is inferred"))?;
-        let mut runs = Vec::new();
-        let mut ids = BTreeSet::new();
-        for page in pages {
-            let values = page["workflow_runs"].as_array().ok_or_else(|| {
-                error(
-                    GithubErrorKind::Json,
-                    "Run catalog page has no workflow_runs",
-                )
-            })?;
-            for value in values {
-                let run = run_from_json(value);
-                if run.id == 0
-                    || run.workflow_id == 0
-                    || run.attempt == 0
-                    || validate_sha(&run.head_sha).is_err()
-                {
-                    return Err(error(
-                        GithubErrorKind::Json,
-                        "Run catalog contains an incomplete run identity",
-                    ));
-                }
-                if filter.workflow_id.is_some_and(|id| id != run.workflow_id)
-                    || filter
-                        .branch
-                        .as_ref()
-                        .is_some_and(|branch| branch != &run.head_branch)
-                    || filter
-                        .event
-                        .as_ref()
-                        .is_some_and(|event| event != &run.event)
-                    || filter
-                        .actor
-                        .as_ref()
-                        .is_some_and(|actor| !actor.eq_ignore_ascii_case(&run.actor.login))
-                {
-                    return Err(error(GithubErrorKind::StaleHead,"Run catalog returned a different workflow/ref/event/actor than the requested scope"));
-                }
-                if let Some(sha) = &filter.head_sha {
-                    if run.head_sha != *sha {
-                        return Err(error(
-                            GithubErrorKind::StaleHead,
-                            "Run catalog returned a different commit than the requested SHA",
-                        ));
-                    }
-                }
-                if ids.insert(run.id) {
-                    runs.push(run);
-                }
-            }
-        }
-        let mut reasons = Vec::new();
-        if filtered && total > 1000 {
-            reasons.push("GitHub limits filtered workflow-run searches to 1,000 results; narrow the date/ref filter".into());
-        }
-        if (runs.len() as u64) < total {
-            reasons.push(format!("Loaded {} of {total} matching runs", runs.len()));
-        }
-        Ok(RunCatalog {
-            coverage: Coverage {
-                loaded: runs.len(),
-                total_matches: total,
-                complete: reasons.is_empty(),
-                reasons,
-            },
-            runs,
-        })
+        parse_run_catalogue_v2(pages, filter)
     }
     pub fn run_attempt(
         &self,

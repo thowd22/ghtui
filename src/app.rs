@@ -138,6 +138,7 @@ pub enum Overlay {
     PrThreadsV1,
     PrThreadHistoryV1,
     PrCheckContinuationV2,
+    ScopedActionsReadV2,
     GraphRereadV3,
 }
 
@@ -1740,6 +1741,14 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        // Only this already-owned modal captures here. Reject oversized Paste
+        // and invalidate Resize geometry BEFORE any unrelated handler clones
+        // the event; no source/work/provider lifetime is created or renewed.
+        if self.overlay == Some(Overlay::ScopedActionsReadV2)
+            && crate::scoped_actions_native_v1::read_ui_v2::event(self, &event)
+        {
+            return;
+        }
         if crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::event(
             self, &event,
         ) {
@@ -1765,6 +1774,9 @@ impl App {
         }
         // Native capture borrows the event before other handlers clone it,
         // including rejected oversized bracketed-paste payloads.
+        if crate::scoped_actions_native_v1::read_ui_v2::event(self, &event) {
+            return;
+        }
         if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::event(self,&event){return;}
         if crate::repository_native_diff_native_v1::capture(self, &event) {
             return;
@@ -2315,6 +2327,7 @@ impl App {
                     return;
                 }
                 if self.view == View::Actions
+                    && self.scoped_actions_v1.is_none()
                     && self.pr_checks_route.as_ref().is_some_and(|r| r.scoped_v1())
                 {
                     let local = match key.code {

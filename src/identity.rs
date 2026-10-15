@@ -444,6 +444,18 @@ pub struct ImageDisplay {
 }
 impl ImageDisplay {
     pub fn decode(bytes: &[u8]) -> Result<Self, AvatarError> {
+        Self::decode_limited_v2(bytes, 4096, 64 * 1024 * 1024)
+    }
+    /// SAME decoder, narrower Actions-only phase bound. Legacy artifact and
+    /// avatar defaults remain unchanged; no network/source authority here.
+    pub(crate) fn decode_actions_preview_v2(bytes: &[u8]) -> Result<Self, AvatarError> {
+        Self::decode_limited_v2(bytes, 1024, 8 * 1024 * 1024)
+    }
+    fn decode_limited_v2(
+        bytes: &[u8],
+        dimension: u32,
+        allocation: u64,
+    ) -> Result<Self, AvatarError> {
         if bytes.is_empty() || bytes.len() > 256 * 1024 {
             return Err(AvatarError(
                 "Image preview must be complete and no larger than256KiB".into(),
@@ -458,9 +470,9 @@ impl ImageDisplay {
             _ => return Err(AvatarError("Image preview supports PNG/JPEG only".into())),
         };
         let mut limits = Limits::default();
-        limits.max_image_width = Some(4096);
-        limits.max_image_height = Some(4096);
-        limits.max_alloc = Some(64 * 1024 * 1024);
+        limits.max_image_width = Some(dimension);
+        limits.max_image_height = Some(dimension);
+        limits.max_alloc = Some(allocation);
         reader.limits(limits);
         let decoded = reader
             .decode()

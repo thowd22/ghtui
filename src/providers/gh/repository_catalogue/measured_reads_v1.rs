@@ -96,12 +96,67 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         remaining_repository_reads: usize,
         cancel: &CancellationToken,
     ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        self.reserve_measured_pool_v2(
+            max_requests,
+            max_child_bytes,
+            max_pool_bytes,
+            remaining_repository_reads,
+            cancel,
+            false,
+        )
+    }
+    /// SAME original Core and one pool, only after this actual producing
+    /// runner's sealed artifact matches the latest observed original-ID row.
+    /// Bounds lineage only; fresh artifact/SQL/principal closure is separate.
+    pub(super) fn reserve_actions_archive_v2(
+        &mut self,
+        target: &Arc<ScopedActionsArtifactV2>,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        if self.postwrite_reservation_v2.is_some()
+            || !self
+                .verified
+                .iter()
+                .rev()
+                .find(|row| row.original().id == target.repository().id())
+                .is_some_and(|current| target.matches_archive_pool_v2(self.provider, current))
+        {
+            return Err(error(GithubErrorKind::InvalidTarget,"Actual same-runner original artifact/repository observation required before archive allocation"));
+        }
+        let cap = self
+            .provider
+            .scoped_read_window
+            .map_or(4 * 1024 * 1024, |(_, cap)| cap.min(4 * 1024 * 1024));
+        self.reserve_measured_pool_v2(
+            24,
+            cap,
+            8 * 1024 * 1024,
+            remaining_repository_reads,
+            cancel,
+            true,
+        )
+    }
+    fn reserve_measured_pool_v2(
+        &mut self,
+        max_requests: usize,
+        max_child_bytes: usize,
+        max_pool_bytes: usize,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+        archive: bool,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
         self.budget.check(cancel)?;
         if self.provider.scoped_read_budget.is_some()
             || self.measured_external.is_some()
             || self.external_requests_reserved != 0
             || !(1..=8192).contains(&max_requests)
-            || !(1..=1024 * 1024).contains(&max_child_bytes)
+            || !(1..=if archive {
+                4 * 1024 * 1024
+            } else {
+                1024 * 1024
+            })
+                .contains(&max_child_bytes)
             || !(1..=64 * 1024 * 1024).contains(&max_pool_bytes)
             || remaining_repository_reads > 8192
             || self
@@ -129,6 +184,18 @@ impl OriginalRepositoryAccessCoreV13<'_> {
             .map_or(self.deadline(), |postwrite| {
                 self.deadline().min(postwrite.deadline())
             });
+        // Artifact-only immutable pool also retains the already captured
+        // issuer's narrower deadline, just as it retains its narrower cap.
+        // Generic and post-write paths below are otherwise byte-for-byte.
+        let measured_deadline = if archive {
+            self.provider
+                .scoped_read_window
+                .map_or(measured_deadline, |(original, _)| {
+                    original.min(measured_deadline)
+                })
+        } else {
+            measured_deadline
+        };
         // New post-write lineage also hard-binds its ORIGINAL issuer's child
         // cap inside the immutable pool, not merely a replaceable clone spec.
         // Existing generic (no post-write reservation) behavior is unchanged.
@@ -141,7 +208,12 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         } else {
             max_child_bytes
         };
-        let budget = ScopedReadBudgetV1::new(
+        let constructor = if archive {
+            ScopedReadBudgetV1::new_actions_archive_v2
+        } else {
+            ScopedReadBudgetV1::new
+        };
+        let budget = constructor(
             measured_deadline,
             capacity,
             max_requests,
@@ -205,6 +277,17 @@ impl OriginalRepositoryAccessCoreV13<'_> {
 }
 
 impl RepositoryCatalogueAccessSession<'_> {
+    /// One wrapper call; Core retains actual rows/pool/cancellation/clock. No
+    /// catalogue imitation, foreign issuer or replacement allocation exists.
+    pub(crate) fn reserve_actions_archive_v2(
+        &mut self,
+        target: &Arc<ScopedActionsArtifactV2>,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        self.core
+            .reserve_actions_archive_v2(target, remaining_repository_reads, cancel)
+    }
     /// Delegate into the SAME original core; no replacement pool or clock.
     pub fn reserve_measured_external_reads(
         &mut self,
@@ -224,6 +307,9 @@ impl RepositoryCatalogueAccessSession<'_> {
     }
 }
 
+#[cfg(test)]
+#[path = "actions_archive_core_v2_tests.rs"]
+mod actions_archive_core_v2_tests;
 #[cfg(test)]
 #[path = "measured_reads_v1_tests.rs"]
 mod tests;

@@ -109,6 +109,9 @@ pub fn open(app: &mut App, route: Arc<PrChecksRoute>) {
     app.hits.clear();
 }
 pub fn dispatch(app: &mut App, action: PrCheckContinueUiV2) {
+    if app.scoped_actions_v1.is_some() {
+        return;
+    }
     use PrCheckContinueUiV2::*;
     if action == Quit {
         retire(app);
@@ -209,6 +212,9 @@ pub fn dispatch(app: &mut App, action: PrCheckContinueUiV2) {
     }
 }
 pub fn clear_matches(app: &mut App) {
+    if app.scoped_actions_v1.is_some() {
+        return;
+    }
     if let Some(matches) = app.pr_check_log_matches_v2.take() {
         if app
             .pr_checks_route
@@ -227,6 +233,9 @@ pub fn clear_matches(app: &mut App) {
     }
 }
 pub fn next_match(app: &mut App, next: bool) {
+    if app.scoped_actions_v1.is_some() {
+        return;
+    }
     let Some(route) = app
         .pr_checks_route
         .as_ref()
@@ -578,6 +587,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 /// Reserve disjoint rows BEFORE shared viewer. No overlaid stale candidates
 /// hit box or hidden duplicate button; return the remaining content rectangle.
 pub fn draw_controls(frame: &mut Frame, app: &mut App, area: Rect) -> Rect {
+    if app.scoped_actions_v1.is_some() {
+        return area;
+    }
     let watching = app
         .pr_check_watch_v2
         .as_ref()

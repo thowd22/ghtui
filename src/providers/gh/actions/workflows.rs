@@ -42,6 +42,26 @@ pub struct WorkflowDefinition {
     pub dispatch_inputs: Vec<DispatchInput>,
     pub jobs: Vec<DefinitionJob>,
 }
+pub(in crate::providers::gh) fn workflow_from_json_v2(raw: &Value) -> Workflow {
+    Workflow {
+        id: number(raw, "id"),
+        name: text(raw, "name"),
+        path: text(raw, "path"),
+        state: text(raw, "state"),
+    }
+}
+pub(super) fn validate_workflow_v2(workflow: &Workflow) -> GithubResult<()> {
+    if workflow.id == 0
+        || !workflow.path.starts_with(".github/workflows/")
+        || workflow.path.split('/').any(|part| part == "..")
+    {
+        return Err(error(
+            GithubErrorKind::Json,
+            "Workflow does not have a positive identity and safe repository path",
+        ));
+    }
+    Ok(())
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DispatchOutcome {
     pub accepted: bool,
@@ -353,16 +373,9 @@ impl GithubProvider {
             false,
             cancel,
         )?;
-        let workflow = Workflow {
-            id: number(&v, "id"),
-            name: text(&v, "name"),
-            path: text(&v, "path"),
-            state: text(&v, "state"),
-        };
-        if workflow.id != id
-            || !workflow.path.starts_with(".github/workflows/")
-            || workflow.path.split('/').any(|p| p == "..")
-        {
+        let workflow = workflow_from_json_v2(&v);
+        validate_workflow_v2(&workflow)?;
+        if workflow.id != id {
             return Err(error(
                 GithubErrorKind::Json,
                 "Workflow does not have the selected identity or safe repository path",

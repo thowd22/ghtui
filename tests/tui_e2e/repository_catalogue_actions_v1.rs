@@ -33,15 +33,14 @@ fn actions_protocol() -> Vec<GhStep> {
     assert_eq!(result.len(), 7);
     result.extend(principal(42));
     result.push(get(&format!("repos/{FIRST}"), current_repository()));
-    let mut catalog = get(
-        &format!("repos/{CURRENT}/actions/runs?per_page=100"),
-        json!([{"total_count":2,"workflow_runs":[
+    let catalog = get(
+        &format!("repos/{CURRENT}/actions/runs?per_page=100&page=1"),
+        json!({"total_count":2,"workflow_runs":[
             run(123,"CI","alice","User"),run(124,"LINT","ci-bot","Bot")
-        ]}]),
+        ]}),
     );
-    // This is exactly the existing run_catalog adapter's one bounded child.
-    // Fixed-page repository enumeration MUST NOT acquire these legacy flags.
-    catalog.args.extend(["--paginate".into(), "--slurp".into()]);
+    // One original explicit fixed page. Popular repositories may remain
+    // partial; no all-history slurp is required to open an observed member.
     result.push(catalog);
     result.push(get(&format!("repos/{FIRST}"), current_repository()));
     result.extend(principal(42));
@@ -75,8 +74,8 @@ fn assert_actions_commands(session: &Session, fixture: &Fixture) {
                 .iter()
                 .any(|arg| arg == "--paginate"))
             .count(),
-        1,
-        "Only the explicitly budgeted legacy run_catalog child paginates"
+        0,
+        "Original scoped Actions uses one explicit page, never an implicit all-history slurp"
     );
     assert!(!actual.iter().any(
         |row| row["args"].as_array().unwrap().iter().any(|arg| matches!(

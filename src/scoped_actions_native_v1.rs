@@ -1,4 +1,5 @@
 //! Native catalogue Actions policy over the existing Actions model/rendering.
+use crate::scoped_actions_read_v2::{ActionsLoadedMatchesV2, ActionsReadWatchV2};
 use crate::{
     actions_workspace::{ActionsAction, ActionsView, ActionsWorkspace},
     app::{Action, App, View},
@@ -6,10 +7,13 @@ use crate::{
     scoped_actions_v1::*,
 };
 use std::sync::Arc;
+#[path = "scoped_actions_read_ui_v2.rs"]
+pub mod read_ui_v2;
 struct SnapshotV1 {
     page: Arc<ScopedActionsPageV1>,
     workspace: Box<ActionsWorkspace>,
     bytes: usize,
+    matches_v2: Option<Arc<ActionsLoadedMatchesV2>>,
 }
 pub struct ScopedActionsStateV1 {
     source: Arc<ScopedActionsSourceV1>,
@@ -17,6 +21,10 @@ pub struct ScopedActionsStateV1 {
     retained_bytes: usize,
     back: Vec<SnapshotV1>,
     epoch: u64,
+    entry_page_v2: std::sync::Weak<ScopedActionsPageV1>,
+    matches_v2: Option<Arc<ActionsLoadedMatchesV2>>,
+    watch_v2: Option<Arc<ActionsReadWatchV2>>,
+    editor_v2: Option<read_ui_v2::ReadEditorV2>,
 }
 pub struct ScopedActionsOwnerV1 {
     work: Arc<ScopedActionsWorkV1>,
@@ -55,6 +63,13 @@ impl ScopedActionsOwnerV1 {
                     && Arc::ptr_eq(&state.source, &self.work.source)
                     && Arc::ptr_eq(&state.page, &self.work.page)
                     && state.epoch == self.work.epoch
+                    && self.work.watch_v2.as_ref().is_none_or(|watch| {
+                        state
+                            .watch_v2
+                            .as_ref()
+                            .is_some_and(|current| Arc::ptr_eq(current, watch))
+                            && watch.matches(&state.page)
+                    })
             })
             && app
                 .scoped_actions_work_v1
@@ -69,6 +84,10 @@ impl ScopedActionsOwnerV1 {
 }
 fn current(app: &App, state: &ScopedActionsStateV1) -> bool {
     app.remote_repository.is_none()
+        && state
+            .source
+            .pr_origin_v2()
+            .is_none_or(|origin| origin.current(app))
         && app.github.as_ref().is_none_or(|github| {
             github.scope().ok().as_ref() == Some(state.source.original().scope())
         })
@@ -107,6 +126,14 @@ pub(crate) fn current_input(app: &App, work: &Arc<ScopedActionsWorkV1>) -> bool 
                 && Arc::ptr_eq(&state.source, &work.source)
                 && Arc::ptr_eq(&state.page, &work.page)
                 && state.epoch == work.epoch
+                && work.watch_v2.as_ref().is_none_or(|watch| {
+                    state
+                        .watch_v2
+                        .as_ref()
+                        .is_some_and(|current| Arc::ptr_eq(current, watch))
+                        && watch.active()
+                        && watch.matches(&state.page)
+                })
         })
 }
 pub fn newer_foreign_intent(app: &App) -> bool {
@@ -179,10 +206,14 @@ pub fn install_initial(app: &mut App, state: InitialScopedActionsV1) {
     app.dispatch(Action::View(View::Actions));
     app.scoped_actions_v1 = Some(ScopedActionsStateV1 {
         source: state.source,
+        entry_page_v2: Arc::downgrade(&state.page),
         page: state.page,
         retained_bytes: state.retained_bytes,
         back: vec![],
         epoch: 0,
+        matches_v2: None,
+        watch_v2: None,
+        editor_v2: None,
     });
     app.scoped_actions_work_v1 = None;
     app.scoped_actions_owner_v1 = None;
@@ -197,6 +228,15 @@ pub fn install_initial(app: &mut App, state: InitialScopedActionsV1) {
     app.status="Actions • focused view • original numeric repository verified • retained catalogue • non-atomic observed read".into();
 }
 pub fn retire(app: &mut App) {
+    if let Some(state) = &mut app.scoped_actions_v1 {
+        if let Some(watch) = state.watch_v2.take() {
+            watch.stop();
+        }
+        state.editor_v2 = None;
+    }
+    if app.overlay == Some(crate::app::Overlay::ScopedActionsReadV2) {
+        app.overlay = None;
+    }
     if let Some(work) = app.scoped_actions_work_v1.take() {
         work.cancellation().cancel();
     }
@@ -218,7 +258,24 @@ pub fn synchronize(app: &mut App) {
 fn explain(app: &mut App, reason: impl Into<String>) {
     app.dispatch(Action::Explain(reason.into()));
 }
+fn prepare_policy(app: &mut App, pending: bool) {
+    let source = app
+        .scoped_actions_v1
+        .as_ref()
+        .map(|state| state.source.clone());
+    if let (Some(source), Some(workspace)) = (source, app.actions.as_mut()) {
+        source.prepare_policy(workspace, pending);
+    }
+}
 fn cancel_current(app: &mut App) {
+    if let Some(state) = &mut app.scoped_actions_v1 {
+        if let Some(watch) = state.watch_v2.take() {
+            watch.stop();
+        }
+    }
+    if let Some(workspace) = &mut app.actions {
+        workspace.watching = false;
+    }
     if let Some(work) = app.scoped_actions_work_v1.take() {
         work.cancellation().cancel();
     }
@@ -229,20 +286,68 @@ fn cancel_current(app: &mut App) {
     if let Some(state) = &mut app.scoped_actions_v1 {
         state.epoch = state.epoch.wrapping_add(1);
     }
-    if let Some(workspace) = &mut app.actions {
-        crate::actions_workspace::scoped_read_v1::prepare_policy(workspace, false);
-    }
+    prepare_policy(app, false);
     app.hits.clear();
     app.status = "Original Actions read canceled • retained page unchanged • no mutation".into();
 }
 /// All keys AND hit actions arrive here before generic Actions/forms handling.
 pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
     synchronize(app);
+    if app.scoped_actions_v1.is_none()
+        && app
+            .pr_checks_route
+            .as_ref()
+            .is_some_and(|route| route.scoped_v1())
+        && crate::pr_checks_native::scoped::actions_origin_v2::resource_entry_action(action)
+    {
+        if app.view != View::Actions
+            || app.overlay.is_some()
+            || app.loading[View::Actions.index()]
+            || newer_foreign_intent(app)
+        {
+            explain(app,"Original PR Actions resource entry is not current; no request, fallback or cancellation");
+            return true;
+        }
+        let seed =
+            crate::pr_checks_native::scoped::actions_origin_v2::ScopedPrActionsOriginV2::capture(
+                app,
+            )
+            .and_then(|origin| {
+                retained_pr_route_v2(
+                    origin,
+                    app.actions
+                        .as_ref()
+                        .ok_or("Original Actions workspace unavailable")?,
+                )
+            });
+        match seed {
+            Ok((source, page, retained_bytes)) => {
+                app.scoped_actions_v1 = Some(ScopedActionsStateV1 {
+                    source,
+                    entry_page_v2: Arc::downgrade(&page),
+                    page,
+                    retained_bytes,
+                    back: vec![],
+                    epoch: 0,
+                    matches_v2: None,
+                    watch_v2: None,
+                    editor_v2: None,
+                })
+            }
+            Err(reason) => {
+                explain(app, reason);
+                return true;
+            }
+        }
+    }
     let Some(state) = app.scoped_actions_v1.as_ref() else {
         return false;
     };
     if !current(app, state) {
         return false;
+    }
+    if read_ui_v2::intercept(app, action) {
+        return true;
     }
     if let ActionsAction::Unavailable(reason) = action {
         explain(app, reason.clone());
@@ -256,12 +361,29 @@ pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
         let mut state = app.scoped_actions_v1.take().expect("current");
         if let Some(snapshot) = state.back.pop() {
             state.page = snapshot.page;
+            state.matches_v2 = snapshot.matches_v2;
             state.retained_bytes = snapshot.bytes;
             state.epoch = state.epoch.wrapping_add(1);
             app.actions = Some(*snapshot.workspace);
             app.context = app.actions.as_ref().expect("retained").context();
             app.hits.clear();
             app.status = "Original Actions snapshot restored • no fresh request or mutation".into();
+            if state.source.pr_origin_v2().is_some()
+                && state
+                    .entry_page_v2
+                    .upgrade()
+                    .is_some_and(|entry| Arc::ptr_eq(&state.page, &entry))
+            {
+                // Restore the actual untouched PR route and its workspace as
+                // one unit. Its old log indices must not control A2 rows.
+                if let Some(watch) = state.watch_v2.take() {
+                    watch.stop();
+                }
+                return true;
+            }
+        } else if state.source.pr_origin_v2().is_some() {
+            crate::pr_checks_native::dispatch(app, crate::pr_checks_native::PrChecksUiAction::Back);
+            return true;
         } else {
             explain(app,"No earlier Actions snapshot; use the main view keys to leave. No query or mutation sent");
         }
@@ -321,6 +443,7 @@ pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
             let snapshot = state.back.remove(index);
             state.back.truncate(index);
             state.page = snapshot.page;
+            state.matches_v2 = snapshot.matches_v2;
             state.retained_bytes = snapshot.bytes;
             state.epoch = state.epoch.wrapping_add(1);
             app.actions = Some(*snapshot.workspace);
@@ -330,15 +453,16 @@ pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
         }
     }
     state.epoch = state.epoch.wrapping_add(1);
+    if let Some(watch) = state.watch_v2.take() {
+        watch.stop();
+    }
     let work = ScopedActionsWorkV1::capture(state.page.clone(), action, state.epoch);
     app.scoped_actions_v1 = Some(state);
     match work {
         Ok(work) => {
             app.scoped_actions_work_v1 = Some(work);
             app.scoped_actions_cancel_v1 = false;
-            if let Some(w) = &mut app.actions {
-                crate::actions_workspace::scoped_read_v1::prepare_policy(w, true);
-            }
+            prepare_policy(app, true);
             app.status="Original Actions read queued • 30s includes queue wait • Back cancels • no mutation".into();
             app.hits.clear();
         }
@@ -364,9 +488,7 @@ pub fn take_work(app: &mut App) -> Option<Arc<ScopedActionsWorkV1>> {
         work.cancellation().cancel();
         app.status =
             "Queued original Actions read expired; retained snapshot, no request sent".into();
-        if let Some(w) = &mut app.actions {
-            crate::actions_workspace::scoped_read_v1::prepare_policy(w, false);
-        }
+        prepare_policy(app, false);
         return None;
     }
     Some(work)
@@ -375,9 +497,7 @@ pub fn submission_failed(app: &mut App, work: &Arc<ScopedActionsWorkV1>) {
     if app.scoped_actions_v1.as_ref().is_some_and(|state| {
         current(app, state) && Arc::ptr_eq(&state.page, &work.page) && state.epoch == work.epoch
     }) {
-        if let Some(w) = &mut app.actions {
-            crate::actions_workspace::scoped_read_v1::prepare_policy(w, false);
-        }
+        prepare_policy(app, false);
         app.status =
             "Original Actions queue/provider unavailable • no read or mutation submitted".into();
         app.hits.clear();
@@ -393,8 +513,10 @@ pub(crate) fn publish(
         return false;
     }
     let mut state = app.scoped_actions_v1.take().expect("checked");
-    if let Some(mut old) = app.actions.take() {
-        crate::actions_workspace::scoped_read_v1::prepare_policy(&mut old, false);
+    let transient_projection =
+        owner.work.kind == ScopedActionsRequestKindV1::Search || owner.work.watch_v2.is_some();
+    if let Some(mut old) = app.actions.take().filter(|_| !transient_projection) {
+        state.source.prepare_policy(&mut old, false);
         let mut retained = state
             .back
             .iter()
@@ -419,23 +541,52 @@ pub(crate) fn publish(
                 page: state.page.clone(),
                 workspace: Box::new(old),
                 bytes: state.retained_bytes,
+                matches_v2: state.matches_v2.take(),
             });
         }
     }
     state.page = prepared.page;
     state.retained_bytes = prepared.retained_bytes;
+    state.matches_v2 = prepared.matches_v2;
+    if prepared
+        .watch_progress_v2
+        .is_some_and(|(ticks, _)| ticks >= 12)
+    {
+        if let Some(watch) = state.watch_v2.take() {
+            watch.stop();
+        }
+    }
     app.context = prepared.workspace.context();
     app.actions = Some(prepared.workspace);
+    if let Some(workspace) = &mut app.actions {
+        workspace.watching = state.watch_v2.as_ref().is_some_and(|watch| watch.active());
+    }
+    let matched = state
+        .matches_v2
+        .as_ref()
+        .map(|matches| matches.indices().len());
     app.scoped_actions_v1 = Some(state);
     app.loading[View::Actions.index()] = false;
-    app.status =
-        "Original scoped Actions target verified • bounded non-atomic read • no mutation".into();
+    app.status = if let Some((ticks, bytes)) = prepared.watch_progress_v2 {
+        format!("Original finite Watch • tick {ticks}/12 • {bytes}/33554432 captured bytes • original120s deadline • no mutation")
+    } else if let Some(count) = matched {
+        format!("Loaded-log search • {count} matching lines in actual captured job • 0 external effects • >/< next/previous, x clear")
+    } else {
+        "Original scoped Actions target verified • bounded non-atomic read • no mutation".into()
+    };
     app.hits.clear();
     true
 }
 pub(crate) fn fail(app: &mut App, owner: &Arc<ScopedActionsOwnerV1>) -> bool {
     if !owner.owns(app) {
         return false;
+    }
+    if owner.work.kind == ScopedActionsRequestKindV1::Search {
+        prepare_policy(app, false);
+        app.loading[View::Actions.index()] = false;
+        app.status = "Loaded-log query unavailable • retained snapshot and previous matches unchanged • no external effects".into();
+        app.hits.clear();
+        return true;
     }
     // Current exact original pair only. A newer source/Threads/Review request
     // was already rejected before this shared privacy retirement.
@@ -465,8 +616,18 @@ pub fn resize(app: &mut App) {
     if app.scoped_actions_work_v1.is_some() || app.scoped_actions_owner_v1.is_some() {
         cancel_current(app);
     }
+    if let Some(editor) = app
+        .scoped_actions_v1
+        .as_mut()
+        .and_then(|state| state.editor_v2.as_mut())
+    {
+        editor.clear_geometry_v2();
+    }
     app.hits.clear();
 }
+#[cfg(test)]
+#[path = "scoped_actions_read_v2_tests.rs"]
+mod read_tests_v2;
 #[cfg(test)]
 #[path = "scoped_actions_native_v1_tests.rs"]
 mod tests;

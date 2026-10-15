@@ -224,6 +224,47 @@ pub enum ResizeToolbarV1 {
     Bottom,
     Header,
     ControlBlock,
+    VerticalControls { first_row: u16 },
+}
+
+pub fn owned_vertical_controls_ready_v4(
+    screen: &vt100::Screen,
+    title: &str,
+    first_row: u16,
+    actions: &[&str],
+) -> bool {
+    let (rows, cols) = screen.size();
+    if rows < 4 || cols < 4 || title.is_empty() || actions.len() < 2 || first_row == 0 {
+        return false;
+    }
+    let Some(end) = usize::from(first_row).checked_add(actions.len()) else {
+        return false;
+    };
+    if end > usize::from(rows - 1)
+        || screen.cell(0, 0).unwrap().contents() != "┌"
+        || screen.cell(0, cols - 1).unwrap().contents() != "┐"
+        || screen.cell(rows - 1, 0).unwrap().contents() != "└"
+        || screen.cell(rows - 1, cols - 1).unwrap().contents() != "┘"
+    {
+        return false;
+    }
+    let text = screen.contents();
+    let lines = screen.rows(0, cols).collect::<Vec<_>>();
+    if !lines[0].contains(title) || text.matches(title).count() != 1 {
+        return false;
+    }
+    actions.iter().enumerate().all(|(i, action)| {
+        complete_single_owned_control_v2(action)
+            && ghtui::editor::display_width(action) <= usize::from(cols - 2)
+            && text.matches(action).count() == 1
+            && lines[usize::from(first_row) + i].trim_matches('│').trim() == *action
+            && screen.cell(first_row + i as u16, 0).unwrap().contents() == "│"
+            && screen
+                .cell(first_row + i as u16, cols - 1)
+                .unwrap()
+                .contents()
+                == "│"
+    })
 }
 
 pub fn owned_resize_controls_ready_v1(
@@ -234,6 +275,9 @@ pub fn owned_resize_controls_ready_v1(
 ) -> bool {
     if matches!(placement, ResizeToolbarV1::ControlBlock) {
         return owned_control_block_ready_v3(screen, title, actions);
+    }
+    if let ResizeToolbarV1::VerticalControls { first_row } = placement {
+        return owned_vertical_controls_ready_v4(screen, title, first_row, actions);
     }
     let (rows, cols) = screen.size();
     let bottom = screen.rows(0, cols).last().unwrap_or_default();
@@ -248,7 +292,7 @@ pub fn owned_resize_controls_ready_v1(
             .take(3)
             .collect::<Vec<_>>()
             .join("\n"),
-        ResizeToolbarV1::ControlBlock => unreachable!(),
+        ResizeToolbarV1::ControlBlock | ResizeToolbarV1::VerticalControls { .. } => unreachable!(),
     };
     let title_ready = match placement {
         ResizeToolbarV1::Bottom => screen.contents().contains(title),
@@ -256,7 +300,7 @@ pub fn owned_resize_controls_ready_v1(
             .rows(0, cols)
             .next()
             .is_some_and(|row| row.contains(title)),
-        ResizeToolbarV1::ControlBlock => unreachable!(),
+        ResizeToolbarV1::ControlBlock | ResizeToolbarV1::VerticalControls { .. } => unreachable!(),
     };
     title_ready
         && actions.iter().all(|action| controls.contains(action))
@@ -942,6 +986,28 @@ impl Session {
         panic!("Bounded actual Actions pages lack expected control {label:?}");
     }
 
+    pub fn click_ready_scoped_actions_control_v4(&mut self, after: usize, label: &str) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some((x, y)) =
+                completed_navigation_controls_v1::scoped_actions_ready_control_position_v4(
+                    &self.cursorless_frames,
+                    after,
+                    label,
+                )
+            {
+                self.click(x, y);
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No current completed ready Actions control {label}\n{}",
+                self.screen()
+            );
+        }
+    }
+
     pub fn first_completed_actions_page(&mut self, mouse: bool) {
         let deadline = Instant::now() + Duration::from_secs(8);
         for _ in 0..30 {
@@ -1496,6 +1562,31 @@ impl Session {
             Some((title, actions, ResizeToolbarV1::ControlBlock)),
         );
     }
+
+    /// A field editor paints its complete controls vertically in its body,
+    /// not in the main footer or a wrapped header. Rows are zero-based and
+    /// explicit; only a newly completed, correctly bounded frame can supply
+    /// input after this resize, including when the editor shows a caret.
+    pub fn resize_owned_vertical_controls_v4(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        title: &str,
+        first_row: u16,
+        actions: &[&str],
+    ) {
+        assert!(!title.is_empty() && actions.len() >= 2);
+        assert!(actions.iter().all(|a| complete_single_owned_control_v2(a)));
+        self.resize_with_footer(
+            cols,
+            rows,
+            Some((
+                title,
+                actions,
+                ResizeToolbarV1::VerticalControls { first_row },
+            )),
+        );
+    }
     fn resize_with_footer(
         &mut self,
         cols: u16,
@@ -1545,6 +1636,19 @@ impl Session {
                             frame.size() == (rows, cols)
                                 && owned_control_block_ready_v3(frame, title, actions)
                         })
+                }
+                Some((title, actions, placement @ ResizeToolbarV1::VerticalControls { .. })) => {
+                    self.cursorless_frames.cells_end > previous_bytes
+                        && self
+                            .cursorless_frames
+                            .last_cells
+                            .as_ref()
+                            .is_some_and(|frame| {
+                                frame.size() == (rows, cols)
+                                    && owned_resize_controls_ready_v1(
+                                        frame, title, actions, placement,
+                                    )
+                            })
                 }
                 _ => true,
             };

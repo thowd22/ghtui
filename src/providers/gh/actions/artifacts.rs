@@ -88,7 +88,7 @@ fn archive_error(message: impl Into<String>) -> GithubError {
         format!("Unsafe or unreadable artifact archive: {}", message.into()),
     )
 }
-fn artifact_from_json(v: &Value) -> ActionsArtifact {
+pub(super) fn artifact_from_json(v: &Value) -> ActionsArtifact {
     ActionsArtifact {
         id: number(v, "id"),
         name: text(v, "name"),
@@ -104,6 +104,17 @@ fn artifact_from_json(v: &Value) -> ActionsArtifact {
     }
 }
 impl ArtifactArchive {
+    /// Own known container capacities; does not count recursive source Arcs.
+    pub(crate) fn retained_bytes_v2(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.bytes.capacity()
+            + self.entries.capacity() * std::mem::size_of::<ArtifactEntry>()
+            + self
+                .entries
+                .iter()
+                .map(|entry| entry.path.capacity())
+                .fold(0, usize::saturating_add)
+    }
     pub fn inspect(
         bytes: Vec<u8>,
         digest: Option<&str>,
@@ -430,6 +441,25 @@ impl GithubProvider {
         limits: ArtifactLimits,
         cancel: &CancellationToken,
     ) -> GithubResult<ArtifactArchive> {
+        self.download_artifact_bounded_v2(repo, target, limits, cancel, false)
+    }
+    pub(crate) fn download_scoped_actions_artifact_v2(
+        &self,
+        repo: &str,
+        target: &ActionsArtifact,
+        limits: ArtifactLimits,
+        cancel: &CancellationToken,
+    ) -> GithubResult<ArtifactArchive> {
+        self.download_artifact_bounded_v2(repo, target, limits, cancel, true)
+    }
+    fn download_artifact_bounded_v2(
+        &self,
+        repo: &str,
+        target: &ActionsArtifact,
+        limits: ArtifactLimits,
+        cancel: &CancellationToken,
+        scoped: bool,
+    ) -> GithubResult<ArtifactArchive> {
         limits.validate()?;
         let fresh = self.artifact(repo, target.id, cancel)?;
         if fresh != *target {
@@ -455,6 +485,9 @@ impl GithubProvider {
         spec.output_limit = limits.compressed_bytes;
         spec.timeout = Duration::from_secs(120);
         let bytes = self.raw_spec(spec, cancel)?;
+        if scoped {
+            super::archive_allocation_guard_v2::check(&bytes, cancel)?;
+        }
         ArtifactArchive::inspect(bytes, target.digest.as_deref(), limits)
     }
     pub fn delete_artifact(

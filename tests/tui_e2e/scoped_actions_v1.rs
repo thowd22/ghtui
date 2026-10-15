@@ -1,5 +1,9 @@
 //! Actual binary, real Git/SQLite, strict offline GH. ALL declarations UNRUN.
 use super::*;
+#[path = "scoped_actions_read_v2.rs"]
+mod read_v2;
+#[path = "scoped_actions_resources_v2.rs"]
+mod resources_v2;
 use crate::support::owned_pty_processes_v1::{process_identity, ProcessIdentity};
 const H: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 fn fresh_run(name: &str) -> Value {

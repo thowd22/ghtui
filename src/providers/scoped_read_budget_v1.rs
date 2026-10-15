@@ -117,6 +117,31 @@ impl ScopedReadBudgetV1 {
             32 * 1024 * 1024,
         )
     }
+    /// Private Actions-archive allocation only. The caller must already have
+    /// clamped max_child_bytes to the original captured provider's cap. The
+    /// immutable pool, not a subsequently replaceable provider clone, binds it.
+    pub(crate) fn new_actions_archive_v2(
+        deadline: Instant,
+        capacity_bytes: usize,
+        max_requests: usize,
+        max_child_bytes: usize,
+        original_cancellation: &CancellationToken,
+    ) -> Result<Arc<Self>, CommandFailure> {
+        if max_requests > 24 || capacity_bytes > 8 * 1024 * 1024 {
+            return Err(bounds_failure(
+                FailureKind::OutputLimit,
+                "Actions archive pool exceeds original24-child/8MiB bound",
+            ));
+        }
+        Self::new_with_child_ceiling(
+            deadline,
+            capacity_bytes,
+            max_requests,
+            max_child_bytes,
+            original_cancellation,
+            4 * 1024 * 1024,
+        )
+    }
     fn new_with_child_ceiling(
         deadline: Instant,
         capacity_bytes: usize,

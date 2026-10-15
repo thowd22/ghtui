@@ -125,7 +125,9 @@ fn scoped_actions_native_disabled_keys_and_hits_cannot_open_forms_or_write_draft
             found.expect("Actual disabled source-origin control hit")
         } else {
             crate::actions_ui::keyboard_action(
-                KeyEvent::new(KeyCode::Char('W'), KeyModifiers::NONE),
+                // Workflow browsing now has a genuine read adapter. Runner
+                // groups still require their own original-source adapter.
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
                 app.actions.as_ref().unwrap(),
             )
             .unwrap()

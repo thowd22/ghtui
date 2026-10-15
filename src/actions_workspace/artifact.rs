@@ -11,6 +11,21 @@ pub(super) fn prepare_content(
     path: &str,
     cancel: &CancellationToken,
 ) -> GithubResult<ArtifactContent> {
+    prepare_content_bounded_v2(archive, path, cancel, false)
+}
+pub(super) fn prepare_scoped_content_v2(
+    archive: &ArtifactArchive,
+    path: &str,
+    cancel: &CancellationToken,
+) -> GithubResult<ArtifactContent> {
+    prepare_content_bounded_v2(archive, path, cancel, true)
+}
+fn prepare_content_bounded_v2(
+    archive: &ArtifactArchive,
+    path: &str,
+    cancel: &CancellationToken,
+    scoped: bool,
+) -> GithubResult<ArtifactContent> {
     if cancel.is_cancelled() {
         return Err(plain_error("Artifact preview cancelled"));
     }
@@ -34,7 +49,12 @@ pub(super) fn prepare_content(
     );
     let looks_image = bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.starts_with(b"\xff\xd8\xff");
     if looks_image && !truncated {
-        match ImageDisplay::decode(&bytes) {
+        let image = if scoped {
+            ImageDisplay::decode_actions_preview_v2(&bytes)
+        } else {
+            ImageDisplay::decode(&bytes)
+        };
+        match image {
             Ok(image) => {
                 heading.push_str(&format!(
                     "\nBounded {} image • {}×{} original pixels • thumbnail {}×{}",

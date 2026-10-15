@@ -4,7 +4,7 @@ title: Create and follow file-level PR review comments
 status: To Do
 assignee: []
 created_date: '2026-10-15 01:36'
-updated_date: '2026-10-15 01:37'
+updated_date: '2026-10-15 15:51'
 labels:
   - review
   - e2e
@@ -48,3 +48,17 @@ GitHub supports review comments on a whole changed file separately from line/ran
 - [ ] #2 Run cargo test --all-targets, cargo fmt --check, and cargo clippy --all-targets -- -D warnings; fix failures before marking Done.
 - [ ] #3 Verify clickable mouse/keyboard action parity and applicable focus, resize, scrolling, overlay, loading, disabled and failure states with independent visible plus command/storage/Git effects; native macOS status remains explicit.
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+2026-10-15 graph_parallel Root-requested PROPOSAL ONLY before implementation: read Task75/deps19/21 +Docs3/4/10, inspected actual line-only InlineComment, genuine Task21 Files-member/Detail union, same Thread Work/result/owner, bounded ACK/atomic draft cleanup/journal/fence and common-origin B2 review API; checked current official REST review-comments and GraphQL Pulls schema. Proposal target/build/graph-parallel-task75-file-comments-proposal-v1-20261015.json requests Root review for closed genuine selected-file intent and no-line provider/payload/201+exactGET+FILE-node receipt, same existing Thread queue/owner/result plus shared Form, one original measured prewrite pool+fixed7 prepaid postwrite slots, bounded atomic versioned file-origin/history, and canonical Catalogue/Personal common-origin consumer composition. No viewerCanComment field exists in consulted schema; no push/viewerCanUpdate/login permission inference, no fabricated line1/range/thread. K/click file-level control proposed separately from line P. Meaningful file_comments code/provider and real paired key/mouse/TabEnter/native/draft/restart/heldcancel/partial/sourceUID/effects/TTY scenarios outlined; Root sole heavy verifier. ALL tests are PLANNED, no new declarations/source activation/builds/Main edits/AC/Done. Task75 remains To Do; dependencies19/21 OPEN until actual accepted verification.
+
+Root reviewed full553695ad Task75 proposal and APPROVED same Thread Work/result/Inbox owner/shared Form, distinct no-line genuine file payload/receipt, bounded atomic file-origin/history and canonical Personal common-source composition. Exact typed201/cap addendum graph-parallel-task75-file-comments-201-caps-addendum-v1-20261015.json records SAME prepaid ordinary runner fixed POST --include path/payload, one private borrowed existing HTTP envelope factor preserving all old204 byte fixtures/policies, actual201+bounded JSON THEN exactPOST/GET/FILE-node receipts; missing/wrongstatus afterinvoke uncertain/noresend. Root also APPROVED full NEW source-only coherent implementation after this addendum: authenticate current438/973+frozenTask21 coherent73+approvedPersonal common-origin seams, no Main/heavy/frozen edits. Postcaps262144/262144/262144/65536/131072/131072/65536 sum1179648; WHOLE8MiB carve measured pool after source/final/prepaid reserves, default2Filespages cap19totalchildren/2301952bytes, hard30pages cap47children/5971968bytes; each original lesser cap/deadline remains lesser. All12 native paired families and code groups remain required, Personal/follow/history not deferred as completion. Root sole tests; all declarations/runs currently0; formal19/21 readiness and AC/Done stayOPEN.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Source-only intermediate provider checkpoint frozen: target/build/graph-parallel-task75-file-comment-provider-v1-sourceonly-20261015.json SHA c0384293914ac0cc386b0a4b128efb96acc0349fe0179565506cde9b9d024267; patch aa22e6481e02f70fffa48969e5e40e0734130fdf11ac645f66135a40c7473c8f, archive435f7326c21b98c5157cf8c0eb741c5605ab77ea347f7a0e25a78568e3c7e941.11paths/5new, baseline43832+all73 coherentTask21 exact hashes.15code declarations (12genuine provider,3framing/compat),0PTY/activation so far; allUNCOMPILED/UNRUN, Root sole verifier. Existing204 test block remains byte-identical; same7prepaid cursor, original measured/token/runner/clock/cap and full raw-parent equality. Controller/sharedForm/origin/restart/history/Personal commonThreads and all12paired native families remain required next. No TaskDone/AC/dependency or strict-gate claim.
+<!-- SECTION:NOTES:END -->

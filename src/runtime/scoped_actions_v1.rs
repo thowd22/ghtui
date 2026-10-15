@@ -330,5 +330,8 @@ impl Background {
     }
 }
 #[cfg(test)]
+#[path = "scoped_actions_read_v2_tests.rs"]
+mod read_tests_v2;
+#[cfg(test)]
 #[path = "scoped_actions_v1_tests.rs"]
 mod tests;

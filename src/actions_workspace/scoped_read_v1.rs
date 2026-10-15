@@ -29,7 +29,8 @@ pub(crate) fn prepare_policy(workspace: &mut ActionsWorkspace, pending: bool) {
         }
         let allowed = matches!(
             control.action,
-            ActionsAction::Refresh
+            ActionsAction::ScopedReadV2(_)
+                | ActionsAction::Refresh
                 | ActionsAction::Back
                 | ActionsAction::View(ActionsView::Runs | ActionsView::Run | ActionsView::Jobs)
                 | ActionsAction::OpenJob(_)
@@ -53,6 +54,61 @@ pub(crate) fn prepare_policy(workspace: &mut ActionsWorkspace, pending: bool) {
             disabled_reason: None,
         });
     }
+    crate::actions_workspace::scoped_resources_v2::prepare_policy(workspace);
+    use crate::scoped_actions_native_v1::read_ui_v2::ReadUiActionV2 as Ui;
+    for (label, action, available) in [
+        (
+            "[f Edit filters]",
+            Ui::OpenFilters,
+            workspace.view == ActionsView::Runs,
+        ),
+        (
+            "[/ Search loaded logs]",
+            Ui::OpenSearch,
+            workspace.view == ActionsView::Logs,
+        ),
+        (
+            "[> Next match]",
+            Ui::Next(true),
+            workspace.view == ActionsView::Logs,
+        ),
+        (
+            "[< Previous match]",
+            Ui::Next(false),
+            workspace.view == ActionsView::Logs,
+        ),
+        (
+            "[x Clear matches]",
+            Ui::Clear,
+            workspace.view == ActionsView::Logs,
+        ),
+        (
+            "[w Finite Watch / Stop]",
+            Ui::Watch,
+            workspace.run.is_some()
+                && matches!(
+                    workspace.view,
+                    ActionsView::Run | ActionsView::Jobs | ActionsView::Logs
+                ),
+        ),
+    ] {
+        if available
+            && !workspace.controls.iter().any(|control| {
+                control.action
+                    == ActionsAction::ScopedReadV2(
+                        crate::scoped_actions_resources_v2::ScopedActionsReadActionV2::Ui(action),
+                    )
+            })
+        {
+            workspace.controls.push(ActionsControl {
+                label: label.into(),
+                action: ActionsAction::ScopedReadV2(
+                    crate::scoped_actions_resources_v2::ScopedActionsReadActionV2::Ui(action),
+                ),
+                disabled_reason: None,
+            });
+        }
+    }
     if pending {
         for control in &mut workspace.controls {
             if matches!(control.action, ActionsAction::Back) {
@@ -67,13 +123,60 @@ pub(crate) fn prepare_policy(workspace: &mut ActionsWorkspace, pending: bool) {
     workspace.controls.sort_by_key(|control| {
         !matches!(
             control.action,
-            ActionsAction::Refresh
+            ActionsAction::ScopedReadV2(_)
+                | ActionsAction::Refresh
                 | ActionsAction::Back
                 | ActionsAction::View(ActionsView::Runs | ActionsView::Run | ActionsView::Jobs)
                 | ActionsAction::Logs(Some(_))
                 | ActionsAction::Annotations(_)
         )
     });
+}
+/// Actual observed page/query controls, prepared before original final proof.
+pub(crate) fn prepare_catalogue_window_v2(
+    workspace: &mut ActionsWorkspace,
+    window: &Arc<ScopedRunWindowV2>,
+) {
+    use crate::scoped_actions_resources_v2::ScopedActionsReadActionV2 as Read;
+    for (label, action, available) in [
+        (
+            "[( Previous runs]",
+            Read::RunPage(-1),
+            window.previous_query().is_some(),
+        ),
+        (
+            "[) Next runs]",
+            Read::RunPage(1),
+            window.next_query().is_some(),
+        ),
+        ("[A All statuses]", Read::AllRunStatuses, true),
+        ("[F Failed runs]", Read::FailedRuns, true),
+        ("[I Active runs]", Read::ActiveRuns, true),
+    ] {
+        if available {
+            workspace.controls.push(ActionsControl {
+                label: label.into(),
+                action: ActionsAction::ScopedReadV2(action),
+                disabled_reason: None,
+            });
+        }
+    }
+    workspace.controls.sort_by_key(|control| {
+        !matches!(
+            control.action,
+            ActionsAction::ScopedReadV2(_)
+                | ActionsAction::Refresh
+                | ActionsAction::Back
+                | ActionsAction::View(ActionsView::Runs)
+        )
+    });
+    workspace.warnings.push(format!(
+        "Run page {} • status {} • {}/{} reported • partial is not absence",
+        window.query().page(),
+        window.query().filter().status.as_deref().unwrap_or("all"),
+        window.loaded(),
+        window.reported()
+    ));
 }
 pub(crate) fn prepare_labels(workspace: &mut ActionsWorkspace) {
     if workspace.view == ActionsView::Annotations {
@@ -199,8 +302,8 @@ pub(crate) fn preflight_projection(
     match body {
         Some(ScopedActionsReadBodyV1::Logs(text)) => {
             bound = bound
-                .saturating_add(text.capacity().saturating_mul(4))
-                .saturating_add(text.lines().count().saturating_mul(192));
+                .saturating_add(text.owned_bytes().saturating_mul(4))
+                .saturating_add(text.text().lines().count().saturating_mul(192));
         }
         Some(ScopedActionsReadBodyV1::Annotations(rows)) => {
             bound =
@@ -247,6 +350,16 @@ pub(crate) fn retained_bytes(w: &ActionsWorkspace) -> Result<usize, String> {
             | ActionsView::Jobs
             | ActionsView::Logs
             | ActionsView::Annotations
+            | ActionsView::Artifacts
+            | ActionsView::Artifact
+            | ActionsView::Workflows
+            | ActionsView::Workflow
+            | ActionsView::Secrets
+            | ActionsView::Variables
+            | ActionsView::Policies
+            | ActionsView::Environments
+            | ActionsView::Runners
+            | ActionsView::Caches
     ) {
         return Err("Unsupported scoped Actions prepared page".into());
     }
@@ -339,6 +452,7 @@ pub(crate) fn retained_bytes(w: &ActionsWorkspace) -> Result<usize, String> {
             ]));
         }
     }
+    bytes = bytes.saturating_add(super::scoped_resources_v2::workspace_bytes(w));
     if bytes > PREPARED_LIMIT_V1 {
         Err("Scoped Actions prepared content exceeds8MiB; no incomplete page admitted".into())
     } else {

@@ -1952,6 +1952,7 @@ fn run() -> Result<()> {
         if app.refresh_requested {
             ghtui::scoped_actions_native_v1::forward_refresh(&mut app);
         }
+        ghtui::scoped_actions_native_v1::read_ui_v2::tick(&mut app);
         if let Some(work) = ghtui::scoped_actions_native_v1::take_work(&mut app) {
             match GithubProvider::new(work.host())
                 .map(|provider| provider.with_runner(runner.clone()))
@@ -2088,6 +2089,7 @@ fn run() -> Result<()> {
                 .as_ref()
                 .is_none_or(|route| !route.scoped_v1())
             && app.actions.as_ref().is_some_and(|actions| actions.watching)
+            && app.scoped_actions_v1.is_none()
             && Instant::now() >= next_actions_refresh
             && !ghtui::remote_scope_gate_v1::refuse_legacy_request(
                 &mut app,

@@ -1,6 +1,8 @@
 //! UNDECLARED child of scoped_pr_resources_v1_tests. Genuine Source7/PR13/
 //! Checks10 precede every bridge. No opaque admission/raw receipt is fabricated.
 use super::*;
+#[path = "scoped_actions_pr_origin_v2_tests.rs"]
+mod actions_resources_v2;
 #[path = "scoped_pr_check_choices_v1_tests.rs"]
 mod choices;
 #[path = "scoped_pr_checks_pending_v1_tests.rs"]

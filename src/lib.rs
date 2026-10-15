@@ -159,6 +159,10 @@ pub mod remote_repository_native_v1;
 pub mod remote_repository_v1;
 pub mod repository_stash_recovery_v1;
 pub mod scoped_actions_native_v1;
+pub mod scoped_actions_read_v2;
+#[cfg(test)]
+pub(crate) mod scoped_actions_resources_test_support_v2;
+pub mod scoped_actions_resources_v2;
 #[cfg(test)]
 pub(crate) mod scoped_actions_test_support_v1;
 pub mod scoped_actions_v1;

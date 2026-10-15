@@ -9,6 +9,7 @@ use std::sync::Arc;
 mod artifact;
 mod commands;
 pub(crate) mod scoped_read_v1;
+pub(crate) mod scoped_resources_v2;
 pub use commands::*;
 mod approvals;
 mod publication_targets;
@@ -81,6 +82,7 @@ impl ActionsView {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionsAction {
+    ScopedReadV2(crate::scoped_actions_resources_v2::ScopedActionsReadActionV2),
     View(ActionsView),
     Repository(usize),
     Scope(ActionsScope),
@@ -546,6 +548,11 @@ impl ActionsWorkspace {
     ) -> GithubResult<()> {
         use ActionsAction::*;
         match action {
+            ScopedReadV2(_) => {
+                return Err(plain_error(
+                    "This read needs its actual original-scoped Actions owner; no legacy fallback",
+                ))
+            }
             Select(index) => {
                 self.select(*index);
                 return Ok(());
