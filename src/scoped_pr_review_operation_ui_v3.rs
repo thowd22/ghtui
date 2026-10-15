@@ -179,6 +179,9 @@ pub fn form_from_source(
     cancel: &CancellationToken,
     deadline: Instant,
 ) -> Result<Form, String> {
+    if source.needs_new_v12 {
+        return Err("Inspect terminal action and explicitly choose New action first".into());
+    }
     clock(cancel, deadline).map_err(|_| "Original operation opener expired")?;
     let parent = source.intent().original().parent();
     let action = source.intent().action();

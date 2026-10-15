@@ -4,6 +4,10 @@ use comments_v2::publication::{
     self as comment_publication_v2, ui as comment_composer_v2, CommentDraftV2, CommentPreviewV2,
     CommentPublicationV2, ThreadCommentIntentV2,
 };
+use comments_v2::reactions_v3::{
+    self as reactions_v3, form as reaction_form_v3, ReactionDraftV3, ReactionPreviewV3,
+    ReactionPublicationV3, ThreadReactionIntentV3,
+};
 use publication_v1::{
     ui_v1 as composer, ScopedThreadDraftV1, ScopedThreadPreviewV1, ScopedThreadPublicationIntentV1,
     ScopedThreadPublicationV1, ThreadPublicationActionV1, ThreadPublicationStateV1,
@@ -20,10 +24,16 @@ pub enum ScopedThreadPhaseV1 {
 }
 enum WorkV1 {
     Browse,
+    HistoricalContextV5(Arc<historical_v5::HistoricalContextIntentV5>),
+    CurrentCodeV4(Arc<code_v4::ThreadCodeIntentV4>),
     CommentsV2(Arc<comments_v2::ThreadCommentsIntentV2>),
     CommentOpenV2(Arc<ThreadCommentIntentV2>),
     CommentPreviewV2(Arc<comment_composer_v2::CommentComposerRequestV2>),
     CommentConfirmV2(Arc<comment_composer_v2::CommentComposerRequestV2>),
+    ReactionsV3(Arc<reactions_v3::ThreadReactionsIntentV3>),
+    ReactionOpenV3(Arc<ThreadReactionIntentV3>),
+    ReactionPreviewV3(Arc<reaction_form_v3::ReactionComposerRequestV3>),
+    ReactionConfirmV3(Arc<reaction_form_v3::ReactionComposerRequestV3>),
     Open(Arc<ScopedThreadPublicationIntentV1>),
     Preview(Arc<composer::ThreadComposerRequestV1>),
     Confirm(Arc<composer::ThreadComposerRequestV1>),
@@ -34,41 +44,47 @@ enum WorkV1 {
         Arc<history_v1::comments_v2::PreparedCommentHistoryV2>,
         usize,
     ),
+    ReactionHistoryListV3,
+    ReactionHistoryOpenV3(
+        Arc<history_v1::reactions_v3::PreparedReactionHistoryV3>,
+        usize,
+    ),
 }
 /// Closed navigation origins, not interchangeable access capabilities. A
 /// Summary history operation never manufactures a Files/browser intent.
 pub enum ThreadOperationOriginV1 {
     Files(Arc<ThreadBrowseIntentV1>),
+    DetailV4(Arc<ThreadBrowseIntentV1>),
     Summary(Arc<history_v1::ThreadHistoryIntentV1>),
 }
 impl ThreadOperationOriginV1 {
     pub fn scope(&self) -> &Scope {
         match self {
-            Self::Files(intent) => intent.scope(),
+            Self::Files(intent) | Self::DetailV4(intent) => intent.scope(),
             Self::Summary(intent) => intent.scope(),
         }
     }
     pub(crate) fn source(&self) -> &Arc<CatalogueIntentSource> {
         match self {
-            Self::Files(intent) => &intent.source,
+            Self::Files(intent) | Self::DetailV4(intent) => &intent.source,
             Self::Summary(intent) => &intent.source,
         }
     }
     pub(crate) fn active(&self) -> &Arc<ActiveRemoteScopeV1> {
         match self {
-            Self::Files(intent) => &intent.active,
+            Self::Files(intent) | Self::DetailV4(intent) => &intent.active,
             Self::Summary(intent) => &intent.active,
         }
     }
     pub(crate) fn navigation(&self) -> &Arc<ScopedPrNavigationV1> {
         match self {
-            Self::Files(intent) => &intent.navigation,
+            Self::Files(intent) | Self::DetailV4(intent) => &intent.navigation,
             Self::Summary(intent) => &intent.navigation,
         }
     }
     fn owns(&self, app: &App) -> bool {
         match self {
-            Self::Files(intent) => intent.owns(app),
+            Self::Files(intent) | Self::DetailV4(intent) => intent.owns(app),
             Self::Summary(intent) => intent.owns(app),
         }
     }
@@ -90,7 +106,11 @@ impl std::fmt::Debug for ScopedThreadsOwnerV1 {
 impl ScopedThreadsOwnerV1 {
     fn new(intent: Arc<ThreadBrowseIntentV1>, work: WorkV1) -> Result<Arc<Self>, String> {
         Ok(Arc::new(Self {
-            intent: ThreadOperationOriginV1::Files(intent),
+            intent: if intent.files_member_v1().is_some() {
+                ThreadOperationOriginV1::Files(intent)
+            } else {
+                ThreadOperationOriginV1::DetailV4(intent)
+            },
             work,
             cancel: CancellationToken::default(),
             deadline: Instant::now()
@@ -104,10 +124,16 @@ impl ScopedThreadsOwnerV1 {
     pub fn phase(&self) -> ScopedThreadPhaseV1 {
         match self.work {
             WorkV1::Browse => ScopedThreadPhaseV1::Browse,
+            WorkV1::CurrentCodeV4(_) => ScopedThreadPhaseV1::Browse,
+            WorkV1::HistoricalContextV5(_) => ScopedThreadPhaseV1::Browse,
             WorkV1::CommentsV2(_) => ScopedThreadPhaseV1::Browse,
             WorkV1::CommentOpenV2(_) => ScopedThreadPhaseV1::Open,
             WorkV1::CommentPreviewV2(_) => ScopedThreadPhaseV1::Preview,
             WorkV1::CommentConfirmV2(_) => ScopedThreadPhaseV1::Confirm,
+            WorkV1::ReactionsV3(_) => ScopedThreadPhaseV1::Browse,
+            WorkV1::ReactionOpenV3(_) => ScopedThreadPhaseV1::Open,
+            WorkV1::ReactionPreviewV3(_) => ScopedThreadPhaseV1::Preview,
+            WorkV1::ReactionConfirmV3(_) => ScopedThreadPhaseV1::Confirm,
             WorkV1::Open(_) => ScopedThreadPhaseV1::Open,
             WorkV1::Preview(_) => ScopedThreadPhaseV1::Preview,
             WorkV1::Confirm(_) => ScopedThreadPhaseV1::Confirm,
@@ -115,6 +141,8 @@ impl ScopedThreadsOwnerV1 {
             WorkV1::HistoryOpen(..) => ScopedThreadPhaseV1::HistoryOpen,
             WorkV1::CommentHistoryListV2 => ScopedThreadPhaseV1::HistoryList,
             WorkV1::CommentHistoryOpenV2(..) => ScopedThreadPhaseV1::HistoryOpen,
+            WorkV1::ReactionHistoryListV3 => ScopedThreadPhaseV1::HistoryList,
+            WorkV1::ReactionHistoryOpenV3(..) => ScopedThreadPhaseV1::HistoryOpen,
         }
     }
     pub fn cancellation(&self) -> &CancellationToken {
@@ -138,12 +166,36 @@ impl ScopedThreadsOwnerV1 {
             _ => None,
         }
     }
+    fn reaction_request_v3(&self) -> Option<&Arc<reaction_form_v3::ReactionComposerRequestV3>> {
+        match &self.work {
+            WorkV1::ReactionPreviewV3(request) | WorkV1::ReactionConfirmV3(request) => {
+                Some(request)
+            }
+            _ => None,
+        }
+    }
+    fn reaction_panel_v3(&self) -> Option<&Arc<reactions_v3::ThreadReactionsIntentV3>> {
+        match &self.work {
+            WorkV1::ReactionsV3(intent) => Some(intent),
+            WorkV1::ReactionOpenV3(intent) => Some(&intent.prepared.intent),
+            WorkV1::ReactionPreviewV3(request) | WorkV1::ReactionConfirmV3(request) => {
+                Some(&request.intent().prepared.intent)
+            }
+            _ => None,
+        }
+    }
     fn comment_panel_v2(&self) -> Option<&Arc<comments_v2::ThreadCommentsIntentV2>> {
         match &self.work {
+            WorkV1::HistoricalContextV5(intent) => Some(&intent.selection.listed.intent),
             WorkV1::CommentsV2(intent) => Some(intent),
             WorkV1::CommentOpenV2(intent) => Some(&intent.prepared().intent),
             WorkV1::CommentPreviewV2(request) | WorkV1::CommentConfirmV2(request) => {
                 Some(&request.intent().prepared().intent)
+            }
+            WorkV1::ReactionsV3(intent) => Some(&intent.listed.intent),
+            WorkV1::ReactionOpenV3(intent) => Some(&intent.listed.intent),
+            WorkV1::ReactionPreviewV3(request) | WorkV1::ReactionConfirmV3(request) => {
+                Some(&request.intent().listed.intent)
             }
             _ => None,
         }
@@ -151,10 +203,12 @@ impl ScopedThreadsOwnerV1 {
     pub fn presentation_matches(&self, app: &App) -> bool {
         self.intent.owns(app)
             && match &self.work {
+                WorkV1::HistoricalContextV5(intent) => intent.owns(app),
+                WorkV1::CurrentCodeV4(intent) => intent.owns(app),
                 WorkV1::Browse => {
                     app.overlay == Some(Overlay::PrThreadsV1)
                         && app.scoped_threads_v1.as_ref().is_some_and(|view| {
-                            self.files_intent()
+                            self.browse_intent()
                                 .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
                                 && view.prepared.is_none()
                         })
@@ -175,6 +229,29 @@ impl ScopedThreadsOwnerV1 {
                 }
                 WorkV1::CommentOpenV2(intent) => {
                     app.overlay == Some(Overlay::PrThreadsV1) && intent.owns(app)
+                }
+                WorkV1::ReactionsV3(intent) => {
+                    app.overlay == Some(Overlay::PrThreadsV1)
+                        && intent.owns(app)
+                        && app
+                            .scoped_threads_v1
+                            .as_ref()
+                            .and_then(|view| view.comments_v2.as_ref())
+                            .and_then(|view| view.reactions_v3.as_ref())
+                            .is_some_and(|view| {
+                                Arc::ptr_eq(&view.intent, intent) && view.prepared.is_none()
+                            })
+                }
+                WorkV1::ReactionOpenV3(intent) => {
+                    app.overlay == Some(Overlay::PrThreadsV1) && intent.owns(app)
+                }
+                WorkV1::ReactionPreviewV3(request) | WorkV1::ReactionConfirmV3(request) => {
+                    app.overlay == Some(Overlay::Form)
+                        && request.intent().owns(app)
+                        && app
+                            .form
+                            .as_ref()
+                            .is_some_and(|form| request.matches_form(form))
                 }
                 WorkV1::CommentPreviewV2(request) | WorkV1::CommentConfirmV2(request) => {
                     app.overlay == Some(Overlay::Form)
@@ -238,12 +315,48 @@ impl ScopedThreadsOwnerV1 {
                                         .is_some_and(|current| Arc::ptr_eq(current, list))
                             })
                 }
+                WorkV1::ReactionHistoryListV3 => {
+                    app.overlay == Some(Overlay::PrThreadHistoryV1)
+                        && app
+                            .scoped_thread_history_v1
+                            .as_ref()
+                            .and_then(|view| view.reaction_history_v3.as_ref())
+                            .is_some_and(|view| {
+                                self.history_intent()
+                                    .is_some_and(|intent| Arc::ptr_eq(intent, &view.intent))
+                                    && view.listed.is_none()
+                                    && view.opened.is_none()
+                            })
+                }
+                WorkV1::ReactionHistoryOpenV3(list, index) => {
+                    app.overlay == Some(Overlay::PrThreadHistoryV1)
+                        && app
+                            .scoped_thread_history_v1
+                            .as_ref()
+                            .and_then(|view| view.reaction_history_v3.as_ref())
+                            .is_some_and(|view| {
+                                view.selected == *index
+                                    && view.opened.is_none()
+                                    && view
+                                        .listed
+                                        .as_ref()
+                                        .is_some_and(|current| Arc::ptr_eq(current, list))
+                            })
+                }
             }
     }
     pub(crate) fn files_intent(&self) -> Option<&Arc<ThreadBrowseIntentV1>> {
         match &self.intent {
             ThreadOperationOriginV1::Files(intent) => Some(intent),
             _ => None,
+        }
+    }
+    pub(crate) fn browse_intent(&self) -> Option<&Arc<ThreadBrowseIntentV1>> {
+        match &self.intent {
+            ThreadOperationOriginV1::Files(intent) | ThreadOperationOriginV1::DetailV4(intent) => {
+                Some(intent)
+            }
+            ThreadOperationOriginV1::Summary(_) => None,
         }
     }
     pub(crate) fn history_intent(&self) -> Option<&Arc<history_v1::ThreadHistoryIntentV1>> {
@@ -283,9 +396,12 @@ impl ScopedThreadsOwnerV1 {
                     || self
                         .comment_request_v2()
                         .is_some_and(|request| request.owns_presentation(form))
+                    || self
+                        .reaction_request_v3()
+                        .is_some_and(|request| request.owns_presentation(form))
             })
             && app.scoped_threads_v1.as_ref().is_none_or(|view| {
-                self.files_intent()
+                self.browse_intent()
                     .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
             })
     }
@@ -294,6 +410,9 @@ impl ScopedThreadsOwnerV1 {
             request.retire_busy_presentation(form);
         }
         if let (Some(request), Some(form)) = (self.comment_request_v2(), &mut app.form) {
+            request.retire_busy_presentation(form);
+        }
+        if let (Some(request), Some(form)) = (self.reaction_request_v3(), &mut app.form) {
             request.retire_busy_presentation(form);
         }
     }
@@ -324,23 +443,49 @@ pub(crate) fn actual_worker_panic_for_test(
         .actual_worker_panic = true;
     original
 }
+#[cfg(test)]
+pub(crate) fn after_historical_preparation_for_test(
+    mut owner: Arc<ScopedThreadsOwnerV1>,
+    observer: Arc<dyn Fn() + Send + Sync>,
+) -> Arc<ScopedThreadsOwnerV1> {
+    let owner_mut = Arc::get_mut(&mut owner)
+        .expect("Actual historical owner must be uniquely held before queue");
+    let WorkV1::HistoricalContextV5(intent) = &mut owner_mut.work else {
+        panic!("Actual historical purpose required");
+    };
+    Arc::get_mut(intent)
+        .expect("Actual historical intent must be unique before queue")
+        .after_preparation_test = Some(observer);
+    owner
+}
 pub fn newer_intent(app: &App) -> bool {
     crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::newer_intent(app)||app.scoped_threads_work_v1.is_some()||app.scoped_threads_cancel_v1
 }
 pub fn open(app: &mut App) {
+    open_origin_v4(app, false);
+}
+pub fn open_detail_v4(app: &mut App) {
+    open_origin_v4(app, true);
+}
+fn open_origin_v4(app: &mut App, detail: bool) {
     if app.loading[View::Inbox.index()]
         || app.scoped_threads_owner_v1.is_some()
         || app.scoped_threads_work_v1.is_some()
+        || newer_intent(app)
     {
         app.status = "Thread operation busy • Esc cancels original operation".into();
         return;
     }
-    match ThreadBrowseIntentV1::capture(app)
-        .and_then(|intent| ScopedThreadsOwnerV1::new(intent, WorkV1::Browse))
+    match (if detail {
+        ThreadBrowseIntentV1::capture_detail_v4(app)
+    } else {
+        ThreadBrowseIntentV1::capture(app)
+    })
+    .and_then(|intent| ScopedThreadsOwnerV1::new(intent, WorkV1::Browse))
     {
         Ok(owner) => {
             app.scoped_threads_v1 = Some(ui_v1::ThreadBrowserV1::pending(
-                owner.files_intent().expect("Files browse owner").clone(),
+                owner.browse_intent().expect("Files browse owner").clone(),
             ));
             app.overlay = Some(Overlay::PrThreadsV1);
             app.scoped_threads_work_v1 = Some(owner);
@@ -393,6 +538,126 @@ pub fn open_comments_v2(app: &mut App) {
         Err(reason) => app.status = reason,
     }
 }
+pub fn open_current_code_v4(app: &mut App) {
+    if app.loading[View::Inbox.index()]
+        || app.scoped_threads_owner_v1.is_some()
+        || newer_intent(app)
+    {
+        return;
+    }
+    match code_v4::ThreadCodeIntentV4::capture(app).and_then(|intent| {
+        ScopedThreadsOwnerV1::new(intent.original().clone(), WorkV1::CurrentCodeV4(intent))
+    }) {
+        Ok(owner) => {
+            app.scoped_threads_work_v1 = Some(owner);
+            app.hits.clear();
+        }
+        Err(reason) => {
+            if let Some(view) = &mut app.scoped_threads_v1 {
+                view.code_notice_v4 = Some(reason.clone());
+            }
+            app.status = reason;
+        }
+    }
+}
+pub(crate) fn open_historical_v5(
+    app: &mut App,
+    role: crate::providers::gh::HistoricalCommitRoleV5,
+) {
+    if newer_intent(app)
+        || app.loading[View::Inbox.index()]
+        || app.scoped_threads_owner_v1.is_some()
+    {
+        return;
+    }
+    let intent = match historical_v5::HistoricalContextIntentV5::capture(app, role) {
+        Ok(intent) => intent,
+        Err(reason) => {
+            app.status = reason;
+            return;
+        }
+    };
+    let owner = match ScopedThreadsOwnerV1::new(
+        intent.original().clone(),
+        WorkV1::HistoricalContextV5(intent.clone()),
+    ) {
+        Ok(owner) => owner,
+        Err(reason) => {
+            app.status = reason;
+            return;
+        }
+    };
+    if let Some(view) = app
+        .scoped_threads_v1
+        .as_mut()
+        .and_then(|view| view.comments_v2.as_mut())
+        .and_then(|view| view.historical_v5.as_mut())
+    {
+        view.role = Some(role);
+        view.prepared = None;
+        view.message =
+            "Loading exact historical commit/tree/blob • original clock retained • Back cancels";
+    }
+    if owner.presentation_matches(app) && !newer_intent(app) {
+        app.scoped_threads_work_v1 = Some(owner);
+        app.hits.clear();
+    }
+}
+pub(crate) fn close_historical_v5(
+    app: &mut App,
+    selection: &Arc<historical_v5::HistoricalSelectionV5>,
+) {
+    let owns_hits = app.overlay == Some(Overlay::PrThreadsV1) && selection.original().owns(app);
+    if app.scoped_threads_work_v1.as_ref().is_some_and(|owner| matches!(&owner.work,WorkV1::HistoricalContextV5(intent)if Arc::ptr_eq(&intent.selection,selection))) {
+        if let Some(work)=app.scoped_threads_work_v1.take(){work.cancel.cancel();}
+    }
+    if let Some(owner)=app.scoped_threads_owner_v1.as_ref().filter(|owner| matches!(&owner.work,WorkV1::HistoricalContextV5(intent)if Arc::ptr_eq(&intent.selection,selection))) {
+        owner.cancel.cancel();
+    }
+    if let Some(view) = app
+        .scoped_threads_v1
+        .as_mut()
+        .and_then(|view| view.comments_v2.as_mut())
+    {
+        if view
+            .historical_v5
+            .as_ref()
+            .is_some_and(|child| Arc::ptr_eq(&child.selection, selection))
+        {
+            view.historical_v5 = None;
+        }
+    }
+    if owns_hits {
+        app.hits.clear();
+    }
+}
+impl ScopedThreadsOwnerV1 {
+    /// Only this nested read is obsolete; never clear its parent comments,
+    /// a newer form/source or a replacement Background slot/status/loading.
+    pub(crate) fn retire_nested_historical_v5(&self, app: &mut App) -> bool {
+        let WorkV1::HistoricalContextV5(intent) = &self.work else {
+            return false;
+        };
+        let owns_hits = app.overlay == Some(Overlay::PrThreadsV1) && self.intent.owns(app);
+        if let Some(view) = app
+            .scoped_threads_v1
+            .as_mut()
+            .and_then(|view| view.comments_v2.as_mut())
+        {
+            if view
+                .historical_v5
+                .as_ref()
+                .is_some_and(|child| Arc::ptr_eq(&child.selection, &intent.selection))
+            {
+                view.historical_v5 = None;
+                if owns_hits {
+                    app.hits.clear();
+                }
+            }
+        }
+        true
+    }
+}
 pub fn close_comments_v2(app: &mut App) {
     let Some(intent) = app
         .scoped_threads_v1
@@ -423,6 +688,93 @@ pub fn close_comments_v2(app: &mut App) {
         view.hits.clear();
     }
     app.hits.clear();
+}
+pub fn open_reactions_v3(app: &mut App) {
+    if app.loading[View::Inbox.index()]
+        || app.scoped_threads_owner_v1.is_some()
+        || app.scoped_threads_work_v1.is_some()
+    {
+        return;
+    }
+    match reactions_v3::ThreadReactionsIntentV3::capture(app).and_then(|intent| {
+        ScopedThreadsOwnerV1::new(intent.original().clone(), WorkV1::ReactionsV3(intent))
+    }) {
+        Ok(owner) => {
+            let WorkV1::ReactionsV3(intent) = &owner.work else {
+                unreachable!("closed reaction browse")
+            };
+            if let Some(view) = app
+                .scoped_threads_v1
+                .as_mut()
+                .and_then(|view| view.comments_v2.as_mut())
+            {
+                view.reactions_v3 = Some(reactions_v3::ui::ThreadReactionsBrowserV3::pending(
+                    intent.clone(),
+                ));
+            }
+            app.scoped_threads_work_v1 = Some(owner);
+            app.hits.clear();
+        }
+        Err(reason) => app.status = reason,
+    }
+}
+pub fn close_reactions_v3(app: &mut App) {
+    let Some(intent) = app
+        .scoped_threads_v1
+        .as_ref()
+        .and_then(|view| view.comments_v2.as_ref())
+        .and_then(|view| view.reactions_v3.as_ref())
+        .map(|view| view.intent.clone())
+    else {
+        return;
+    };
+    if app.scoped_threads_work_v1.as_ref().is_some_and(|owner| {
+        owner
+            .reaction_panel_v3()
+            .is_some_and(|old| Arc::ptr_eq(old, &intent))
+    }) {
+        if let Some(owner) = app.scoped_threads_work_v1.take() {
+            owner.cancel.cancel();
+        }
+    }
+    if app.scoped_threads_owner_v1.as_ref().is_some_and(|owner| {
+        owner
+            .reaction_panel_v3()
+            .is_some_and(|old| Arc::ptr_eq(old, &intent))
+    }) {
+        app.scoped_threads_cancel_v1 = true;
+    }
+    if let Some(view) = app
+        .scoped_threads_v1
+        .as_mut()
+        .and_then(|view| view.comments_v2.as_mut())
+    {
+        view.reactions_v3 = None;
+    }
+    app.hits.clear();
+}
+pub(crate) fn open_reaction_publication_v3(
+    app: &mut App,
+    action: crate::pr_write_journal::thread_reaction_history_v3::ReactionActionV3,
+) {
+    if app.loading[View::Inbox.index()]
+        || app.scoped_threads_owner_v1.is_some()
+        || app.scoped_threads_work_v1.is_some()
+    {
+        return;
+    }
+    match ThreadReactionIntentV3::capture(app, action).and_then(|intent| {
+        ScopedThreadsOwnerV1::new(intent.original().clone(), WorkV1::ReactionOpenV3(intent))
+    }) {
+        Ok(owner) => {
+            app.scoped_threads_work_v1 = Some(owner);
+            app.status =
+                "Opening exact no-body reaction intent • fresh numeric account/capability required"
+                    .into();
+            app.hits.clear();
+        }
+        Err(reason) => app.status = reason,
+    }
 }
 pub(crate) fn open_comment_publication_v2(
     app: &mut App,
@@ -615,6 +967,100 @@ pub fn close_comment_history_v2(app: &mut App) {
     }
     app.hits.clear();
 }
+pub fn open_reaction_history_v3(app: &mut App) {
+    if app.loading[View::Inbox.index()]
+        || app.scoped_threads_owner_v1.is_some()
+        || app.scoped_threads_work_v1.is_some()
+    {
+        return;
+    }
+    let Some(intent) = app
+        .scoped_thread_history_v1
+        .as_ref()
+        .filter(|view| view.intent.owns(app) && app.overlay == Some(Overlay::PrThreadHistoryV1))
+        .map(|view| view.intent.clone())
+    else {
+        return;
+    };
+    if let Ok(owner) =
+        ScopedThreadsOwnerV1::new_history(intent.clone(), WorkV1::ReactionHistoryListV3)
+    {
+        if let Some(view) = &mut app.scoped_thread_history_v1 {
+            view.reaction_history_v3 =
+                Some(history_v1::reactions_v3::ui::ReactionHistoryBrowserV3::pending(intent));
+        }
+        app.scoped_threads_work_v1 = Some(owner);
+        app.hits.clear();
+    }
+}
+pub fn refresh_reaction_history_v3(app: &mut App) {
+    open_reaction_history_v3(app);
+}
+pub fn open_reaction_history_record_v3(app: &mut App) {
+    if app.loading[View::Inbox.index()]
+        || app.scoped_threads_owner_v1.is_some()
+        || app.scoped_threads_work_v1.is_some()
+    {
+        return;
+    }
+    let Some(view) = app
+        .scoped_thread_history_v1
+        .as_ref()
+        .and_then(|view| view.reaction_history_v3.as_ref())
+        .filter(|view| {
+            view.intent.owns(app)
+                && view.opened.is_none()
+                && app.overlay == Some(Overlay::PrThreadHistoryV1)
+        })
+    else {
+        return;
+    };
+    let Some(list) = view
+        .listed
+        .as_ref()
+        .filter(|list| view.selected < list.labels.len())
+    else {
+        return;
+    };
+    if let Ok(owner) = ScopedThreadsOwnerV1::new_history(
+        view.intent.clone(),
+        WorkV1::ReactionHistoryOpenV3(list.clone(), view.selected),
+    ) {
+        app.scoped_threads_work_v1 = Some(owner);
+        app.hits.clear();
+    }
+}
+pub fn close_reaction_history_v3(app: &mut App) {
+    let Some(intent) = app
+        .scoped_thread_history_v1
+        .as_ref()
+        .and_then(|view| view.reaction_history_v3.as_ref())
+        .map(|view| view.intent.clone())
+    else {
+        return;
+    };
+    let matches = |owner: &Arc<ScopedThreadsOwnerV1>| {
+        matches!(
+            &owner.work,
+            WorkV1::ReactionHistoryListV3 | WorkV1::ReactionHistoryOpenV3(..)
+        ) && owner
+            .history_intent()
+            .is_some_and(|old| Arc::ptr_eq(old, &intent))
+    };
+    if app.scoped_threads_work_v1.as_ref().is_some_and(matches) {
+        if let Some(owner) = app.scoped_threads_work_v1.take() {
+            owner.cancel.cancel();
+        }
+    }
+    if app.scoped_threads_owner_v1.as_ref().is_some_and(matches) {
+        app.scoped_threads_cancel_v1 = true;
+    }
+    if let Some(view) = &mut app.scoped_thread_history_v1 {
+        view.reaction_history_v3 = None;
+        view.hits.clear();
+    }
+    app.hits.clear();
+}
 /// Foreground metadata only. The same original client/database is forwarded
 /// to the existing worker; no queue wait, SQL, body replay or new authority.
 pub fn capture_form_with_drafts(
@@ -628,6 +1074,15 @@ fn capture_form_with_original_drafts(
     app: &mut App,
     original_drafts: Option<(&Path, &crate::drafts::DraftClient)>,
 ) {
+    if app.form.as_ref().is_some_and(|form| {
+        matches!(
+            form.purpose,
+            crate::forms::FormPurpose::PrThreadReactionV3(_)
+        )
+    }) {
+        capture_reaction_form_v3(app, original_drafts);
+        return;
+    }
     if app.form.as_ref().is_some_and(|form| {
         matches!(
             form.purpose,
@@ -802,6 +1257,87 @@ fn capture_comment_form_v2(
         app.scoped_threads_work_v1 = Some(owner);
     }
 }
+fn capture_reaction_form_v3(
+    app: &mut App,
+    original_drafts: Option<(&Path, &crate::drafts::DraftClient)>,
+) {
+    if app.scoped_threads_work_v1.is_some() || app.scoped_threads_owner_v1.is_some() {
+        return;
+    }
+    let Some(form) = app.form.as_mut().filter(|form| {
+        matches!(
+            form.purpose,
+            crate::forms::FormPurpose::PrThreadReactionV3(_)
+        )
+    }) else {
+        return;
+    };
+    if form.submitting || (!form.preview_requested && !form.submit_requested) {
+        return;
+    }
+    let confirm = form.submit_requested;
+    form.preview_requested = false;
+    form.submit_requested = false;
+    let captured = if confirm {
+        reaction_form_v3::confirmed_preview(form).and_then(|_| reaction_form_v3::request(form))
+    } else {
+        reaction_form_v3::request(form)
+    };
+    let request = match captured {
+        Ok(request) => request,
+        Err(reason) => {
+            form.error = reason;
+            form.invalidate_plan();
+            return;
+        }
+    };
+    let key = request.draft_key().to_owned();
+    let scope = request.intent().scope().clone();
+    let original = request.intent().original().clone();
+    let owner = match ScopedThreadsOwnerV1::new(
+        original,
+        if confirm {
+            WorkV1::ReactionConfirmV3(request)
+        } else {
+            WorkV1::ReactionPreviewV3(request)
+        },
+    ) {
+        Ok(owner) => owner,
+        Err(reason) => {
+            form.error = reason;
+            return;
+        }
+    };
+    if confirm {
+        let Some((database, drafts)) = original_drafts else {
+            form.error = "Exact original bounded writer required • nothing queued".into();
+            return;
+        };
+        let fence = match drafts.capture_publication_v2(
+            database,
+            &scope,
+            &key,
+            owner.cancellation(),
+            owner.deadline(),
+        ) {
+            Ok(fence) => fence,
+            Err(_) => {
+                form.error =
+                    "Original reaction autosave revision unavailable/superseded • nothing queued"
+                        .into();
+                return;
+            }
+        };
+        let Ok(mut publication) = owner.publication.lock() else {
+            form.error = "Original reaction publication capture unavailable".into();
+            return;
+        };
+        *publication = Some(fence);
+    }
+    if owner.presentation_matches(app) && !newer_intent(app) {
+        app.scoped_threads_work_v1 = Some(owner);
+    }
+}
 pub fn close(app: &mut App) {
     if let Some(work) = app.scoped_threads_work_v1.take() {
         work.cancel.cancel();
@@ -820,6 +1356,7 @@ pub fn close(app: &mut App) {
     app.hits.clear();
 }
 pub fn retire_private(app: &mut App) {
+    app.scoped_thread_code_return_v4 = None;
     if let Some(owner) = app.scoped_threads_work_v1.take() {
         owner.cancel.cancel();
     }
@@ -834,6 +1371,7 @@ pub fn retire_private(app: &mut App) {
             form.purpose,
             crate::forms::FormPurpose::PrThread(_)
                 | crate::forms::FormPurpose::PrThreadCommentV2(_)
+                | crate::forms::FormPurpose::PrThreadReactionV3(_)
         )
     }) {
         app.form = None;
@@ -851,15 +1389,25 @@ pub fn retire_private(app: &mut App) {
 }
 enum ResultV1 {
     Browser(Result<Arc<PreparedThreadsV1>, ThreadBrowseFailureV1>),
+    HistoricalContextV5(
+        Result<Arc<historical_v5::ClosedThreadHistoricalContextV5>, ThreadBrowseFailureV1>,
+    ),
+    CurrentCodeV4(Result<code_v4::PreparedThreadCodeV4, ThreadBrowseFailureV1>),
     CommentsV2(Result<Arc<comments_v2::PreparedThreadCommentsV2>, ThreadBrowseFailureV1>),
     CommentPreviewV2(Arc<CommentPreviewV2>),
     CommentPublishedV2(CommentPublicationV2),
+    ReactionsV3(Result<Arc<reactions_v3::PreparedThreadReactionsV3>, ThreadBrowseFailureV1>),
+    ReactionPreviewV3(Arc<ReactionPreviewV3>),
+    ReactionPublishedV3(ReactionPublicationV3),
     Opened(Box<crate::forms::Form>),
     Preview(Arc<ScopedThreadPreviewV1>),
     Published(ScopedThreadPublicationV1),
     History(Result<Arc<history_v1::PreparedThreadHistoryV1>, ThreadBrowseFailureV1>),
     CommentHistoryV2(
         Result<Arc<history_v1::comments_v2::PreparedCommentHistoryV2>, ThreadBrowseFailureV1>,
+    ),
+    ReactionHistoryV3(
+        Result<Arc<history_v1::reactions_v3::PreparedReactionHistoryV3>, ThreadBrowseFailureV1>,
     ),
     Failed {
         hide_private: bool,
@@ -874,8 +1422,20 @@ impl PreparedScopedThreadsV1 {
     pub fn matches(&self, owner: &Arc<ScopedThreadsOwnerV1>) -> bool {
         Arc::ptr_eq(&self.owner, owner)
             && match (&owner.work, &self.result) {
+                (
+                    WorkV1::HistoricalContextV5(intent),
+                    ResultV1::HistoricalContextV5(Ok(result)),
+                ) => Arc::ptr_eq(intent, result.intent()),
+                (WorkV1::HistoricalContextV5(_), ResultV1::HistoricalContextV5(Err(_))) => true,
+                (WorkV1::CurrentCodeV4(intent), ResultV1::CurrentCodeV4(Ok(result))) => {
+                    Arc::ptr_eq(intent, &result.intent)
+                        && owner
+                            .files_intent()
+                            .is_some_and(|original| Arc::ptr_eq(original, intent.original()))
+                }
+                (WorkV1::CurrentCodeV4(_), ResultV1::CurrentCodeV4(Err(_))) => true,
                 (WorkV1::Browse, ResultV1::Browser(Ok(result))) => owner
-                    .files_intent()
+                    .browse_intent()
                     .is_some_and(|intent| Arc::ptr_eq(&result.intent, intent)),
                 (WorkV1::Browse, ResultV1::Browser(Err(_))) => true,
                 (WorkV1::CommentsV2(intent), ResultV1::CommentsV2(Ok(result))) => {
@@ -891,6 +1451,17 @@ impl PreparedScopedThreadsV1 {
                         && request.draft_key() == preview.draft_key()
                 }
                 (WorkV1::CommentConfirmV2(_), ResultV1::CommentPublishedV2(_)) => true,
+                (WorkV1::ReactionsV3(intent), ResultV1::ReactionsV3(Ok(result))) => {
+                    Arc::ptr_eq(intent, &result.intent)
+                }
+                (WorkV1::ReactionsV3(_), ResultV1::ReactionsV3(Err(_))) => true,
+                (WorkV1::ReactionOpenV3(intent), ResultV1::Opened(form)) => {
+                    matches!(&form.purpose,crate::forms::FormPurpose::PrThreadReactionV3(state)if Arc::ptr_eq(state.intent(),intent))
+                }
+                (WorkV1::ReactionPreviewV3(request), ResultV1::ReactionPreviewV3(preview)) => {
+                    Arc::ptr_eq(request.intent(), preview.intent()) && preview.body().is_empty()
+                }
+                (WorkV1::ReactionConfirmV3(_), ResultV1::ReactionPublishedV3(_)) => true,
                 (WorkV1::Open(intent), ResultV1::Opened(form)) => {
                     matches!(&form.purpose,crate::forms::FormPurpose::PrThread(state)if Arc::ptr_eq(state.intent(),intent))
                 }
@@ -931,6 +1502,25 @@ impl PreparedScopedThreadsV1 {
                     WorkV1::CommentHistoryListV2 | WorkV1::CommentHistoryOpenV2(..),
                     ResultV1::CommentHistoryV2(Err(_)),
                 ) => true,
+                (WorkV1::ReactionHistoryListV3, ResultV1::ReactionHistoryV3(Ok(result))) => {
+                    owner
+                        .history_intent()
+                        .is_some_and(|intent| Arc::ptr_eq(intent, &result.intent))
+                        && result.opened.is_none()
+                }
+                (
+                    WorkV1::ReactionHistoryOpenV3(_, index),
+                    ResultV1::ReactionHistoryV3(Ok(result)),
+                ) => {
+                    owner
+                        .history_intent()
+                        .is_some_and(|intent| Arc::ptr_eq(intent, &result.intent))
+                        && result.opened == Some(*index)
+                }
+                (
+                    WorkV1::ReactionHistoryListV3 | WorkV1::ReactionHistoryOpenV3(..),
+                    ResultV1::ReactionHistoryV3(Err(_)),
+                ) => true,
                 _ => false,
             }
     }
@@ -959,8 +1549,23 @@ pub fn execute_with_drafts(
         panic!("Intentional actual original thread worker panic");
     }
     let result=match &owner.work{
-        WorkV1::Browse=>ResultV1::Browser(load(owner.files_intent().expect("Closed Files browse work").clone(),provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::HistoricalContextV5(intent)=>ResultV1::HistoricalContextV5(historical_v5::load(intent.clone(),provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::CurrentCodeV4(intent)=>ResultV1::CurrentCodeV4(code_v4::load(intent.clone(),provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::Browse=>ResultV1::Browser(load(owner.browse_intent().expect("Closed Files browse work").clone(),provider,database,&owner.cancel,owner.deadline)),
         WorkV1::CommentsV2(intent)=>ResultV1::CommentsV2(comments_v2::load(intent.clone(),provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::ReactionsV3(intent)=>ResultV1::ReactionsV3(reactions_v3::load(intent.clone(),provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::ReactionOpenV3(intent)=>match ReactionDraftV3::open(intent.clone(),provider,database,&owner.cancel,owner.deadline){
+            Ok(draft)=>match reaction_form_v3::form_from_draft(draft){Ok(form)=>ResultV1::Opened(Box::new(form)),Err(message)=>ResultV1::Failed{hide_private:false,message}},
+            Err(error)=>ResultV1::Failed{hide_private:error.hide_private,message:error.message().into()},
+        },
+        WorkV1::ReactionPreviewV3(request)=>match ReactionPreviewV3::prepare(request.intent().clone(),Arc::from(""),provider,database,&owner.cancel,owner.deadline){
+            Ok(preview)=>ResultV1::ReactionPreviewV3(preview),Err(error)=>ResultV1::Failed{hide_private:error.hide_private,message:error.message().into()},
+        },
+        WorkV1::ReactionConfirmV3(request)=>match(request.preview(),drafts,owner.publication.lock().ok().and_then(|mut publication|publication.take())){
+            (Some(preview),Some(drafts),Some(publication))=>match preview.execute(provider,database,drafts,publication,true,None,&owner.cancel,owner.deadline){
+                Ok(result)=>ResultV1::ReactionPublishedV3(result),Err(error)=>ResultV1::Failed{hide_private:error.hide_private,message:error.message().into()},
+            },_=>ResultV1::Failed{hide_private:false,message:"Fresh reaction Preview/original bounded writer required • nothing invoked".into()},
+        },
         WorkV1::CommentOpenV2(intent)=>match CommentDraftV2::open(intent.clone(),provider,database,&owner.cancel,owner.deadline){
             Ok(draft)=>match comment_composer_v2::form_from_draft(draft){Ok(form)=>ResultV1::Opened(Box::new(form)),Err(message)=>ResultV1::Failed{hide_private:false,message}},
             Err(error)=>ResultV1::Failed{hide_private:error.hide_private,message:error.message().into()},
@@ -977,6 +1582,8 @@ pub fn execute_with_drafts(
         WorkV1::HistoryOpen(old,index)=>ResultV1::History(history_v1::load_history(owner.history_intent().expect("Closed Summary history work").clone(),Some((old,*index)),provider,database,&owner.cancel,owner.deadline)),
         WorkV1::CommentHistoryListV2=>ResultV1::CommentHistoryV2(history_v1::comments_v2::load(owner.history_intent().expect("Closed Summary comment history work").clone(),None,provider,database,&owner.cancel,owner.deadline)),
         WorkV1::CommentHistoryOpenV2(old,index)=>ResultV1::CommentHistoryV2(history_v1::comments_v2::load(owner.history_intent().expect("Closed Summary comment history work").clone(),Some((old,*index)),provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::ReactionHistoryListV3=>ResultV1::ReactionHistoryV3(history_v1::reactions_v3::load(owner.history_intent().expect("Closed Summary reaction history").clone(),None,provider,database,&owner.cancel,owner.deadline)),
+        WorkV1::ReactionHistoryOpenV3(old,index)=>ResultV1::ReactionHistoryV3(history_v1::reactions_v3::load(owner.history_intent().expect("Closed Summary reaction history").clone(),Some((old,*index)),provider,database,&owner.cancel,owner.deadline)),
         WorkV1::Open(intent)=>match ScopedThreadDraftV1::open(intent.clone(),provider,database,&owner.cancel,owner.deadline){
             Ok(draft)=>match composer::form_from_draft(draft){Ok(form)=>ResultV1::Opened(Box::new(form)),Err(message)=>ResultV1::Failed{hide_private:false,message}},
             Err(error)=>failed(error),
@@ -993,9 +1600,13 @@ pub fn needs_private_retirement(result: &PreparedScopedThreadsV1) -> bool {
     matches!(
         result.result,
         ResultV1::Browser(Err(ThreadBrowseFailureV1::Source))
+            | ResultV1::HistoricalContextV5(Err(ThreadBrowseFailureV1::Source))
+            | ResultV1::CurrentCodeV4(Err(ThreadBrowseFailureV1::Source))
             | ResultV1::CommentsV2(Err(ThreadBrowseFailureV1::Source))
+            | ResultV1::ReactionsV3(Err(ThreadBrowseFailureV1::Source))
             | ResultV1::History(Err(ThreadBrowseFailureV1::Source))
             | ResultV1::CommentHistoryV2(Err(ThreadBrowseFailureV1::Source))
+            | ResultV1::ReactionHistoryV3(Err(ThreadBrowseFailureV1::Source))
             | ResultV1::Failed {
                 hide_private: true,
                 ..
@@ -1009,6 +1620,115 @@ pub fn publish(
     result: PreparedScopedThreadsV1,
 ) {
     match result.result {
+        ResultV1::ReactionHistoryV3(Ok(prepared)) => {
+            if let Some(view) = app
+                .scoped_thread_history_v1
+                .as_mut()
+                .and_then(|view| view.reaction_history_v3.as_mut())
+            {
+                if prepared.opened.is_some() {
+                    view.opened = Some(prepared);
+                } else {
+                    view.listed = Some(prepared);
+                    view.opened = None;
+                }
+                view.scroll = 0;
+                view.column = 0;
+                view.message =
+                    "Exact protected reaction history • inspect only • no restore/resend/approval";
+            }
+            app.status="Fresh Summary reaction history observation ready • historical target/existence remains unknown".into();
+        }
+        ResultV1::ReactionHistoryV3(Err(ThreadBrowseFailureV1::Source)) => {
+            unreachable!("Source refusal retires before private return")
+        }
+        ResultV1::ReactionHistoryV3(Err(ThreadBrowseFailureV1::Display)) => {
+            app.status =
+                "Reaction history display exceeds bounded metadata • no private detail admitted"
+                    .into();
+        }
+        ResultV1::ReactionsV3(Ok(prepared)) => {
+            if let Some(view) = app
+                .scoped_threads_v1
+                .as_mut()
+                .and_then(|view| view.comments_v2.as_mut())
+                .and_then(|view| view.reactions_v3.as_mut())
+            {
+                view.prepared = Some(prepared);
+                view.message =
+                    "Actual reaction actors observed • fresh Preview required for any write";
+            }
+            app.status="Reaction actor observation ready • numeric ownership distinct from names • no write invoked".into();
+        }
+        ResultV1::ReactionsV3(Err(ThreadBrowseFailureV1::Source)) => {
+            unreachable!("Source refusal retires before any private publication")
+        }
+        ResultV1::ReactionsV3(Err(ThreadBrowseFailureV1::Display)) => {
+            app.status =
+                "Reaction display exceeds bounded prepared metadata • nothing published".into();
+        }
+        ResultV1::ReactionPreviewV3(preview) => {
+            if let (Some(request), Some(form)) = (owner.reaction_request_v3(), &mut app.form) {
+                if !reaction_form_v3::accept_preview(form, request, preview) {
+                    form.invalidate_plan();
+                    form.error = "Reaction Preview presentation refused • intent retained".into();
+                }
+                form.submitting = false;
+            }
+            app.status =
+                "Fresh exact reaction Preview ready • explicit Confirm required • nothing invoked"
+                    .into();
+        }
+        ResultV1::ReactionPublishedV3(result) => {
+            let state = result.state();
+            let id = result.confirmed_reaction_id();
+            let existed = result.already_existed();
+            fail(app, background);
+            app.status=match state{
+                reactions_v3::ReactionPublicationStateV3::ConfirmedObserved=>format!("{} #{}; original private view retired—refresh explicitly. No discussion-text body fence.",match existed{Some(true)=>"Existing reaction observed (HTTP200)",Some(false)=>"Reaction creation observed (HTTP201)",None=>"Reaction removal observed"},id.unwrap_or(0)),
+                reactions_v3::ReactionPublicationStateV3::NotStarted=>"Reaction write not started • protected record retained • unknown draft ACK may have persisted • inspect without resend".into(),
+                reactions_v3::ReactionPublicationStateV3::Uncertain=>"Reaction outcome unknown • protected reference retained • nothing resent • refresh explicitly".into(),
+                reactions_v3::ReactionPublicationStateV3::ConfirmedButJournalFailed=>"Reaction effect observed; durable confirmation unavailable • protection retained • refresh explicitly".into(),
+                reactions_v3::ReactionPublicationStateV3::ConfirmedButVisibilityUnavailable=>"Reaction effect observed; current visibility unavailable • private views hidden • refresh explicitly".into(),
+            };
+        }
+        ResultV1::HistoricalContextV5(Ok(prepared)) => {
+            if let Some(view) = app
+                .scoped_threads_v1
+                .as_mut()
+                .and_then(|view| view.comments_v2.as_mut())
+                .and_then(|view| view.historical_v5.as_mut())
+            {
+                view.prepared = Some(prepared);
+                view.message = "Verified exact historical tree • placement UNKNOWN • Back preserves original comments";
+            }
+            app.status =
+                "Historical commit/tree path observed • no current line, range or write authority"
+                    .into();
+        }
+        ResultV1::HistoricalContextV5(Err(ThreadBrowseFailureV1::Display)) => {
+            if let Some(view) = app
+                .scoped_threads_v1
+                .as_mut()
+                .and_then(|view| view.comments_v2.as_mut())
+                .and_then(|view| view.historical_v5.as_mut())
+            {
+                view.message = "Historical display exceeds bounds • original comments retained • no line or path guessed";
+            }
+        }
+        ResultV1::HistoricalContextV5(Err(ThreadBrowseFailureV1::Source)) => {
+            unreachable!("Source failure retired before any private publication")
+        }
+        ResultV1::CurrentCodeV4(Ok(prepared)) => code_v4::publish(app, prepared),
+        ResultV1::CurrentCodeV4(Err(ThreadBrowseFailureV1::Display)) => {
+            if let Some(view) = &mut app.scoped_threads_v1 {
+                view.code_notice_v4=Some("Fresh placement changed, is historical/unknown, or its exact line is hidden. No neighbour/side/range guessed; original thread retained.".into());
+            }
+            app.status="Fresh placement changed, is historical/unknown, or its exact line is hidden from the retained Native patch. No neighbour/side/range guessed; original thread retained.".into();
+        }
+        ResultV1::CurrentCodeV4(Err(ThreadBrowseFailureV1::Source)) => {
+            unreachable!("Original source refusal retires before publication")
+        }
         ResultV1::CommentPreviewV2(preview) => {
             if let (Some(request), Some(form)) = (owner.comment_request_v2(), &mut app.form) {
                 if !comment_composer_v2::accept_preview(form, request, preview) {
@@ -1192,6 +1912,9 @@ impl ScopedThreadsOwnerV1 {
         if let Some(request) = self.comment_request_v2() {
             request.retire_busy_presentation(form);
         }
+        if let Some(request) = self.reaction_request_v3() {
+            request.retire_busy_presentation(form);
+        }
     }
 }
 pub fn fail(app: &mut App, background: &mut crate::runtime::Background) {
@@ -1226,16 +1949,20 @@ pub(crate) fn retire_orphaned_confirm_presentation(app: &mut App, owner: &Scoped
             || owner
                 .comment_request_v2()
                 .is_some_and(|request| request.owns_presentation(form))
+            || owner
+                .reaction_request_v3()
+                .is_some_and(|request| request.owns_presentation(form))
     });
     let old_browser = app.scoped_threads_v1.as_ref().is_some_and(|view| {
         owner
-            .files_intent()
+            .browse_intent()
             .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
     });
     let newer_original_form = !old_form
         && app.form.as_ref().is_some_and(|form| match &form.purpose {
             crate::forms::FormPurpose::PrThread(state) => state.intent().owns(app),
             crate::forms::FormPurpose::PrThreadCommentV2(state) => state.intent().owns(app),
+            crate::forms::FormPurpose::PrThreadReactionV3(state) => state.intent().owns(app),
             _ => false,
         });
     let exact_original = owner.intent.owns(app)
@@ -1255,22 +1982,16 @@ pub(crate) fn retire_orphaned_confirm_presentation(app: &mut App, owner: &Scoped
                     && Arc::ptr_eq(scope, owner.intent.active())
                     && Arc::ptr_eq(nav, owner.intent.navigation())
             });
-        let parent = owner
-            .files_intent()
-            .map(|intent| intent.original_view.observed.parent());
+        let parent = owner.browse_intent().map(|intent| intent.parent_key_v4());
         let old_reactions = parent.is_some_and(|parent| {
             app.pr_reactions.as_ref().is_some_and(|page| {
                 Scope::github(&page.identity.host, page.identity.account_id)
                     .ok()
                     .as_ref()
                     == Some(owner.intent.scope())
-                    && page.target.pr.id == parent.node_id()
-                    && page
-                        .target
-                        .pr
-                        .repository
-                        .eq_ignore_ascii_case(parent.repository())
-                    && page.target.pr.number == parent.number()
+                    && page.target.pr.id == parent.0
+                    && page.target.pr.repository.eq_ignore_ascii_case(parent.1)
+                    && page.target.pr.number == parent.2
             })
         });
         let old_inspection = parent.is_some_and(|parent| {
@@ -1279,11 +2000,9 @@ pub(crate) fn retire_orphaned_confirm_presentation(app: &mut App, owner: &Scoped
                     inspection.as_ref().is_some_and(|inspection| {
                         let target = inspection.target();
                         target.scope() == owner.intent.scope()
-                            && target.node_id() == parent.node_id()
-                            && target
-                                .repository()
-                                .eq_ignore_ascii_case(parent.repository())
-                            && target.number() == parent.number()
+                            && target.node_id() == parent.0
+                            && target.repository().eq_ignore_ascii_case(parent.1)
+                            && target.number() == parent.2
                     })
                 })
             })

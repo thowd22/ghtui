@@ -90,6 +90,7 @@ impl PrTab {
 pub enum GithubAction {
     ThreadHistoryV1,
     ReviewOperationHistoryV3,
+    ReviewThreadsV4,
     Filter(InboxFilter),
     Open(PrKey),
     Back,

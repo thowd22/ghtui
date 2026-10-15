@@ -185,6 +185,12 @@ impl OriginalReviewOperationMetadataV3 {
     pub(crate) fn draft_key(&self) -> &str {
         &self.draft_key
     }
+    /// Historical selection INTENT only, never a current member/capability.
+    pub(crate) fn recovery_review_v11(&self) -> Option<(u64, &str)> {
+        self.pending
+            .as_ref()
+            .map(|pending| (pending.review.id, pending.review.node.as_str()))
+    }
     pub(crate) fn history_lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!(

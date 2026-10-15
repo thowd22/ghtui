@@ -355,6 +355,9 @@ impl PrWriteJournal {
         if blocking_row(&transaction, target)?.is_some() {
             bail!("This PR has an unresolved publication. Inspect and explicitly acknowledge it before another write, including a different action or body.");
         }
+        if let Some(ObservedOriginV2::ReviewActionV12(seed)) = &origin {
+            review_action_lineage_v12::validate_begin(&transaction, &self.path, target, seed)?;
+        }
         advance(&transaction, target)?;
         let created_at = now();
         transaction.execute("INSERT INTO pr_write_attempts(host,principal,pr_node,repository,pr_number,command,selected_resource,observed_head,payload_sha256,state,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'pending',?10)",params![target.scope.host,target.scope.login,target.pr_node_id,target.repository,target.number as i64,intent.command,intent.selected_resource,intent.observed_head,digest,created_at])?;
@@ -378,11 +381,20 @@ impl PrWriteJournal {
             let encoded = bounded_encode(&record)?;
             transaction.execute("INSERT INTO pr_write_thread_origins_v1(attempt_id,repository_id,repository_node,pr_id,origin_json) VALUES(?1,?2,?3,?4,?5)", params![attempt_id,seed.repository_id as i64,seed.repository_node,seed.pr_id as i64,encoded])?;
         }
-        if let Some(ObservedOriginV2::CommentV2(seed)) = &origin {
-            thread_comment_history_v2::insert(&transaction, seed, &marker)?;
-        }
-        if let Some(ObservedOriginV2::ReviewOperationV3(seed)) = origin {
-            review_operation_history_v3::insert(&transaction, seed, &marker)?;
+        match origin {
+            Some(ObservedOriginV2::CommentV2(seed)) => {
+                thread_comment_history_v2::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::ReactionV3(seed)) => {
+                thread_reaction_history_v3::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::ReviewOperationV3(seed)) => {
+                review_operation_history_v3::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::ReviewActionV12(seed)) => {
+                review_action_lineage_v12::insert(&transaction, seed, &marker)?
+            }
+            _ => {}
         }
         // An encoding/metadata/SQL failure above drops this SAME transaction:
         // no attempt, generation, permit or POST can escape a partial begin.

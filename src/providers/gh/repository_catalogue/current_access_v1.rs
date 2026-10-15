@@ -9,6 +9,7 @@ pub use measured_reads_v1::MeasuredExternalReadWindowV1;
 #[path = "postwrite_capture_v2.rs"]
 mod postwrite_capture_v2;
 pub use postwrite_capture_v2::{PostWriteCaptureAccountingV2, PostWriteCaptureAllowanceV2};
+pub(crate) use postwrite_capture_v2::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
 
 #[path = "original_repository_access_core_v13.rs"]
 mod original_repository_access_core_v13;

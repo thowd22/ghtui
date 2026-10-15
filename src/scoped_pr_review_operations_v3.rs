@@ -341,6 +341,11 @@ pub struct ScopedReviewOperationSourceV3 {
     actors: Arc<[super::super::avatars_v7::PreparedActorV7]>,
     requester: Option<super::super::avatars_v7::PreparedActorV7>,
     display: Arc<crate::prepared_form_text_v1::PreparedFormTextV1>,
+    pub(super) lineage_v12: Option<
+        Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+    >,
+    pub(super) needs_new_v12: bool,
+    pub(crate) new_notice_v12: Option<Arc<crate::prepared_form_text_v1::PreparedFormTextV1>>,
 }
 impl std::fmt::Debug for ScopedReviewOperationSourceV3 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -362,6 +367,17 @@ impl ScopedReviewOperationSourceV3 {
     }
     pub fn restored_body(&self) -> bool {
         self.restored
+    }
+    pub(crate) fn new_action_revision_v12(
+        &self,
+    ) -> Option<
+        &Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+    > {
+        if self.needs_new_v12 {
+            self.lineage_v12.as_ref()
+        } else {
+            None
+        }
     }
     pub fn lines(&self) -> &Arc<[String]> {
         &self.lines
@@ -453,6 +469,7 @@ impl ScopedReviewOperationSourceV3 {
         Self::read_original(
             intent,
             Some(body),
+            None,
             provider,
             database,
             images,
@@ -476,13 +493,47 @@ impl ScopedReviewOperationSourceV3 {
         deadline: Instant,
     ) -> Result<Arc<Self>, ScopedReviewFailureV2> {
         Self::read_original(
-            intent, None, provider, database, images, reviews, resources, access, cancel, deadline,
+            intent, None, None, provider, database, images, reviews, resources, access, cancel,
+            deadline,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn read_lineage_v12(
+        intent: Arc<ScopedReviewOperationIntentV3>,
+        body: Option<Arc<str>>,
+        revision: &Arc<
+            crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12,
+        >,
+        provider: &GithubProvider,
+        database: &Path,
+        images: &PrImmutableFileLimitsV1,
+        reviews: &ReviewReadLimitsV2,
+        resources: &PrResourceReadLimitsV1,
+        access: &RepositoryCatalogueAccessLimits,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<Arc<Self>, ScopedReviewFailureV2> {
+        Self::read_original(
+            intent,
+            body,
+            Some(revision),
+            provider,
+            database,
+            images,
+            reviews,
+            resources,
+            access,
+            cancel,
+            deadline,
         )
     }
     #[allow(clippy::too_many_arguments)]
     fn read_original(
         intent: Arc<ScopedReviewOperationIntentV3>,
         supplied: Option<Arc<str>>,
+        explicit_v12: Option<
+            &Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+        >,
         provider: &GithubProvider,
         database: &Path,
         images: &PrImmutableFileLimitsV1,
@@ -551,12 +602,31 @@ impl ScopedReviewOperationSourceV3 {
             parent.summary(),
         )
         .map_err(source_failure)?;
-        let (body, restored) = if let Some(body) = supplied {
+        let base_v12 =
+            crate::pr_write_journal::review_action_lineage_v12::ReviewActionBaseV12::operation(
+                &intent,
+            )
+            .map_err(|_| source_failure(safe_local()))?;
+        let choice_v12 =
+            super::super::action_lineage_v12::choose(database, &base_v12, explicit_v12)
+                .map_err(|_| source_failure(safe_local()))?;
+        if supplied.is_some() && choice_v12.needs_new {
+            return Err(refused(
+                "Protected action requires explicit New action before Preview",
+            ));
+        }
+        let (body, restored) = if choice_v12.needs_new {
+            (Arc::from(""), false)
+        } else if let Some(body) = supplied {
             (body, false)
         } else {
             let saved = Cache::open(database)
                 .map_err(|_| source_failure(safe_local()))?
-                .bounded_draft(intent.original.scope(), &key, REVIEW_DRAFT_BYTES_V2)
+                .bounded_draft(
+                    intent.original.scope(),
+                    &choice_v12.key,
+                    REVIEW_DRAFT_BYTES_V2,
+                )
                 .map_err(|_| source_failure(safe_local()))?;
             match saved {
                 Some(encoded) => {
@@ -717,16 +787,40 @@ impl ScopedReviewOperationSourceV3 {
             actors: actors.into(),
             requester: None,
             display,
+            lineage_v12: choice_v12.revision,
+            needs_new_v12: choice_v12.needs_new,
+            new_notice_v12: None,
         };
         result.origin=Some(crate::pr_write_journal::review_operation_history_v3::ReviewOperationOriginSeedV3::from_source(database,&result)
             .map_err(|_|source_failure(safe_local()))?);
-        result.write = Some(
-            result
-                .origin_seed()?
-                .metadata()
-                .write(result.body())
-                .map_err(|_| refused("Actual operation fingerprint exceeds bounded target/body"))?,
-        );
+        let mut write = result
+            .origin_seed()?
+            .metadata()
+            .write(result.body())
+            .map_err(|_| refused("Actual operation fingerprint exceeds bounded target/body"))?;
+        if let Some(revision) = &result.lineage_v12 {
+            revision
+                .bind_write(&mut write)
+                .map_err(|_| refused("Original new-action revision fingerprint unavailable"))?;
+        }
+        result.write = Some(write);
+        result.key = choice_v12.key;
+        if result.needs_new_v12 {
+            result.new_notice_v12 = Some(
+                super::super::action_lineage_v12::prepare_notice(
+                    result.intent.original(),
+                    result.intent.action().label(),
+                    &result.identity,
+                    result
+                        .lineage_v12
+                        .as_ref()
+                        .ok_or_else(|| source_failure(safe_local()))?,
+                    cancel,
+                    deadline,
+                )
+                .map_err(|_| source_failure(safe_local()))?,
+            );
+        }
         measured
             .pr_inline_original_parent_v1(
                 session
@@ -746,6 +840,11 @@ impl ScopedReviewOperationSourceV3 {
                 result
                     .local
                     .validate(database, &result.intent.original.source)?;
+                if let Some(revision) = &result.lineage_v12 {
+                    revision
+                        .validate(database, &base_v12)
+                        .map_err(|_| safe_local())?;
+                }
                 private_clock(cancel, deadline)
             })
             .map_err(source_failure)?;

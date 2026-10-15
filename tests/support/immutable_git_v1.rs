@@ -228,8 +228,18 @@ impl GitImagesV1 {
         let fields = numstat.split(|byte| *byte == b'\t').collect::<Vec<_>>();
         assert_eq!(fields.len(), 3);
         assert_eq!(fields[2], [PATH.as_bytes(), b"\0"].concat());
-        let additions = std::str::from_utf8(fields[0]).unwrap().parse().unwrap();
-        let deletions = std::str::from_utf8(fields[1]).unwrap().parse().unwrap();
+        // Installed Git reports BOTH counts as '-' for a binary diff. GitHub's
+        // raw PR metadata represents those non-text changes as zero line counts.
+        // Keep every other shape strict rather than silently defaulting a bad
+        // numeric field to zero.
+        let (additions, deletions) = if fields[0] == b"-" && fields[1] == b"-" {
+            (0, 0)
+        } else {
+            (
+                std::str::from_utf8(fields[0]).unwrap().parse().unwrap(),
+                std::str::from_utf8(fields[1]).unwrap().parse().unwrap(),
+            )
+        };
         fs::write(
             repo.join("LOCAL_DIRTY_CANARY"),
             b"LOCAL_WORKTREE_UNTOUCHED\0\xff\n",

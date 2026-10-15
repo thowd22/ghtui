@@ -3,14 +3,14 @@
 //! Declarations only / UNRUN until Root executes the serialized gates.
 use super::*;
 
-type ClearSqlV5 = Vec<(String, String, Vec<Vec<rusqlite::types::Value>>)>;
+pub(super) type ClearSqlV5 = Vec<(String, String, Vec<Vec<rusqlite::types::Value>>)>;
 
 /// Read-only prediction from the BEFORE database. Never calls Clear, writes
 /// SQL, or accepts any part of the resulting database as an expected baseline.
 /// Every table/column is retained, including drafts, receipts, foreign scopes,
 /// lookup epochs and mutation tombstones which the older four-query witness
 /// did not cover.
-fn clear_sql_v5(fixture: &Fixture, scope: &Scope, predict_clear: bool) -> ClearSqlV5 {
+pub(super) fn clear_sql_v5(fixture: &Fixture, scope: &Scope, predict_clear: bool) -> ClearSqlV5 {
     let db = sql(fixture);
     let tables: Vec<(String, String)> = db
         .prepare("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -54,7 +54,7 @@ fn clear_sql_v5(fixture: &Fixture, scope: &Scope, predict_clear: bool) -> ClearS
     }).collect()
 }
 
-fn seed_clear_witnesses_v5(real: &Real, scope: &Scope) {
+pub(super) fn seed_clear_witnesses_v5(real: &Real, scope: &Scope) {
     use crate::storage::{Record, SyncBinding, SyncBindingKind, SyncNamespace};
     let foreign = Scope::github(HOST, Some(97)).unwrap();
     let mut cache = Cache::open(&database(&real.fixture)).unwrap();
@@ -141,7 +141,7 @@ fn seed_clear_witnesses_v5(real: &Real, scope: &Scope) {
     );
 }
 
-fn clear_protocol_intact_v5(real: &Real) {
+pub(super) fn clear_protocol_intact_v5(real: &Real) {
     assert_eq!(git_state_resource(&real.fixture), real.git);
     let rows: Vec<Value> = fs::read_to_string(real.fixture.root.join("gh-fixture/commands.jsonl"))
         .unwrap()

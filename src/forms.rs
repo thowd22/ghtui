@@ -4,6 +4,7 @@ use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3 as review_operation_ui_v3;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::ui_v2 as review_ui;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui as comment_ui_v2;
+use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::reactions_v3::form as reaction_ui_v3;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use crate::{
     app::{safe_text, Action, App, HitRegion},
@@ -94,6 +95,7 @@ pub struct PrActionIntent {
 pub enum FormPurpose {
     PrThread(Box<thread_ui::ThreadComposerStateV1>),
     PrThreadCommentV2(Box<comment_ui_v2::CommentComposerStateV2>),
+    PrThreadReactionV3(Box<reaction_ui_v3::ReactionComposerStateV3>),
     PrInline(Box<inline_ui::ScopedInlineComposerStateV1>),
     PrReviewV2(Box<review_ui::ReviewComposerStateV2>),
     PrReviewOperationV3(Box<review_operation_ui_v3::ReviewOperationComposerStateV3>),
@@ -154,6 +156,9 @@ impl Field {
 }
 #[derive(Clone, Debug)]
 pub struct Form {
+    // Logical presentation only. Never source, permission, token or approval.
+    presentation_v4: std::sync::Arc<()>,
+    presentation_input_epoch_v4: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub title: String,
     pub purpose: FormPurpose,
     pub fields: Vec<Field>,
@@ -209,6 +214,19 @@ pub enum FormAction {
     NewIntent,
 }
 impl Form {
+    pub(crate) fn presentation_v4(&self) -> (&std::sync::Arc<()>, Option<u64>) {
+        let value = self
+            .presentation_input_epoch_v4
+            .load(std::sync::atomic::Ordering::Acquire);
+        (&self.presentation_v4, (value != u64::MAX).then_some(value))
+    }
+    pub(crate) fn observe_presentation_input_v4(&mut self) {
+        let _ = self.presentation_input_epoch_v4.fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |value| value.checked_add(1),
+        );
+    }
     pub fn pr_metadata(
         intent: crate::pr_metadata_native::PrMetadataIntent,
     ) -> Result<Self, String> {
@@ -233,6 +251,8 @@ impl Form {
         intent.scope()?;
         let fields = crate::corpus_ui::fields(&intent)?;
         Ok(Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title: "Manage selected repositories".into(),
             purpose: FormPurpose::Corpus(Box::new(intent)),
             fields,
@@ -281,6 +301,8 @@ impl Form {
             intent.target.pr.number
         );
         Ok(Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title,
             purpose: FormPurpose::Pr(Box::new(intent)),
             fields: vec![Field::text("body", label, &value, multiline)?],
@@ -329,6 +351,8 @@ impl Form {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title: command.label().into(),
             purpose: FormPurpose::Local(Box::new(LocalIntent {
                 original_stash_source_v1: None,
@@ -390,6 +414,8 @@ impl Form {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title: command.label().into(),
             purpose: FormPurpose::Actions(Box::new(ActionsIntent {
                 command,
@@ -449,6 +475,8 @@ impl Form {
             mode,
         ];
         Ok(Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title: "Compare two saved versions".into(),
             purpose: FormPurpose::Compare(Box::new(CompareFormIntent { intent, plan: None })),
             fields,
@@ -500,6 +528,8 @@ impl Form {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title: format!(
                 "{} • {}#{}",
                 command.label(),
@@ -580,6 +610,7 @@ impl Form {
         match self.purpose {
             FormPurpose::PrThread(_)
             | FormPurpose::PrThreadCommentV2(_)
+            | FormPurpose::PrThreadReactionV3(_)
             | FormPurpose::PrInline(_)
             | FormPurpose::PrReviewV2(_)
             | FormPurpose::PrReviewOperationV3(_) => crate::app::View::Inbox,
@@ -607,6 +638,7 @@ impl Form {
                 || matches!(self.purpose, FormPurpose::PrMetadata(_)))
     }
     pub fn invalidate_plan(&mut self) {
+        self.observe_presentation_input_v4();
         self.preview_display_v1 = Default::default();
         self.metadata_preview = None;
         if matches!(
@@ -618,6 +650,7 @@ impl Form {
                 | FormPurpose::PrReviewV2(_)
                 | FormPurpose::PrReviewOperationV3(_)
                 | FormPurpose::PrThreadCommentV2(_)
+                | FormPurpose::PrThreadReactionV3(_)
         ) && self.uses_prepared_preview()
         {
             self.preview = false;
@@ -628,6 +661,7 @@ impl Form {
         match &mut self.purpose {
             FormPurpose::PrThread(state) => state.invalidate(),
             FormPurpose::PrThreadCommentV2(state) => state.invalidate(),
+            FormPurpose::PrThreadReactionV3(state) => state.invalidate(),
             FormPurpose::PrInline(state) => state.invalidate(),
             FormPurpose::PrReviewV2(state) => state.invalidate(),
             FormPurpose::PrReviewOperationV3(state) => state.invalidate(),
@@ -647,6 +681,7 @@ impl Form {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.ready(),
             FormPurpose::PrThreadCommentV2(state) => state.ready(),
+            FormPurpose::PrThreadReactionV3(state) => state.ready(),
             FormPurpose::PrInline(state) => state.ready(),
             FormPurpose::PrReviewV2(state) => state.ready(),
             FormPurpose::PrReviewOperationV3(state) => state.ready(),
@@ -675,6 +710,7 @@ impl Form {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.plan_lines(),
             FormPurpose::PrThreadCommentV2(state) => state.plan_lines(),
+            FormPurpose::PrThreadReactionV3(state) => state.plan_lines(),
             FormPurpose::PrInline(state) => state.plan_lines(),
             FormPurpose::PrReviewV2(state) => state.plan_lines(),
             FormPurpose::PrReviewOperationV3(state) => state.plan_lines(),
@@ -752,6 +788,10 @@ impl Form {
                 "Resize to inspect prepared Preview (at least64 text cells); no confirmation from a hidden/partial display.",
                 |error|error.message()));
         }
+        if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) && self.publication.is_some()
+        {
+            return Some("Protected reaction publication is inspect only • no resend");
+        }
         if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) && self.publication.is_some() {
             return Some("Protected selected-comment publication is inspect only • no resend");
         }
@@ -802,6 +842,9 @@ impl Form {
         {
             actions.retain(|action| *action != FormAction::Editor);
         }
+        if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) {
+            actions.retain(|action| *action != FormAction::Editor);
+        }
         if !self.error.is_empty() {
             actions.extend([FormAction::ErrorScroll(-3), FormAction::ErrorScroll(3)]);
         }
@@ -823,6 +866,7 @@ impl Form {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.draft_key().into(),
             FormPurpose::PrThreadCommentV2(state) => state.draft_key().into(),
+            FormPurpose::PrThreadReactionV3(state) => state.draft_key().into(),
             FormPurpose::PrInline(state) => state.draft_key().into(),
             FormPurpose::PrReviewV2(state) => state.draft_key().into(),
             FormPurpose::PrReviewOperationV3(state) => state.draft_key().into(),
@@ -871,6 +915,7 @@ impl Form {
         match &self.purpose {
             FormPurpose::PrThread(state) => state.intent().scope().clone(),
             FormPurpose::PrThreadCommentV2(state) => state.intent().scope().clone(),
+            FormPurpose::PrThreadReactionV3(state) => state.intent().scope().clone(),
             FormPurpose::PrInline(state) => state.intent().scope().clone(),
             FormPurpose::PrReviewV2(state) => state.intent().scope().clone(),
             FormPurpose::PrReviewOperationV3(state) => state.intent().scope().clone(),
@@ -1015,6 +1060,9 @@ impl Form {
         if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
             return review_operation_ui_v3::encoded_draft(self).unwrap_or_default();
         }
+        if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) {
+            return reaction_ui_v3::encoded_draft(self).unwrap_or_default();
+        }
         if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) {
             return comment_ui_v2::encoded_draft(self).unwrap_or_default();
         }
@@ -1070,6 +1118,10 @@ impl Form {
         if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
             return Err("Original pending operation text requires its fresh source opener; protected history cannot become a writer".into());
         }
+        if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) {
+            return Err("Reaction drafts require a fresh original-source opener; protected history cannot restore writer approval".into());
+        }
+        self.observe_presentation_input_v4();
         if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) {
             return Err("Comment drafts require the fresh original-source opener • protected history cannot be restored into a writer".into());
         }
@@ -1353,6 +1405,7 @@ impl Form {
                 return;
             }
         }
+        self.observe_presentation_input_v4();
         if let FormPurpose::PrReviewV2(state) = &self.purpose {
             let return_to_fields_v1 =
                 self.preview && *action == FormAction::Preview && self.publication.is_none();
@@ -1418,6 +1471,9 @@ impl Form {
             }
             FormAction::Editor if matches!(self.purpose, FormPurpose::PrMetadata(_)) => {
                 self.error="Metadata values use genuine indexed choices; external JSON/text cannot grant selection or publication authority. Use F4 Choose.".into();
+            }
+            FormAction::Editor if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) => {
+                self.error="Reactions have no editable body or external editor. Fresh Preview/Confirm selects the exact typed content/owned ID.".into();
             }
             FormAction::Editor if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) => {
                 match comment_ui_v2::validate_input(self, "") {
@@ -1600,6 +1656,9 @@ impl Form {
         }
     }
     pub fn key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Option<FormAction> {
+        if !self.submitting || code == KeyCode::Esc {
+            self.observe_presentation_input_v4();
+        }
         if inline_ui::anchor_open(self) {
             return match code {
                 KeyCode::Esc | KeyCode::F(2) => Some(FormAction::InlineAnchor),
@@ -1656,6 +1715,9 @@ impl Form {
                 self.error = error;
                 return None;
             }
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) && !self.fields.is_empty() {
+            return None;
         }
         if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_))
             && self.focus < self.fields.len()
@@ -1849,6 +1911,7 @@ impl Form {
         if self.submitting || self.preview {
             return;
         }
+        self.observe_presentation_input_v4();
         if inline_ui::anchor_open(self) {
             return;
         }
@@ -1875,6 +1938,9 @@ impl Form {
                 self.error = error;
                 return;
             }
+        }
+        if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) {
+            return;
         }
         if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) {
             if let Err(reason) = comment_ui_v2::validate_input(self, text) {
@@ -2148,6 +2214,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let context = match &form.purpose {
         FormPurpose::PrThread(state) => state.context(),
         FormPurpose::PrThreadCommentV2(state) => state.context(),
+        FormPurpose::PrThreadReactionV3(state) => state.context(),
         FormPurpose::PrInline(state) => state.context(),
         FormPurpose::PrReviewV2(state) => state.context(),
         FormPurpose::PrReviewOperationV3(state) => state.context(),
@@ -2194,7 +2261,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     if !matches!(
         form.purpose,
-        FormPurpose::PrInline(_) | FormPurpose::PrThread(_) | FormPurpose::PrThreadCommentV2(_)
+        FormPurpose::PrInline(_)
+            | FormPurpose::PrThread(_)
+            | FormPurpose::PrThreadCommentV2(_)
+            | FormPurpose::PrThreadReactionV3(_)
     ) {
         frame.render_widget(
             Paragraph::new(safe_text(&context)).style(theme.style(SemanticToken::Muted)),
@@ -2204,6 +2274,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let identity = match &form.purpose {
         FormPurpose::PrThread(state) => Some(state.identity()),
         FormPurpose::PrThreadCommentV2(state) => Some(state.identity()),
+        FormPurpose::PrThreadReactionV3(state) => Some(state.identity()),
         FormPurpose::PrInline(state) => Some(state.identity()),
         FormPurpose::PrReviewV2(state) => Some(state.identity()),
         FormPurpose::PrReviewOperationV3(state) => Some(state.identity()),
@@ -2287,6 +2358,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 | FormPurpose::PrReviewV2(_)
                 | FormPurpose::PrReviewOperationV3(_)
                 | FormPurpose::PrThreadCommentV2(_)
+                | FormPurpose::PrThreadReactionV3(_)
         ) || (matches!(form.purpose, FormPurpose::Pr(_)) && form.uses_prepared_preview())
         {
             if form.preview {
@@ -2694,6 +2766,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             || !matches!(&form.purpose, FormPurpose::PrThread(state) if form.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
                 &&!matches!(&form.purpose,FormPurpose::PrThreadCommentV2(state)if form.publication.is_some()||state.intent().action!=crate::pr_write_journal::thread_comment_history_v2::CommentActionV2::Edit)
                 &&!matches!(&form.purpose,FormPurpose::PrReviewOperationV3(state)if form.publication.is_some()||!state.operation_intent().action().needs_body())
+                &&!matches!(form.purpose,FormPurpose::PrThreadReactionV3(_))
     })
     .enumerate()
     {

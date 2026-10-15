@@ -25,6 +25,7 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui::retire_invalid_form(app);
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::reactions_v3::form::retire_invalid_form(app);
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::retire_invalid(app);
     crate::repository_native_diff_native_v1::synchronize_pr_source_v1(app);
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::retire_invalid(app);

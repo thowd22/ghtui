@@ -10,6 +10,7 @@ use ratatui::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadUiActionV1 {
+    CurrentCode,
     Comments,
     Publication(publication_v1::ThreadPublicationActionV1),
     Select(usize),
@@ -24,6 +25,8 @@ pub enum ThreadUiActionV1 {
     Quit,
 }
 pub struct ThreadBrowserV1 {
+    pub(crate) code_notice_v4: Option<String>,
+    pub(crate) presentation_epoch_v4: Option<u64>,
     pub comments_v2: Option<comments_v2::ui::ThreadCommentsBrowserV2>,
     pub intent: Arc<ThreadBrowseIntentV1>,
     pub prepared: Option<Arc<PreparedThreadsV1>>,
@@ -38,14 +41,17 @@ pub struct ThreadBrowserV1 {
 }
 impl ThreadBrowserV1 {
     pub fn pending(intent: Arc<ThreadBrowseIntentV1>) -> Self {
+        let file_only = intent.selected_path_v4().is_some();
         Self {
+            code_notice_v4: None,
+            presentation_epoch_v4: Some(0),
             comments_v2: None,
             intent,
             prepared: None,
             selected: 0,
             scroll: 0,
             column: 0,
-            file_only: true,
+            file_only,
             expanded: true,
             source: false,
             message: "Loading original threads • Esc Back cancels • no writes",
@@ -108,11 +114,11 @@ pub fn retire_invalid(app: &mut App) -> bool {
     }
     if app.scoped_threads_work_v1.as_ref().is_some_and(|owner| {
         owner
-            .files_intent()
+            .browse_intent()
             .is_none_or(|files| !Arc::ptr_eq(files, &intent))
     }) || app.scoped_threads_owner_v1.as_ref().is_some_and(|owner| {
         owner
-            .files_intent()
+            .browse_intent()
             .is_none_or(|files| !Arc::ptr_eq(files, &intent))
     }) {
         if let Some(view) = &mut app.scoped_threads_v1 {
@@ -129,6 +135,16 @@ pub fn event(app: &mut App, event: &Event) -> bool {
     }
     if app.overlay != Some(Overlay::PrThreadsV1) {
         return false;
+    }
+    if matches!(event, Event::Key(key) if key.kind!=KeyEventKind::Release)
+        || matches!(event,Event::Mouse(mouse) if matches!(mouse.kind,MouseEventKind::Down(_) | MouseEventKind::ScrollDown | MouseEventKind::ScrollUp))
+        || matches!(event, Event::Resize(..))
+    {
+        if let Some(view) = &mut app.scoped_threads_v1 {
+            view.presentation_epoch_v4 = view
+                .presentation_epoch_v4
+                .and_then(|old| old.checked_add(1));
+        }
     }
     if app
         .scoped_threads_v1
@@ -162,6 +178,7 @@ pub fn event(app: &mut App, event: &Event) -> bool {
                     KeyCode::Char('a') => Some(ThreadUiActionV1::Filter),
                     KeyCode::Char('i') => Some(ThreadUiActionV1::Source),
                     KeyCode::Char('c') => Some(ThreadUiActionV1::Comments),
+                    KeyCode::Char('g') => Some(ThreadUiActionV1::CurrentCode),
                     KeyCode::Char('p') => Some(ThreadUiActionV1::Publication(
                         publication_v1::ThreadPublicationActionV1::Reply,
                     )),
@@ -208,6 +225,10 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
     }
     if action == ThreadUiActionV1::Comments {
         native_v1::open_comments_v2(app);
+        return;
+    }
+    if action == ThreadUiActionV1::CurrentCode {
+        native_v1::open_current_code_v4(app);
         return;
     }
     if let ThreadUiActionV1::Publication(action) = action {
@@ -260,7 +281,7 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
             view.scroll = 0;
         }
         ThreadUiActionV1::Filter => {
-            view.file_only = !view.file_only;
+            view.file_only = view.intent.selected_path_v4().is_some() && !view.file_only;
             view.selected = 0;
             view.scroll = 0;
         }
@@ -272,6 +293,7 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
         ThreadUiActionV1::Back | ThreadUiActionV1::Quit => unreachable!("handled above"),
         ThreadUiActionV1::Publication(_) => unreachable!("handled above"),
         ThreadUiActionV1::Comments => unreachable!("handled above"),
+        ThreadUiActionV1::CurrentCode => unreachable!("handled above"),
     }
     view.hits.clear();
 }
@@ -316,7 +338,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut y = inside.y;
     // Bounded labels, wrapping and current-layout hit geometry, including80cols.
     let controls = [
-        ("[a All/file]", ThreadUiActionV1::Filter),
+        (
+            if view.intent.selected_path_v4().is_some() {
+                "[a All/file]"
+            } else {
+                "[a All PR only]"
+            },
+            ThreadUiActionV1::Filter,
+        ),
         ("[Enter Expand]", ThreadUiActionV1::Toggle),
         (
             "[p Reply]",
@@ -332,6 +361,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
         ("[i Source]", ThreadUiActionV1::Source),
         ("[c Comments]", ThreadUiActionV1::Comments),
+        ("[g Current code]", ThreadUiActionV1::CurrentCode),
         ("[PgUp]", ThreadUiActionV1::Scroll(-10)),
         ("[PgDn]", ThreadUiActionV1::Scroll(10)),
         ("[Left]", ThreadUiActionV1::Horizontal(-32)),
@@ -371,6 +401,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     y += 1;
     if y >= inside.bottom() {
         return;
+    }
+    if let Some(notice) = &view.code_notice_v4 {
+        frame.render_widget(
+            Paragraph::new(notice.as_str()).style(theme.style(SemanticToken::Pending)),
+            Rect::new(inside.x, y, inside.width, 1),
+        );
+        y += 1;
     }
     let Some(prepared) = &view.prepared else {
         frame.render_widget(

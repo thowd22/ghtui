@@ -100,7 +100,7 @@ impl PrWriteJournal {
         Ok(Some(marker))
     }
 }
-fn full_hex(value: &str, lengths: &[usize]) -> bool {
+pub(super) fn full_hex(value: &str, lengths: &[usize]) -> bool {
     lengths.contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 

@@ -5,10 +5,13 @@ use super::*;
 use crate::providers::runner::ScopedReadBudgetV1;
 #[path = "postwrite_capture_v2/review_comment_delete_v2.rs"]
 mod review_comment_delete_v2;
+#[path = "postwrite_capture_v2/thread_reaction_http_v3.rs"]
+mod thread_reaction_http_v3;
 use std::sync::{
     atomic::{AtomicU8, Ordering},
     Arc, OnceLock, Weak,
 };
+pub(crate) use thread_reaction_http_v3::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
 
 const PENDING: u8 = 0;
 const CLOSED: u8 = 1;

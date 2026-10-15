@@ -11,8 +11,12 @@ use crate::{
     },
 };
 use comments::publication::{self as publish, ui as composer};
+#[path = "scoped_pr_thread_historical_v5_tests.rs"]
+mod historical_v5;
 #[path = "scoped_pr_thread_comment_lifecycle_v2_tests.rs"]
 mod lifecycle_v2;
+#[path = "scoped_pr_thread_reaction_controller_v3_tests.rs"]
+mod reactions_v3;
 
 fn fresh_comment_steps() -> Vec<GhStep> {
     let mut steps = opening_steps(selected_node(false, true));

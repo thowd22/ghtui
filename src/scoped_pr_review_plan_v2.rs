@@ -109,6 +109,11 @@ pub struct ScopedReviewDraftV2 {
     publication: Option<PrPublicationReference>,
     catalogue: Arc<ReviewCatalogueV2>,
     restored_values: bool,
+    pub(super) lineage_v12: Option<
+        Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+    >,
+    pub(super) needs_new_v12: bool,
+    pub(crate) new_notice_v12: Option<Arc<crate::prepared_form_text_v1::PreparedFormTextV1>>,
 }
 impl std::fmt::Debug for ScopedReviewDraftV2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -137,6 +142,59 @@ impl ScopedReviewDraftV2 {
     pub fn restored_values(&self) -> bool {
         self.restored_values
     }
+    pub(crate) fn new_action_revision_v12(
+        &self,
+    ) -> Option<
+        &Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+    > {
+        self.needs_new_v12
+            .then_some(self.lineage_v12.as_ref())
+            .flatten()
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open_new_v12(
+        intent: Arc<ScopedReviewIntentV2>,
+        selection: Option<&Arc<ScopedReviewSelectionV2>>,
+        action: ReviewRequestedActionV2,
+        revision: &Arc<
+            crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12,
+        >,
+        provider: &GithubProvider,
+        database: &Path,
+        reviews: &ReviewReadLimitsV2,
+        resources: &PrResourceReadLimitsV1,
+        access: &RepositoryCatalogueAccessLimits,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<Arc<Self>, ScopedReviewFailureV2> {
+        let result = Self::open_key(
+            intent,
+            selection.map(|s| (s, action)),
+            Some(revision),
+            provider,
+            database,
+            reviews,
+            resources,
+            access,
+            cancel,
+            deadline,
+        )?;
+        if result.needs_new_v12 || result.lineage_v12.is_none() {
+            return Err(refused("Original explicit new-action revision unavailable"));
+        }
+        if let Some(selection) = selection {
+            if !result.catalogue().rows().iter().any(|row| {
+                row.id() == selection.snapshot().review().id()
+                    && row.node() == selection.snapshot().review().node()
+            }) || !result.values().comments().is_empty()
+            {
+                return Err(refused(
+                    "Actual new-action selected review changed; nothing reopened",
+                ));
+            }
+        }
+        Ok(result)
+    }
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
@@ -150,7 +208,7 @@ impl ScopedReviewDraftV2 {
         deadline: Instant,
     ) -> Result<Arc<Self>, ScopedReviewFailureV2> {
         Self::open_key(
-            intent, None, provider, database, reviews, resources, access, cancel, deadline,
+            intent, None, None, provider, database, reviews, resources, access, cancel, deadline,
         )
     }
     #[allow(clippy::too_many_arguments)]
@@ -165,12 +223,10 @@ impl ScopedReviewDraftV2 {
         cancel: &CancellationToken,
         deadline: Instant,
     ) -> Result<Arc<Self>, ScopedReviewFailureV2> {
-        let key = selection
-            .action_key(action)
-            .map_err(|_| refused("Actual selected review action key unavailable"))?;
         let result = Self::open_key(
             selection.intent.clone(),
-            Some(key),
+            Some((selection, action)),
+            None,
             provider,
             database,
             reviews,
@@ -194,7 +250,10 @@ impl ScopedReviewDraftV2 {
     #[allow(clippy::too_many_arguments)]
     fn open_key(
         intent: Arc<ScopedReviewIntentV2>,
-        key: Option<String>,
+        selected: Option<(&Arc<ScopedReviewSelectionV2>, ReviewRequestedActionV2)>,
+        explicit_v12: Option<
+            &Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+        >,
         provider: &GithubProvider,
         database: &Path,
         reviews: &ReviewReadLimitsV2,
@@ -241,13 +300,23 @@ impl ScopedReviewDraftV2 {
         let local =
             ResourceLocalGuard::capture(database, &intent.source, &identity, parent.summary())
                 .map_err(source_failure)?;
-        let key = key
-            .map_or_else(|| intent.draft_key(), Ok)
-            .map_err(|_| refused("Original review draft key unavailable"))?;
-        let encoded = Cache::open(database)
-            .map_err(|_| source_failure(safe_local()))?
-            .bounded_draft(intent.scope(), &key, REVIEW_DRAFT_BYTES_V2)
+        let base = crate::pr_write_journal::review_action_lineage_v12::ReviewActionBaseV12::review(
+            &intent,
+            selected.map(|(selection, _)| selection),
+            selected.map_or(ReviewRequestedActionV2::CreatePending, |(_, action)| action),
+        )
+        .map_err(|_| source_failure(safe_local()))?;
+        let choice = super::action_lineage_v12::choose(database, &base, explicit_v12)
             .map_err(|_| source_failure(safe_local()))?;
+        let key = choice.key.clone();
+        let encoded = if choice.needs_new {
+            None
+        } else {
+            Cache::open(database)
+                .map_err(|_| source_failure(safe_local()))?
+                .bounded_draft(intent.scope(), &key, REVIEW_DRAFT_BYTES_V2)
+                .map_err(|_| source_failure(safe_local()))?
+        };
         let restored_values = encoded.is_some();
         let mut values = ReviewDraftValuesV2::empty();
         let mut publication = None;
@@ -334,6 +403,26 @@ impl ScopedReviewDraftV2 {
         let catalogue = measured
             .review_catalogue_v2(&identity, &parent, reviews, cancel, deadline)
             .map_err(source_failure)?;
+        let new_notice_v12 = if choice.needs_new {
+            Some(
+                super::action_lineage_v12::prepare_notice(
+                    &intent,
+                    selected
+                        .map_or(ReviewRequestedActionV2::CreatePending, |(_, action)| action)
+                        .label(),
+                    &identity,
+                    choice
+                        .revision
+                        .as_ref()
+                        .ok_or_else(|| source_failure(safe_local()))?,
+                    cancel,
+                    deadline,
+                )
+                .map_err(|_| source_failure(safe_local()))?,
+            )
+        } else {
+            None
+        };
         measured
             .pr_inline_original_parent_v1(
                 session
@@ -351,6 +440,11 @@ impl ScopedReviewDraftV2 {
             .close_with_guard(cancel, || {
                 private_clock(cancel, deadline)?;
                 local.validate(database, &intent.source)?;
+                if let Some(revision) = &choice.revision {
+                    revision
+                        .validate(database, &base)
+                        .map_err(|_| safe_local())?;
+                }
                 private_clock(cancel, deadline)
             })
             .map_err(source_failure)?;
@@ -358,11 +452,14 @@ impl ScopedReviewDraftV2 {
         let result = Arc::new(Self {
             intent,
             values: Arc::new(values),
-            key: Arc::from(key),
+            key,
             identity: closed.identity().clone(),
             publication,
             catalogue: Arc::new(catalogue),
             restored_values,
+            lineage_v12: choice.revision,
+            needs_new_v12: choice.needs_new,
+            new_notice_v12,
         });
         clock(cancel, deadline)?;
         Ok(result)
@@ -486,7 +583,11 @@ impl ScopedReviewSelectionV2 {
             intent: intent.clone(),
             snapshot: Arc::new(snapshot),
             identity: closed.identity().clone(),
-            draft_prefix: Arc::from(draft.key()),
+            draft_prefix: Arc::from(
+                intent
+                    .draft_key()
+                    .map_err(|_| refused("Original review base key unavailable"))?,
+            ),
         });
         clock(cancel, deadline)?;
         Ok(result)

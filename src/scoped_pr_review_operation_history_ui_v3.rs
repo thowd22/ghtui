@@ -16,12 +16,15 @@ pub enum HistoryActionV3 {
     Scroll(i32),
     Open,
     Refresh,
+    InspectCurrentV11,
+    AcknowledgeV11,
     Back,
     Quit,
 }
 pub struct ReviewOperationHistoryViewV3 {
     pub(crate) listed: Arc<PreparedReviewOperationHistoryV3>,
     pub(crate) opened: Option<Arc<PreparedReviewOperationHistoryV3>>,
+    pub(crate) recovery_v11: Option<Arc<recovery_v11::PreparedReviewRecoveryV11>>,
     pub(crate) selected: usize,
     pub(crate) scroll: usize,
     pub(crate) ticket: Arc<()>,
@@ -36,10 +39,11 @@ impl ReviewOperationHistoryViewV3 {
         Self {
             listed,
             opened: None,
+            recovery_v11: None,
             selected: 0,
             scroll: 0,
             ticket: Arc::new(()),
-            message: "INSPECT ONLY • no write, restore, acknowledgement or retry",
+            message: "INSPECT ONLY history • current outcome inspection is a separate action",
             viewport: Default::default(),
             hits: vec![],
             body: Rect::default(),
@@ -65,8 +69,30 @@ impl ReviewOperationHistoryViewV3 {
             return false;
         }
         self.opened = Some(opened);
+        self.recovery_v11 = None;
         self.scroll = 0;
         self.viewport = Default::default();
+        self.clear_layout();
+        true
+    }
+    pub(crate) fn install_recovery_v11(
+        &mut self,
+        prepared: Arc<recovery_v11::PreparedReviewRecoveryV11>,
+    ) -> bool {
+        if self.selected != prepared.request().row()
+            || self
+                .opened
+                .as_ref()
+                .is_none_or(|opened| !Arc::ptr_eq(opened, prepared.request().history()))
+            || !Arc::ptr_eq(self.intent(), prepared.request().intent())
+        {
+            return false;
+        }
+        self.recovery_v11 = Some(prepared);
+        self.scroll = 0;
+        self.viewport = Default::default();
+        self.message = "FRESH CURRENT OUTCOME • accepts uncertainty locally, never resends";
+        self.ticket = Arc::new(());
         self.clear_layout();
         true
     }
@@ -102,10 +128,27 @@ impl ReviewOperationHistoryViewV3 {
                 }
             }
             HistoryActionV3::Back if self.opened.is_some() => {
-                self.opened = None;
-                self.scroll = self.selected;
+                if self.recovery_v11.take().is_some() {
+                    self.scroll = 0;
+                } else {
+                    self.opened = None;
+                    self.scroll = self.selected;
+                }
                 self.viewport = Default::default();
                 self.ticket = Arc::new(());
+            }
+            HistoryActionV3::InspectCurrentV11 if self.opened.is_some() => return Some(action),
+            HistoryActionV3::AcknowledgeV11
+                if self
+                    .recovery_v11
+                    .as_ref()
+                    .is_some_and(|prepared| prepared.available()) =>
+            {
+                return Some(action)
+            }
+            HistoryActionV3::AcknowledgeV11 => {
+                self.message =
+                    "Fresh explicit Inspect current required; history never grants acknowledgement";
             }
             HistoryActionV3::Open if self.listed.rows() == 0 => {}
             HistoryActionV3::Open
@@ -129,6 +172,8 @@ pub fn input(view: &mut ReviewOperationHistoryViewV3, event: Event) -> Option<Hi
             KeyCode::Char('q') => Some(HistoryActionV3::Quit),
             KeyCode::Enter => Some(HistoryActionV3::Open),
             KeyCode::Char('r') => Some(HistoryActionV3::Refresh),
+            KeyCode::Char('i') => Some(HistoryActionV3::InspectCurrentV11),
+            KeyCode::Char('a') => Some(HistoryActionV3::AcknowledgeV11),
             KeyCode::Up | KeyCode::Char('k') => Some(HistoryActionV3::Move(-1)),
             KeyCode::Down | KeyCode::Char('j') => Some(HistoryActionV3::Move(1)),
             KeyCode::PageUp => Some(HistoryActionV3::Scroll(-10)),
@@ -186,16 +231,32 @@ pub fn draw(
     }
     view.interactive = !busy;
     let data = view.opened.as_ref().unwrap_or(&view.listed);
+    let actor = view
+        .recovery_v11
+        .as_ref()
+        .map_or(&data.actor, |prepared| prepared.actor());
     frame.render_widget(
         crate::identity::AvatarWidget {
-            identity: &data.actor,
-            image: avatars.ready(&data.actor),
+            identity: actor,
+            image: avatars.ready(actor),
             theme,
         },
         Rect::new(inner.x, inner.y, 4, 1),
     );
+    let inspector = view.recovery_v11.as_ref().map(|prepared| {
+        format!(
+            "{} • actual inspector UID {:?} • local recovery ONLY",
+            actor.label(),
+            prepared.identity().account_id
+        )
+    });
     frame.render_widget(
-        Paragraph::new(data.inspector_label.as_ref()).style(theme.style(SemanticToken::Actor)),
+        Paragraph::new(
+            inspector
+                .as_deref()
+                .unwrap_or(data.inspector_label.as_ref()),
+        )
+        .style(theme.style(SemanticToken::Actor)),
         Rect::new(inner.x + 4, inner.y, inner.width - 4, 1),
     );
     frame.render_widget(
@@ -211,11 +272,15 @@ pub fn draw(
         inner.x,
         inner.y + 3,
         inner.width,
-        inner.height.saturating_sub(5).min(28),
+        inner.height.saturating_sub(6).min(28),
     );
     view.body = body;
     if view.opened.is_some() {
-        match data.display.window(
+        let display = view
+            .recovery_v11
+            .as_ref()
+            .map_or(&data.display, |prepared| prepared.display());
+        match display.window(
             &mut view.viewport,
             body.width.saturating_sub(4),
             body.height,
@@ -261,6 +326,38 @@ pub fn draw(
             if !busy {
                 view.hits.push((rect, HistoryActionV3::Select(index)));
             }
+        }
+    }
+    if view.opened.is_some() {
+        let mut x = inner.x;
+        for (label, action, enabled) in [
+            (
+                "[i Inspect current]",
+                HistoryActionV3::InspectCurrentV11,
+                true,
+            ),
+            (
+                "[a Acknowledge local]",
+                HistoryActionV3::AcknowledgeV11,
+                view.recovery_v11
+                    .as_ref()
+                    .is_some_and(|prepared| prepared.available()),
+            ),
+        ] {
+            let width = label.len() as u16;
+            let rect = Rect::new(x, inner.bottom() - 2, width, 1);
+            frame.render_widget(
+                Paragraph::new(label).style(if enabled && !busy {
+                    theme.base()
+                } else {
+                    theme.style(SemanticToken::Muted)
+                }),
+                rect,
+            );
+            if !busy {
+                view.hits.push((rect, action));
+            }
+            x += width + 1;
         }
     }
     let mut x = inner.x + 12;

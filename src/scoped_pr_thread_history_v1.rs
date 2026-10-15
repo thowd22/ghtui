@@ -9,6 +9,8 @@ use crate::{
 };
 #[path = "scoped_pr_thread_comment_history_v2.rs"]
 pub mod comments_v2;
+#[path = "scoped_pr_thread_reaction_history_v3.rs"]
+pub mod reactions_v3;
 #[path = "scoped_pr_thread_history_ui_v1.rs"]
 pub mod ui;
 

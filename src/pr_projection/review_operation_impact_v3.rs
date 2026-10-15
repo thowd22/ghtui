@@ -66,10 +66,12 @@ pub(crate) fn validate_original(
         return Ok(());
     }
     let origin = journal
-        .review_operation_original_v3(target, &marker.publication_reference())
+        .review_observed_origin_v12(target, &marker.publication_reference())
         .map_err(|error| error.to_string())?
         .ok_or("Known pending-comment purpose lacks its actual atomic original observation")?;
-    let original = origin.seed.metadata();
+    let original = origin
+        .metadata()
+        .ok_or("Known V3 pending-comment purpose lacks its closed original metadata")?;
     if original.command() != marker.command
         || original.scope() != target.scope()
         || original.repository() != target.repository()

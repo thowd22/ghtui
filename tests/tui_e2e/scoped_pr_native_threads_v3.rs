@@ -1,6 +1,8 @@
 //! Actual Native PR -> fresh Threads -> pure Back. No synthetic Images page,
 //! no parser bypass; raw Git/source/full protocol/SQL/config/TTY independent.
 use super::*;
+#[path = "review_thread_code_v4.rs"]
+mod current_code_v4;
 use ghtui::providers::gh::METRICS_REVIEW_THREADS_QUERY;
 const THREADS: &str = "PR review threads • read only";
 const BODY: &str = "NATIVE_CURRENT_SOURCE_THREAD_PRIVATE_BODY 界";

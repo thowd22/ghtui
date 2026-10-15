@@ -11,6 +11,8 @@ use ratatui::{
 pub const TITLE: &str = "Selected thread comments";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CommentUiActionV2 {
+    Historical,
+    CurrentCode,
     Select(usize),
     Move(i32),
     Scroll(i32),
@@ -19,13 +21,16 @@ pub(crate) enum CommentUiActionV2 {
     Toggle,
     Edit,
     Delete,
+    Reactions,
     Back,
     Quit,
 }
 pub struct ThreadCommentsBrowserV2 {
+    pub(crate) historical_v5: Option<historical_v5::ui::HistoricalBrowserV5>,
     pub intent: Arc<ThreadCommentsIntentV2>,
     pub prepared: Option<Arc<PreparedThreadCommentsV2>>,
     pub selected: usize,
+    pub reactions_v3: Option<reactions_v3::ui::ThreadReactionsBrowserV3>,
     scroll: usize,
     column: usize,
     expanded: bool,
@@ -36,9 +41,11 @@ pub struct ThreadCommentsBrowserV2 {
 impl ThreadCommentsBrowserV2 {
     pub fn pending(intent: Arc<ThreadCommentsIntentV2>) -> Self {
         Self {
+            historical_v5: None,
             intent,
             prepared: None,
             selected: 0,
+            reactions_v3: None,
             scroll: 0,
             column: 0,
             expanded: true,
@@ -68,6 +75,14 @@ fn owns(app: &App) -> bool {
             })
 }
 pub fn event(app: &mut App, event: &Event) -> bool {
+    if app
+        .scoped_threads_v1
+        .as_ref()
+        .and_then(|view| view.comments_v2.as_ref())
+        .is_some_and(|view| view.reactions_v3.is_some())
+    {
+        return reactions_v3::ui::event(app, event);
+    }
     if super::super::ui_v1::retire_invalid(app) {
         return true;
     }
@@ -80,6 +95,9 @@ pub fn event(app: &mut App, event: &Event) -> bool {
             view.hits.clear();
             view.body = Rect::default();
         }
+        return true;
+    }
+    if historical_v5::ui::event(app, event) {
         return true;
     }
     let Some(view) = app
@@ -118,6 +136,9 @@ pub fn event(app: &mut App, event: &Event) -> bool {
                     KeyCode::Enter => Some(CommentUiActionV2::Toggle),
                     KeyCode::Char('e') => Some(CommentUiActionV2::Edit),
                     KeyCode::Char('d') => Some(CommentUiActionV2::Delete),
+                    KeyCode::Char('R') => Some(CommentUiActionV2::Reactions),
+                    KeyCode::Char('g') => Some(CommentUiActionV2::CurrentCode),
+                    KeyCode::Char('h') => Some(CommentUiActionV2::Historical),
                     _ => None,
                 }
             }
@@ -155,6 +176,18 @@ pub(crate) fn dispatch(app: &mut App, action: CommentUiActionV2) {
     if busy(app) {
         return;
     }
+    if action == CommentUiActionV2::Reactions {
+        native_v1::open_reactions_v3(app);
+        return;
+    }
+    if action == CommentUiActionV2::CurrentCode {
+        native_v1::open_current_code_v4(app);
+        return;
+    }
+    if action == CommentUiActionV2::Historical {
+        historical_v5::ui::open(app);
+        return;
+    }
     if matches!(action, CommentUiActionV2::Edit | CommentUiActionV2::Delete) {
         native_v1::open_comment_publication_v2(
             app,
@@ -178,6 +211,7 @@ pub(crate) fn dispatch(app: &mut App, action: CommentUiActionV2) {
         .as_ref()
         .map_or(0, |prepared| prepared.rows.len());
     match action {
+        CommentUiActionV2::Historical => unreachable!("handled before mutable view"),
         CommentUiActionV2::Select(index) if index < count => {
             view.selected = index;
             view.scroll = 0;
@@ -211,19 +245,31 @@ pub(crate) fn dispatch(app: &mut App, action: CommentUiActionV2) {
     view.hits.clear();
 }
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    if app
+        .scoped_threads_v1
+        .as_ref()
+        .and_then(|view| view.comments_v2.as_ref())
+        .is_some_and(|view| view.reactions_v3.is_some())
+    {
+        reactions_v3::ui::draw(frame, app, area);
+        return;
+    }
     if super::super::ui_v1::retire_invalid(app) {
         frame.render_widget(Clear, area);
+        return;
+    }
+    if historical_v5::ui::draw(frame, app, area) {
         return;
     }
     let valid = owns(app);
     let theme = app.theme();
     let is_busy = busy(app);
     let avatars = &app.avatar_states;
-    let Some(view) = app
-        .scoped_threads_v1
-        .as_mut()
-        .and_then(|view| view.comments_v2.as_mut())
-    else {
+    let Some(browser) = app.scoped_threads_v1.as_mut() else {
+        return;
+    };
+    let notice = &browser.code_notice_v4;
+    let Some(view) = browser.comments_v2.as_mut() else {
         return;
     };
     view.hits.clear();
@@ -247,6 +293,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ("[Enter Details]", CommentUiActionV2::Toggle),
         ("[e Edit]", CommentUiActionV2::Edit),
         ("[d Delete]", CommentUiActionV2::Delete),
+        ("[R Reactions]", CommentUiActionV2::Reactions),
+        ("[g Current code]", CommentUiActionV2::CurrentCode),
+        ("[h Historical source]", CommentUiActionV2::Historical),
         ("[↑ Previous]", CommentUiActionV2::Move(-1)),
         ("[↓ Next]", CommentUiActionV2::Move(1)),
         ("[PgUp]", CommentUiActionV2::Scroll(-10)),
@@ -291,6 +340,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     y += 1;
     if y >= inside.bottom() {
         return;
+    }
+    if let Some(notice) = notice {
+        frame.render_widget(
+            Paragraph::new(notice.as_str()).style(theme.style(SemanticToken::Pending)),
+            Rect::new(inside.x, y, inside.width, 1),
+        );
+        y += 1;
     }
     let Some(prepared) = &view.prepared else {
         frame.render_widget(

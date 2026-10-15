@@ -126,13 +126,15 @@ pub fn structured_impact(
         .ok_or("Exact original re-request publication missing")?;
     categories(&marker, confirmed)?.ok_or("Not a closed re-request purpose")?;
     let origin = journal
-        .review_operation_original_v3(&target, reference)
+        .review_observed_origin_v12(&target, reference)
         .map_err(|error| error.to_string())?
         .ok_or(
             "Original actual reviewer identity metadata missing; no guessed structured impact",
         )?;
-    let original = origin.seed.metadata();
-    let write = original.write("")?;
+    let original = origin
+        .metadata()
+        .ok_or("Actual closed V3 reviewer metadata missing")?;
+    let write = origin.write("").map_err(|error| error.to_string())?;
     if original.command() != "review-rerequest-v3"
         || original.scope() != target.scope()
         || original.repository() != target.repository()

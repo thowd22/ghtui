@@ -4,6 +4,8 @@ use super::*;
 use crate::providers::gh::{HostIdentity, OriginalThreadPublicationV1};
 #[path = "scoped_pr_thread_comment_intent_v2.rs"]
 pub mod publication;
+#[path = "scoped_pr_thread_reactions_v3.rs"]
+pub mod reactions_v3;
 #[path = "scoped_pr_thread_comments_ui_v2.rs"]
 pub mod ui;
 
@@ -136,13 +138,8 @@ pub fn load(
     let current = session
         .verify(old.navigation.original(), cancel)
         .map_err(source)?;
-    let parent = bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &old.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    let parent = old
+        .read_parent_v4(&bounded, current, cancel)
         .map_err(source)?;
     original_check(cancel, deadline).map_err(source)?;
     let local = ResourceLocalGuard::capture(database, &old.source, &identity, parent.summary())
@@ -158,13 +155,7 @@ pub fn load(
         hook();
     }
     local.validate(database, &old.source).map_err(source)?;
-    bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &old.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    old.read_parent_v4(&bounded, current, cancel)
         .map_err(source)?;
     session
         .verify(old.navigation.original(), cancel)

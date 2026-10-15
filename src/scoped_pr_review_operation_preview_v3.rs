@@ -17,6 +17,11 @@ impl ReviewOperationRequestV3 {
         source: Arc<ScopedReviewOperationSourceV3>,
         body: Arc<str>,
     ) -> Result<Arc<Self>, String> {
+        if source.needs_new_v12 {
+            return Err(
+                "Explicit New action is required before preparing any requested effect".into(),
+            );
+        }
         let action = source.intent().action();
         if body.len() > 65_536
             || action.needs_body() && body.trim().is_empty()
@@ -78,18 +83,34 @@ impl ReviewOperationPreviewV3 {
         deadline: Instant,
     ) -> Result<Arc<Self>, ScopedReviewFailureV2> {
         clock(cancel, deadline)?;
-        let fresh = ScopedReviewOperationSourceV3::read(
-            request.intent().clone(),
-            request.body.clone(),
-            provider,
-            database,
-            images,
-            reviews,
-            resources,
-            access,
-            cancel,
-            deadline,
-        )?;
+        let fresh = if let Some(revision) = &request.source.lineage_v12 {
+            ScopedReviewOperationSourceV3::read_lineage_v12(
+                request.intent().clone(),
+                Some(request.body.clone()),
+                revision,
+                provider,
+                database,
+                images,
+                reviews,
+                resources,
+                access,
+                cancel,
+                deadline,
+            )?
+        } else {
+            ScopedReviewOperationSourceV3::read(
+                request.intent().clone(),
+                request.body.clone(),
+                provider,
+                database,
+                images,
+                reviews,
+                resources,
+                access,
+                cancel,
+                deadline,
+            )?
+        };
         if !Arc::ptr_eq(fresh.intent(), request.intent())
             || fresh.key() != request.draft_key()
             || fresh.body() != request.body()

@@ -20,6 +20,9 @@ mod review_postwrite_parent_v2;
 use paging::*;
 use parse::*;
 pub use thread_history_parent_v1::ThreadHistoryParentObservationV1;
+#[path = "pr_thread_detail_parent_v4.rs"]
+mod thread_detail_parent_v4;
+pub(crate) use thread_detail_parent_v4::ThreadDetailParentObservationV4;
 
 fn safe(kind: GithubErrorKind) -> GithubError {
     error(

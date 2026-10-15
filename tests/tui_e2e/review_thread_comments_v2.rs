@@ -1,6 +1,12 @@
 //! SOURCE ONLY / UNRUN. Actual binary key/mouse journeys; strict command/stdin,
 //! original SQL/body/ref/origin, live owned child, Git/config and TTY witnesses.
 use super::*;
+#[path = "review_thread_historical_v5.rs"]
+mod historical_v5;
+#[path = "review_thread_reactions_v3.rs"]
+mod reactions_v3;
+#[path = "review_thread_timeline_management_v5.rs"]
+mod timeline_management_v5;
 use ghtui::providers::gh::{THREAD_COMMENT_ABSENCE_QUERY_V2, THREAD_SELECTED_COMMENT_QUERY_V2};
 const PANEL: &str = "Selected thread comments";
 const HISTORY_V2: &str = "Comment publication history • inspect only";

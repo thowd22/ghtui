@@ -354,9 +354,25 @@ impl ReviewOperationPreviewV3 {
             .map_err(source_failure)?;
         let mut journal =
             PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;
-        let permit = journal
-            .begin_review_operation_v3(&target, write, preview.origin_seed()?)
-            .map_err(|_| source_failure(safe_local()))?;
+        let seed_v12 = if let Some(revision) = &preview.lineage_v12 {
+            let base =
+                crate::pr_write_journal::review_action_lineage_v12::ReviewActionBaseV12::operation(
+                    request.intent(),
+                )
+                .map_err(|_| source_failure(safe_local()))?;
+            revision
+                .validate(database, &base)
+                .map_err(|_| source_failure(safe_local()))?;
+            Some(crate::pr_write_journal::review_action_lineage_v12::ReviewActionOriginSeedV12::from_revision(revision,Some(preview.origin_seed()?),write).map_err(|_|source_failure(safe_local()))?)
+        } else {
+            None
+        };
+        let permit = if let Some(seed) = &seed_v12 {
+            journal.begin_review_action_v12(&target, write, seed)
+        } else {
+            journal.begin_review_operation_v3(&target, write, preview.origin_seed()?)
+        }
+        .map_err(|_| source_failure(safe_local()))?;
         let marker = permit.marker();
         let reference = marker.publication_reference();
         let encoded = match draft_v3::encode(request.body(), Some(&reference)) {
@@ -438,6 +454,10 @@ impl ReviewOperationPreviewV3 {
                     PrWriteState::Pending,
                 )?;
                 original_draft_saved(database, original, preview.key(), &encoded)?;
+                if let Some(seed) = &seed_v12 {
+                    seed.validate_owned_basis(database, &target, marker)
+                        .map_err(|_| safe_local())?;
+                }
                 private_clock(cancel, deadline)
             })?;
             if closed.identity().host != identity.host
@@ -588,6 +608,10 @@ impl ReviewOperationPreviewV3 {
                                 PrWriteState::Confirmed,
                             )?;
                             original_draft_saved(database, original, preview.key(), &encoded)?;
+                            if let Some(seed) = &seed_v12 {
+                                seed.validate_owned_basis(database, &target, marker)
+                                    .map_err(|_| safe_local())?;
+                            }
                             let acknowledged = ack.take().ok_or_else(safe_local)?;
                             acknowledged
                                 .check_current(

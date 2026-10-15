@@ -3,7 +3,7 @@
 use super::*;
 use crate::providers::runner::ScopedReadBudgetV1;
 #[path = "rerequest_v3/read.rs"]
-mod read;
+pub(super) mod read;
 #[path = "rerequest_v3/write.rs"]
 mod write;
 

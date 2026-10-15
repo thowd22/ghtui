@@ -1,19 +1,27 @@
 //! Durable duplicate-write protection. SQLite work belongs in application workers.
 #[path = "pr_write_original.rs"]
 mod original_publication;
+#[path = "pr_write_review_action_lineage_v12.rs"]
+pub(crate) mod review_action_lineage_v12;
 #[path = "pr_write_review_operation_history_v3.rs"]
 pub(crate) mod review_operation_history_v3;
+#[path = "pr_write_review_recovery_v11.rs"]
+pub(crate) mod review_recovery_v11;
 #[path = "pr_source_metadata.rs"]
 mod source_metadata;
 #[path = "pr_write_thread_comment_history_v2.rs"]
 pub(crate) mod thread_comment_history_v2;
 #[path = "pr_write_thread_history_v1.rs"]
 pub(crate) mod thread_history_v1;
+#[path = "pr_write_thread_reaction_history_v3.rs"]
+pub(crate) mod thread_reaction_history_v3;
 // Closed producer-specific union, never an arbitrary transaction callback.
 enum ObservedOriginV2<'a> {
     ThreadV1(&'a thread_history_v1::ThreadOriginSeedV1),
     CommentV2(&'a thread_comment_history_v2::ThreadCommentOriginSeedV2),
     ReviewOperationV3(&'a review_operation_history_v3::ReviewOperationOriginSeedV3),
+    ReactionV3(&'a thread_reaction_history_v3::ThreadReactionOriginSeedV3),
+    ReviewActionV12(&'a review_action_lineage_v12::ReviewActionOriginSeedV12),
 }
 
 use crate::{
@@ -330,6 +338,8 @@ impl PrWriteJournal {
         thread_history_v1::migrate(&transaction)?;
         thread_comment_history_v2::migrate(&transaction)?;
         review_operation_history_v3::migrate(&transaction)?;
+        thread_reaction_history_v3::migrate(&transaction)?;
+        review_action_lineage_v12::migrate(&transaction)?;
         transaction.commit()?;
         Ok(Self { connection, path })
     }

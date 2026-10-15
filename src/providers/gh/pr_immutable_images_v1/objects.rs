@@ -128,7 +128,7 @@ pub(super) fn verify_tree(entries: &mut [Entry], sha: &str, max: usize) -> Githu
     }
     Ok(())
 }
-fn tree(
+pub(super) fn tree(
     provider: &GithubProvider,
     repo: &str,
     sha: &str,
@@ -236,7 +236,7 @@ fn tree(
     checked_finished(provider, cancel)?;
     Ok(entries)
 }
-fn raw_blob(
+pub(super) fn raw_blob(
     provider: &GithubProvider,
     repo: &str,
     entry: &Entry,

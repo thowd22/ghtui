@@ -11,13 +11,13 @@ const HISTORY_ROWS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DatabaseV3 {
+pub(super) struct DatabaseV3 {
     path: Vec<u8>,
     device: u64,
     inode: u64,
 }
 impl DatabaseV3 {
-    fn capture(path: &Path) -> Result<Self> {
+    pub(super) fn capture(path: &Path) -> Result<Self> {
         // Metadata only: do not open/close an ordinary SQLite FD or recreate a
         // missing DB. The existing Journal/ResourceLocalGuard owns SQL policy.
         let named = std::fs::symlink_metadata(path)?;
@@ -62,7 +62,7 @@ pub(crate) struct ReviewOperationOriginRecordV3 {
     pub seed: ReviewOperationOriginSeedV3,
     pub reference: PrPublicationReference,
 }
-fn bounded_encode(value: &impl Serialize) -> Result<String> {
+pub(super) fn bounded_encode(value: &impl Serialize) -> Result<String> {
     struct Count(usize);
     impl std::io::Write for Count {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -103,6 +103,31 @@ impl ReviewOperationOriginSeedV3 {
     }
     pub(crate) fn metadata(&self) -> &OriginalReviewOperationMetadataV3 {
         &self.metadata
+    }
+    pub(super) fn validate_marker_v12(
+        &self,
+        database: &Path,
+        target: &PrWriteTarget,
+        marker: &PrWriteMarker,
+    ) -> Result<()> {
+        self.metadata.validate().map_err(anyhow::Error::msg)?;
+        if self.database != DatabaseV3::capture(database)?
+            || self.metadata.scope() != target.scope()
+            || self.metadata.repository() != target.repository()
+            || self.metadata.pr_node() != target.node_id()
+            || self.metadata.number() != target.number()
+            || self.metadata.command() != marker.command
+            || self.metadata.head() != marker.observed_head
+            || self
+                .metadata
+                .write("")
+                .map_err(anyhow::Error::msg)?
+                .selected_resource
+                != marker.selected_resource
+        {
+            bail!("Exact V3 original target/selector/database differs from lineage marker");
+        }
+        Ok(())
     }
     pub(crate) fn matches(
         &self,
@@ -186,7 +211,7 @@ pub(super) fn insert(
 }
 pub(crate) struct ReviewOperationHistoryRowV3 {
     pub marker: PrWriteMarker,
-    pub origin: Option<ReviewOperationOriginRecordV3>,
+    pub origin: Option<review_action_lineage_v12::ReviewObservedOriginV12>,
 }
 pub(crate) struct ReviewOperationHistorySnapshotV3 {
     database: DatabaseV3,
@@ -266,7 +291,7 @@ impl PrWriteJournal {
             bail!("Invalid original review-operation history generation");
         }
         let mut ids = {
-            let mut statement=transaction.prepare("SELECT attempt_id FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND command IN('review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3','review-rerequest-v3') AND state IN('pending','uncertain','confirmed') ORDER BY attempt_id DESC LIMIT ?4")?;
+            let mut statement=transaction.prepare("SELECT attempt_id FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND command IN('review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3','review-rerequest-v3','review-create-pending-v2','review-update-pending-v2','review-submit-v2','review-discard-v2','review-dismiss-v2') AND state IN('pending','uncertain','confirmed') ORDER BY attempt_id DESC LIMIT ?4")?;
             let values = statement
                 .query_map(
                     params![
@@ -323,14 +348,8 @@ impl PrWriteJournal {
                 bail!("Original review-operation journal target/ref malformed");
             }
             let confirmed = marker.state == PrWriteState::Confirmed;
-            let categories = if marker.command == "review-rerequest-v3" {
-                crate::pr_projection::review_rerequest_impact_v3::categories(&marker, confirmed)
-            } else {
-                crate::pr_projection::review_operation_impact_v3::categories(&marker, confirmed)
-            };
-            categories
-                .map_err(anyhow::Error::msg)?
-                .context("Closed original review-operation purpose required")?;
+            crate::pr_projection::review_recovery_v11::shape(&marker, confirmed)
+                .map_err(anyhow::Error::msg)?;
             let info:Option<(u64,u64,usize,bool)>=transaction.query_row("SELECT repository_id,pr_id,length(CAST(origin_json AS BLOB)),repository_node=?2 FROM pr_write_review_operation_origins_v3 WHERE attempt_id=?1",
                 params![id,repository_node],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?))).optional()?;
             let origin = if let Some((repo, pr, bytes, node_matches)) = info {
@@ -338,55 +357,17 @@ impl PrWriteJournal {
                     bail!("Original observed review-operation identity/bounds unavailable");
                 }
                 let encoded:String=transaction.query_row("SELECT origin_json FROM pr_write_review_operation_origins_v3 WHERE attempt_id=?1 AND length(CAST(origin_json AS BLOB))<=16384",[id],|row|row.get(0))?;
-                let origin: ReviewOperationOriginRecordV3 = serde_json::from_str(&encoded)?;
-                origin
-                    .seed
-                    .metadata
-                    .validate()
-                    .map_err(anyhow::Error::msg)?;
-                if origin.seed.database != database
-                    || origin.seed.metadata.scope() != target.scope()
-                    || origin.seed.metadata.repository_id() != repository_id
-                    || origin.seed.metadata.repository_node() != repository_node
-                    || origin.seed.metadata.pr_id() != pr_id
-                    || origin.seed.metadata.pr_node() != target.node_id()
-                    || origin.seed.metadata.repository() != target.repository()
-                    || origin.seed.metadata.number() != target.number()
-                    || origin.seed.metadata.command() != marker.command
-                    || origin.seed.metadata.head() != marker.observed_head
-                    || origin
-                        .seed
-                        .metadata
-                        .write("")
-                        .map_err(anyhow::Error::msg)?
-                        .selected_resource
-                        != marker.selected_resource
-                    || origin.reference != marker.publication_reference()
-                {
-                    bail!("Original observed origin/ref/database differs from selected history");
-                }
-                if confirmed
-                    && marker.command == "review-rerequest-v3"
-                    && !origin.seed.metadata.matches_reviewer_effect(
-                        marker
-                            .confirmed
-                            .as_ref()
-                            .context("Original reviewer receipt missing")?,
-                    )
-                {
-                    bail!("Original actual reviewer target differs from typed receipt");
-                }
-                if confirmed
-                    && marker.command != "review-rerequest-v3"
-                    && !origin.seed.metadata.matches_pending_effect(
-                        marker
-                            .confirmed
-                            .as_ref()
-                            .context("Original pending-comment receipt missing")?,
-                    )
-                {
-                    bail!("Original actual pending comment differs from typed receipt");
-                }
+                let lineage:bool=transaction.query_row("SELECT base_key_v12 IS NOT NULL FROM pr_write_review_operation_origins_v3 WHERE attempt_id=?1",[id],|row|row.get(0))?;
+                let origin = review_action_lineage_v12::ReviewObservedOriginV12::decode(
+                    &encoded,
+                    lineage,
+                    &self.path,
+                    target,
+                    &marker,
+                    repository_id,
+                    repository_node,
+                    pr_id,
+                )?;
                 Some(origin)
             } else {
                 None

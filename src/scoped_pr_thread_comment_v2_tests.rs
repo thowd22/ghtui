@@ -3,6 +3,10 @@
 use super::*;
 #[path = "scoped_pr_thread_comment_controller_v2_tests.rs"]
 mod controller_v2;
+#[path = "scoped_pr_thread_historical_provider_v5_tests.rs"]
+mod historical_v5;
+#[path = "scoped_pr_thread_reactions_v3_tests.rs"]
+mod reactions_v3;
 #[path = "scoped_pr_thread_comment_guard_v2_tests.rs"]
 mod root_source_guards;
 use crate::providers::gh::{

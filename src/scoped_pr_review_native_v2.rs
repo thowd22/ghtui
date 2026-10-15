@@ -27,6 +27,10 @@ pub enum ScopedReviewsPhaseV2 {
     Confirm,
 }
 enum Kind {
+    NewActionV12 {
+        notice: Arc<action_lineage_v12::NeedsNewActionV12>,
+        ticket: Arc<()>,
+    },
     #[cfg(test)]
     ActualWorkerPanic(Arc<ScopedReviewsWorkV2>),
     Open {
@@ -66,6 +70,14 @@ enum Kind {
         row: usize,
         ticket: Arc<()>,
     },
+    RecoveryInspectV11 {
+        request: Arc<history_v3::recovery_v11::ReviewRecoveryRequestV11>,
+        ticket: Arc<()>,
+    },
+    RecoveryAcknowledgeV11 {
+        prepared: Arc<history_v3::recovery_v11::PreparedReviewRecoveryV11>,
+        ticket: Arc<()>,
+    },
     TeamsV3 {
         draft: Arc<ScopedReviewDraftV2>,
         ticket: Arc<()>,
@@ -83,12 +95,18 @@ impl std::fmt::Debug for ScopedReviewsWorkV2 {
 }
 impl ScopedReviewsWorkV2 {
     fn new(kind: Kind) -> Result<Arc<Self>, String> {
+        let deadline = Instant::now()
+            .checked_add(Duration::from_secs(30))
+            .ok_or("Original review clock unavailable")?;
+        let deadline = match &kind {
+            Kind::NewActionV12 { notice, .. } => deadline.min(notice.deadline),
+            Kind::RecoveryAcknowledgeV11 { prepared, .. } => deadline.min(prepared.deadline()),
+            _ => deadline,
+        };
         Ok(Arc::new(Self {
             kind,
             cancel: CancellationToken::default(),
-            deadline: Instant::now()
-                .checked_add(Duration::from_secs(30))
-                .ok_or("Original review clock unavailable")?,
+            deadline,
         }))
     }
     pub fn expired(&self) -> bool {
@@ -96,6 +114,7 @@ impl ScopedReviewsWorkV2 {
     }
     pub fn phase(&self) -> ScopedReviewsPhaseV2 {
         match self.kind {
+            Kind::NewActionV12 { .. } => ScopedReviewsPhaseV2::Compose,
             #[cfg(test)]
             Kind::ActualWorkerPanic(ref original) => original.phase(),
             Kind::Open { .. } => ScopedReviewsPhaseV2::Open,
@@ -106,11 +125,15 @@ impl ScopedReviewsWorkV2 {
             Kind::Preview(_) | Kind::OperationPreview(_) => ScopedReviewsPhaseV2::Preview,
             Kind::Confirm(_) | Kind::OperationConfirm(_) => ScopedReviewsPhaseV2::Confirm,
             Kind::HistoryList { .. } => ScopedReviewsPhaseV2::Open,
-            Kind::HistoryOpen { .. } | Kind::TeamsV3 { .. } => ScopedReviewsPhaseV2::Read,
+            Kind::HistoryOpen { .. }
+            | Kind::TeamsV3 { .. }
+            | Kind::RecoveryInspectV11 { .. }
+            | Kind::RecoveryAcknowledgeV11 { .. } => ScopedReviewsPhaseV2::Read,
         }
     }
     pub fn origin(&self) -> ReviewWorkOriginV3<'_> {
         match &self.kind {
+            Kind::NewActionV12 { notice, .. } => ReviewWorkOriginV3::Files(notice.intent()),
             #[cfg(test)]
             Kind::ActualWorkerPanic(original) => original.origin(),
             Kind::Open { intent, .. } => ReviewWorkOriginV3::Files(intent),
@@ -127,6 +150,12 @@ impl ScopedReviewsWorkV2 {
             }
             Kind::HistoryList { intent, .. } => ReviewWorkOriginV3::Summary(intent),
             Kind::HistoryOpen { listed, .. } => ReviewWorkOriginV3::Summary(listed.intent()),
+            Kind::RecoveryInspectV11 { request, .. } => {
+                ReviewWorkOriginV3::Summary(request.intent())
+            }
+            Kind::RecoveryAcknowledgeV11 { prepared, .. } => {
+                ReviewWorkOriginV3::Summary(prepared.request().intent())
+            }
             Kind::TeamsV3 { draft, .. } => ReviewWorkOriginV3::Files(draft.intent()),
         }
     }
@@ -167,7 +196,10 @@ impl ScopedReviewsWorkV2 {
         if app.scoped_review_history_v3.is_some()
             && !matches!(
                 self.kind,
-                Kind::HistoryList { .. } | Kind::HistoryOpen { .. }
+                Kind::HistoryList { .. }
+                    | Kind::HistoryOpen { .. }
+                    | Kind::RecoveryInspectV11 { .. }
+                    | Kind::RecoveryAcknowledgeV11 { .. }
             )
         {
             return false;
@@ -175,6 +207,16 @@ impl ScopedReviewsWorkV2 {
         match &self.kind {
             #[cfg(test)]
             Kind::ActualWorkerPanic(original) => original.matches(app),
+            Kind::NewActionV12 { notice, ticket } => {
+                app.overlay == Some(Overlay::ScopedReviewsV2)
+                    && app.scoped_reviews_v2.as_ref().is_some_and(|view| {
+                        Arc::ptr_eq(&view.ticket, ticket)
+                            && view
+                                .new_action_v12
+                                .as_ref()
+                                .is_some_and(|current| Arc::ptr_eq(current, notice))
+                    })
+            }
             Kind::Open { anchor, .. } => match anchor {
                 Some(anchor) => {
                     app.overlay == Some(Overlay::PrFileImages) && anchor.matches_current_range(app)
@@ -276,6 +318,33 @@ impl ScopedReviewsWorkV2 {
                     && app.scoped_review_history_v3.as_ref().is_some_and(|view| {
                         Arc::ptr_eq(&view.listed, listed)
                             && view.selected == *row
+                            && Arc::ptr_eq(&view.ticket, ticket)
+                    })
+            }
+            Kind::RecoveryInspectV11 { request, ticket } => {
+                app.scoped_reviews_v2.is_none()
+                    && app.overlay == Some(Overlay::ScopedReviewsV2)
+                    && app.scoped_review_history_v3.as_ref().is_some_and(|view| {
+                        view.selected == request.row()
+                            && view
+                                .opened
+                                .as_ref()
+                                .is_some_and(|opened| Arc::ptr_eq(opened, request.history()))
+                            && Arc::ptr_eq(&view.ticket, ticket)
+                    })
+            }
+            Kind::RecoveryAcknowledgeV11 { prepared, ticket } => {
+                app.scoped_reviews_v2.is_none()
+                    && app.overlay == Some(Overlay::ScopedReviewsV2)
+                    && app.scoped_review_history_v3.as_ref().is_some_and(|view| {
+                        view.selected == prepared.request().row()
+                            && view.opened.as_ref().is_some_and(|opened| {
+                                Arc::ptr_eq(opened, prepared.request().history())
+                            })
+                            && view
+                                .recovery_v11
+                                .as_ref()
+                                .is_some_and(|current| Arc::ptr_eq(current, prepared))
                             && Arc::ptr_eq(&view.ticket, ticket)
                     })
             }
@@ -550,6 +619,7 @@ pub fn capture_form(app: &mut App) {
     }
 }
 enum ResultKind {
+    NeedsNewV12(Arc<action_lineage_v12::NeedsNewActionV12>),
     Opened(Box<ReviewBrowserV2>),
     Selected(
         Arc<ScopedReviewSelectionV2>,
@@ -561,6 +631,8 @@ enum ResultKind {
     OperationPreview(Arc<ReviewOperationPreviewV3>),
     OperationPublished(operations_v3::execute_v3::ReviewOperationPublicationV3),
     History(Arc<PreparedReviewOperationHistoryV3>),
+    RecoveryInspectionV11(Arc<history_v3::recovery_v11::PreparedReviewRecoveryV11>),
+    RecoveryAcknowledgedV11(history_v3::recovery_v11::ReviewRecoveryAcknowledgedV11),
     TeamsV3(operations_v3::teams_v3::PreparedReviewRequestTeamsV3),
     Failed {
         hide_private: bool,
@@ -575,6 +647,42 @@ impl PreparedScopedReviewsV2 {
     pub fn matches(&self, owner: &Arc<ScopedReviewsOwnerV2>) -> bool {
         Arc::ptr_eq(owner, &self.owner)
             && match (&owner.work.kind, &self.kind) {
+                (Kind::NewActionV12 { notice, .. }, ResultKind::Form(form)) => {
+                    match &form.purpose {
+                        crate::forms::FormPurpose::PrReviewV2(state) => {
+                            Arc::ptr_eq(state.intent(), notice.intent())
+                                && state.draft_key() == notice.revision.key()
+                        }
+                        crate::forms::FormPurpose::PrReviewOperationV3(state) => {
+                            Arc::ptr_eq(state.intent(), notice.intent())
+                                && state.draft_key() == notice.revision.key()
+                        }
+                        _ => false,
+                    }
+                }
+                (
+                    Kind::Compose {
+                        draft,
+                        selection,
+                        action,
+                        ..
+                    },
+                    ResultKind::NeedsNewV12(notice),
+                ) => {
+                    matches!(&notice.context,action_lineage_v12::ActionContextV12::Review{draft:fresh,selection:actual,action:chosen}
+                        if Arc::ptr_eq(draft.intent(),fresh.intent())&&chosen==action&&match(selection,actual){(None,None)=>true,(Some(a),Some(b))=>Arc::ptr_eq(a,b),_=>false})
+                }
+                (Kind::OperationOpen { intent, .. }, ResultKind::NeedsNewV12(notice)) => {
+                    matches!(&notice.context,action_lineage_v12::ActionContextV12::Operation(actual)if Arc::ptr_eq(intent,actual.intent()))
+                }
+                (
+                    Kind::OperationAdd {
+                        selection, anchor, ..
+                    },
+                    ResultKind::NeedsNewV12(notice),
+                ) => {
+                    matches!(&notice.context,action_lineage_v12::ActionContextV12::Operation(actual)if actual.intent().matches_add_work_v3(selection,anchor))
+                }
                 (Kind::Open { intent, anchor }, ResultKind::Opened(view)) => {
                     Arc::ptr_eq(intent, view.intent())
                         && match (anchor, &view.pending_anchor_v3) {
@@ -627,6 +735,14 @@ impl PreparedScopedReviewsV2 {
                 (Kind::HistoryOpen { listed, row, .. }, ResultKind::History(data)) => {
                     Arc::ptr_eq(listed.intent(), data.intent()) && data.opened == Some(*row)
                 }
+                (
+                    Kind::RecoveryInspectV11 { request, .. },
+                    ResultKind::RecoveryInspectionV11(prepared),
+                ) => Arc::ptr_eq(request, prepared.request()),
+                (
+                    Kind::RecoveryAcknowledgeV11 { prepared, .. },
+                    ResultKind::RecoveryAcknowledgedV11(outcome),
+                ) => prepared.reference() == &outcome.reference && outcome.changed == 1,
                 (Kind::TeamsV3 { draft, .. }, ResultKind::TeamsV3(data)) => {
                     Arc::ptr_eq(draft.intent(), &data.original)
                 }
@@ -652,6 +768,9 @@ pub fn execute(
     let cancel = owner.cancellation();
     let deadline = owner.deadline();
     let kind = match &owner.work.kind {
+        Kind::NewActionV12 { notice, .. } => {
+            new_action_form_v12(notice, provider, database, cancel, deadline)
+        }
         #[cfg(test)]
         Kind::ActualWorkerPanic(_) => panic!("ACTUAL_REVIEW_WORKER_PANIC_PRIVATE_POISON"),
         Kind::Open { intent, anchor } => match ScopedReviewDraftV2::open(
@@ -761,6 +880,32 @@ pub fn execute(
                 )
             };
             match fresh {
+                Ok(draft) if draft.new_action_revision_v12().is_some() => {
+                    match action_lineage_v12::NeedsNewActionV12::prepare(
+                        action_lineage_v12::ActionContextV12::Review {
+                            draft: draft.clone(),
+                            selection: selection.clone(),
+                            action: *action,
+                        },
+                        draft
+                            .new_action_revision_v12()
+                            .expect("checked original revision")
+                            .clone(),
+                        draft
+                            .new_notice_v12
+                            .as_ref()
+                            .expect("producer prepared notice before final close")
+                            .clone(),
+                        cancel,
+                        deadline,
+                    ) {
+                        Ok(notice) => ResultKind::NeedsNewV12(notice),
+                        Err(message) => ResultKind::Failed {
+                            hide_private: false,
+                            message,
+                        },
+                    }
+                }
                 Ok(draft) => match ui_v2::form_from_draft(
                     draft,
                     selection.clone(),
@@ -899,6 +1044,25 @@ pub fn execute(
             Ok(data) => ResultKind::History(data),
             Err(error) => failure(error),
         },
+        Kind::RecoveryInspectV11 { request, .. } => match history_v3::recovery_v11::inspect(
+            request.clone(),
+            provider,
+            database,
+            &Default::default(),
+            cancel,
+            deadline,
+        ) {
+            Ok(prepared) => ResultKind::RecoveryInspectionV11(prepared),
+            Err(error) => failure(error),
+        },
+        Kind::RecoveryAcknowledgeV11 { prepared, .. } => {
+            match history_v3::recovery_v11::acknowledge(
+                prepared, provider, database, cancel, deadline,
+            ) {
+                Ok(outcome) => ResultKind::RecoveryAcknowledgedV11(outcome),
+                Err(error) => failure(error),
+            }
+        }
         Kind::TeamsV3 { draft, .. } => match operations_v3::teams_v3::read(
             draft.intent().clone(),
             provider,
@@ -933,6 +1097,28 @@ fn operation_form_v3(
         cancel,
         deadline,
     ) {
+        Ok(source) if source.new_action_revision_v12().is_some() => {
+            match action_lineage_v12::NeedsNewActionV12::prepare(
+                action_lineage_v12::ActionContextV12::Operation(source.clone()),
+                source
+                    .new_action_revision_v12()
+                    .expect("checked exact terminal revision")
+                    .clone(),
+                source
+                    .new_notice_v12
+                    .as_ref()
+                    .expect("producer prepared notice before final close")
+                    .clone(),
+                cancel,
+                deadline,
+            ) {
+                Ok(notice) => ResultKind::NeedsNewV12(notice),
+                Err(message) => ResultKind::Failed {
+                    hide_private: false,
+                    message,
+                },
+            }
+        }
         Ok(source) => match operation_ui_v3::form_from_source(source, cancel, deadline) {
             Ok(form) => ResultKind::Form(Box::new(form)),
             Err(message) => ResultKind::Failed {
@@ -941,6 +1127,88 @@ fn operation_form_v3(
             },
         },
         Err(error) => failure(error),
+    }
+}
+fn new_action_form_v12(
+    notice: &Arc<action_lineage_v12::NeedsNewActionV12>,
+    provider: &GithubProvider,
+    database: &Path,
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> ResultKind {
+    if cancel.is_cancelled()
+        || Instant::now() >= deadline
+        || Instant::now() >= notice.deadline
+        || notice
+            .opened
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_err()
+    {
+        return ResultKind::Failed {
+            hide_private: false,
+            message: "Original New action ended/already opened; inspect again explicitly".into(),
+        };
+    }
+    let form = match &notice.context {
+        action_lineage_v12::ActionContextV12::Review {
+            draft,
+            selection,
+            action,
+        } => {
+            match ScopedReviewDraftV2::open_new_v12(
+                draft.intent().clone(),
+                selection.as_ref(),
+                *action,
+                &notice.revision,
+                provider,
+                database,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                cancel,
+                deadline,
+            ) {
+                Ok(fresh) => ui_v2::form_from_draft(
+                    fresh,
+                    selection.clone(),
+                    *action,
+                    None,
+                    cancel,
+                    deadline,
+                ),
+                Err(error) => return failure(error),
+            }
+        }
+        action_lineage_v12::ActionContextV12::Operation(source) => {
+            match ScopedReviewOperationSourceV3::read_lineage_v12(
+                source.intent().clone(),
+                None,
+                &notice.revision,
+                provider,
+                database,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                cancel,
+                deadline,
+            ) {
+                Ok(source) => operation_ui_v3::form_from_source(source, cancel, deadline),
+                Err(error) => return failure(error),
+            }
+        }
+    };
+    match form {
+        Ok(form) => ResultKind::Form(Box::new(form)),
+        Err(message) => ResultKind::Failed {
+            hide_private: false,
+            message,
+        },
     }
 }
 pub fn retire_private(app: &mut App, background: &mut crate::runtime::Background) {
@@ -1105,6 +1373,17 @@ pub fn publish(
     result: PreparedScopedReviewsV2,
 ) {
     match result.kind {
+        ResultKind::NeedsNewV12(notice) => {
+            let Some(view) = app.scoped_reviews_v2.as_mut() else {
+                fail(app, background);
+                return;
+            };
+            if !view.install_new_action_v12(notice) {
+                fail(app, background);
+                return;
+            }
+            app.status="Original terminal action protected • explicitly choose New action or Back • nothing sent".into();
+        }
         ResultKind::Opened(view) => {
             app.scoped_review_history_v3 = None;
             app.scoped_reviews_v2 = Some(*view);
@@ -1215,6 +1494,24 @@ pub fn publish(
             }
             app.status = "Actual repository teams • re-request eligibility UNKNOWN".into();
         }
+        ResultKind::RecoveryInspectionV11(prepared) => {
+            if !app
+                .scoped_review_history_v3
+                .as_mut()
+                .is_some_and(|view| view.install_recovery_v11(prepared))
+            {
+                fail(app, background);
+                return;
+            }
+            app.status = "Fresh current outcome • explicit local ACK only • nothing resent".into();
+        }
+        ResultKind::RecoveryAcknowledgedV11(outcome) => {
+            let attempt = outcome.reference.attempt_id;
+            retire_private(app, background);
+            app.status = format!(
+                "Attempt #{attempt} locally acknowledged • nothing resent • refresh source"
+            );
+        }
         ResultKind::Failed {
             hide_private,
             message,
@@ -1308,11 +1605,35 @@ pub fn browser_action(app: &mut App, action: ReviewBrowserActionV2) {
     let ticket = view.ticket.clone();
     let selection = view.selection.clone();
     let row = view.selected();
+    if view.new_action_v12.is_some() {
+        match action {
+            ReviewBrowserActionV2::NewActionV12 => {
+                let notice = view
+                    .new_action_v12
+                    .as_ref()
+                    .expect("current notice")
+                    .clone();
+                queue(app, Kind::NewActionV12 { notice, ticket });
+            }
+            ReviewBrowserActionV2::Close => {
+                view.new_action_v12 = None;
+                view.scroll = 0;
+                view.ticket = Arc::new(());
+                view.clear_layout();
+            }
+            ReviewBrowserActionV2::Quit => app.dispatch(Action::Quit),
+            _ => {}
+        }
+        return;
+    }
     if action == ReviewBrowserActionV2::Resume && view.teams_v3.is_some() {
         view.notice("The selected row is a team, not a review; choose explicit Re-request team or close/reopen Reviews");
         return;
     }
     match action {
+        ReviewBrowserActionV2::NewActionV12 => {
+            view.notice("Choose an exact protected action first; no arbitrary history revision")
+        }
         ReviewBrowserActionV2::NextPendingCommentV3 => {
             if view.teams_v3.is_some() {
                 view.notice("Choose an actual pending review, not a team");
@@ -1498,6 +1819,28 @@ fn history_action_v3(app: &mut App, action: history_v3::ui::HistoryActionV3) {
             let intent = view.intent().clone();
             let ticket = Some(view.ticket.clone());
             queue(app, Kind::HistoryList { intent, ticket });
+        }
+        A::InspectCurrentV11 => {
+            let Some(opened) = view.opened.clone() else {
+                return;
+            };
+            let row = view.selected;
+            let ticket = view.ticket.clone();
+            match history_v3::recovery_v11::ReviewRecoveryRequestV11::capture(opened,row){
+                Ok(request)=>queue(app,Kind::RecoveryInspectV11{request,ticket}),
+                Err(_)=>view.message="Choose an exact unresolved original Review attempt; no acknowledgement prepared",
+            }
+        }
+        A::AcknowledgeV11 => {
+            let Some(prepared) = view
+                .recovery_v11
+                .clone()
+                .filter(|prepared| prepared.available())
+            else {
+                return;
+            };
+            let ticket = view.ticket.clone();
+            queue(app, Kind::RecoveryAcknowledgeV11 { prepared, ticket });
         }
         A::Back => {
             app.scoped_review_history_v3 = None;

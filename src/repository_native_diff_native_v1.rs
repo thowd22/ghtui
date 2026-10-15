@@ -34,6 +34,8 @@ pub(crate) trait NativeAppV2: NativeDiffPurposeV2 {
     fn preview(app: &mut App);
     fn comment(_app: &mut App) {}
     fn threads(_app: &mut App) {}
+    fn thread_back_v4(_app: &mut App) {}
+    fn newer_native_input_v4(_app: &mut App) {}
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>>;
     fn parts(
         app: &mut App,
@@ -148,6 +150,9 @@ pub fn synchronize(app: &mut App) {
 /// Source notices are overlays, so this must run even when drawing them rather
 /// than the native underlay. Never clear/fence a different newly chosen source.
 pub fn synchronize_pr_source_v1(app: &mut App) {
+    crate::scoped_pr_observed_tabs_v1::resources::threads_v1::code_v4::retire_invalid(app);
+    app.pr_native_diff_layout_v1.thread_return_v4 =
+        crate::scoped_pr_observed_tabs_v1::resources::threads_v1::code_v4::can_return(app);
     let original = app
         .pr_native_diff_v1
         .as_ref()
@@ -240,6 +245,16 @@ fn visible<S: NativeAppV2>(app: &mut App) {
 }
 fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
     synchronize(app);
+    if action == A::ThreadBackV4 {
+        S::thread_back_v4(app);
+        return;
+    }
+    if !matches!(
+        action,
+        A::FocusNext(_) | A::Activate | A::Controls | A::FocusBody | A::FocusQuery
+    ) {
+        S::newer_native_input_v4(app);
+    }
     if action == A::Open {
         if app.view != S::view()
             || app.remote_repository.is_some()
@@ -701,6 +716,7 @@ fn capture_for<S: NativeAppV2>(app: &mut App, event: &Event) -> bool {
     }
     match event {
         Event::Resize(width, _) => {
+            S::newer_native_input_v4(app);
             let width = width.saturating_sub(2).min(512);
             if S::state(app).is_some_and(|state| state.width != width) {
                 S::parts(app).0.as_mut().expect("native resize").width = width;

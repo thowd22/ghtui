@@ -7,10 +7,13 @@ mod model;
 mod objects;
 #[path = "pr_immutable_images_v1/patch.rs"]
 mod patch;
+#[path = "pr_immutable_images_v1/thread_historical_v5.rs"]
+mod thread_historical_v5;
 pub use model::*;
 use objects::*;
 use patch::*;
 use std::sync::Arc;
+pub use thread_historical_v5::*;
 #[cfg(test)]
 #[path = "pr_immutable_images_v1_tests.rs"]
 mod tests;

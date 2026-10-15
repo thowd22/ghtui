@@ -83,6 +83,13 @@ impl ThreadHistoryParentObservationV1 {
     pub(crate) fn base(&self) -> &str {
         &self.summary.base_sha
     }
+    pub(super) fn key_v4(&self) -> (&str, &str, u64) {
+        (
+            &self.summary.pr.id,
+            &self.summary.pr.repository,
+            self.summary.pr.number,
+        )
+    }
 }
 impl GithubProvider {
     pub(crate) fn pr_thread_history_parent_v1(

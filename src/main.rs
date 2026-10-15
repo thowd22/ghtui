@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use crossterm::event;
 use ghtui::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3 as review_operation_ui_v3;
 use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui as comment_ui_v2;
+use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::reactions_v3::form as reaction_ui_v3;
 use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use ghtui::{app::App, ui};
 use ghtui::{
@@ -123,6 +124,7 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrInline(_)
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                 )
@@ -253,6 +255,7 @@ fn run() -> Result<()> {
         inline_ui::retire_invalid_form(&mut app);
         thread_ui::retire_invalid_form(&mut app);
         comment_ui_v2::retire_invalid_form(&mut app);
+        reaction_ui_v3::retire_invalid_form(&mut app);
         reviews_ui::retire_invalid_form(&mut app);
         reviews_native::retire_invalid(&mut app);
         if let Some(form) = &mut app.form {
@@ -263,6 +266,7 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrInline(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                        | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
                 ) || !app.form_dismissed && app.overlay == Some(ghtui::app::Overlay::Form))
             {
                 form.invalidate_plan();
@@ -275,6 +279,11 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                 ) {
                     comment_ui_v2::encoded_draft(form)
+                } else if matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                ) {
+                    reaction_ui_v3::encoded_draft(form)
                 } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrReviewV2(_)) {
                     reviews_ui::encoded_draft(form)
                 } else if matches!(
@@ -450,6 +459,7 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrInline(_)
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                 )
@@ -519,6 +529,7 @@ fn run() -> Result<()> {
                 match &mut form.purpose {
                     ghtui::forms::FormPurpose::PrThread(_) => return Err("Original thread preview requires its purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrThreadCommentV2(_) => return Err("Original selected-comment preview requires its purpose-specific worker • no legacy fallback".into()),
+                    ghtui::forms::FormPurpose::PrThreadReactionV3(_) => return Err("Original reaction preview requires its purpose-specific worker • no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrInline(_) => return Err("Original scoped inline previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrReviewV2(_)=>return Err("Original scoped review previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrReviewOperationV3(_)=>return Err("Original pending operation requires its same Review worker; no legacy fallback".into()),
@@ -650,6 +661,7 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrInline(_)
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
                 )
             }) {
                 let form = app.form.as_mut().expect("checked inline form");
@@ -659,7 +671,12 @@ fn run() -> Result<()> {
                     form.purpose,
                     ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                 );
-                let admitted = if is_comment {
+                let admitted = if matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                ) {
+                    Err("Reactions have no editable body or external editor".into())
+                } else if is_comment {
                     comment_ui_v2::validate_input(form, "")
                 } else if is_thread {
                     thread_ui::validate_input(form, "")
@@ -759,6 +776,7 @@ fn run() -> Result<()> {
                     ghtui::forms::FormPurpose::PrInline(_)
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
+                        | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                 )
@@ -1877,7 +1895,7 @@ fn run() -> Result<()> {
                             Ok(workspace)
                         }
                         Some(GithubAction::ClearCache) => previous.clear_cache(&database),
-                        Some(GithubAction::Resource(_)|GithubAction::ThreadHistoryV1|GithubAction::ReviewOperationHistoryV3) => {
+                        Some(GithubAction::Resource(_)|GithubAction::ThreadHistoryV1|GithubAction::ReviewOperationHistoryV3|GithubAction::ReviewThreadsV4) => {
                             return Err("Loaded scoped resource controls require the original scoped page; no legacy read sent".into());
                         }
                         Some(GithubAction::Compose(kind)) => {

@@ -62,6 +62,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             if github
                 .pr
                 .as_ref()
+                .is_some_and(|page| matches!(page.tab, PrTab::Summary | PrTab::Timeline))
+            {
+                controls.push(("[T All threads]".into(), GithubAction::ReviewThreadsV4));
+            }
+            if github
+                .pr
+                .as_ref()
                 .is_some_and(|page| page.tab == PrTab::Summary)
             {
                 controls.push(("[J Thread history]".into(), GithubAction::ThreadHistoryV1));

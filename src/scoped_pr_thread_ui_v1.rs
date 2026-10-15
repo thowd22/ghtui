@@ -177,7 +177,7 @@ pub fn form_from_draft(draft: ScopedThreadDraftV1) -> Result<Form, String> {
         return Err("Thread draft has no matching actual closed account".into());
     }
     let intent = draft.intent().clone();
-    let parent = intent.prepared.intent.original_view.observed.parent();
+    let parent = &intent.prepared.parent_v4;
     let mut form = Form::pr(PrIntent {
         kind: PrFormKind::Comment,
         target: parent.summary().clone(),

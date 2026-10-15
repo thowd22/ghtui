@@ -350,8 +350,11 @@ impl Background {
                 }
                 old.release_busy_presentation(app);
                 app.scoped_threads_owner_v1 = None;
+                if old.retire_nested_historical_v5(app) {
+                    return;
+                }
                 if app.scoped_threads_v1.as_ref().is_some_and(|view| {
-                    old.files_intent()
+                    old.browse_intent()
                         .is_some_and(|intent| Arc::ptr_eq(&view.intent, intent))
                 }) {
                     app.scoped_threads_v1 = None;
@@ -401,9 +404,12 @@ impl Background {
         {
             app.scoped_threads_owner_v1 = None;
         }
+        if owner.retire_nested_historical_v5(app) {
+            return;
+        }
         if app.scoped_threads_v1.as_ref().is_some_and(|x| {
             owner
-                .files_intent()
+                .browse_intent()
                 .is_some_and(|intent| Arc::ptr_eq(&x.intent, intent))
         }) {
             app.scoped_threads_v1 = None;

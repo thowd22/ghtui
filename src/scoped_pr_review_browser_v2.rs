@@ -20,6 +20,7 @@ pub enum ReviewBrowserActionV2 {
     Select(usize),
     Resume,
     NewBatch,
+    NewActionV12,
     NextPendingCommentV3,
     EditPendingCommentV3,
     DeletePendingCommentV3,
@@ -57,6 +58,8 @@ pub struct ReviewBrowserV2 {
     pub(super) requester_v7: avatars_v7::PreparedActorV7,
     pub(super) avatar_view_v7: Option<avatars_v7::BrowserViewportV7>,
     pub(super) ticket: Arc<()>,
+    pub(super) new_action_v12: Option<Arc<action_lineage_v12::NeedsNewActionV12>>,
+    new_viewport_v12: crate::prepared_form_text_v1::FormPreviewViewportV1,
     notice: String,
     interactive: bool,
     new_batch_refusal_v12: Option<&'static str>,
@@ -86,6 +89,21 @@ impl ReviewBrowserV2 {
     }
     pub fn new_batch_disabled_v12(&self) -> Option<&'static str> {
         self.new_batch_refusal_v12
+    }
+    pub(crate) fn install_new_action_v12(
+        &mut self,
+        notice: Arc<action_lineage_v12::NeedsNewActionV12>,
+    ) -> bool {
+        if !Arc::ptr_eq(self.intent(), notice.intent()) || Instant::now() >= notice.deadline {
+            return false;
+        }
+        self.new_action_v12 = Some(notice);
+        self.new_viewport_v12 = Default::default();
+        self.scroll = 0;
+        self.horizontal = 0;
+        self.ticket = Arc::new(());
+        self.clear_layout();
+        true
     }
     pub fn effect_disabled(&self, action: ReviewRequestedActionV2) -> Option<&'static str> {
         if self.teams_v3.is_some() {
@@ -244,6 +262,8 @@ impl ReviewBrowserV2 {
             focus: 0,
             hits: vec![],
             ticket: Arc::new(()),
+            new_action_v12: None,
+            new_viewport_v12: Default::default(),
             notice: String::new(),
             interactive: false,
             new_batch_refusal_v12,
@@ -379,6 +399,29 @@ impl ReviewBrowserV2 {
             ReviewBrowserActionV2::Activate => self.hits.get(self.focus)?.action,
             other => other,
         };
+        if self.new_action_v12.is_some() {
+            match action {
+                ReviewBrowserActionV2::Move(delta) | ReviewBrowserActionV2::Scroll(delta) => {
+                    self.scroll = self.scroll.saturating_add_signed(delta as isize);
+                    return None;
+                }
+                ReviewBrowserActionV2::Focus(delta) => {
+                    if !self.hits.is_empty() {
+                        self.focus = (self.focus as i64 + i64::from(delta))
+                            .rem_euclid(self.hits.len() as i64)
+                            as usize;
+                    }
+                    return None;
+                }
+                ReviewBrowserActionV2::Activate => {
+                    return self.hits.get(self.focus).map(|hit| hit.action)
+                }
+                ReviewBrowserActionV2::NewActionV12
+                | ReviewBrowserActionV2::Close
+                | ReviewBrowserActionV2::Quit => return Some(action),
+                _ => return None,
+            }
+        }
         if self.teams_v3.is_some() {
             let count = self.teams_labels_v3.len();
             match action {
@@ -544,6 +587,7 @@ pub fn key(key: KeyEvent) -> Option<ReviewBrowserActionV2> {
     use ReviewBrowserActionV2::*;
     Some(match key.code {
         KeyCode::Esc => Close,
+        KeyCode::Char('N') => NewActionV12,
         KeyCode::Up | KeyCode::Char('k') => Move(-1),
         KeyCode::Down | KeyCode::Char('j') => Move(1),
         KeyCode::PageUp => Scroll(-10),
@@ -571,6 +615,86 @@ pub fn key(key: KeyEvent) -> Option<ReviewBrowserActionV2> {
         KeyCode::F(7) => RequestTeamV3,
         _ => return None,
     })
+}
+fn draw_new_action_v12(
+    frame: &mut Frame,
+    inner: Rect,
+    view: &mut ReviewBrowserV2,
+    theme: crate::theme::Theme,
+    busy: bool,
+    avatars: &crate::actor_avatar_states_v1::ActorAvatarStatesV1,
+) {
+    let Some(notice) = &view.new_action_v12 else {
+        return;
+    };
+    let usable = inner.width >= 64 && inner.height >= 8;
+    if inner.width >= 4 && inner.height > 1 {
+        notice
+            .requester
+            .paint(frame, Rect::new(inner.x, inner.y + 1, 4, 1), avatars, theme);
+        frame.render_widget(
+            Paragraph::new(notice.requester.label()).style(theme.style(SemanticToken::Actor)),
+            Rect::new(inner.x + 4, inner.y + 1, inner.width - 4, 1),
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(if busy {
+            "Original New action pending • Esc cancels; nothing sent"
+        } else {
+            "Protected original action • explicit NEW action only"
+        })
+        .style(theme.style(SemanticToken::Pending)),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    if usable {
+        let height = inner
+            .height
+            .saturating_sub(4)
+            .min(crate::prepared_form_text_v1::FORM_VISIBLE_ROWS_V1);
+        if let Ok(window) =
+            notice
+                .display
+                .window(&mut view.new_viewport_v12, inner.width, height, view.scroll)
+        {
+            view.scroll = window.top();
+            for (offset, row) in window.rows().enumerate() {
+                frame.render_widget(
+                    Paragraph::new(row.text()).style(theme.base()),
+                    Rect::new(inner.x, inner.y + 2 + offset as u16, inner.width, 1),
+                );
+            }
+            view.interactive = !busy;
+        }
+    } else if inner.height > 2 {
+        frame.render_widget(
+            Paragraph::new("Resize to inspect New action; disabled"),
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
+    }
+    let mut x = inner.x;
+    for (action, label) in [
+        (ReviewBrowserActionV2::NewActionV12, "[N New action]"),
+        (
+            ReviewBrowserActionV2::Close,
+            if busy { "[Esc Cancel]" } else { "[Esc Back]" },
+        ),
+    ] {
+        let disabled = action == ReviewBrowserActionV2::NewActionV12 && (!view.interactive || busy);
+        let width = (label.len() as u16).min(inner.right().saturating_sub(x));
+        let rect = Rect::new(x, inner.bottom().saturating_sub(1), width, 1);
+        let style = if disabled {
+            theme.style(SemanticToken::Muted)
+        } else if view.focus == view.hits.len() {
+            theme.selected(SemanticToken::Reference)
+        } else {
+            theme.style(SemanticToken::Reference)
+        };
+        frame.render_widget(Paragraph::new(label).style(style), rect);
+        if !disabled && width == label.len() as u16 && inner.height > 0 {
+            view.hits.push(Hit { rect, action });
+        }
+        x = x.saturating_add(width + 1);
+    }
 }
 pub fn mouse(view: &ReviewBrowserV2, event: MouseEvent) -> Option<ReviewBrowserActionV2> {
     match event.kind {
@@ -611,6 +735,10 @@ pub fn draw(
         area,
     );
     let inner = area.inner(Margin::new(1, 1));
+    if view.new_action_v12.is_some() {
+        draw_new_action_v12(frame, inner, view, theme, busy, avatars);
+        return;
+    }
     let mut controls_height = 1u16;
     let mut used = 0u16;
     for (_, label) in CONTROLS {

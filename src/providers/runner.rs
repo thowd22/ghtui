@@ -9,6 +9,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "runner_review_recovery_v11.rs"]
+mod review_recovery_v11;
 #[path = "scoped_read_budget_v1.rs"]
 mod scoped_read_budget_v1;
 pub use scoped_read_budget_v1::ScopedReadAccountingV1;

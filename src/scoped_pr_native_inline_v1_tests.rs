@@ -14,6 +14,8 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use images::inline_v1::{native_entry_v1 as entry, native_v1 as inline, ui_v1 as composer};
 const OLD_NATIVE: &[u8] = b"context before\nold one\nold two\ncontext after\n";
 const NEW_NATIVE: &[u8] = b"context before\nnew one\nnew two\ncontext after\n";
+#[path = "scoped_pr_thread_code_v4_tests.rs"]
+mod thread_code_v4;
 #[path = "scoped_pr_native_threads_v3_tests.rs"]
 mod threads_v3;
 fn loaded(extra: impl FnOnce(&history::GitImagesV1, &mut Vec<GhStep>)) -> (Setup, App, Background) {

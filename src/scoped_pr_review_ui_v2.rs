@@ -231,7 +231,8 @@ fn requested(form: &Form, for_preview: bool) -> Result<Arc<ScopedReviewRequestV2
         )?);
         Ok(ScopedReviewRequestV2::create(&state.draft, values))
     } else {
-        ScopedReviewRequestV2::selected(
+        ScopedReviewRequestV2::selected_draft_v12(
+            &state.draft,
             state
                 .selection
                 .clone()
@@ -251,6 +252,9 @@ pub fn form_from_draft(
     cancel: &CancellationToken,
     deadline: Instant,
 ) -> Result<Form, String> {
+    if draft.needs_new_v12 {
+        return Err("Inspect the exact terminal action, then explicitly choose New action".into());
+    }
     if cancel.is_cancelled() || Instant::now() >= deadline {
         return Err("Original review open phase ended".into());
     }
@@ -263,9 +267,12 @@ pub fn form_from_draft(
         return Err("Review action/selection belongs to another actual source".into());
     }
     if selection.as_ref().is_some_and(|selected| {
-        selected
-            .action_key(action)
-            .map_or(true, |key| key != draft.key())
+        selected.action_key(action).map_or(true, |key| {
+            key != draft
+                .lineage_v12
+                .as_ref()
+                .map_or(draft.key(), |revision| revision.base_key())
+        })
     }) {
         return Err("Open the exact selected-action draft under its own source bracket; do not overwrite the local batch".into());
     }
@@ -335,10 +342,12 @@ pub fn form_from_draft(
     }
     let initial = if action == ReviewRequestedActionV2::CreatePending || draft.restored_values() {
         draft.values().summary()
-    } else if matches!(
-        action,
-        ReviewRequestedActionV2::Discard | ReviewRequestedActionV2::Dismiss
-    ) {
+    } else if (draft.lineage_v12.is_some() && action != ReviewRequestedActionV2::UpdateSummary)
+        || matches!(
+            action,
+            ReviewRequestedActionV2::Discard | ReviewRequestedActionV2::Dismiss
+        )
+    {
         ""
     } else {
         let selected = selection

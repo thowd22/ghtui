@@ -27,6 +27,7 @@ pub enum NativeDiffActionV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1>
     External,
     Comment,
     Threads,
+    ThreadBackV4,
     CancelInline,
     FocusQuery,
     FocusBody,
@@ -90,6 +91,7 @@ impl<S: NativeDiffPurposeV2> Clone for NativeDiffActionV1<S> {
             Self::External => Self::External,
             Self::Comment => Self::Comment,
             Self::Threads => Self::Threads,
+            Self::ThreadBackV4 => Self::ThreadBackV4,
             Self::CancelInline => Self::CancelInline,
             Self::FocusQuery => Self::FocusQuery,
             Self::FocusBody => Self::FocusBody,
@@ -155,6 +157,7 @@ impl<S: NativeDiffPurposeV2> PartialEq for NativeDiffActionV1<S> {
             (Self::External, Self::External) => true,
             (Self::Comment, Self::Comment) | (Self::CancelInline, Self::CancelInline) => true,
             (Self::Threads, Self::Threads) => true,
+            (Self::ThreadBackV4, Self::ThreadBackV4) => true,
             (Self::FocusQuery, Self::FocusQuery) => true,
             (Self::FocusBody, Self::FocusBody) => true,
             (Self::FocusNext(a), Self::FocusNext(b)) => a == b,
@@ -254,6 +257,7 @@ pub struct NativeDiffHitV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> 
     pub action: NativeDiffActionV1<S>,
 }
 pub struct NativeDiffLayoutV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1> {
+    pub(crate) thread_return_v4: bool,
     pub(crate) area: Rect,
     pub(crate) hits: Vec<NativeDiffHitV1<S>>,
     pub(crate) body: Rect,
@@ -274,6 +278,7 @@ impl<S: NativeDiffPurposeV2> Clone for NativeDiffHitV1<S> {
 impl<S: NativeDiffPurposeV2> Default for NativeDiffLayoutV1<S> {
     fn default() -> Self {
         Self {
+            thread_return_v4: false,
             area: Rect::default(),
             hits: Vec::new(),
             body: Rect::default(),
@@ -402,6 +407,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             KeyCode::Char('E') => Some(A::External),
             KeyCode::Char('P') if S::supports_inline_comment() => Some(A::Comment),
             KeyCode::Char('T') if S::supports_review_threads() => Some(A::Threads),
+            KeyCode::Char('b') if self.thread_return_v4 && S::supports_review_threads() => {
+                Some(A::ThreadBackV4)
+            }
             KeyCode::Char('/') => Some(A::FocusQuery),
             KeyCode::Char('r') => Some(A::Regex),
             KeyCode::Char('l') => Some(A::Option(NativeDiffOptionChangeV1::Layout)),
@@ -741,6 +749,10 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
                 },
                 NativeDiffActionV1::Threads,
             )))
+            .chain(
+                self.thread_return_v4
+                    .then_some(("[b Back thread]", NativeDiffActionV1::ThreadBackV4)),
+            )
         {
             let width = (label.len() as u16).min(inner.width);
             if x + width > inner.right() {
@@ -979,6 +991,10 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
                 },
                 A::Threads,
             )))
+            .chain(
+                self.thread_return_v4
+                    .then_some(("[b Back thread]", A::ThreadBackV4)),
+            )
         {
             let width = (label.len() as u16).min(inner.width);
             if x + width > inner.right() {

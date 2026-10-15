@@ -422,6 +422,9 @@ fn possible_text_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKin
     if let Some(categories) = super::review_rerequest_impact_v3::categories(marker, false)? {
         return Ok(categories);
     }
+    if let Some(categories) = super::thread_reaction_impact_v3::categories(marker, false)? {
+        return Ok(categories);
+    }
     if let Some(categories) = super::thread_comment_impact_v2::categories(marker, false)? {
         return Ok(categories);
     }
@@ -475,6 +478,9 @@ pub(crate) fn unresolved_visibility_diagnostic(
 
 fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
     if let Some(categories) = super::review_rerequest_impact_v3::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::thread_reaction_impact_v3::categories(marker, true)? {
         return Ok(categories);
     }
     if let Some(categories) = super::thread_comment_impact_v2::categories(marker, true)? {

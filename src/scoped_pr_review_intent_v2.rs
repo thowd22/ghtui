@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::time::Instant;
+#[path = "scoped_pr_review_action_lineage_v12.rs"]
+pub(crate) mod action_lineage_v12;
 #[path = "scoped_pr_review_avatars_v7.rs"]
 pub mod avatars_v7;
 #[path = "scoped_pr_review_browser_v2.rs"]

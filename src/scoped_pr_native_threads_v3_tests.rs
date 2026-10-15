@@ -61,7 +61,12 @@ fn review_threads_v3_native_key_and_click_action_capture_original_files_and_pure
         let owner = app.scoped_threads_work_v1.as_ref().unwrap();
         assert!(owner.files_intent().unwrap().owns(&app));
         assert_eq!(
-            owner.files_intent().unwrap().path().as_bytes(),
+            owner
+                .files_intent()
+                .unwrap()
+                .path()
+                .expect("Actual Files origin retains its observed path")
+                .as_bytes(),
             source
                 .proof()
                 .observed()

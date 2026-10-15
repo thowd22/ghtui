@@ -39,7 +39,7 @@ impl ReviewRequestedActionV2 {
             Self::Dismiss => "Request dismissal — server eligibility UNKNOWN",
         }
     }
-    pub(super) fn command(self) -> &'static str {
+    pub(crate) fn command(self) -> &'static str {
         match self {
             Self::CreatePending => "review-create-pending-v2",
             Self::UpdateSummary => "review-update-pending-v2",
@@ -48,7 +48,7 @@ impl ReviewRequestedActionV2 {
             Self::Dismiss => "review-dismiss-v2",
         }
     }
-    pub(super) fn draft_tag(self) -> &'static str {
+    pub(crate) fn draft_tag(self) -> &'static str {
         match self {
             Self::CreatePending => "create",
             Self::UpdateSummary => "summary",
@@ -74,6 +74,10 @@ pub struct ScopedReviewRequestV2 {
     pub(super) values: Arc<ReviewDraftValuesV2>,
     pub(super) selection: Option<Arc<ScopedReviewSelectionV2>>,
     pub(super) key: Arc<str>,
+    pub(super) lineage_v12: Option<
+        Arc<crate::pr_write_journal::review_action_lineage_v12::ReviewAcknowledgedRevisionV12>,
+    >,
+    blocked_new_v12: bool,
 }
 impl std::fmt::Debug for ScopedReviewRequestV2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -88,6 +92,8 @@ impl ScopedReviewRequestV2 {
             values,
             selection: None,
             key: Arc::from(draft.key()),
+            lineage_v12: draft.lineage_v12.clone(),
+            blocked_new_v12: draft.needs_new_v12,
         })
     }
     pub fn selected(
@@ -106,10 +112,30 @@ impl ScopedReviewRequestV2 {
             values,
             selection: Some(selection),
             key: Arc::from(key),
+            lineage_v12: None,
+            blocked_new_v12: false,
         }))
     }
     pub fn intent(&self) -> &Arc<ScopedReviewIntentV2> {
         &self.intent
+    }
+    pub(crate) fn selected_draft_v12(
+        draft: &Arc<ScopedReviewDraftV2>,
+        selection: Arc<ScopedReviewSelectionV2>,
+        action: ReviewRequestedActionV2,
+        summary: Arc<str>,
+    ) -> Result<Arc<Self>, String> {
+        if draft.needs_new_v12 || !Arc::ptr_eq(draft.intent(), selection.intent()) {
+            return Err("Explicit new-action draft/selection mismatch".into());
+        }
+        let mut result = Self::selected(selection, action, summary)?;
+        if let Some(revision) = &draft.lineage_v12 {
+            let request =
+                Arc::get_mut(&mut result).ok_or("New action request unexpectedly shared")?;
+            request.key = draft.key.clone();
+            request.lineage_v12 = Some(revision.clone());
+        }
+        Ok(result)
     }
     pub fn action(&self) -> ReviewRequestedActionV2 {
         self.action
@@ -117,7 +143,36 @@ impl ScopedReviewRequestV2 {
     pub fn values(&self) -> &Arc<ReviewDraftValuesV2> {
         &self.values
     }
+    pub(super) fn validate_lineage_v12(&self, database: &Path) -> Result<(), GithubError> {
+        let base = crate::pr_write_journal::review_action_lineage_v12::ReviewActionBaseV12::review(
+            &self.intent,
+            self.selection.as_ref(),
+            self.action,
+        )
+        .map_err(|_| safe_local())?;
+        if let Some(revision) = &self.lineage_v12 {
+            if revision.key() != self.key.as_ref() {
+                return Err(safe_local());
+            }
+            revision
+                .validate(database, &base)
+                .map_err(|_| safe_local())?;
+        } else if PrWriteJournal::open(database)
+            .map_err(|_| safe_local())?
+            .action_revision_v12(&base)
+            .map_err(|_| safe_local())?
+            .is_some()
+        {
+            return Err(safe_local());
+        }
+        Ok(())
+    }
     fn preflight(&self) -> Result<(), ScopedReviewFailureV2> {
+        if self.blocked_new_v12 {
+            return Err(refused(
+                "Explicit New action required; protected history cannot prepare a request",
+            ));
+        }
         self.values
             .validate()
             .map_err(|_| refused("Review body/anchors exceed bounded encoded draft contract"))?;
@@ -426,6 +481,7 @@ impl ScopedReviewPreviewV2 {
             .close_with_guard(cancel, || {
                 private_clock(cancel, deadline)?;
                 local.validate(database, &intent.source)?;
+                request.validate_lineage_v12(database)?;
                 private_clock(cancel, deadline)
             })
             .map_err(source_failure)?;
@@ -485,12 +541,17 @@ fn write_for_request(
             snapshot_digest(observed, cancel, deadline)?,
         );
     }
-    let write = PrWriteIntent {
+    let mut write = PrWriteIntent {
         command: request.action.command().into(),
         selected_resource: selection,
         observed_head: head.into(),
         values,
     };
+    if let Some(revision) = &request.lineage_v12 {
+        revision
+            .bind_write(&mut write)
+            .map_err(|_| refused("Actual explicit new-action fingerprint changed"))?;
+    }
     write
         .digest()
         .map_err(|_| refused("Prepared review fingerprint exceeds bounded payload contract"))?;

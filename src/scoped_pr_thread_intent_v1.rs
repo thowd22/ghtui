@@ -102,12 +102,7 @@ impl ScopedThreadPublicationIntentV1 {
         self.prepared.intent.scope()
     }
     pub fn head(&self) -> &str {
-        self.prepared
-            .intent
-            .original_view
-            .observed
-            .parent()
-            .head_sha()
+        self.prepared.parent_v4.head_sha()
     }
     fn root(&self) -> Result<&MetricsThreadComment, String> {
         if !self.thread().comment_coverage.enumeration_complete
@@ -138,7 +133,7 @@ impl ScopedThreadPublicationIntentV1 {
             })
     }
     fn original_metadata(&self) -> Result<Vec<u8>, String> {
-        let parent = self.prepared.intent.original_view.observed.parent();
+        let parent = &self.prepared.parent_v4;
         let root = if self.action == ThreadPublicationActionV1::Reply {
             Some(self.root()?)
         } else {

@@ -7,8 +7,12 @@ use crate::{
     providers::gh::{MetricsReviewThreadsSnapshot, MetricsThreadLimits, MetricsThreadSubjectV1},
 };
 use std::time::Instant;
+#[path = "scoped_pr_thread_code_v4.rs"]
+pub mod code_v4;
 #[path = "scoped_pr_thread_comments_v2.rs"]
 pub mod comments_v2;
+#[path = "scoped_pr_thread_historical_v5.rs"]
+pub mod historical_v5;
 #[path = "scoped_pr_thread_history_v1.rs"]
 pub mod history_v1;
 #[path = "scoped_pr_threads_native_v1.rs"]
@@ -26,15 +30,29 @@ pub struct ThreadBrowseIntentV1 {
     pub(crate) source: Arc<CatalogueIntentSource>,
     pub(crate) active: Arc<ActiveRemoteScopeV1>,
     pub(crate) navigation: Arc<ScopedPrNavigationV1>,
-    original_view: Arc<ScopedPrResourceViewV1>,
-    file_index: usize,
+    origin_v4: ThreadBrowseOriginV4,
     selected_row: usize,
     #[cfg(test)]
     after_preparation_test: Option<Arc<dyn Fn() + Send + Sync>>,
 }
+enum ThreadBrowseOriginV4 {
+    Files {
+        view: Arc<ScopedPrResourceViewV1>,
+        file: usize,
+    },
+    Detail {
+        expected: Box<crate::providers::gh::ThreadDetailParentObservationV4>,
+        tab: crate::github_workspace::PrTab,
+        scroll: usize,
+    },
+}
 impl std::fmt::Debug for ThreadBrowseIntentV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ThreadBrowseIntentV1(<original Files member; no access>)")
+        f.write_str(if self.files_member_v1().is_some() {
+            "ThreadBrowseIntentV1(<original Files member; no access>)"
+        } else {
+            "ThreadBrowseIntentV1(<original Summary/Timeline observation; no access>)"
+        })
     }
 }
 impl ThreadBrowseIntentV1 {
@@ -85,23 +103,128 @@ impl ThreadBrowseIntentV1 {
             source: source.clone(),
             active: active.clone(),
             navigation: navigation.clone(),
-            original_view: view.clone(),
-            file_index,
+            origin_v4: ThreadBrowseOriginV4::Files {
+                view: view.clone(),
+                file: file_index,
+            },
             selected_row: app.selected,
             #[cfg(test)]
             after_preparation_test: None,
         });
         if app.overlay.is_some()
             || !result.owns(app)
-            || result.path().is_empty()
-            || result.path().len() > 4096
+            || result
+                .path()
+                .is_none_or(|path| path.is_empty() || path.len() > 4096)
         {
             return Err("Exact current original Files selection required; nothing guessed".into());
         }
         Ok(result)
     }
-    pub fn path(&self) -> &str {
-        &self.original_view.observed.files()[self.file_index].path
+    pub fn path(&self) -> Option<&str> {
+        self.selected_path_v4()
+    }
+    pub(crate) fn files_member_v1(&self) -> Option<(&Arc<ScopedPrResourceViewV1>, usize)> {
+        match &self.origin_v4 {
+            ThreadBrowseOriginV4::Files { view, file } => Some((view, *file)),
+            ThreadBrowseOriginV4::Detail { .. } => None,
+        }
+    }
+    pub fn selected_path_v4(&self) -> Option<&str> {
+        self.files_member_v1()
+            .map(|(view, file)| view.observed.files()[file].path.as_str())
+    }
+    pub(crate) fn head_v4(&self) -> &str {
+        match &self.origin_v4 {
+            ThreadBrowseOriginV4::Files { view, .. } => view.observed.parent().head_sha(),
+            ThreadBrowseOriginV4::Detail { expected, .. } => expected.head(),
+        }
+    }
+    pub(crate) fn base_v4(&self) -> &str {
+        match &self.origin_v4 {
+            ThreadBrowseOriginV4::Files { view, .. } => view.observed.parent().base_tip_sha(),
+            ThreadBrowseOriginV4::Detail { expected, .. } => expected.base(),
+        }
+    }
+    pub(crate) fn parent_key_v4(&self) -> (&str, &str, u64) {
+        match &self.origin_v4 {
+            ThreadBrowseOriginV4::Files { view, .. } => {
+                let p = view.observed.parent();
+                (p.node_id(), p.repository(), p.number())
+            }
+            ThreadBrowseOriginV4::Detail { expected, .. } => expected.key(),
+        }
+    }
+    pub(crate) fn read_parent_v4(
+        &self,
+        provider: &GithubProvider,
+        current: &crate::providers::gh::CurrentCatalogueRepository,
+        cancel: &CancellationToken,
+    ) -> Result<crate::providers::gh::PrResourceParentV1, GithubError> {
+        match &self.origin_v4 {
+            ThreadBrowseOriginV4::Files { view, .. } => provider.pr_inline_original_parent_v1(
+                current,
+                &view.observed,
+                &Default::default(),
+                cancel,
+            ),
+            ThreadBrowseOriginV4::Detail { expected, .. } => {
+                provider.pr_thread_detail_parent_v4(current, expected, cancel)
+            }
+        }
+    }
+    pub fn capture_detail_v4(app: &App) -> Result<Arc<Self>, String> {
+        let github = app
+            .github
+            .as_ref()
+            .ok_or("Open a genuine scoped Summary/Timeline first")?;
+        let page = github
+            .pr
+            .as_ref()
+            .filter(|page| {
+                matches!(
+                    page.tab,
+                    crate::github_workspace::PrTab::Summary
+                        | crate::github_workspace::PrTab::Timeline
+                )
+            })
+            .ok_or(
+                "All threads opens from actual Summary or Timeline, not a fabricated Files member",
+            )?;
+        let intent = Arc::new(Self {
+            source: app
+                .remote_scope_source
+                .as_ref()
+                .ok_or("Original source unavailable")?
+                .clone(),
+            active: app
+                .remote_scope
+                .as_ref()
+                .ok_or("Original active scope unavailable")?
+                .clone(),
+            navigation: github
+                .scoped_pr_navigation
+                .as_ref()
+                .ok_or("Original navigation unavailable")?
+                .clone(),
+            origin_v4: ThreadBrowseOriginV4::Detail {
+                expected: Box::new(
+                    crate::providers::gh::ThreadDetailParentObservationV4::capture(
+                        &page.details.summary,
+                    )
+                    .map_err(|_| "Bounded actual detail observation unavailable")?,
+                ),
+                tab: page.tab,
+                scroll: app.scroll,
+            },
+            selected_row: app.selected,
+            #[cfg(test)]
+            after_preparation_test: None,
+        });
+        if app.overlay.is_some() || !intent.owns(app) {
+            return Err("Exact current original Summary/Timeline presentation required".into());
+        }
+        Ok(intent)
     }
     pub fn scope(&self) -> &Scope {
         self.source.scope()
@@ -123,20 +246,31 @@ impl ThreadBrowseIntentV1 {
                         .scoped_pr_navigation
                         .as_ref()
                         .is_some_and(|x| Arc::ptr_eq(x, &self.navigation))
-                    && github
-                        .scoped_pr_resource
-                        .as_ref()
-                        .is_some_and(|x| Arc::ptr_eq(x, &self.original_view))
                     && github.pr.as_ref().is_some_and(|page| {
-                        page.tab == crate::github_workspace::PrTab::Files
-                            && matches_page(&self.navigation, page)
+                        matches_page(&self.navigation, page)
+                            && match &self.origin_v4 {
+                                ThreadBrowseOriginV4::Files { view, .. } => {
+                                    page.tab == crate::github_workspace::PrTab::Files
+                                        && github
+                                            .scoped_pr_resource
+                                            .as_ref()
+                                            .is_some_and(|current| Arc::ptr_eq(current, view))
+                                }
+                                ThreadBrowseOriginV4::Detail {
+                                    expected,
+                                    tab,
+                                    scroll,
+                                } => {
+                                    page.tab == *tab
+                                        && app.scroll == *scroll
+                                        && expected.matches(&page.details.summary)
+                                }
+                            }
                     })
             })
     }
 }
 
-/// Instrument one genuine uniquely captured intent. The observer runs only
-/// after actual bounded preparation and cannot supply rows, source or proof.
 #[cfg(test)]
 pub(crate) fn after_preparation_for_test(
     mut intent: Arc<ThreadBrowseIntentV1>,
@@ -158,6 +292,7 @@ pub struct ThreadGroupV1 {
 }
 pub struct PreparedThreadsV1 {
     pub intent: Arc<ThreadBrowseIntentV1>,
+    pub(crate) parent_v4: Arc<crate::providers::gh::PrResourceParentV1>,
     pub identity: crate::providers::gh::HostIdentity,
     /// Exact actual opaque nodes/indices retained for a FUTURE fresh intent;
     /// this closed read never grants permission to resolve or reply.
@@ -224,14 +359,11 @@ pub fn load(
     let current = session
         .verify(intent.navigation.original(), cancel)
         .map_err(source_error)?;
-    let parent = bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &intent.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
-        .map_err(source_error)?;
+    let parent = Arc::new(
+        intent
+            .read_parent_v4(&bounded, current, cancel)
+            .map_err(source_error)?,
+    );
     original_check(cancel, deadline).map_err(source_error)?;
     let local = ResourceLocalGuard::capture(database, &intent.source, &identity, parent.summary())
         .map_err(source_error)?;
@@ -253,21 +385,13 @@ pub fn load(
     let snapshot = bounded
         .metrics_review_threads(&identity, &expected, &limits, cancel)
         .map_err(source_error)?;
-    // Materialize all bounded private rows while the original operation is
-    // still open. Source/SQL/principal closure comes AFTER this work, not
-    // before it. The closing identity is attached below without rebuilding.
-    let mut prepared = prepare(intent.clone(), snapshot, identity, cancel)?;
+    let mut prepared = prepare(intent.clone(), parent.clone(), snapshot, identity, cancel)?;
     original_check(cancel, deadline).map_err(source_error)?;
     local
         .validate(database, &intent.source)
         .map_err(source_error)?;
-    bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &intent.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    intent
+        .read_parent_v4(&bounded, current, cancel)
         .map_err(source_error)?;
     let closing = session
         .verify(intent.navigation.original(), cancel)
@@ -336,11 +460,22 @@ fn label(value: Option<bool>, yes: &'static str, no: &'static str) -> &'static s
 }
 fn prepare(
     intent: Arc<ThreadBrowseIntentV1>,
+    parent_v4: Arc<crate::providers::gh::PrResourceParentV1>,
     snapshot: MetricsReviewThreadsSnapshot,
     identity: crate::providers::gh::HostIdentity,
     cancel: &CancellationToken,
 ) -> Result<PreparedThreadsV1, ThreadBrowseFailureV1> {
-    let mut budget = TextBudget { rows: 0, bytes: 0 };
+    let retained = parent_v4
+        .retained_heap_bytes_v2()
+        .checked_add(std::mem::size_of::<crate::providers::gh::PrResourceParentV1>())
+        .ok_or(ThreadBrowseFailureV1::Display)?;
+    if retained > TEXT_CAP {
+        return Err(ThreadBrowseFailureV1::Display);
+    }
+    let mut budget = TextBudget {
+        rows: 0,
+        bytes: retained,
+    };
     let mut groups = vec![];
     let mut selected_file = vec![];
     for (index, thread) in snapshot.threads.iter().enumerate() {
@@ -404,7 +539,9 @@ fn prepare(
             .observed_path
             .as_deref()
             .unwrap_or("unavailable");
-        if thread.placement.observed_path.as_deref() == Some(intent.path()) {
+        if intent.selected_path_v4().is_some()
+            && thread.placement.observed_path.as_deref() == intent.selected_path_v4()
+        {
             selected_file.push(index);
         }
         lines.push(budget.line(&format!("Observed path: {path}"), role, None)?);
@@ -502,9 +639,9 @@ fn prepare(
         format!("Original host {} • numeric account {:?}", identity.host, identity.account_id),
         format!("Original repository #{} {}", snapshot.parent.repository.id, snapshot.parent.repository.node_id),
         format!("Original PR #{} • database #{} • {}", snapshot.parent.number, snapshot.parent.id, snapshot.parent.node_id),
-        format!("Original head {}", intent.original_view.observed.parent().head_sha()),
-        format!("Original base {}", intent.original_view.observed.parent().base_tip_sha()),
-        format!("Selected observed file {}", intent.path()),
+        format!("Original head {}", intent.head_v4()),
+        format!("Original base {}", intent.base_v4()),
+        intent.selected_path_v4().map_or_else(||"Original Summary/Timeline • ALL PR threads • no selected-file filter or inferred event association".into(),|path|format!("Selected observed file {path}")),
         "Read-only snapshot; no fresh future access, publication, original-tree or historical-completeness grant".into(),
     ] { source_lines.push(budget.line(&text, SemanticToken::Muted, None)?); }
     for reason in snapshot
@@ -522,8 +659,12 @@ fn prepare(
             snapshot.state_coverage.enumeration_complete
         ),
         format!(
-            "Selected observed file: {}",
-            crate::git::display_bytes(intent.path().as_bytes())
+            "Thread scope: {}",
+            intent.selected_path_v4().map_or_else(
+                || "ALL PR • actual Summary/Timeline origin; no file/event association inferred"
+                    .into(),
+                |path| crate::git::display_bytes(path.as_bytes())
+            )
         ),
     ];
     for reason in &snapshot.state_coverage.reasons {
@@ -535,6 +676,7 @@ fn prepare(
     }
     Ok(PreparedThreadsV1 {
         intent,
+        parent_v4,
         identity,
         all: (0..groups.len()).collect(),
         selected_file,

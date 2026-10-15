@@ -2,6 +2,9 @@
 //! DTO receipt constructor or authority from protected historical metadata.
 use super::*;
 use std::sync::Arc;
+#[path = "pr_thread_reactions_v3.rs"]
+mod reactions_v3;
+pub use reactions_v3::*;
 
 pub const THREAD_SELECTED_COMMENT_QUERY_V2: &str = "query($id:ID!){node(id:$id){__typename ... on PullRequestReviewComment{id fullDatabaseId body createdAt updatedAt state path line startLine originalLine originalStartLine outdated commit{oid} originalCommit{oid} replyTo{id fullDatabaseId} viewerCanUpdate viewerCanDelete viewerCanReact viewerDidAuthor author{__typename login avatarUrl ... on User{databaseId name} ... on Bot{databaseId}} pullRequestReview{id fullDatabaseId state} pullRequest{id fullDatabaseId number headRefOid baseRefOid repository{id databaseId nameWithOwner}} repository{id databaseId nameWithOwner}}}}";
 pub const THREAD_COMMENT_ABSENCE_QUERY_V2: &str =
@@ -17,8 +20,25 @@ pub const THREAD_COMMENT_POSTWRITE_CAPS_V2: [usize; 6] = [
     64 * 1024,
 ];
 
+fn bounded_historical_issuer_v5(provider: &GithubProvider) -> Option<GithubProvider> {
+    let base = std::mem::size_of::<GithubProvider>()
+        .checked_add(provider.host.capacity())?
+        .checked_add(provider.program.capacity())?;
+    let capacity = provider.env.iter().try_fold(base, |total, (key, value)| {
+        total
+            .checked_add(key.capacity())?
+            .checked_add(value.capacity())?
+            .checked_add(128)
+    })?;
+    // This optional read-only extension must not break existing comment
+    // editing when user-supplied transport metadata cannot fit its own bound.
+    (capacity <= 16 * 1024).then(|| provider.clone())
+}
 pub struct OriginalThreadCommentV2 {
     original: Arc<OriginalThreadPublicationV1>,
+    // Actual worker issuer, not a new client/source. Kept private so later
+    // read-only object work cannot adopt a foreign runner sharing the pool.
+    read_producer_v5: Option<GithubProvider>,
     index: usize,
     principal: u64,
     author: Option<u64>,
@@ -37,6 +57,53 @@ impl std::fmt::Debug for OriginalThreadCommentV2 {
     }
 }
 impl OriginalThreadCommentV2 {
+    pub(crate) fn historical_read_phase_v5(
+        &self,
+        provider: &GithubProvider,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> GithubResult<(Instant, usize, std::time::Duration)> {
+        let issuer = self.read_producer_v5.as_ref().ok_or_else(|| {
+            error(
+                GithubErrorKind::Unsupported,
+                "Bounded actual historical read issuer unavailable",
+            )
+        })?;
+        let (issued_deadline, issued_cap) = issuer.scoped_read_window.ok_or_else(|| {
+            error(
+                GithubErrorKind::InvalidTarget,
+                "Original historical read issuer unavailable",
+            )
+        })?;
+        let deadline = deadline.min(self.original.deadline).min(issued_deadline);
+        phase(cancel, deadline)?;
+        if !provider.runner.same_instance(&issuer.runner)
+            || provider.host != issuer.host
+            || provider.program != issuer.program
+            || provider.env != issuer.env
+            || !self.original.cancellation.same_instance(cancel)
+            || provider
+                .scoped_read_budget
+                .as_ref()
+                .is_none_or(|actual| !Arc::ptr_eq(actual, &self.original.producer))
+        {
+            return Err(error(GithubErrorKind::InvalidTarget, "Historical source cannot adopt another original producer, runner or cancellation token"));
+        }
+        self.original
+            .producer
+            .check_clock(cancel)
+            .map_err(GithubError::from)?;
+        let (current_deadline, current_cap) = provider
+            .scoped_read_window
+            .unwrap_or((deadline, issued_cap));
+        let deadline = deadline.min(current_deadline);
+        phase(cancel, deadline)?;
+        Ok((
+            deadline,
+            issued_cap.min(current_cap),
+            issuer.timeout.min(provider.timeout),
+        ))
+    }
     pub fn original(&self) -> &Arc<OriginalThreadPublicationV1> {
         &self.original
     }
@@ -630,6 +697,7 @@ impl GithubProvider {
             .map_err(GithubError::from)?;
         let result = OriginalThreadCommentV2 {
             original,
+            read_producer_v5: bounded_historical_issuer_v5(self),
             index,
             principal: identity
                 .account_id

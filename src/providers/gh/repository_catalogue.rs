@@ -19,6 +19,7 @@ pub use model::*;
 #[path = "repository_catalogue/current_access_v1.rs"]
 mod current_access_v1;
 pub use current_access_v1::*;
+pub(crate) use current_access_v1::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
 #[path = "repository_catalogue/local_commit_actor_v1.rs"]
 mod local_commit_actor_v1;
 pub use local_commit_actor_v1::*;

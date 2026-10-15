@@ -1,8 +1,12 @@
 //! Genuine Files/review/modern-pending factories plus actual SQL; declarations
 //! remain UNRUN. UI/handler contracts supplement, never replace native PTYs.
 use super::*;
+#[path = "scoped_pr_review_action_lineage_v12_tests.rs"]
+mod action_lineage_v12;
 #[path = "scoped_pr_review_operation_anchor_v9_tests.rs"]
 mod anchor_v9;
+#[path = "scoped_pr_review_recovery_v11_tests.rs"]
+mod recovery_v11;
 use super::super::pending_operations_v3::{graph_comment_v3, graph_review_v3, source_steps_v3};
 use crate::{
     pr_write_journal::{PrConfirmedEffect, PrEffectKind, PrWriteTarget},
@@ -407,16 +411,13 @@ fn pending_reviews_v3_protected_history_exact_database_numeric_target_ref_genera
         history.rows[0].marker.state,
         crate::pr_write_journal::PrWriteState::Uncertain
     );
-    assert_eq!(
-        history.rows[0]
-            .origin
-            .as_ref()
-            .unwrap()
-            .seed
-            .metadata()
-            .draft_key(),
-        source.key()
-    );
+    let Some(crate::pr_write_journal::review_action_lineage_v12::ReviewObservedOriginV12::Legacy(
+        origin,
+    )) = history.rows[0].origin.as_ref()
+    else {
+        panic!("Original V3 publication must retain its actual legacy origin variant");
+    };
+    assert_eq!(origin.seed.metadata().draft_key(), source.key());
     journal
         .validate_review_operation_history_v3(
             &key,

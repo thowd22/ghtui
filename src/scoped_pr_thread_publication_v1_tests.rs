@@ -5,6 +5,8 @@ use super::*;
 mod comment_v2;
 #[path = "scoped_pr_thread_composer_v1_tests.rs"]
 mod composer_v1;
+#[path = "scoped_pr_thread_detail_v4_tests.rs"]
+mod detail_v4;
 #[path = "scoped_pr_thread_history_v1_tests.rs"]
 mod history_v1;
 use crate::providers::gh::{
@@ -158,6 +160,19 @@ fn with_original_limits<T>(
     requests: usize,
     call: impl FnOnce(AttemptV2<'_>) -> T,
 ) -> T {
+    with_original_caps_v3(
+        real,
+        requests,
+        &crate::providers::gh::THREAD_POSTWRITE_CAPS_V2,
+        call,
+    )
+}
+fn with_original_caps_v3<T>(
+    real: &Real,
+    requests: usize,
+    caps: &[usize],
+    call: impl FnOnce(AttemptV2<'_>) -> T,
+) -> T {
     let intent = threads::ThreadBrowseIntentV1::capture(&real.app).unwrap();
     assert!(intent.owns(&real.app));
     let observed = real
@@ -177,7 +192,7 @@ fn with_original_limits<T>(
         .unwrap();
     let identity = session.identity().clone();
     let mut captures = session
-        .reserve_postwrite_capture_v2(&crate::providers::gh::THREAD_POSTWRITE_CAPS_V2, 2, &cancel)
+        .reserve_postwrite_capture_v2(caps, 2, &cancel)
         .unwrap();
     let window = session
         .reserve_measured_external_reads(requests, 1024 * 1024, 8 * 1024 * 1024, 2, &cancel)

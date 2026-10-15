@@ -22,6 +22,7 @@ mod cli_requirements_v1;
 pub use cli_requirements_v1::*;
 mod repository_catalogue;
 pub use repository_catalogue::*;
+pub(crate) use repository_catalogue::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
 mod remote_repository_v1;
 pub use remote_repository_v1::*;
 mod pr_resources_v1;

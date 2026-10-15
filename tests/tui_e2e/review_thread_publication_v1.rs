@@ -3,6 +3,8 @@
 use super::*;
 #[path = "review_thread_comments_v2.rs"]
 mod comments_v2;
+#[path = "review_thread_detail_v4.rs"]
+mod detail_v4;
 #[path = "review_thread_draft_witness_v1.rs"]
 mod draft_witness_v1;
 #[path = "review_thread_history_v1.rs"]

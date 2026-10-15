@@ -2,6 +2,8 @@
 //! an App handler: all selection, Preview, Confirm, resize and Cancel input is
 //! sent through the owned PTY, with strict transport and independent SQL/Git.
 use super::*;
+#[path = "scoped_review_action_lineage_v12.rs"]
+mod action_lineage_v12;
 const BODY: &str = "Exact native pending replacement 界";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operation {
@@ -53,6 +55,16 @@ enum Refusal {
     ExternalAfter,
     StaleBefore,
     Restart,
+    RecoveryV11,
+    ConfirmedCleanupV12,
+}
+impl Refusal {
+    fn restart(self) -> bool {
+        matches!(self, Self::Restart | Self::RecoveryV11)
+    }
+    fn canceled_write(self) -> bool {
+        self == Self::CancelAfter || self.restart()
+    }
 }
 fn graph(query: &str, id: &str, node: Value) -> GhStep {
     write_graph(
@@ -378,16 +390,17 @@ fn history_detail_body_ready_v15(
             .expect(
                 "Same complete history frame supplies the actual footer without a renewed wait",
             );
-            // SAME observed modal: two rows ABOVE its actual footer lies the
-            // documented history text viewport, never an inferred action.
-            session.wheel(
-                footer.0,
-                footer
-                    .1
-                    .checked_sub(2)
-                    .expect("useful owned history viewport"),
-                true,
-            );
+            let (_, top) = crate::support::locate_screen(
+                session.completed_cursorless_screen().unwrap(),
+                TITLE,
+            )
+            .expect("Same complete owned history border");
+            // The text viewport starts four rows below this actual border.
+            // Footer-relative coordinates hit blank space after recovery adds
+            // its own controls; they also fail when the viewport is capped.
+            let body_row = top.checked_add(4).expect("bounded owned body row");
+            assert!(body_row < footer.1.saturating_sub(2));
+            session.wheel(footer.0, body_row, true);
         } else {
             session.send_key(b"\x1b[6~");
         }
@@ -427,6 +440,14 @@ fn summary_after_restart(session: &mut Session, fixture: &Fixture, mouse: bool, 
 }
 
 fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
+    journey_with_lineage_v12(mouse, operation, refusal, None)
+}
+fn journey_with_lineage_v12(
+    mouse: bool,
+    operation: Operation,
+    refusal: Refusal,
+    continuation: Option<action_lineage_v12::Scenario>,
+) {
     let (fixture, h, mut steps) = fixture_and_steps(|_| {});
     let images = steps[steps.len() - 17..].to_vec();
     if operation != Operation::Add {
@@ -497,7 +518,7 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
         if refusal != Refusal::Denied {
             let start = confirmation.len();
             confirmation.extend(receipt(&h, operation));
-            if matches!(refusal, Refusal::CancelAfter | Refusal::Restart) {
+            if refusal.canceled_write() {
                 confirmation[start].delay_ms = 6_000;
                 confirmation.truncate(start + 1);
                 held = Some(confirm_start + start);
@@ -505,7 +526,10 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
                 confirmation.push(get("user", json!({"id":42,"login":"octocat"})));
                 confirmation.push(get(&format!("repos/{FIRST}"), repository(0)));
                 confirmation.push(get(&format!("repos/{FIRST}/pulls/7"), parent(&h)));
-                if refusal == Refusal::ExternalAfter {
+                if matches!(
+                    refusal,
+                    Refusal::ExternalAfter | Refusal::ConfirmedCleanupV12
+                ) {
                     confirmation.last_mut().unwrap().delay_ms = 6_000;
                     held = Some(confirm_start + confirmation.len() - 1);
                 } else {
@@ -516,7 +540,7 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
     }
     steps.extend(confirmation);
     let history_start = steps.len();
-    if refusal == Refusal::Restart {
+    if refusal.restart() {
         let mut restart = initial();
         bind_steps(&mut restart, &h);
         steps.extend(restart);
@@ -525,6 +549,20 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
             read.extend(closing(&h));
             steps.extend(read);
         }
+        if refusal == Refusal::RecoveryV11 {
+            let mut inspect = opening(&h);
+            inspect.push(catalogue(json!([operation_row(&h, operation)])));
+            inspect.extend(operation_snapshot(&h, operation));
+            inspect.extend(closing(&h));
+            steps.extend(inspect);
+            let mut acknowledge = opening(&h);
+            acknowledge.extend(closing(&h));
+            steps.extend(acknowledge);
+        }
+    }
+    let lineage_start = steps.len();
+    if let Some(scenario) = continuation {
+        steps.extend(action_lineage_v12::steps(&h, scenario));
     }
     fixture.scripted_gh(&steps);
     foreign_draft(&fixture);
@@ -686,7 +724,36 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
             .as_i64()
             .is_some_and(|id| id > 0));
         protected = Some(saved.clone());
-        if refusal == Refusal::ExternalAfter {
+        if refusal == Refusal::ConfirmedCleanupV12 {
+            let db = rusqlite::Connection::open_with_flags(
+                database(&fixture),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            )
+            .unwrap();
+            db.execute_batch(&format!("CREATE TABLE deliberate_v12_cleanup_hits(attempt_id INTEGER NOT NULL, resource TEXT NOT NULL); CREATE TRIGGER deliberate_v12_cleanup_failure BEFORE DELETE ON drafts WHEN OLD.host='{HOST}' AND OLD.login='user-id:42' AND OLD.resource='{}' BEGIN INSERT INTO deliberate_v12_cleanup_hits(attempt_id,resource) SELECT json_extract(OLD.body,'$.publication.attempt_id'),OLD.resource; SELECT RAISE(FAIL,'DELIBERATE_V12_LOCAL_CLEANUP_SQL_FAILURE'); END;",saved.0)).unwrap();
+            let reference = &encoded["publication"];
+            let confirmed: (String, String) = db
+                .query_row(
+                    "SELECT state,confirmed_json FROM pr_write_attempts WHERE attempt_id=?1",
+                    [reference["attempt_id"].as_i64().unwrap()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(confirmed.0, "confirmed");
+            let effect: Value = serde_json::from_str(&confirmed.1).unwrap();
+            assert_eq!(effect["resource_id"], "911");
+            assert_eq!(effect["node_id"], "ACTUAL_NATIVE_COMMENT_911");
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM deliberate_v12_cleanup_hits",
+                    [],
+                    |row| row.get::<_, usize>(0)
+                )
+                .unwrap(),
+                0
+            );
+            hold.resume();
+        } else if refusal == Refusal::ExternalAfter {
             let db = rusqlite::Connection::open_with_flags(
                 database(&fixture),
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -714,7 +781,7 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
             );
         }
     }
-    if !matches!(refusal, Refusal::CancelAfter | Refusal::Restart) {
+    if !refusal.canceled_write() {
         session.wait_for_new_cursorless_condition(
             outcome,
             |screen| {
@@ -733,6 +800,7 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
                     Refusal::StaleBefore => "Original review source unavailable",
                     Refusal::Denied => "Outcome unknown",
                     Refusal::ExternalAfter => "source unavailable",
+                    Refusal::ConfirmedCleanupV12 => "confirmed • source unavailable",
                     _ => unreachable!(),
                 };
                 let (rows, cols) = screen.size();
@@ -792,10 +860,7 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
             .unwrap();
         assert_eq!(
             state,
-            if matches!(
-                refusal,
-                Refusal::CancelAfter | Refusal::Restart | Refusal::Denied
-            ) {
+            if refusal.canceled_write() || refusal == Refusal::Denied {
                 "uncertain"
             } else if refusal == Refusal::AccountBefore {
                 "pending"
@@ -846,7 +911,90 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
         config
     );
     session.quit_and_assert_restored_terminal(mouse);
-    if refusal == Refusal::Restart {
+    if refusal == Refusal::ConfirmedCleanupV12 {
+        let saved = protected.as_ref().unwrap();
+        let reference: Value = serde_json::from_str(&saved.1).unwrap();
+        let expected_attempt = reference["publication"]["attempt_id"].as_i64().unwrap();
+        let db = rusqlite::Connection::open_with_flags(
+            database(&fixture),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT attempt_id,resource FROM deliberate_v12_cleanup_hits",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            )
+            .unwrap(),
+            (expected_attempt, saved.0.clone())
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM deliberate_v12_cleanup_hits",
+                [],
+                |row| row.get::<_, usize>(0)
+            )
+            .unwrap(),
+            1,
+            "Actual conditional DELETE reached the deliberate SQL FAIL exactly once"
+        );
+        let before_marker: String = db.query_row("SELECT json_array(attempt_id,host,principal,pr_node,repository,pr_number,command,selected_resource,observed_head,payload_sha256,state,confirmed_json,created_at) FROM pr_write_attempts WHERE attempt_id=?1",[expected_attempt],|row|row.get(0)).unwrap();
+        let before_origin: String = db
+            .query_row(
+                "SELECT origin_json FROM pr_write_review_operation_origins_v3 WHERE attempt_id=?1",
+                [expected_attempt],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.execute_batch("DROP TRIGGER deliberate_v12_cleanup_failure")
+            .unwrap();
+        drop(db);
+        action_lineage_v12::continue_after_ack(
+            &fixture,
+            &h,
+            mouse,
+            continuation.unwrap(),
+            lineage_start,
+            &steps,
+            saved,
+            &original,
+            &git,
+            &config,
+        );
+        let db = raw(&fixture);
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM deliberate_v12_cleanup_hits",
+                [],
+                |row| row.get::<_, usize>(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT state FROM pr_write_attempts WHERE attempt_id=?1",
+                [expected_attempt],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "confirmed",
+            "A genuine confirmed terminal basis is NEVER changed to local ACK"
+        );
+        assert_eq!(db.query_row("SELECT json_array(attempt_id,host,principal,pr_node,repository,pr_number,command,selected_resource,observed_head,payload_sha256,state,confirmed_json,created_at) FROM pr_write_attempts WHERE attempt_id=?1",[expected_attempt],|row|row.get::<_,String>(0)).unwrap(),before_marker,"The old actual journal row/receipt/reference is untouched by explicit New");
+        assert_eq!(
+            db.query_row(
+                "SELECT origin_json FROM pr_write_review_operation_origins_v3 WHERE attempt_id=?1",
+                [expected_attempt],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            before_origin
+        );
+        return;
+    }
+    if refusal.restart() {
         let mut session = launch(&fixture, mouse);
         summary_after_restart(&mut session, &fixture, mouse, history_start);
         choose(&mut session, mouse, "[F9 Review history]", b"\x1b[20~");
@@ -862,6 +1010,87 @@ fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {
         assert_eq!(actual_writes(&commands(&session, &fixture)), 1);
         assert_eq!(stable(&fixture), original);
         assert_eq!(git_state(&fixture), git);
+        if refusal == Refusal::RecoveryV11 {
+            let count = commands(&session, &fixture).len();
+            let sql_before = stable(&fixture);
+            choose(&mut session, mouse, "[a Acknowledge local]", b"a");
+            ready(&mut session, &["Fresh explicit Inspect current required"]);
+            assert_eq!(
+                commands(&session, &fixture).len(),
+                count,
+                "historical row/ref alone never authorizes ACK"
+            );
+            assert_eq!(stable(&fixture), sql_before);
+            let before = session.completed_cursorless_end();
+            choose(&mut session, mouse, "[i Inspect current]", b"i");
+            session.wait_for_new_cursorless_condition(before,|frame|{
+                let text=frame.contents();text.contains("Review operation history • inspect only")&&text.contains("FRESH CURRENT OUTCOME")
+                    &&text.contains("[a Acknowledge local]")&&!text.contains("Original history read pending")
+            },"Genuine fresh original-session current review/comment observation, not restored history approval",Duration::from_secs(8));
+            assert_eq!(
+                actual_writes(&commands(&session, &fixture)),
+                1,
+                "fresh inspection performs only actual declared reads"
+            );
+            assert_eq!(stable(&fixture), sql_before);
+            let before = session.completed_cursorless_end();
+            choose(&mut session, mouse, "[a Acknowledge local]", b"a");
+            session.wait_for_new_cursorless_condition(before,|frame|{
+                let text=frame.contents();crate::support::main_footer_visible(frame)&&text.contains("locally acknowledged")
+                    &&text.contains("nothing resent")&&!text.contains("Review operation history")&&!text.contains(BODY)
+                    &&!text.contains("Actual existing server pending comment")
+            },"Explicit same-source local ACK releases only exact old blocker and retires original private presentation",Duration::from_secs(8));
+            assert_eq!(
+                actual_writes(&commands(&session, &fixture)),
+                1,
+                "ACK never resends original mutation"
+            );
+            assert_eq!(
+                raw(&fixture)
+                    .query_row(
+                        "SELECT state FROM pr_write_attempts WHERE command=?1",
+                        [operation.command()],
+                        |row| row.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                "acknowledged"
+            );
+            assert_eq!(raw(&fixture).query_row("SELECT count(*) FROM pr_write_attempts WHERE state IN('pending','uncertain')",[],|row|row.get::<_,usize>(0)).unwrap(),0);
+            let saved = protected.as_ref().unwrap();
+            assert_eq!(
+                raw(&fixture)
+                    .query_row(
+                        "SELECT body FROM drafts WHERE resource=?1",
+                        [&saved.0],
+                        |row| row.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                saved.1
+            );
+            assert_eq!(stable(&fixture), original);
+            assert_eq!(git_state(&fixture), git);
+            assert_eq!(
+                fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap(),
+                config
+            );
+            assert_eq!(commands(&session, &fixture).len(), lineage_start);
+            session.quit_and_assert_restored_terminal(mouse);
+            if let Some(scenario) = continuation {
+                action_lineage_v12::continue_after_ack(
+                    &fixture,
+                    &h,
+                    mouse,
+                    scenario,
+                    lineage_start,
+                    &steps,
+                    protected.as_ref().unwrap(),
+                    &original,
+                    &git,
+                    &config,
+                );
+            }
+            return;
+        }
         let detail_end = session.completed_cursorless_end();
         choose(&mut session, mouse, "[Esc Back]", b"\x1b");
         session.wait_for_new_cursorless_condition(detail_end,|frame|{
@@ -980,4 +1209,10 @@ pair_v3!(
     pending_reviews_v3_mouse_restart_history,
     Edit,
     Restart
+);
+pair_v3!(
+    pending_reviews_v11_keyboard_uncertain_restart_fresh_inspection_explicit_local_ack,
+    pending_reviews_v11_mouse_uncertain_restart_fresh_inspection_explicit_local_ack,
+    Edit,
+    RecoveryV11
 );

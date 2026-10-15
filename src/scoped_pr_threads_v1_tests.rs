@@ -160,7 +160,7 @@ fn read(real: &Real) -> Result<Arc<threads::PreparedThreadsV1>, threads::ThreadB
 fn review_threads_v1_capture_is_actual_original_allocation_and_selection_without_reads() {
     let mut real = real(vec![]);
     let intent = threads::ThreadBrowseIntentV1::capture(&real.app).unwrap();
-    assert_eq!(intent.path(), "src/view.rs");
+    assert_eq!(intent.path(), Some("src/view.rs"));
     assert!(intent.owns(&real.app));
     let old = real.app.selected;
     real.app.selected += 1;

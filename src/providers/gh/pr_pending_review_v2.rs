@@ -9,6 +9,8 @@ mod model;
 mod pending_comment_v3;
 #[path = "pr_pending_review_v2/read.rs"]
 mod read;
+#[path = "pr_pending_review_v2/recovery_v11.rs"]
+mod recovery_v11;
 #[path = "pr_pending_review_v2/rerequest_v3.rs"]
 mod rerequest_v3;
 #[path = "pr_pending_review_v2/write.rs"]
@@ -18,6 +20,7 @@ pub use pending_comment_v3::{
     PendingCommentMutationV3, PendingCommentOriginalV3, PendingCommentReceiptV3,
     PendingReviewOriginalV3,
 };
+pub use recovery_v11::ReviewRecoveryCurrentV11;
 pub use rerequest_v3::{
     RerequestOriginalV3, RerequestReceiptV3, ReviewRequestActorKindV3, ReviewRequestActorV3,
     ReviewRequestTeamsV3,

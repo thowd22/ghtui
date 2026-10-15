@@ -525,6 +525,13 @@ pub(crate) fn actual_panic_work(original: Arc<PrNativeWorkV1>) -> Arc<PrNativeWo
 }
 
 impl crate::repository_native_diff_native_v1::NativeAppV2 for ScopedPrNativeSourceV1 {
+    fn thread_back_v4(app: &mut App) {
+        crate::scoped_pr_observed_tabs_v1::resources::threads_v1::code_v4::back(app);
+    }
+    fn newer_native_input_v4(app: &mut App) {
+        app.scoped_thread_code_return_v4 = None;
+        app.pr_native_diff_layout_v1.thread_return_v4 = false;
+    }
     fn threads(app: &mut App) {
         let ready = app.overlay.is_none()
             && app.form.as_ref().is_none_or(|_| app.form_dismissed)

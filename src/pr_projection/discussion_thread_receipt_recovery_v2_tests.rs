@@ -2,6 +2,8 @@
 //! intentionally not called. This does NOT claim a real process crash or GH
 //! write; code-only journal/read-guard recovery supplements native workflows.
 use super::*;
+#[path = "discussion_reaction_empty_impact_v3_tests.rs"]
+mod reaction_empty_v3;
 #[path = "discussion_comment_receipt_recovery_v2_tests.rs"]
 mod selected_comments_v2;
 use rusqlite::OptionalExtension;

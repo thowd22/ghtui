@@ -86,7 +86,7 @@ fn original_producer(
     phase(cancel, deadline)?;
     Ok((producer, deadline))
 }
-pub(super) fn requested(
+pub(in crate::providers::gh::pr::pending_review_v2) fn requested(
     provider: &GithubProvider,
     parent: &ReviewParentV2,
     cancel: &CancellationToken,

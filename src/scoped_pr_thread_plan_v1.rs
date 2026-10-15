@@ -241,13 +241,10 @@ fn fresh<T>(
     let current = session
         .verify(intent.prepared.intent.navigation.original(), cancel)
         .map_err(unavailable)?;
-    let parent = bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &intent.prepared.intent.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    let parent = intent
+        .prepared
+        .intent
+        .read_parent_v4(&bounded, current, cancel)
         .map_err(unavailable)?;
     private_check(cancel, deadline).map_err(unavailable)?;
     let local =
@@ -262,13 +259,10 @@ fn fresh<T>(
     local.validate(database, intent).map_err(unavailable)?;
     let value = read(&actual, &identity, &local)?;
     private_check(cancel, deadline).map_err(unavailable)?;
-    bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &intent.prepared.intent.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    intent
+        .prepared
+        .intent
+        .read_parent_v4(&bounded, current, cancel)
         .map_err(unavailable)?;
     session
         .verify(intent.prepared.intent.navigation.original(), cancel)
@@ -481,14 +475,7 @@ impl ScopedThreadPreviewV1 {
         }
         let maximum_reference = PrPublicationReference {
             attempt_id: i64::MAX,
-            pr_node_id: intent
-                .prepared
-                .intent
-                .original_view
-                .observed
-                .parent()
-                .node_id()
-                .into(),
+            pr_node_id: intent.prepared.parent_v4.node_id().into(),
             observed_head: intent.head().into(),
             payload_sha256: "f".repeat(64),
         };
@@ -826,13 +813,11 @@ impl ScopedThreadPreviewV1 {
         let current = session
             .verify(self.intent.prepared.intent.navigation.original(), cancel)
             .map_err(unavailable)?;
-        let parent = bounded
-            .pr_inline_original_parent_v1(
-                current,
-                &self.intent.prepared.intent.original_view.observed,
-                &Default::default(),
-                cancel,
-            )
+        let parent = self
+            .intent
+            .prepared
+            .intent
+            .read_parent_v4(&bounded, current, cancel)
             .map_err(unavailable)?;
         private_check(cancel, deadline).map_err(unavailable)?;
         self.local
@@ -946,12 +931,10 @@ impl ScopedThreadPreviewV1 {
             let current = session
                 .observation_v1(actual.parent().repository_id())
                 .ok_or_else(safe_local)?;
-            bounded.pr_inline_original_parent_v1(
-                current,
-                &self.intent.prepared.intent.original_view.observed,
-                &Default::default(),
-                cancel,
-            )?;
+            self.intent
+                .prepared
+                .intent
+                .read_parent_v4(&bounded, current, cancel)?;
             session.verify(self.intent.prepared.intent.navigation.original(), cancel)?;
             let closed = session.close_with_guard(cancel, || {
                 private_check(cancel, deadline)?;

@@ -9,6 +9,8 @@ use crate::{
     },
     providers::gh::{Actor, ThreadHistoryParentObservationV1},
 };
+#[path = "scoped_pr_review_recovery_v11.rs"]
+pub mod recovery_v11;
 #[path = "scoped_pr_review_operation_history_ui_v3.rs"]
 pub mod ui;
 
@@ -253,28 +255,22 @@ pub fn load(
             format!("Exact original payload SHA256 {}", marker.payload_sha256),
         ]);
         if let Some(origin) = &row.origin {
-            let metadata = origin.seed.metadata();
-            lines.extend(metadata.history_lines());
+            if origin.reference() != &marker.publication_reference() {
+                return Err(source_failure(safe_local()));
+            }
+            lines.extend(origin.history_lines());
             if let Some(effect) = &marker.confirmed {
                 lines.push(format!("Recorded observed receipt {:?} #{} / {} — NOT a current source or causality proof",effect.kind,
                     effect.resource_id,effect.node_id.as_deref().unwrap_or("unavailable")));
             }
             let encoded = Cache::open(database)
                 .map_err(|_| source_failure(safe_local()))?
-                .bounded_draft(intent.scope(), metadata.draft_key(), REVIEW_DRAFT_BYTES_V2)
+                .bounded_draft(intent.scope(), origin.key(), REVIEW_DRAFT_BYTES_V2)
                 .map_err(|_| source_failure(safe_local()))?;
             if let Some(encoded) = &encoded {
-                let (body, reference) =
-                    draft_v3::decode(encoded).map_err(|_| source_failure(safe_local()))?;
-                if reference.as_ref() != Some(&origin.reference)
-                    || metadata
-                        .write(&body)
-                        .and_then(|write| write.digest().map_err(|error| error.to_string()))
-                        .map_err(|_| source_failure(safe_local()))?
-                        != marker.payload_sha256
-                {
-                    return Err(source_failure(safe_local()));
-                }
+                let body = origin
+                    .requested_text(encoded, marker)
+                    .map_err(|_| source_failure(safe_local()))?;
                 lines.push(
                     "Exact protected LOCAL requested text; NOT a current server body or new draft:"
                         .into(),
@@ -287,7 +283,7 @@ pub fn load(
                     "Local body unavailable; persistence/ACK is UNKNOWN, never an empty body or resend permission."
                 }.into());
             }
-            body_witness = Some((metadata.draft_key().to_owned(), encoded));
+            body_witness = Some((origin.key().to_owned(), encoded));
         } else {
             lines.push("Protected legacy record has no original observation. Do not guess digest targets or open a possibly unrelated body.".into());
         }

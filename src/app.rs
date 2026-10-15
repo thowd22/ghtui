@@ -186,6 +186,7 @@ pub struct App {
     pub scoped_threads_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
     pub scoped_threads_cancel_v1: bool,
     pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::ThreadBrowserV1>,
+    pub scoped_thread_code_return_v4: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::code_v4::ThreadCodeReturnV4>,
     pub scoped_thread_history_v1:Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::ThreadHistoryBrowserV1>,
     pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
     pub scoped_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
@@ -387,6 +388,7 @@ impl Default for App {
             scoped_threads_owner_v1: None,
             scoped_threads_cancel_v1: false,
             scoped_threads_v1: None,
+            scoped_thread_code_return_v4: None,
             scoped_thread_history_v1: None,
             scoped_inline_work_v1: None,
             scoped_inline_owner_v1: None,
@@ -733,6 +735,12 @@ impl App {
         if action == Action::Github(crate::github_workspace::GithubAction::ReviewOperationHistoryV3)
         {
             crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::open_history_v3(self);
+            return;
+        }
+        if action == Action::Github(crate::github_workspace::GithubAction::ReviewThreadsV4) {
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open_detail_v4(
+                self,
+            );
             return;
         }
         if action == Action::Github(crate::github_workspace::GithubAction::ThreadHistoryV1) {
@@ -1252,6 +1260,9 @@ impl App {
                 self.context_help = None;
                 self.context_help_area = Rect::default();
                 if self.overlay == Some(Overlay::Form) {
+                    if let Some(form) = &mut self.form {
+                        form.observe_presentation_input_v4();
+                    }
                     self.form_dismissed = true;
                 }
                 if self.overlay == Some(Overlay::PrReactions) {
@@ -1569,7 +1580,7 @@ impl App {
                 }
                 if action == crate::forms::FormAction::Close
                     && self.form.as_ref().is_some_and(|form| {
-                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_) | crate::forms::FormPurpose::PrThreadCommentV2(_))
+                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_) | crate::forms::FormPurpose::PrThreadCommentV2(_) | crate::forms::FormPurpose::PrThreadReactionV3(_))
                             && form.submitting
                     })
                 {
@@ -2581,6 +2592,17 @@ impl App {
                         .as_ref()
                         .is_some_and(|github| github.pr.is_some());
                     if let KeyCode::Char(character) = key.code {
+                        if character == 'T'
+                            && self.github.as_ref().is_some_and(|github| {
+                                github.scoped_pr_navigation.is_some()
+                                    && github.pr.as_ref().is_some_and(|page| {
+                                        matches!(page.tab, PrTab::Summary | PrTab::Timeline)
+                                    })
+                            })
+                        {
+                            self.dispatch(Action::Github(GithubAction::ReviewThreadsV4));
+                            return;
+                        }
                         if character == 'J'
                             && self.github.as_ref().is_some_and(|github| {
                                 github.scoped_pr_navigation.is_some()

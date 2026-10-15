@@ -209,13 +209,8 @@ fn fresh(
     let current = session
         .verify(old.navigation.original(), cancel)
         .map_err(source)?;
-    let parent = bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &old.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    let parent = old
+        .read_parent_v4(&bounded, current, cancel)
         .map_err(source)?;
     let thread = Arc::new(
         bounded
@@ -261,13 +256,7 @@ fn fresh(
         None
     };
     local.validate(database, intent).map_err(source)?;
-    bounded
-        .pr_inline_original_parent_v1(
-            current,
-            &old.original_view.observed,
-            &Default::default(),
-            cancel,
-        )
+    old.read_parent_v4(&bounded, current, cancel)
         .map_err(source)?;
     session
         .verify(old.navigation.original(), cancel)
@@ -711,13 +700,8 @@ impl CommentPreviewV2 {
         let current = session
             .verify(old.navigation.original(), cancel)
             .map_err(source)?;
-        let parent = bounded
-            .pr_inline_original_parent_v1(
-                current,
-                &old.original_view.observed,
-                &Default::default(),
-                cancel,
-            )
+        let parent = old
+            .read_parent_v4(&bounded, current, cancel)
             .map_err(source)?;
         original_check(cancel, deadline).map_err(source)?;
         self.local
@@ -835,12 +819,7 @@ impl CommentPreviewV2 {
             let current = session
                 .observation_v1(actual.original().parent().repository_id())
                 .ok_or_else(safe_local)?;
-            bounded.pr_inline_original_parent_v1(
-                current,
-                &old.original_view.observed,
-                &Default::default(),
-                cancel,
-            )?;
+            old.read_parent_v4(&bounded, current, cancel)?;
             session.verify(old.navigation.original(), cancel)?;
             let actual_closed = session.close_with_guard(cancel, || {
                 original_check(cancel, deadline)?;

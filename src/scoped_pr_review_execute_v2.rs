@@ -475,9 +475,18 @@ impl ScopedReviewPreviewV2 {
             .map_err(source_failure)?;
         let mut journal =
             PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;
-        let permit = journal
-            .begin(&target, &write)
-            .map_err(|_| source_failure(safe_local()))?;
+        self.request
+            .validate_lineage_v12(database)
+            .map_err(source_failure)?;
+        let seed_v12=self.request.lineage_v12.as_ref().map(|revision|
+            crate::pr_write_journal::review_action_lineage_v12::ReviewActionOriginSeedV12::from_revision(revision,None,&write))
+            .transpose().map_err(|_|source_failure(safe_local()))?;
+        let permit = if let Some(seed) = &seed_v12 {
+            journal.begin_review_action_v12(&target, &write, seed)
+        } else {
+            journal.begin(&target, &write)
+        }
+        .map_err(|_| source_failure(safe_local()))?;
         let marker = permit.marker();
         let reference = marker.publication_reference();
         let encoded =
@@ -568,6 +577,10 @@ impl ScopedReviewPreviewV2 {
                     PrWriteState::Pending,
                 )?;
                 original_draft_saved(database, intent, &self.draft_key, &encoded)?;
+                if let Some(seed) = &seed_v12 {
+                    seed.validate_owned_basis(database, &target, marker)
+                        .map_err(|_| safe_local())?;
+                }
                 private_clock(cancel, deadline)
             })?;
             if closed.identity().host != identity.host
@@ -672,6 +685,10 @@ impl ScopedReviewPreviewV2 {
                                 PrWriteState::Confirmed,
                             )?;
                             original_draft_saved(database, intent, &self.draft_key, &encoded)?;
+                            if let Some(seed) = &seed_v12 {
+                                seed.validate_owned_basis(database, &target, marker)
+                                    .map_err(|_| safe_local())?;
+                            }
                             let ack = acknowledgement.take().ok_or_else(safe_local)?;
                             ack.check_current(
                                 drafts,
