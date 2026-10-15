@@ -44,6 +44,7 @@ impl Background {
         let generation = self.generation;
         let worker_owner = owner.clone();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view: View::Repository,
             generation,
             cancellation: cancellation.clone(),
@@ -126,6 +127,9 @@ impl Background {
 }
 /// Must run before generic loading/status/private/identity/model effects.
 pub(super) fn original_tree_prepared_only_v1(prepared: &PreparedView) -> bool {
+    if prepared.original_stash_recovery_v1.is_some() {
+        return false;
+    }
     prepared.original_tree_result_v1.is_some()
         && prepared.related_pr_v1.is_none()
         && prepared.original_diff_result_v1.is_none()
@@ -187,6 +191,8 @@ pub(super) fn publish_original_tree_v1(
         || app.original_diff_work_v1.is_some()
         || app.original_diff_cancel_v1
         || app.related_pr_requested_v1
+        || app.original_stash_recovery_request_v1.is_some()
+        || app.original_stash_recovery_cancel_requested_v1
         || app.related_pr_cancel_v1
         || app.cancel_requested
         || (app.refresh_requested && app.view == View::Repository)

@@ -176,3 +176,57 @@ pub fn actions_control_position(
         page.bounds.left + 1..page.bounds.right,
     )
 }
+
+/// Coordinates are only input hints from one complete frame, never resource
+/// identity. Reject a nested modal even when its parent's old footer survives.
+pub fn owned_action_position(
+    frame: &vt100::Screen,
+    title: &str,
+    label: &str,
+    forbidden: &[&str],
+) -> Option<(u16, u16)> {
+    let text = frame.contents();
+    if forbidden.iter().any(|title| text.contains(title)) {
+        return None;
+    }
+    let bounds = owned_box(frame, title)?;
+    unique_position(
+        frame,
+        label,
+        bounds.top + 1..bounds.bottom,
+        bounds.left + 1..bounds.right,
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProgressSelection {
+    pub target: (u16, u16),
+    pub selected_row: Option<u16>,
+}
+
+/// Observe the actual selected row before deciding whether another arrow is
+/// needed. A missing selection is allowed initially, ambiguity is never guessed.
+pub fn progress_selection(frame: &vt100::Screen, label: &str) -> Option<ProgressSelection> {
+    let bounds = owned_box(frame, "Inbox • focused view")?;
+    let target = unique_position(
+        frame,
+        label,
+        bounds.top + 1..bounds.bottom,
+        bounds.left + 1..bounds.right,
+    )?;
+    let mut selected_row = None;
+    for y in bounds.top + 1..bounds.bottom {
+        let (line, _) = row(frame, y);
+        let text = line.trim_start_matches('│').trim_start();
+        if text.starts_with("> ") || text.starts_with("› ") {
+            if selected_row.is_some() {
+                return None;
+            }
+            selected_row = Some(y);
+        }
+    }
+    Some(ProgressSelection {
+        target,
+        selected_row,
+    })
+}

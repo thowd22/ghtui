@@ -48,6 +48,10 @@ mod remote_search;
 mod repository_catalogue_native_v1;
 #[path = "tui_e2e/search.rs"]
 mod search;
+#[path = "tui_e2e/stash_recovery_phase_v2.rs"]
+mod stash_recovery_phase_v2;
+#[path = "tui_e2e/stash_recovery_v1.rs"]
+mod stash_recovery_v1;
 mod support;
 #[path = "tui_e2e/untracked.rs"]
 mod untracked;

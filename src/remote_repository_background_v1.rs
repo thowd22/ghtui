@@ -26,6 +26,7 @@ impl Background {
         let generation = self.generation;
         let cancellation = CancellationToken::default();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view: View::Repository,
             generation,
             cancellation: cancellation.clone(),

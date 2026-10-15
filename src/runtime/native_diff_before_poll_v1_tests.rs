@@ -152,6 +152,7 @@ fn queued_native(kind: u8, source_only: bool) {
             .as_ref()
             .unwrap()
             .try_send(Request {
+                original_stash_recovery_owner_v1: None,
                 view: View::Repository,
                 generation,
                 cancellation: token,

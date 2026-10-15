@@ -59,6 +59,8 @@ pub struct PrIntent {
 }
 #[derive(Clone, Debug)]
 pub struct LocalIntent {
+    pub original_stash_source_v1: Option<std::sync::Arc<crate::git::OriginalLocalActorOriginV1>>,
+    pub failed_stash_v1: Option<std::sync::Arc<crate::git::FailedStashIntentV1>>,
     pub command: crate::local_actions::LocalCommand,
     pub context: crate::local_actions::LocalContext,
     pub plan: Option<crate::local_actions::LocalPlan>,
@@ -175,6 +177,7 @@ pub struct Form {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormAction {
+    InspectStashV1,
     Field(usize),
     Preview,
     Editor,
@@ -311,6 +314,8 @@ impl Form {
         Ok(Self {
             title: command.label().into(),
             purpose: FormPurpose::Local(Box::new(LocalIntent {
+                original_stash_source_v1: None,
+                failed_stash_v1: None,
                 command,
                 context,
                 plan: None,
@@ -1177,6 +1182,7 @@ impl Form {
             return;
         }
         match action {
+            FormAction::InspectStashV1 => {}
             FormAction::FullInput(index) if self.full_input_available(*index) => {
                 let FormPurpose::Local(intent) = &self.purpose else {
                     return;
@@ -1392,6 +1398,11 @@ impl Form {
         }
         if self.submitting {
             return None;
+        }
+        if code == KeyCode::F(3)
+            && matches!(&self.purpose, FormPurpose::Local(intent) if intent.failed_stash_v1.is_some())
+        {
+            return Some(FormAction::InspectStashV1);
         }
         if code == KeyCode::F(2) && self.full_input_available(self.active_field) {
             return Some(FormAction::FullInput(self.active_field));
@@ -2041,6 +2052,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         footer_height.saturating_sub(2),
     );
     form.error_rect = error_area;
+    let failed_stash_available =
+        matches!(&form.purpose, FormPurpose::Local(intent) if intent.failed_stash_v1.is_some());
     frame.render_widget(
         Paragraph::new(safe_text(&form.error))
             .style(theme.style(SemanticToken::Failure))
@@ -2049,13 +2062,26 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         error_area,
     );
     frame.render_widget(
-        Paragraph::new(if form.error.is_empty() {
+        Paragraph::new(if failed_stash_available {
+            "[F3 Inspect stash result] • read-only; not retry/drop approval"
+        } else if form.error.is_empty() {
             "Tab: controls • Ctrl-A: select all • Ctrl-P: preview • Esc: keep draft"
         } else {
             "Tab: controls • Esc: keep draft"
         }),
         Rect::new(inner.x, inner.bottom().saturating_sub(2), inner.width, 1),
     );
+    if failed_stash_available {
+        app.hits.push(HitRegion {
+            rect: Rect::new(
+                inner.x,
+                inner.bottom().saturating_sub(2),
+                inner.width.min(25),
+                1,
+            ),
+            action: Action::Form(FormAction::InspectStashV1),
+        });
+    }
     let mut x = inner.x;
     let y = inner.bottom().saturating_sub(1);
     for (offset, (label, action)) in [

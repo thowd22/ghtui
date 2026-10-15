@@ -167,7 +167,19 @@ fn verify(session: &mut Session, mouse: bool) {
     session.wait_for_overlay_close(PREVIEW);
 }
 fn close(session: &mut Session, mouse: bool, retained: bool) {
-    choose(session, mouse, "[Esc Close]", b"\x1b");
+    let close_current = |session: &mut Session| {
+        let (x, y) = session.wait_for_owned_completed_action(
+            TITLE,
+            "[Esc Close]",
+            &[WARNING, PREVIEW, "Action unavailable • explanation only"],
+        );
+        if mouse {
+            session.click(x, y);
+        } else {
+            session.send_key(b"\x1b");
+        }
+    };
+    close_current(session);
     if retained {
         overlay_ready(
             session,
@@ -176,7 +188,7 @@ fn close(session: &mut Session, mouse: bool, retained: bool) {
         );
         choose(session, mouse, "[Esc Back]", b"\x1b");
         session.wait_for_overlay_close(WARNING);
-        choose(session, mouse, "[Esc Close]", b"\x1b");
+        close_current(session);
         overlay_ready(session, WARNING, &["[x Discard & Close]"]);
         choose(session, mouse, "[x Discard & Close]", b"x");
         session.wait_for_overlay_close(WARNING);
@@ -332,6 +344,14 @@ fn repo_catalog_original_recovery_keyboard_missing_changed_node_and_empty_never_
 }
 #[test]
 fn repo_catalog_original_recovery_mouse_missing_changed_node_and_empty_never_save_absence() {
+    unresolved(true);
+}
+#[test]
+fn completed_frame_actions_catalogue_keyboard_nested_overlay_close_keeps_unresolved_choices() {
+    unresolved(false);
+}
+#[test]
+fn completed_frame_actions_catalogue_mouse_nested_overlay_close_keeps_unresolved_choices() {
     unresolved(true);
 }
 fn unresolved(mouse: bool) {

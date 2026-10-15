@@ -47,6 +47,7 @@ fn completion_before_new_input(kind: u8) {
             .as_ref()
             .unwrap()
             .try_send(Request {
+                original_stash_recovery_owner_v1: None,
                 view: View::Repository,
                 generation,
                 cancellation,
@@ -240,6 +241,7 @@ fn mixed_result(has_owner: bool) {
         .as_ref()
         .unwrap()
         .try_send(Request {
+            original_stash_recovery_owner_v1: None,
             view: View::Repository,
             generation: background.generation,
             cancellation,

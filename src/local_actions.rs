@@ -295,6 +295,61 @@ pub struct LocalPlan {
     pub preview: Vec<String>,
 }
 impl LocalPlan {
+    pub fn execute_stash_with_inspection_v1(
+        &self,
+        confirmed: bool,
+        cancellation: CancellationToken,
+        origin: std::sync::Arc<crate::git::OriginalLocalActorOriginV1>,
+    ) -> Result<LocalOutcome, crate::git::StashAttemptFailureV1> {
+        origin
+            .recheck(&cancellation)
+            .map_err(|error| crate::git::StashAttemptFailureV1::before(error.to_string()))?;
+        let repo = repository(&self.context.directory, cancellation.clone())
+            .map_err(crate::git::StashAttemptFailureV1::before)?;
+        let success = repo.execute_stash_with_inspection_v1(&self.mutation, confirmed, origin)?;
+        let (output, original_intent) = success.into_parts();
+        let refresh_failure = |reason| {
+            crate::git::StashAttemptFailureV1::after_success(reason, original_intent.clone())
+        };
+        // The successful write belongs to its genuine original source, not any
+        // later checkout discovered at this pathname. Metadata checks add no
+        // Git/gh/SQL observer and never turn the retained witness into approval.
+        original_intent
+            .origin()
+            .recheck(&cancellation)
+            .map_err(|error| refresh_failure(error.to_string()))?;
+        let workspace = Workspace::load_with_cancellation(
+            &self.context.directory,
+            RepositoryMode::Overview,
+            "HEAD",
+            None,
+            cancellation.clone(),
+        )
+        .map_err(refresh_failure)?
+        .ok_or_else(|| {
+            refresh_failure("Repository unavailable after successful stash command".into())
+        })?;
+        original_intent
+            .origin()
+            .recheck(&cancellation)
+            .map_err(|error| refresh_failure(error.to_string()))?;
+        let original = original_intent.origin();
+        if !workspace.actor_origin.as_ref().is_some_and(|fresh| {
+            fresh.source() == original.source()
+                && fresh
+                    .original_repository_v1()
+                    .actual_read_runner_v1()
+                    .same_instance(original.original_repository_v1().actual_read_runner_v1())
+        }) {
+            return Err(refresh_failure(
+                "Original stash result refresh belongs to another source/producer".into(),
+            ));
+        }
+        Ok(LocalOutcome {
+            output: sanitize_terminal(&output),
+            workspace,
+        })
+    }
     pub fn prepare(
         command: LocalCommand,
         context: &LocalContext,

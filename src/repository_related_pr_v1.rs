@@ -75,6 +75,8 @@ impl RelatedPrOwnerV1 {
             && !app.refresh_requested
             && !app.local_actor_requested
             && !app.related_pr_requested_v1
+            && app.original_stash_recovery_request_v1.is_none()
+            && !app.original_stash_recovery_cancel_requested_v1
             && !self.cancellation().is_cancelled()
             && app.related_pr_v1.as_ref().is_some_and(|state| {
                 state

@@ -71,6 +71,7 @@ impl Background {
         self.generation = generation;
         let worker_owner = owner.clone();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view: View::Repository,
             generation,
             cancellation: cancellation.clone(),
@@ -111,6 +112,7 @@ impl Background {
 }
 pub(super) fn only_related(p: &PreparedView) -> bool {
     let PreparedView {
+        original_stash_recovery_v1,
         related_pr_v1,
         original_diff_result_v1,
         lines,
@@ -158,6 +160,7 @@ pub(super) fn only_related(p: &PreparedView) -> bool {
         remote_repository,
     } = p;
     related_pr_v1.is_some()
+        && original_stash_recovery_v1.is_none()
         && original_diff_result_v1.is_none()
         && lines.is_empty()
         && context.is_none()

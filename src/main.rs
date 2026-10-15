@@ -573,12 +573,35 @@ fn run() -> Result<()> {
                         &cancel,
                     );
                 }
-                if let FormPurpose::Local(intent) = &form.purpose {
+                if let FormPurpose::Local(intent) = &mut form.purpose {
                     let plan = intent
                         .plan
                         .as_ref()
                         .ok_or("Choose Preview before confirmation")?;
-                    let outcome = plan.execute(true, cancel)?;
+                    let outcome = if matches!(intent.command, ghtui::local_actions::LocalCommand::StashApply | ghtui::local_actions::LocalCommand::StashPop) {
+                        let Some(origin) = intent.original_stash_source_v1.clone() else {
+                            intent.plan=None;form.preview=false;form.submit_requested=false;form.submitting=false;
+                            form.error="Original stash source unavailable; old confirmation retired. Open a fresh original local intent.".into();
+                            return Ok(PreparedView{form:Some(form),status:"Stash source unavailable • zero execution submitted".into(),..Default::default()});
+                        };
+                        match plan.execute_stash_with_inspection_v1(true, cancel, origin) {
+                            Ok(outcome) => outcome,
+                            Err(failure) => {
+                                let status=match failure.failed_intent() {
+                                    Some(intent) if intent.command_succeeded()=>"Stash succeeded • refresh failed • F3 Inspect result",
+                                    Some(_)=>"Stash failed/refused • old confirmation retired • F3 Inspect result",
+                                    None=>"Stash refused before witness capture • old confirmation retired • no result inspection",
+                                };
+                                intent.failed_stash_v1 = failure.failed_intent().cloned();
+                                intent.plan = None;
+                                form.preview = false;
+                                form.submit_requested = false;
+                                form.submitting = false;
+                                form.error = failure.message;
+                                return Ok(PreparedView { form: Some(form), status: status.into(), ..Default::default() });
+                            }
+                        }
+                    } else { plan.execute(true, cancel)? };
                     let status = format!(
                         "Completed • {}{}",
                         intent.command.label(),
@@ -755,6 +778,10 @@ fn run() -> Result<()> {
         if let Some(command) = app.local_command.take() {
             if let Some(context) = app.local_context() {
                 let database = paths.database.clone();
+                let original_stash_source_v1 = app
+                    .workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.actor_origin.clone());
                 background.submit(&mut app, ghtui::app::View::Repository, move |_cancel| {
                     let mut form = ghtui::forms::Form::local(command, context)?;
                     if let Some(draft) = ghtui::storage::Cache::open(&database)
@@ -763,6 +790,9 @@ fn run() -> Result<()> {
                         .map_err(|error| error.to_string())?
                     {
                         form.restore_draft(&draft)?;
+                    }
+                    if let ghtui::forms::FormPurpose::Local(intent) = &mut form.purpose {
+                        intent.original_stash_source_v1 = original_stash_source_v1;
                     }
                     Ok(PreparedView {
                         lines: vec![],
@@ -815,6 +845,15 @@ fn run() -> Result<()> {
                     ..PreparedView::default()
                 })
             });
+        }
+        if app.original_stash_recovery_cancel_requested_v1 {
+            app.original_stash_recovery_cancel_requested_v1 = false;
+            if background.cancel_current_stash_recovery_v1() {
+                app.loading[ghtui::app::View::Repository.index()] = false;
+            }
+        }
+        if let Some(intent) = app.original_stash_recovery_request_v1.take() {
+            background.submit_stash_recovery_v1(&mut app, intent);
         }
         if app.related_pr_cancel_v1 {
             app.related_pr_cancel_v1 = false;

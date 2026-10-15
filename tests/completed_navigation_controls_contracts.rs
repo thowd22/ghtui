@@ -9,6 +9,241 @@ const SUBJECT: &str = "Original navigation ancestry 界 e\u{301}";
 const STATUS: &str = "Original navigation source restored • read-only";
 const WATCH: &str = "[[w Watch] unavailable:";
 
+const PROGRESS_FILE: &str = "UNVIEWED • src/α file.rs";
+const CATALOGUE: &str = "Repositories • explicit discovery";
+
+#[test]
+fn completed_frame_actions_focused_cell_marker_all_splits_keep_cursorless_proof_distinct() {
+    let mut parent = box_bytes(CATALOGUE, 24, 80);
+    parent
+        .extend_from_slice("\x1b[8;3HFilter focused: 界\x1b[21;55H[Esc Close]\x1b[?25h".as_bytes());
+    for split in 0..=parent.len() {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let old = b"old cursorless source\x1b[?25l";
+        frames.process(&mut parser, old, 0);
+        let old_end = frames.end;
+        frames.process(&mut parser, &parent[..split], old.len());
+        frames.process(&mut parser, &parent[split..], old.len() + split);
+        assert_eq!(
+            frames.end, old_end,
+            "Focused cells do not renew cursorless proof"
+        );
+        assert!(frames
+            .last
+            .as_ref()
+            .unwrap()
+            .contents()
+            .contains("old cursorless source"));
+        assert_eq!(frames.cells_end, old.len() + parent.len());
+        assert_eq!(
+            controls::owned_action_position(
+                frames.last_cells.as_ref().unwrap(),
+                CATALOGUE,
+                "[Esc Close]",
+                &[]
+            ),
+            Some((54, 20))
+        );
+    }
+}
+
+#[test]
+fn completed_frame_actions_partial_focused_marker_and_cursor_placement_do_not_forge_cells() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = box_bytes(CATALOGUE, 24, 80);
+    bytes.extend_from_slice(b"\x1b[21;55H[Esc Close]\x1b[?25");
+    frames.process(&mut parser, &bytes, 0);
+    assert!(parser.screen().contents().contains("[Esc Close]"));
+    assert!(frames.last_cells.is_none() && frames.last.is_none());
+    frames.process(&mut parser, b"h", bytes.len());
+    let end = frames.cells_end;
+    assert!(frames.last.is_none());
+    assert_eq!(
+        controls::owned_action_position(
+            frames.last_cells.as_ref().unwrap(),
+            CATALOGUE,
+            "[Esc Close]",
+            &[]
+        ),
+        Some((54, 20))
+    );
+    frames.process(&mut parser, b"\x1b[8;3H", end);
+    assert_eq!(
+        frames.cells_end, end,
+        "Cursor placement alone is not another cell frame"
+    );
+    frames.invalidate_size();
+    assert!(frames.last_cells.is_none() && frames.last.is_none());
+}
+
+fn progress_bytes(selected: Option<u16>) -> Vec<u8> {
+    let mut bytes = box_bytes("Inbox • focused view", 24, 80);
+    bytes.extend_from_slice(
+        format!("\x1b[8;3H{PROGRESS_FILE}\x1b[9;3HUNVIEWED • other.rs").as_bytes(),
+    );
+    if let Some(y) = selected {
+        bytes.extend_from_slice(format!("\x1b[{y};2H> ").as_bytes());
+    }
+    bytes
+}
+
+#[test]
+fn completed_frame_actions_observer_already_selected_target_needs_no_next_arrow() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    // Put the marker before the text, not on top of its first character.
+    let mut bytes = progress_bytes(None);
+    bytes.extend_from_slice(format!("\x1b[8;2H> {PROGRESS_FILE}").as_bytes());
+    complete(&mut parser, &mut frames, &bytes);
+    let position =
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    assert_eq!(position.selected_row, Some(position.target.1));
+}
+
+#[test]
+fn completed_frame_actions_observer_target_above_selected_row_requires_up_not_more_down() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &progress_bytes(Some(9)));
+    let position =
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    assert!(position.selected_row.unwrap() > position.target.1);
+}
+
+#[test]
+fn completed_frame_actions_observer_target_below_current_row_has_one_unambiguous_direction() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &progress_bytes(Some(6)));
+    let position =
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    assert!(position.selected_row.unwrap() < position.target.1);
+}
+
+#[test]
+fn completed_frame_actions_observer_no_selected_row_is_not_a_fabricated_selected_target() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &progress_bytes(None));
+    let position =
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    assert_eq!(position.selected_row, None);
+    assert_eq!(position.target, (2, 7));
+}
+
+#[test]
+fn completed_frame_actions_observer_duplicate_target_or_selected_rows_refuse_geometry() {
+    for duplicate_target in [true, false] {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = progress_bytes(Some(6));
+        bytes.extend_from_slice(
+            if duplicate_target {
+                format!("\x1b[11;3H{PROGRESS_FILE}")
+            } else {
+                "\x1b[11;2H> ambiguous selected row".into()
+            }
+            .as_bytes(),
+        );
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(
+            controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).is_none()
+        );
+    }
+}
+
+#[test]
+fn completed_frame_actions_observer_partial_new_selection_cannot_satisfy_completed_arrow_result() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    let mut frames = CursorlessFrames::default();
+    complete(&mut parser, &mut frames, &progress_bytes(Some(6)));
+    let before = frames.end;
+    let next = progress_bytes(Some(9));
+    frames.process(&mut parser, &next, before);
+    assert_eq!(
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE)
+            .unwrap()
+            .selected_row,
+        Some(5)
+    );
+    assert_eq!(
+        controls::progress_selection(parser.screen(), PROGRESS_FILE)
+            .unwrap()
+            .selected_row,
+        Some(8)
+    );
+    frames.process(&mut parser, b"\x1b[?25l", before + next.len());
+    assert!(frames.end > before);
+    assert_eq!(
+        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE)
+            .unwrap()
+            .selected_row,
+        Some(8)
+    );
+}
+
+#[test]
+fn completed_frame_actions_observer_nested_overlay_cannot_supply_parent_close_coordinate() {
+    for nested in [
+        "Unsaved repository choices",
+        "Action unavailable • explanation only",
+    ] {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut bytes = box_bytes(CATALOGUE, 24, 80);
+        bytes.extend_from_slice(b"\x1b[21;55H[Esc Close]");
+        bytes.extend_from_slice(format!("\x1b[10;5H{nested}").as_bytes());
+        complete(&mut parser, &mut frames, &bytes);
+        assert!(controls::owned_action_position(
+            frames.last.as_ref().unwrap(),
+            CATALOGUE,
+            "[Esc Close]",
+            &[nested]
+        )
+        .is_none());
+    }
+}
+
+#[test]
+fn completed_frame_actions_observer_new_parent_close_uses_complete_current_geometry_after_nested_close(
+) {
+    for (height, width, x) in [(24, 80, 55), (40, 120, 95)] {
+        let mut parser = vt100::Parser::new(height, width, 0);
+        let mut frames = CursorlessFrames::default();
+        let mut modal = box_bytes(CATALOGUE, height, width);
+        modal.extend_from_slice(b"\x1b[10;5HUnsaved repository choices\x1b[21;5H[Esc Back]");
+        complete(&mut parser, &mut frames, &modal);
+        let after = frames.end;
+        let mut parent = box_bytes(CATALOGUE, height, width);
+        parent.extend_from_slice(format!("\x1b[{};{x}H[Esc Close]", height - 3).as_bytes());
+        frames.process(&mut parser, &parent, after);
+        assert!(controls::owned_action_position(
+            frames.last.as_ref().unwrap(),
+            CATALOGUE,
+            "[Esc Close]",
+            &["Unsaved repository choices"]
+        )
+        .is_none());
+        frames.process(&mut parser, b"\x1b[?25l", after + parent.len());
+        assert_eq!(
+            controls::owned_action_position(
+                frames.last.as_ref().unwrap(),
+                CATALOGUE,
+                "[Esc Close]",
+                &["Unsaved repository choices"]
+            ),
+            Some((x - 1, height - 4))
+        );
+        frames.invalidate_size();
+        assert!(
+            frames.last.is_none(),
+            "A resized terminal has no reusable completed-frame coordinates"
+        );
+    }
+}
+
 fn box_bytes(title: &str, height: u16, width: u16) -> Vec<u8> {
     let mut value = format!("\x1b[2J\x1b[H\x1b[4;1H┌{title}\x1b[4;{width}H┐");
     for y in 5..height - 2 {

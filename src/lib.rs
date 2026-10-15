@@ -141,3 +141,4 @@ mod remote_repository_v1_test_support;
 
 pub mod remote_repository_native_v1;
 pub mod remote_repository_v1;
+pub mod repository_stash_recovery_v1;

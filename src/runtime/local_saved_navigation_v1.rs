@@ -41,6 +41,7 @@ impl Background {
         let generation = self.generation;
         let worker_owner = owner.clone();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view: View::Repository,
             generation,
             cancellation: cancellation.clone(),
@@ -98,6 +99,9 @@ impl Background {
 }
 
 pub(super) fn original_local_prepared_only_v1(prepared: &PreparedView) -> bool {
+    if prepared.original_stash_recovery_v1.is_some() {
+        return false;
+    }
     prepared.workspace.is_some()
         && prepared.related_pr_v1.is_none()
         && prepared

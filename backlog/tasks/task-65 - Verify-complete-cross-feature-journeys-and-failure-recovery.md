@@ -4,7 +4,7 @@ title: Verify complete cross-feature journeys and failure recovery
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-15 01:54'
+updated_date: '2026-10-15 02:13'
 labels:
   - delivery
   - e2e
@@ -14,6 +14,7 @@ dependencies:
   - TASK-51
   - TASK-75
   - TASK-76
+  - TASK-77
 documentation:
   - backlog/docs/doc-2 - ghtui-product-and-architecture-specification.md
   - backlog/docs/doc-4 - Code-and-TUI-end-to-end-testing-contract.md

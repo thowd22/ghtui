@@ -68,6 +68,7 @@ impl Background {
         let generation = self.generation;
         let worker_owner = owner.clone();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view: View::Repository,
             generation,
             cancellation: cancellation.clone(),
@@ -157,6 +158,7 @@ mod native_diff_before_poll_v1_tests;
 mod native_mutable_diff_before_poll_v2_tests;
 pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
     prepared.original_diff_result_v1.is_some()
+        && prepared.original_stash_recovery_v1.is_none()
         && prepared.related_pr_v1.is_none()
         && prepared.original_tree_result_v1.is_none()
         && prepared.graph_reread_retention_v3.is_none()
@@ -209,6 +211,8 @@ pub(super) fn publish_original_diff_sides_v1(
 ) -> bool {
     if app.repository_load_requested
         || app.related_pr_requested_v1
+        || app.original_stash_recovery_request_v1.is_some()
+        || app.original_stash_recovery_cancel_requested_v1
         || app.related_pr_cancel_v1
         || app.related_pr_v1.is_some()
         || app.repository_action.is_some()

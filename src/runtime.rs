@@ -14,6 +14,7 @@ use std::{
 
 #[derive(Default)]
 pub struct PreparedView {
+    pub original_stash_recovery_v1: Option<crate::repository_stash_recovery_v1::PreparedStashRecoveryV1>,
     pub original_diff_result_v1:
         Option<crate::repository_diff_sides_worker_v1::PreparedOriginalDiffWorkV1>,
     pub related_pr_v1: Option<crate::repository_related_pr_v1::PreparedRelatedPrV1>,
@@ -85,6 +86,8 @@ mod graph_refresh_v3_tests;
 mod local_saved_navigation_v1;
 #[path = "runtime/original_diff_sides_background_v1.rs"]
 mod original_diff_sides_background_v1;
+#[path = "runtime/original_stash_recovery_background_v1.rs"]
+mod original_stash_recovery_background_v1;
 #[path = "runtime/original_tree_background_v1.rs"]
 mod original_tree_background_v1;
 #[cfg(test)]
@@ -130,6 +133,8 @@ impl ScopedRemoteOwner {
     }
 }
 struct Request {
+    original_stash_recovery_owner_v1:
+        Option<Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryOwnerV1>>,
     view: View,
     generation: u64,
     cancellation: CancellationToken,
@@ -149,6 +154,8 @@ struct Request {
     work: Work,
 }
 struct Completion {
+    original_stash_recovery_owner_v1:
+        Option<Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryOwnerV1>>,
     view: View,
     generation: u64,
     catalogue_owner: Option<Arc<crate::repository_catalogue_native::CatalogueOwner>>,
@@ -168,6 +175,10 @@ struct Completion {
 }
 
 pub struct Background {
+    current_stash_recovery_v1: Option<(
+        u64,
+        Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryOwnerV1>,
+    )>,
     current_related_pr_v1: Option<Arc<crate::repository_related_pr_v1::RelatedPrOwnerV1>>,
     current_related_pr_generation_v1: Option<u64>,
     requests: Option<SyncSender<Request>>,
@@ -217,6 +228,7 @@ impl Background {
                 });
                 if sender
                     .send(Completion {
+                        original_stash_recovery_owner_v1: request.original_stash_recovery_owner_v1,
                         view: request.view,
                         generation: request.generation,
                         catalogue_owner: request.catalogue_owner,
@@ -236,6 +248,7 @@ impl Background {
             }));
         }
         Self {
+            current_stash_recovery_v1: None,
             current_related_pr_v1: None,
             current_related_pr_generation_v1: None,
             requests: Some(requests),
@@ -387,6 +400,7 @@ impl Background {
         let generation = self.generation;
         let cancellation = CancellationToken::default();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view,
             generation,
             cancellation: cancellation.clone(),
@@ -452,6 +466,7 @@ impl Background {
         self.generation = generation;
         let work_owner = owner.clone();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view,
             generation,
             cancellation: cancellation.clone(),
@@ -488,6 +503,7 @@ impl Background {
     }
     pub fn cancel(&mut self, view: View) {
         if view == View::Repository {
+            self.current_stash_recovery_v1 = None;
             self.current_related_pr_v1 = None;
             self.current_related_pr_generation_v1 = None;
             self.current_original_local_owner = None;
@@ -541,6 +557,7 @@ impl Background {
         let generation = self.generation;
         let cancellation = CancellationToken::default();
         let request = Request {
+            original_stash_recovery_owner_v1: None,
             view: app.view,
             generation,
             cancellation: cancellation.clone(),
@@ -768,7 +785,21 @@ impl Background {
             {
                 continue;
             }
+            if completion.original_stash_recovery_owner_v1.is_none()
+                && (completion.view == View::Repository
+                    || completion
+                        .remote_scope_owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.continuation_v2.is_some()))
+                && (app.original_stash_recovery_request_v1.is_some()
+                    || app.original_stash_recovery_cancel_requested_v1)
+            {
+                continue; // New original stash intent precedes every old success/error/panic effect.
+            }
             if let Some(owner) = &completion.original_tree_owner_v1 {
+                if completion.original_stash_recovery_owner_v1.is_some() {
+                    continue;
+                }
                 // The physical slot alone is not the retained logical owner.
                 // Reject a foreign/mixed completion before retiring any slot
                 // or allowing a specialized publisher's visible effects.
@@ -792,6 +823,9 @@ impl Background {
             // The physical slot is shared with other repository workflows.
             // A stale logical Diff owner or mixed result cannot consume it.
             if let Some(owner) = &completion.original_diff_owner_v1 {
+                if completion.original_stash_recovery_owner_v1.is_some() {
+                    continue;
+                }
                 if completion.view != View::Repository
                     || completion.catalogue_owner.is_some()
                     || completion.catalogue_recovery.is_some()
@@ -824,6 +858,10 @@ impl Background {
                 continue;
             }
             // Gate original owner before every success/error/panic effect.
+            if let Some(admitted) = self.publish_stash_recovery_v1(app, &mut completion) {
+                changed |= admitted;
+                continue;
+            }
             if completion
                 .result
                 .as_ref()
@@ -1010,6 +1048,8 @@ impl Background {
                 // A remaining flag/action therefore belongs to newer input;
                 // the old result must not reset its desired mode or status.
                 if app.repository_load_requested
+                    || app.original_stash_recovery_request_v1.is_some()
+                    || app.original_stash_recovery_cancel_requested_v1
                     || app.repository_action.is_some()
                     || app.graph_reread_request_v3.is_some()
                     || app.related_pr_requested_v1

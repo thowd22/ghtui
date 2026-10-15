@@ -150,7 +150,7 @@ fn queued(kind: u8) {
         background.current_original_diff_owner_v1 = Some(owner.clone());
         background.current_original_diff_generation_v1 = Some(generation);
         let captured = owner.clone();
-        background.requests.as_ref().unwrap().try_send(Request{view:View::Repository,generation,cancellation:token,catalogue_owner:None,catalogue_recovery:None,remote_scope_owner:None,local_actor_owner:None,remote_repository_owner:None,local_navigation_owner:None,original_tree_owner_v1:None,original_diff_owner_v1:Some(owner.clone()),work:Box::new(move|_|{
+        background.requests.as_ref().unwrap().try_send(Request{original_stash_recovery_owner_v1:None,view:View::Repository,generation,cancellation:token,catalogue_owner:None,catalogue_recovery:None,remote_scope_owner:None,local_actor_owner:None,remote_repository_owner:None,local_navigation_owner:None,original_tree_owner_v1:None,original_diff_owner_v1:Some(owner.clone()),work:Box::new(move|_|{
             let prepared=captured.prepare()?;
             match kind{0=>Ok(PreparedView{original_diff_result_v1:Some(prepared),..Default::default()}),1=>Err("Actual sealed mutable error".into()),_=>panic!("Controlled genuine mutable panic after actual source preparation and seal")}
         })}).unwrap();

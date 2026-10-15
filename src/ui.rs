@@ -28,6 +28,9 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    if crate::repository_stash_recovery_v1::draw(frame, app) {
+        return;
+    }
     if crate::repository_related_pr_v1::draw(frame, app) {
         return;
     }

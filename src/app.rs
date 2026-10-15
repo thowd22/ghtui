@@ -39,6 +39,7 @@ impl View {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    StashRecoveryV1(crate::repository_stash_recovery_v1::StashRecoveryActionV1),
     View(View),
     Help,
     Palette,
@@ -163,6 +164,11 @@ impl DiffSelection {
 
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
+    pub original_stash_recovery_request_v1:
+        Option<std::sync::Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryIntentV1>>,
+    pub original_stash_recovery_cancel_requested_v1: bool,
+    pub original_stash_recovery_v1:
+        Option<crate::repository_stash_recovery_v1::StashRecoveryStateV1>,
     pub view: View,
     pub overlay: Option<Overlay>,
     pub quit: bool,
@@ -333,6 +339,9 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            original_stash_recovery_request_v1: None,
+            original_stash_recovery_cancel_requested_v1: false,
+            original_stash_recovery_v1: None,
             view: View::Inbox,
             overlay: None,
             quit: false,
@@ -663,6 +672,34 @@ impl App {
         controls
     }
     pub fn dispatch(&mut self, action: Action) {
+        if let Action::StashRecoveryV1(input) = &action {
+            crate::repository_stash_recovery_v1::dispatch(self, input.clone());
+            return;
+        }
+        if action == Action::Form(crate::forms::FormAction::InspectStashV1) {
+            crate::repository_stash_recovery_v1::dispatch(
+                self,
+                crate::repository_stash_recovery_v1::StashRecoveryActionV1::Inspect,
+            );
+            return;
+        }
+        if self.original_stash_recovery_v1.is_some() {
+            match action {
+                Action::Quit => {
+                    crate::repository_stash_recovery_v1::dispatch(
+                        self,
+                        crate::repository_stash_recovery_v1::StashRecoveryActionV1::Back,
+                    );
+                    self.quit = true;
+                }
+                Action::Close | Action::Cancel => crate::repository_stash_recovery_v1::dispatch(
+                    self,
+                    crate::repository_stash_recovery_v1::StashRecoveryActionV1::Back,
+                ),
+                _ => {}
+            }
+            return;
+        }
         if let Action::RelatedPrV1(input) = &action {
             crate::repository_related_pr_v1::dispatch(self, input.clone());
             return;
@@ -835,6 +872,7 @@ impl App {
             crate::repository_native_diff_native_v1::retire(self);
         }
         match action {
+            Action::StashRecoveryV1(_) => {}
             Action::NativeDiffV1(action) => {
                 crate::repository_native_diff_native_v1::dispatch(self, action)
             }
@@ -1581,6 +1619,9 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        if crate::repository_stash_recovery_v1::event(self, event.clone()) {
+            return;
+        }
         if let Event::Resize(width, _) = &event {
             crate::repository_tree_viewport_native_v2::resize(self, *width);
         }

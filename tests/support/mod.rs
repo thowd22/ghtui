@@ -541,6 +541,76 @@ impl Session {
         self.cursorless_frames.end
     }
 
+    pub fn wait_for_owned_completed_action(
+        &mut self,
+        title: &str,
+        label: &str,
+        forbidden: &[&str],
+    ) -> (u16, u16) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some(point) = self
+                .cursorless_frames
+                .last_cells
+                .as_ref()
+                .and_then(|frame| {
+                    completed_navigation_controls_v1::owned_action_position(
+                        frame, title, label, forbidden,
+                    )
+                })
+            {
+                return point;
+            }
+            assert!(Instant::now() < deadline, "No completed owned {title} action {label}; nested/partial geometry cannot supply input\n{}", self.screen());
+        }
+    }
+
+    pub fn select_completed_progress_file(&mut self, mouse: bool, label: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            let Some(position) = self.completed_cursorless_screen().and_then(|frame| {
+                completed_navigation_controls_v1::progress_selection(frame, label)
+            }) else {
+                assert!(
+                    Instant::now() < deadline,
+                    "No completed unique progress target {label}\n{}",
+                    self.screen()
+                );
+                continue;
+            };
+            if position.selected_row == Some(position.target.1) {
+                return;
+            }
+            let before = self.completed_cursorless_end();
+            if mouse {
+                self.click(position.target.0, position.target.1);
+            } else if position
+                .selected_row
+                .is_some_and(|row| row > position.target.1)
+            {
+                self.send_key(b"\x1b[A");
+            } else {
+                self.send_key(b"\x1b[B");
+            }
+            self.wait_for_new_cursorless_condition(
+                before,
+                |frame| {
+                    completed_navigation_controls_v1::progress_selection(frame, label).is_some_and(
+                        |new| {
+                            position.selected_row.is_none()
+                                || (new.selected_row.is_some()
+                                    && new.selected_row != position.selected_row)
+                        },
+                    )
+                },
+                "one actual progress selection result before another input",
+                deadline.saturating_duration_since(Instant::now()),
+            );
+        }
+    }
+
     pub fn wait_for_saved_graph_return(
         &mut self,
         after: usize,

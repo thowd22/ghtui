@@ -47,6 +47,7 @@ fn completion_before_new_intent(kind: u8) {
             .as_ref()
             .unwrap()
             .try_send(Request {
+                original_stash_recovery_owner_v1: None,
                 view: View::Repository,
                 generation,
                 cancellation,
@@ -337,6 +338,7 @@ fn original_tree_viewport_actual_member_completion_width_and_field_are_owned_at_
                 .as_ref()
                 .unwrap()
                 .try_send(Request {
+                    original_stash_recovery_owner_v1: None,
                     view: View::Repository,
                     generation: background.generation,
                     cancellation,

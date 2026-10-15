@@ -7,6 +7,9 @@ use super::*;
 /// retained visit, another remote model, a form, a principal or generic flags.
 /// Conversely the local Tree/Graph publishers must reject this result facet.
 pub(crate) fn prepared_only(value: &PreparedView) -> bool {
+    if value.original_stash_recovery_v1.is_some() {
+        return false;
+    }
     value.pr_check_continuation_v2.is_some()
         && value.related_pr_v1.is_none()
         && value.original_tree_result_v1.is_none()

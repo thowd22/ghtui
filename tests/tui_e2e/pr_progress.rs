@@ -82,26 +82,7 @@ fn publication(head: &str, before: &str, mark: bool) -> Vec<GhStep> {
 }
 fn select_file(session: &mut Session, mouse: bool, state: &str) {
     let label = format!("{state} • {FILE}");
-    session.wait_for_screen(&label);
-    if mouse {
-        session.click_visible_action(&label);
-        session.wait_for_screen(&format!("> {label}"));
-    } else {
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(5) {
-            session.send_key(b"\x1b[B");
-            session.poll_output(Duration::from_millis(10));
-            if session.screen().contains(&format!("› {label}"))
-                || session.screen().contains(&format!("> {label}"))
-            {
-                return;
-            }
-        }
-        panic!(
-            "Exact file row did not become selected:\n{}",
-            session.screen()
-        );
-    }
+    session.select_completed_progress_file(mouse, &label);
 }
 fn original_receipts(fixture: &Fixture) -> Vec<(String, String, Value, Value)> {
     Connection::open(cache_path(fixture)).unwrap().prepare("SELECT command,state,confirmed_json,observed_head FROM pr_write_attempts ORDER BY attempt_id").unwrap().query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,serde_json::from_str::<Value>(&row.get::<_,String>(2)?).unwrap(),json!(row.get::<_,String>(3)?)))).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
@@ -116,6 +97,17 @@ fn viewed_files_mouse_marks_unmarks_restarts_and_keeps_changed_head_progress_hon
     journey(true);
 }
 fn journey(mouse: bool) {
+    journey_with_preselected(mouse, false);
+}
+#[test]
+fn completed_frame_actions_keyboard_already_selected_file_does_not_step_past_target() {
+    journey_with_preselected(false, true);
+}
+#[test]
+fn completed_frame_actions_mouse_already_selected_file_keeps_exact_publication_target() {
+    journey_with_preselected(true, true);
+}
+fn journey_with_preselected(mouse: bool, preselected: bool) {
     let fixture = configured();
     fixture.init_git();
     fixture.commit_file(
@@ -163,6 +155,10 @@ fn journey(mouse: bool) {
         0
     );
     session.resize(80, 24);
+    if preselected {
+        select_file(&mut session, mouse, "UNVIEWED");
+        session.wait_for_screen(&format!("> UNVIEWED • {FILE}"));
+    }
     select_file(&mut session, mouse, "UNVIEWED");
     menu(&mut session, mouse, "Mark selected file viewed");
     session.wait_for_screen("PR INTENT • Preview first");
