@@ -1,5 +1,7 @@
 //! Actual modal + public curl bytes/argv/PID/cache; strict offline GH only.
 use super::*;
+#[path = "../support/positive_pid_publication_v1.rs"]
+mod pid_publication_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession, ProcessIdentity};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use std::io::Cursor;
@@ -7,6 +9,7 @@ use std::io::Cursor;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Ready,
+    PartialPid,
     Failed,
     Cancel,
     Privacy,
@@ -41,7 +44,15 @@ fn asset(fixture: &Fixture, mode: Mode) -> Asset {
             fixture.root.display()
         )
     };
-    let script=format!("#!/bin/sh\nid=\nfor arg do case \"$arg\" in 'https://avatars.githubusercontent.com/u/201?v=4') id=201;; 'https://avatars.githubusercontent.com/u/202?v=4') id=202;; 'https://avatars.githubusercontent.com/u/303?v=4') id=303;; esac; done\nif [ -z \"$id\" ]; then printf unexpected > '{root}/related-curl-unexpected'; exit 94; fi\nprintf '%s\\n' \"$$\" >> '{root}/related-curl-'\"$id\"'-pid'\nprintf '%s\\n' \"$@\" >> '{root}/related-curl-'\"$id\"'-argv'\n/usr/bin/env | /usr/bin/sed 's/=.*//' >> '{root}/related-curl-'\"$id\"'-env'\ntries=0\nwhile [ ! -e '{gate}' ] && [ \"$tries\" -lt 600 ]; do /bin/sleep 0.01; tries=$((tries + 1)); done\nprintf complete > '{root}/related-curl-'\"$id\"'-complete'\n{effect}",root=fixture.root.display(),gate=release.display());
+    let publication = if mode == Mode::PartialPid {
+        format!("if [ \"$id\" = 201 ]; then\nprintf '%s' \"$$\" >> '{root}/related-curl-'\"$id\"'-pid'\nprintf pending > '{root}/related-pid-pending'\npublish_tries=0\nwhile [ ! -f '{root}/related-pid-publish' ] && [ \"$publish_tries\" -lt 300 ]; do /bin/sleep 0.01; publish_tries=$((publish_tries + 1)); done\nprintf '\\n' >> '{root}/related-curl-'\"$id\"'-pid'\nelse\nprintf '%s\\n' \"$$\" >> '{root}/related-curl-'\"$id\"'-pid'\nfi\n",root=fixture.root.display())
+    } else {
+        format!(
+            "printf '%s\\n' \"$$\" >> '{}/related-curl-'\"$id\"'-pid'\n",
+            fixture.root.display()
+        )
+    };
+    let script=format!("#!/bin/sh\nid=\nfor arg do case \"$arg\" in 'https://avatars.githubusercontent.com/u/201?v=4') id=201;; 'https://avatars.githubusercontent.com/u/202?v=4') id=202;; 'https://avatars.githubusercontent.com/u/303?v=4') id=303;; esac; done\nif [ -z \"$id\" ]; then printf unexpected > '{root}/related-curl-unexpected'; exit 94; fi\n{publication}printf '%s\\n' \"$@\" >> '{root}/related-curl-'\"$id\"'-argv'\n/usr/bin/env | /usr/bin/sed 's/=.*//' >> '{root}/related-curl-'\"$id\"'-env'\ntries=0\nwhile [ ! -e '{gate}' ] && [ \"$tries\" -lt 600 ]; do /bin/sleep 0.01; tries=$((tries + 1)); done\nprintf complete > '{root}/related-curl-'\"$id\"'-complete'\n{effect}",root=fixture.root.display(),gate=release.display());
     let program = fixture.root.join("bin/curl");
     // Preserve the parent's deliberate HTTP-forbidden probe; never normalize
     // its executable or accidentally reopen it while the TUI is running.
@@ -55,14 +66,17 @@ fn asset_path(fixture: &Fixture, id: u64, suffix: &str) -> std::path::PathBuf {
 fn started(session: &mut Session, fixture: &Fixture, id: u64) -> ProcessIdentity {
     let end = Instant::now() + Duration::from_secs(3);
     loop {
-        if let Ok(pid) = fs::read_to_string(asset_path(fixture, id, "pid")) {
-            let pid = pid.lines().next().unwrap().parse::<i32>().unwrap();
-            if let Some(actual) = process_identity(pid).unwrap() {
-                let owner =
-                    OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
-                assert!(owner.owns(&actual));
-                assert!(!actual.zombie);
-                return actual;
+        if let Ok(bytes) = fs::read(asset_path(fixture, id, "pid")) {
+            if let Some(pid) = pid_publication_v1::complete_positive_pid(&bytes)
+                .expect("Actual fixture PID publication must be one positive complete record")
+            {
+                if let Some(actual) = process_identity(pid).unwrap() {
+                    let owner =
+                        OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
+                    assert!(owner.owns(&actual));
+                    assert!(!actual.zombie);
+                    return actual;
+                }
             }
         }
         assert!(
@@ -169,7 +183,7 @@ fn journey(mouse: bool, mode: Mode) {
     let asset = asset(fixture, mode);
     let mut steps = protocol(&source.original, Case::ReplacedOrigin);
     steps.extend(discovery(&source.original, 42, 42, false));
-    if mode == Mode::Ready {
+    if matches!(mode, Mode::Ready | Mode::PartialPid) {
         let mut open = opening(&source.original);
         // Preserve genuine bounded --paginate/--slurp argv; replace only the
         // actual observed body, never turn a strict fixture into a loose read.
@@ -233,6 +247,39 @@ fn journey(mouse: bool, mode: Mode) {
         completed(&mut session, &[TITLE, "[OW]", "@host-writer"], &["▀"]);
         effects(fixture, &[]);
     } else {
+        if mode == Mode::PartialPid {
+            let end = Instant::now() + Duration::from_secs(3);
+            while !fixture.root.join("related-pid-pending").exists() {
+                assert!(
+                    Instant::now() < end,
+                    "Actual curl producer reaches incomplete PID publication"
+                );
+                session.poll_output(Duration::from_millis(10));
+            }
+            let unpublished = fs::read(asset_path(fixture, 201, "pid")).unwrap();
+            assert!(!unpublished.is_empty() && !unpublished.ends_with(b"\n"));
+            assert_eq!(
+                pid_publication_v1::complete_positive_pid(&unpublished).unwrap(),
+                None,
+                "No kernel process lookup/ownership from unpublished digits"
+            );
+            completed(&mut session, &[TITLE, "[OW]", "@host-writer"], &["▀"]);
+            session.resize_owned_modal(80, 24, TITLE, &["[Esc Back]", "[r Discover]"]);
+            session.resize_owned_modal(120, 40, TITLE, &["[Esc Back]", "[r Discover]"]);
+            assert_eq!(
+                pid_publication_v1::complete_positive_pid(
+                    &fs::read(asset_path(fixture, 201, "pid")).unwrap()
+                )
+                .unwrap(),
+                None
+            );
+            strict(&session, fixture, 15);
+            fs::write(
+                fixture.root.join("related-pid-publish"),
+                b"explicit complete publication",
+            )
+            .unwrap();
+        }
         let child = started(&mut session, fixture, 201);
         seen.push(201);
         completed(&mut session, &[TITLE, "[OW]", "@host-writer"], &["▀"]);
@@ -339,14 +386,14 @@ fn journey(mouse: bool, mode: Mode) {
     assert_eq!(
         trace(fixture).len(),
         original_trace.len()
-            + if matches!(mode, Mode::Ready | Mode::Privacy) {
+            + if matches!(mode, Mode::Ready | Mode::PartialPid | Mode::Privacy) {
                 4
             } else {
                 2
             }
     );
     assert_read_only_trace(fixture);
-    let expected = if mode == Mode::Ready {
+    let expected = if matches!(mode, Mode::Ready | Mode::PartialPid) {
         31
     } else if mode == Mode::Privacy {
         17
@@ -398,4 +445,9 @@ pair!(
     related_pr_avatars_keyboard_no_color_initials_http_zero,
     related_pr_avatars_mouse_no_color_initials_http_zero,
     NoColor
+);
+pair!(
+    related_pr_avatars_keyboard_partial_pid_waits_original_complete_publication,
+    related_pr_avatars_mouse_partial_pid_waits_original_complete_publication,
+    PartialPid
 );
