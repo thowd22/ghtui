@@ -5,10 +5,10 @@
 use crate::{
     diff::{DiffLine, LineKind},
     git::{OriginalComparisonSourceV1, RawPath},
-    providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+    native_diff_operation_v3::NativeDiffCheckV3,
     repository_native_diff_content_v2::NativeDiffContentV2,
     repository_view::{
-        diff_rows_for_files_v1, DiffAnchor, DiffCell, DiffLayout, DiffSide, SemanticRole,
+        diff_rows_for_members_v3, DiffAnchor, DiffCell, DiffLayout, DiffSide, SemanticRole,
     },
 };
 use regex::bytes::{Regex, RegexBuilder};
@@ -139,10 +139,18 @@ impl<S: NativeDiffContentV2> NativeDiffLineKeyV1<S> {
                 == (other.file, other.hunk, other.line, other.side)
     }
     pub fn canonical(&self) -> &DiffLine {
-        &self.source.result().diff.files[self.file].hunks[self.hunk].lines[self.line]
+        &self
+            .source
+            .canonical_file(self.file)
+            .expect("closed canonical member")
+            .hunks[self.hunk]
+            .lines[self.line]
     }
     pub fn path(&self, side: DiffSide) -> Option<&[u8]> {
-        let file = &self.source.result().diff.files[self.file];
+        let file = self
+            .source
+            .canonical_file(self.file)
+            .expect("closed canonical member");
         match side {
             DiffSide::Old => file.old_path.as_deref(),
             DiffSide::New => file.new_path.as_deref(),
@@ -429,7 +437,7 @@ impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
         query: NativeDiffQueryV1,
         retained_range: Option<Arc<NativeDiffRangeV1<S>>>,
         width: u16,
-        operation: &LocalGitNavigationReadV1,
+        operation: &dyn NativeDiffCheckV3,
     ) -> Result<Arc<Self>, String> {
         operation.check()?;
         if options.focused_side == DiffSide::Both {
@@ -450,10 +458,7 @@ impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
             return Err("Selection belongs to another original comparison source".into());
         }
         let file = source
-            .result()
-            .diff
-            .files
-            .get(selected_file)
+            .canonical_file(selected_file)
             .ok_or("Native diff selected original file is unavailable")?;
         if source.member_index(selected_file) != Some(selected_file) {
             return Err("Native diff file is not an admitted canonical member".into());
@@ -496,8 +501,8 @@ impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
         let mut previous_hunk = None;
         // This is the existing canonical pairing/presentation foundation, NOT a
         // second parser or a changed copy of the original canonical Diff.
-        for paired in diff_rows_for_files_v1(
-            &source.result().diff,
+        for paired in diff_rows_for_members_v3(
+            source.content_endpoints(),
             options.layout,
             true,
             [(selected_file, file)],
@@ -868,7 +873,7 @@ impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
         &self,
         first: &NativeDiffLineTicketV1<S>,
         last: &NativeDiffLineTicketV1<S>,
-        operation: &LocalGitNavigationReadV1,
+        operation: &dyn NativeDiffCheckV3,
     ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
         operation.check()?;
         if !self.accepts(first)
@@ -902,7 +907,7 @@ impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
         &self,
         retained: &NativeDiffRangeV1<S>,
         endpoint: &NativeDiffLineTicketV1<S>,
-        operation: &LocalGitNavigationReadV1,
+        operation: &dyn NativeDiffCheckV3,
     ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
         operation.check()?;
         if !self.accepts(endpoint)
@@ -933,9 +938,12 @@ impl<S: NativeDiffContentV2> NativeDiffProjectionV1<S> {
     pub fn select_hunk(
         &self,
         hunk: usize,
-        operation: &LocalGitNavigationReadV1,
+        operation: &dyn NativeDiffCheckV3,
     ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
-        let lines = self.source.result().diff.files[self.file]
+        let lines = self
+            .source
+            .canonical_file(self.file)
+            .expect("closed canonical member")
             .hunks
             .get(hunk)
             .ok_or("Original native diff hunk unavailable")?
@@ -981,11 +989,17 @@ fn build_range<S: NativeDiffContentV2>(
     anchor: (usize, usize),
     first: (usize, usize),
     last: (usize, usize),
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<Arc<NativeDiffRangeV1<S>>, String> {
     operation.check()?;
     let mut changed = Vec::new();
-    for (hunk, body) in source.result().diff.files[file].hunks.iter().enumerate() {
+    for (hunk, body) in source
+        .canonical_file(file)
+        .expect("closed canonical member")
+        .hunks
+        .iter()
+        .enumerate()
+    {
         for (line, value) in body.lines.iter().enumerate() {
             operation.check()?;
             if (first..=last).contains(&(hunk, line)) && side_kind(side, value.kind) {
@@ -1016,7 +1030,7 @@ fn build_range<S: NativeDiffContentV2>(
 
 fn preflight(
     file: &crate::diff::FileDiff,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<(), String> {
     let paths =
         file.old_path.as_ref().map_or(0, Vec::len) + file.new_path.as_ref().map_or(0, Vec::len);
@@ -1054,13 +1068,19 @@ fn search<S: NativeDiffContentV2>(
     file: usize,
     query: &NativeDiffQueryV1,
     regex: Option<&Regex>,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<(Vec<NativeDiffMatchV1<S>>, bool), String> {
     let mut matches = Vec::new();
     if query.text().is_empty() {
         return Ok((matches, false));
     }
-    for (hunk_index, hunk) in source.result().diff.files[file].hunks.iter().enumerate() {
+    for (hunk_index, hunk) in source
+        .canonical_file(file)
+        .expect("closed canonical member")
+        .hunks
+        .iter()
+        .enumerate()
+    {
         for (line_index, line) in hunk.lines.iter().enumerate() {
             operation.check()?;
             if line.kind == LineKind::NoNewline {
@@ -1101,7 +1121,7 @@ pub(crate) fn visit_line_matches_v3(
     query: &NativeDiffQueryV1,
     regex: Option<&Regex>,
     raw: &[u8],
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
     mut found: impl FnMut(Range<usize>) -> bool,
 ) -> Result<bool, String> {
     operation.check()?;
@@ -1162,16 +1182,18 @@ fn prepare_pairs<S: NativeDiffContentV2>(
     source: &Arc<S>,
     file: usize,
     options: &NativeDiffOptionsV1,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<PairMaterial, String> {
     let mut material = PairMaterial::default();
     if !options.within_line && options.whitespace != NativeDiffWhitespaceV1::HideAsciiPaired {
         return Ok(material);
     }
-    let selected = &source.result().diff.files[file];
+    let selected = source
+        .canonical_file(file)
+        .expect("closed canonical member");
     let mut bytes = 0usize;
-    for paired in diff_rows_for_files_v1(
-        &source.result().diff,
+    for paired in diff_rows_for_members_v3(
+        source.content_endpoints(),
         DiffLayout::Split,
         true,
         [(file, selected)],
@@ -1228,9 +1250,8 @@ fn paired_lines<'a, S: NativeDiffContentV2>(
 ) -> Option<(&'a DiffLine, &'a DiffLine)> {
     let old = left.anchor.as_ref()?;
     let new = right?.anchor.as_ref()?;
-    let diff = &source.result().diff;
-    let a = &diff.files[old.file_index].hunks[old.hunk_index].lines[old.line_index];
-    let b = &diff.files[new.file_index].hunks[new.hunk_index].lines[new.line_index];
+    let a = &source.canonical_file(old.file_index)?.hunks[old.hunk_index].lines[old.line_index];
+    let b = &source.canonical_file(new.file_index)?.hunks[new.hunk_index].lines[new.line_index];
     (a.kind == LineKind::Removed && b.kind == LineKind::Added).then_some((a, b))
 }
 type WithinPair = (Vec<Range<usize>>, Vec<Range<usize>>, bool);
@@ -1238,7 +1259,7 @@ fn paired_within<S: NativeDiffContentV2>(
     source: &S,
     left: &DiffCell,
     right: Option<&DiffCell>,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<WithinPair, String> {
     match paired_lines(source, left, right) {
         Some((old, new)) => paint::within_line(&old.text, &new.text, operation),
@@ -1257,7 +1278,7 @@ fn prepare_cell<S: NativeDiffContentV2>(
     options: &NativeDiffOptionsV1,
     language: paint::Language,
     lexer: &mut paint::Lexer,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<NativeDiffCellV1<S>, String> {
     operation.check()?;
     let Some(DiffAnchor {
@@ -1345,7 +1366,7 @@ fn wrap_cell<S: NativeDiffContentV2>(
     cell: NativeDiffCellV1<S>,
     width: usize,
     wrap: bool,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<Vec<NativeDiffCellV1<S>>, String> {
     if !wrap
         || cell
@@ -1385,7 +1406,7 @@ fn wrap_cell<S: NativeDiffContentV2>(
 pub(crate) fn text_chunks_v3(
     text: &str,
     width: usize,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<Vec<Range<usize>>, String> {
     let mut chunks = Vec::new();
     let mut start = 0;

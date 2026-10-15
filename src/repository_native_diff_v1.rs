@@ -3,7 +3,7 @@
 use crate::{
     editor::TextBuffer,
     git::OriginalComparisonSourceV1,
-    providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
+    native_diff_operation_v3::NativeDiffCheckV3,
     repository_native_diff_content_v2::NativeDiffPurposeV2,
     repository_native_diff_projection_v1::{
         NativeDiffLineKeyV1, NativeDiffLineTicketV1, NativeDiffOptionsV1, NativeDiffProjectionV1,
@@ -162,7 +162,7 @@ impl<S: NativeDiffPurposeV2> std::fmt::Debug for NativeDiffRequestV1<S> {
     }
 }
 impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
-    pub fn owns(&self, workspace: &Workspace) -> bool {
+    pub fn owns(&self, workspace: &S::Context) -> bool {
         S::intent_owns(self.intent.as_ref(), workspace)
             && self.source.as_ref().is_none_or(|source| {
                 Arc::ptr_eq(source.intent(), &self.intent) && S::source_owns(source, workspace)
@@ -175,7 +175,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
     /// The existing B owner, not this model, seals that one operation afterward.
     pub fn prepare(
         self: &Arc<Self>,
-        operation: &LocalGitNavigationReadV1,
+        operation: &S::Operation,
     ) -> Result<PreparedNativeDiffV1<S>, String> {
         operation.check()?;
         if self.changes.len() > COMMAND_CAP || !(12..=512).contains(&self.width) {
@@ -332,7 +332,33 @@ impl<S: NativeDiffPurposeV2> NativeDiffRequestV1<S> {
             view=NativePreparedViewV1::SourceOnly(Arc::from("Error: native model plus actor display material exceeds8MiB • original catalogue retained; no current row/range authority"));
         }
         let focus = if let NativePreparedViewV1::FullSide(frame) = &view {
-            self.full_selected.min(frame.rows().len().saturating_sub(1))
+            // A wrapped display-row ordinal is not a stable text position.
+            // Reuse a line ONLY from this exact source/member/side; switching
+            // files or Old/New must not borrow another view's focus. These are
+            // read-only full-file lines, never canonical patch coordinates.
+            self.retained_full
+                .as_ref()
+                .filter(|old| {
+                    Arc::ptr_eq(old.source(), frame.source())
+                        && old.file() == frame.file()
+                        && old.side() == frame.side()
+                })
+                .and_then(|old| old.rows().get(self.full_selected))
+                .and_then(|row| row.line())
+                .and_then(|line| {
+                    // Text rows are emitted in original line order, including
+                    // repeated lines for wrap continuations. Find the first
+                    // fragment without scanning/cloning bodies on input.
+                    let index = frame
+                        .rows()
+                        .partition_point(|row| row.line().is_some_and(|observed| observed < line));
+                    frame
+                        .rows()
+                        .get(index)
+                        .filter(|row| row.line() == Some(line))
+                        .map(|_| index)
+                })
+                .unwrap_or_else(|| self.full_selected.min(frame.rows().len().saturating_sub(1)))
         } else {
             self.focused
                 .as_ref()
@@ -392,7 +418,7 @@ pub struct NativeDiffActorsV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV
     pub committer_label: Arc<str>,
 }
 impl<S: NativeDiffPurposeV2> NativeDiffActorsV1<S> {
-    fn prepare(source: Arc<S>, operation: &LocalGitNavigationReadV1) -> Result<Self, String> {
+    fn prepare(source: Arc<S>, operation: &S::Operation) -> Result<Self, String> {
         operation.check()?;
         let (author, committer, author_label, committer_label) = source.actor_labels();
         let author_label = Arc::from(author_label);
@@ -534,9 +560,16 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
             range: range.clone(),
         }))
     }
-    pub fn open_source(workspace: &Workspace, width: u16) -> Result<Self, String> {
+    pub fn open_source(workspace: &S::Context, width: u16) -> Result<Self, String> {
         let (intent, source) = S::capture(workspace)?;
-        Ok(Self {
+        Ok(Self::from_captured_v3(intent, source, width))
+    }
+    pub(crate) fn from_captured_v3(
+        intent: Arc<S::Intent>,
+        source: Option<Arc<S>>,
+        width: u16,
+    ) -> Self {
+        Self {
             purpose: NativeDiffPurposeV3::Patch,
             full_side: None,
             patch_position: None,
@@ -563,9 +596,9 @@ impl<S: NativeDiffPurposeV2> NativeDiffStateV1<S> {
             horizontal: 0,
             width,
             status: "Preparing original native diff…".into(),
-        })
+        }
     }
-    pub fn owns(&self, workspace: &Workspace) -> bool {
+    pub fn owns(&self, workspace: &S::Context) -> bool {
         S::intent_owns(self.intent.as_ref(), workspace)
             && self
                 .source

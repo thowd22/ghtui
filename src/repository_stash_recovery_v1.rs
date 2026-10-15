@@ -103,6 +103,8 @@ impl OriginalStashRecoveryOwnerV1 {
             && app.original_stash_recovery_request_v1.is_none()
             && !app.original_stash_recovery_cancel_requested_v1
             && app.scoped_inline_work_v1.is_none()
+            && app.pr_native_diff_work_v1.is_none()
+            && !app.pr_native_diff_cancel_v1
             && !app.scoped_inline_cancel_v1
             && !app.repository_load_requested
             && app.repository_action.is_none()

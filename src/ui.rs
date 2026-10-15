@@ -28,6 +28,7 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    crate::repository_native_diff_native_v1::synchronize_pr_source_v1(app);
     if crate::repository_stash_recovery_v1::draw(frame, app) {
         return;
     }

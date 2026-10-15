@@ -36,7 +36,7 @@ fn file(workspace: &Workspace, path: &[u8]) -> usize {
         .unwrap()
         .index()
 }
-trait TestPurpose: NativeDiffPurposeV2 {
+trait TestPurpose: NativeDiffPurposeV2<Operation = LocalGitNavigationReadV1> {
     fn origin(intent: &Self::Intent) -> &Arc<crate::git::OriginalLocalActorOriginV1>;
 }
 impl TestPurpose for OriginalComparisonSourceV1 {
@@ -156,6 +156,68 @@ fn native_full_side_model_back_retains_exact_canonical_range_and_position() {
     assert!(Arc::ptr_eq(state.range().unwrap(), &range));
     assert_eq!(state.selected, old);
     assert!(state.capture_current_range_v2().is_ok());
+}
+#[test]
+fn native_full_side_model_wrapped_resize_keeps_original_text_line_not_display_ordinal() {
+    let real = Real::new("sha256");
+    let old_text = (1..=100)
+        .map(|line| format!("line{line:03} unchanged\n"))
+        .collect::<String>();
+    let new_text = old_text.replace(
+        "line050 unchanged",
+        &format!("line050 CHANGED {} WRAP_END", "WRAP_WITNESS ".repeat(12)),
+    );
+    let old = f::commit(
+        &real,
+        &f::tree(&real, &[(b"context.rs", old_text.as_bytes(), "100644")]),
+        None,
+        "Old",
+    );
+    let new = f::commit(
+        &real,
+        &f::tree(&real, &[(b"context.rs", new_text.as_bytes(), "100644")]),
+        Some(&old),
+        "New",
+    );
+    let mut workspace = f::workspace(
+        &real,
+        Comparison::Snapshots {
+            base: old,
+            head: new,
+        },
+    );
+    f::source(&workspace).install(&mut workspace).unwrap();
+    let before = real.snapshot();
+    let mut state =
+        NativeDiffStateV1::<OriginalComparisonSourceV1>::open_source(&workspace, 118).unwrap();
+    publish(&mut state);
+    state.open_full_side(DiffSide::New).unwrap();
+    state
+        .option(crate::repository_native_diff_v1::NativeDiffOptionChangeV1::Wrap)
+        .unwrap();
+    state.query.insert("line090").unwrap();
+    publish(&mut state);
+    let original = state.current_full_side().unwrap().clone();
+    state.selected = original.matches()[0];
+    let mut display_row = state.selected;
+    for width in [38, 118, 58] {
+        state.width = width;
+        publish(&mut state);
+        let frame = state.current_full_side().unwrap();
+        assert_eq!(frame.rows()[state.selected].line(), Some(90));
+        assert_ne!(state.selected, display_row);
+        display_row = state.selected;
+        assert!(state.capture_current_range_v2().is_err());
+    }
+    state.open_full_side(DiffSide::Old).unwrap();
+    publish(&mut state);
+    let frame = state.current_full_side().unwrap();
+    assert_eq!(
+        frame.rows()[state.selected].line(),
+        Some(1),
+        "switching sides starts at the new side, not retained New line90"
+    );
+    assert_eq!(real.snapshot(), before);
 }
 #[test]
 fn native_full_side_model_query_resize_epoch_refuses_old_tickets_and_pending_results() {

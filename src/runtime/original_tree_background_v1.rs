@@ -188,6 +188,8 @@ pub(super) fn publish_original_tree_v1(
     result: Result<PreparedView, String>,
 ) -> bool {
     if app.repository_load_requested
+        || app.pr_native_diff_work_v1.is_some()
+        || app.pr_native_diff_cancel_v1
         || app.scoped_inline_work_v1.is_some()
         || app.scoped_inline_cancel_v1
         || app.repository_action.is_some()

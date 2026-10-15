@@ -15,6 +15,25 @@ pub struct PrImmutableImageInputV1 {
     input: PrResourceInputV1,
     file_index: usize,
 }
+impl PrImmutableImageInputV1 {
+    pub(crate) fn restore_failed_submission(self, app: &mut crate::app::App) -> bool {
+        let Some(github) = app.github.as_mut() else {
+            return false;
+        };
+        if github.pr.is_some()
+            || github
+                .scoped_pr_navigation
+                .as_ref()
+                .is_none_or(|nav| !Arc::ptr_eq(nav, &self.input.observed.navigation))
+            || github.scope().ok().as_ref() != Some(&self.input.observed.navigation.scope)
+        {
+            return false;
+        }
+        github.pr = Some(self.input.observed.page);
+        github.scoped_pr_resource = self.input.previous_view;
+        true
+    }
+}
 pub fn take_image_input(
     workspace: &mut GithubWorkspace,
     row: usize,
@@ -70,6 +89,16 @@ impl std::fmt::Debug for ClosedPrFileImagesV1 {
     }
 }
 impl ClosedPrFileImagesV1 {
+    /// Conservative owned-observation charge. The pre-existing original Files
+    /// view/page/source/navigation Arcs are a separate source budget, not newly
+    /// allocated full-side display material and not recursively double charged.
+    pub(crate) fn retained_original_observation_bytes_v2(&self) -> usize {
+        self.read.retained_content_bytes_v1()
+            + (self.old_lines.capacity() + self.new_lines.capacity())
+                * std::mem::size_of::<(usize, usize)>()
+            + std::mem::size_of::<Self>()
+            + 64
+    }
     pub fn observed(&self) -> &PrImmutableFileReadV1 {
         &self.read
     }

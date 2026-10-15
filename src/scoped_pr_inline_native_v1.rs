@@ -175,7 +175,9 @@ pub fn newer_intent(app: &App) -> bool {
     {
         return true;
     }
-    app.scoped_inline_work_v1.is_some()
+    app.pr_native_diff_work_v1.is_some()
+        || app.pr_native_diff_cancel_v1
+        || app.scoped_inline_work_v1.is_some()
         || app.scoped_inline_cancel_v1
         || app.cancel_requested
         || app.refresh_requested
@@ -207,6 +209,8 @@ pub fn newer_intent(app: &App) -> bool {
 }
 pub fn open(app: &mut App) {
     if app.scoped_inline_owner_v1.is_some()
+        || app.pr_native_diff_work_v1.is_some()
+        || app.pr_native_diff_cancel_v1
         || app.scoped_inline_work_v1.is_some()
         || app.loading[View::Inbox.index()]
     {
@@ -241,7 +245,11 @@ fn notice(app: &mut App, message: &str) {
     }
 }
 pub fn capture_form(app: &mut App) {
-    if app.scoped_inline_work_v1.is_some() || app.scoped_inline_owner_v1.is_some() {
+    if app.pr_native_diff_work_v1.is_some()
+        || app.pr_native_diff_cancel_v1
+        || app.scoped_inline_work_v1.is_some()
+        || app.scoped_inline_owner_v1.is_some()
+    {
         return;
     }
     let Some(form) = app

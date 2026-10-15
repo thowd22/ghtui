@@ -101,10 +101,13 @@ mod scoped_inline_background_v1;
 #[cfg(test)]
 #[path = "runtime/scoped_inline_test_support_v1.rs"]
 pub(crate) mod scoped_inline_test_support_v1;
+#[path = "runtime/scoped_pr_native_diff_background_v1.rs"]
+pub(crate) mod scoped_pr_native_diff_background_v1;
 
 type Work = Box<dyn FnOnce(CancellationToken) -> Result<PreparedView, String> + Send>;
 
 struct ScopedRemoteOwner {
+    pr_native_diff_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>>,
     inline_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     scope: Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
     source: Arc<crate::storage::CatalogueIntentSource>,
@@ -116,7 +119,10 @@ struct ScopedRemoteOwner {
 }
 impl ScopedRemoteOwner {
     fn owns(&self, app: &App) -> bool {
-        self.inline_v1.as_ref().is_none_or(|owner| owner.owns(app))
+        self.pr_native_diff_v1
+            .as_ref()
+            .is_none_or(|owner| owner.owns(app))
+            && self.inline_v1.as_ref().is_none_or(|owner| owner.owns(app))
             && app
                 .remote_scope
                 .as_ref()
@@ -184,6 +190,7 @@ struct Completion {
 }
 
 pub struct Background {
+    current_pr_native_diff_v1: Option<(u64, Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>)>,
     #[cfg(test)]
     inline_completion_sender_v1: SyncSender<Completion>,
     current_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
@@ -261,6 +268,7 @@ impl Background {
             }));
         }
         Self {
+            current_pr_native_diff_v1: None,
             #[cfg(test)]
             inline_completion_sender_v1: sender,
             current_inline_owner_v1: None,
@@ -309,6 +317,7 @@ impl Background {
             navigation: None,
             check_origin: None,
             continuation_v2: None,
+            pr_native_diff_v1: None,
             inline_v1: None,
         };
         if !owner.owns(app) {
@@ -336,6 +345,7 @@ impl Background {
             navigation: Some(navigation),
             check_origin: None,
             continuation_v2: None,
+            pr_native_diff_v1: None,
             inline_v1: None,
         };
         if !owner.owns(app) {
@@ -367,6 +377,7 @@ impl Background {
             navigation: Some(navigation.clone()),
             check_origin: Some(origin),
             continuation_v2: None,
+            pr_native_diff_v1: None,
             inline_v1: None,
         };
         if !owner.owns(app) {
@@ -401,6 +412,7 @@ impl Background {
             navigation: Some(navigation.clone()),
             check_origin: Some(origin),
             continuation_v2: Some(continuation),
+            pr_native_diff_v1: None,
             inline_v1: None,
         };
         if !owner.owns(app) {
@@ -810,6 +822,16 @@ impl Background {
             {
                 continue;
             }
+            // Main has not consumed this newer native intent yet. No older
+            // producer may change slot/loading/private state, even on Err/panic.
+            if (app.pr_native_diff_work_v1.is_some() || app.pr_native_diff_cancel_v1)
+                && completion
+                    .remote_scope_owner
+                    .as_ref()
+                    .is_none_or(|remote| remote.pr_native_diff_v1.is_none())
+            {
+                continue;
+            }
             if completion.original_stash_recovery_owner_v1.is_none()
                 && (completion.view == View::Repository
                     || completion
@@ -830,6 +852,10 @@ impl Background {
             {
                 continue;
             }
+            if let Some(admitted) = self.poll_pr_native_diff_v1(app, &mut completion) {
+                changed |= admitted;
+                continue;
+            }
             if let Some(owner) = completion
                 .remote_scope_owner
                 .as_ref()
@@ -847,6 +873,7 @@ impl Background {
                     || completion.original_tree_owner_v1.is_some()
                     || completion.original_diff_owner_v1.is_some()
                     || remote.check_origin.is_some()
+                    || remote.pr_native_diff_v1.is_some()
                     || completion.original_stash_recovery_owner_v1.is_some()
                     || remote.continuation_v2.is_some()
                     || self.current_inline_generation_v1 != Some(completion.generation)
@@ -1137,6 +1164,8 @@ impl Background {
                 // A remaining flag/action therefore belongs to newer input;
                 // the old result must not reset its desired mode or status.
                 if app.repository_load_requested
+                    || app.pr_native_diff_work_v1.is_some()
+                    || app.pr_native_diff_cancel_v1
                     || app.scoped_inline_work_v1.is_some()
                     || app.scoped_inline_cancel_v1
                     || app.original_stash_recovery_request_v1.is_some()

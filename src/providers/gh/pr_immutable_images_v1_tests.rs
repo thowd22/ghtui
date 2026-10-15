@@ -143,7 +143,7 @@ fn immutable_patch_binary_symlink_submodule_and_lfs_never_text_range() {
         let raw = b"diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n";
         let mut selected = selected_patch(raw, &m, &Default::default()).unwrap();
         if kind == PrImmutableImageKindV1::Binary {
-            selected.file.binary = true;
+            Arc::make_mut(&mut selected.file).binary = true;
         }
         assert!(!associate_patch(
             &selected,
@@ -177,7 +177,7 @@ fn immutable_patch_hunk_overflow_count_mismatch_and_duplicate_sections_refuse() 
         .unwrap()
         .replace("-1,2 +1,2", "-1,1 +1,1");
     let mut selected = selected_patch(valid.as_bytes(), &m, &Default::default()).unwrap();
-    selected.file.hunks[0].old_count = 2;
+    Arc::make_mut(&mut selected.file).hunks[0].old_count = 2;
     assert!(associate_patch(
         &selected,
         &m,

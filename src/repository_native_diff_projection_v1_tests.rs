@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1;
 use crate::{
     git::Comparison, local_commit_actor_origin_v1_test_support::Real,
     original_diff_sides_v1_test_support as support,

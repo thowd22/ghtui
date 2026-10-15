@@ -123,12 +123,13 @@ pub(super) struct SelectedPatchV1 {
     pub new_path: Option<Vec<u8>>,
     pub old_lookup: Vec<u8>,
     pub new_lookup: Vec<u8>,
-    pub file: crate::diff::FileDiff,
+    pub file: Arc<crate::diff::FileDiff>,
     pub digest: String,
 }
 /// Produced ONLY from actual current API/tree/blob traversal; still intermediate
 /// until original session closes repository, local epoch and principal guards.
 pub struct PrImmutableFileReadV1 {
+    pub(super) canonical_file: Arc<crate::diff::FileDiff>,
     pub(super) parent: PrResourceParentV1,
     pub(super) merge_base: String,
     pub(super) head_tree: String,
@@ -149,6 +150,61 @@ impl std::fmt::Debug for PrImmutableFileReadV1 {
     }
 }
 impl PrImmutableFileReadV1 {
+    /// The SAME parsed member whose raw patch was associated byte-for-byte
+    /// with both verified images. No display reparse or synthetic coordinates.
+    pub(crate) fn canonical_file_v1(&self) -> &crate::diff::FileDiff {
+        &self.canonical_file
+    }
+    pub(crate) fn retained_content_bytes_v1(&self) -> usize {
+        // Owned observation material only. Existing original Files/page/source
+        // Arcs are not recursively included or cloned by native projection.
+        let file = &self.canonical_file;
+        let canonical = std::mem::size_of::<crate::diff::FileDiff>()
+            + file.old_path.as_ref().map_or(0, Vec::capacity)
+            + file.new_path.as_ref().map_or(0, Vec::capacity)
+            + file.metadata.capacity() * std::mem::size_of::<Vec<u8>>()
+            + file.metadata.iter().map(Vec::capacity).sum::<usize>()
+            + file.hunks.capacity() * std::mem::size_of::<crate::diff::Hunk>()
+            + file
+                .hunks
+                .iter()
+                .map(|hunk| {
+                    hunk.heading.capacity()
+                        + hunk.lines.capacity() * std::mem::size_of::<crate::diff::DiffLine>()
+                        + hunk
+                            .lines
+                            .iter()
+                            .map(|line| line.text.capacity())
+                            .sum::<usize>()
+                })
+                .sum::<usize>();
+        [self.old.bytes.as_ref(), self.new.bytes.as_ref()]
+            .into_iter()
+            .flatten()
+            .map(Vec::capacity)
+            .sum::<usize>()
+            + self.old.path.capacity()
+            + self.new.path.capacity()
+            + self.patch_digest.capacity()
+            + self.merge_base.capacity()
+            + self.head_tree.capacity()
+            + self.old_tree.capacity()
+            + [
+                &self.old.blob,
+                &self.new.blob,
+                &self.old.mode,
+                &self.new.mode,
+            ]
+            .into_iter()
+            .map(|value| value.as_ref().map_or(0, String::capacity))
+            .sum::<usize>()
+            + self.parent.retained_heap_bytes_v2()
+            + self.old_ranges.capacity() * std::mem::size_of::<(u32, u32)>()
+            + self.new_ranges.capacity() * std::mem::size_of::<(u32, u32)>()
+            + canonical
+            + std::mem::size_of::<Self>()
+            + 64
+    }
     pub fn parent(&self) -> &PrResourceParentV1 {
         &self.parent
     }

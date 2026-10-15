@@ -208,6 +208,11 @@ fn run() -> Result<()> {
             app.scoped_inline_cancel_v1 = false;
             background.cancel_scoped_inline_v1(&mut app);
         }
+        if app.pr_native_diff_cancel_v1 {
+            app.pr_native_diff_cancel_v1 = false;
+            background.cancel_pr_native_diff_v1(&mut app);
+        }
+        background.retire_stale_pr_native_diff_v1(&mut app);
         background.retire_stale_scoped_inline_v1(&mut app);
         background.poll(&mut app);
         app.observe_navigation();
@@ -228,6 +233,29 @@ fn run() -> Result<()> {
                     Ok(()) => form.dirty = false,
                     Err(error) => form.error = format!("Draft error: {error}"),
                 }
+            }
+        }
+        if let Some(work) = app.pr_native_diff_work_v1.take() {
+            if let Some(host) = app
+                .remote_scope_source
+                .as_ref()
+                .map(|source| source.scope().host.clone())
+            {
+                match GithubProvider::new(&host) {
+                    Ok(provider) => {
+                        background.submit_pr_native_diff_v1(
+                            &mut app,
+                            work,
+                            provider.with_runner(runner.clone()),
+                            paths.database.clone(),
+                        );
+                    }
+                    Err(_) => {
+                        ghtui::scoped_pr_native_diff_native_v1::submission_failed(&mut app, &work);
+                    }
+                }
+            } else {
+                ghtui::scoped_pr_native_diff_native_v1::submission_failed(&mut app, &work);
             }
         }
         inline_native::capture_form(&mut app);

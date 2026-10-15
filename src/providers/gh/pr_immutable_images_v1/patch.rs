@@ -192,7 +192,7 @@ pub(super) fn selected_patch(
         new_path,
         old_lookup: old.to_vec(),
         new_lookup: new.to_vec(),
-        file,
+        file: Arc::new(file),
         digest: format!("{:x}", sha2::Sha256::digest(selected)),
     })
 }

@@ -550,6 +550,21 @@ pub(crate) fn diff_rows_for_files_v1<'a>(
     show_context: bool,
     files: impl IntoIterator<Item = (usize, &'a crate::diff::FileDiff)>,
 ) -> Vec<DiffDisplayRow> {
+    diff_rows_for_members_v3(
+        (diff.base.as_deref(), diff.head.as_deref()),
+        layout,
+        show_context,
+        files,
+    )
+}
+/// Same canonical pairing implementation, borrowing actual source endpoints and
+/// members; remote files need not masquerade as a local ComparisonResult.
+pub(crate) fn diff_rows_for_members_v3<'a>(
+    endpoints: (Option<&str>, Option<&str>),
+    layout: DiffLayout,
+    show_context: bool,
+    files: impl IntoIterator<Item = (usize, &'a crate::diff::FileDiff)>,
+) -> Vec<DiffDisplayRow> {
     let mut rows = Vec::new();
     for (file_index, file) in files {
         let old = file
@@ -627,12 +642,18 @@ pub(crate) fn diff_rows_for_files_v1<'a>(
                     let added_count = line_index - added_start;
                     for offset in 0..removed_count.max(added_count) {
                         let left = if offset < removed_count {
-                            diff_cell(diff, file_index, hunk_index, start + offset)
+                            diff_cell(endpoints, file, file_index, hunk_index, start + offset)
                         } else {
                             empty_diff_cell()
                         };
                         let right = if offset < added_count {
-                            diff_cell(diff, file_index, hunk_index, added_start + offset)
+                            diff_cell(
+                                endpoints,
+                                file,
+                                file_index,
+                                hunk_index,
+                                added_start + offset,
+                            )
                         } else {
                             empty_diff_cell()
                         };
@@ -642,7 +663,7 @@ pub(crate) fn diff_rows_for_files_v1<'a>(
                         });
                     }
                 } else {
-                    let cell = diff_cell(diff, file_index, hunk_index, line_index);
+                    let cell = diff_cell(endpoints, file, file_index, hunk_index, line_index);
                     let (left, right) = match (layout, line.kind) {
                         (DiffLayout::Split, LineKind::Added) => (empty_diff_cell(), Some(cell)),
                         (DiffLayout::Split, LineKind::Context) => (cell.clone(), Some(cell)),
@@ -664,8 +685,13 @@ fn empty_diff_cell() -> DiffCell {
         anchor: None,
     }
 }
-fn diff_cell(diff: &Diff, file_index: usize, hunk_index: usize, line_index: usize) -> DiffCell {
-    let file = &diff.files[file_index];
+fn diff_cell(
+    endpoints: (Option<&str>, Option<&str>),
+    file: &crate::diff::FileDiff,
+    file_index: usize,
+    hunk_index: usize,
+    line_index: usize,
+) -> DiffCell {
     let line = &file.hunks[hunk_index].lines[line_index];
     let (prefix, role, side) = match line.kind {
         LineKind::Added => ('+', SemanticRole::Added, DiffSide::New),
@@ -677,8 +703,8 @@ fn diff_cell(diff: &Diff, file_index: usize, hunk_index: usize, line_index: usiz
         None
     } else {
         Some(DiffAnchor {
-            base: diff.base.clone(),
-            head: diff.head.clone(),
+            base: endpoints.0.map(str::to_owned),
+            head: endpoints.1.map(str::to_owned),
             old_path: file.old_path.clone().map(RawPath),
             new_path: file.new_path.clone().map(RawPath),
             old_line: line.old_line,

@@ -3,8 +3,8 @@
 //! their concrete source type: unsaved content can never become saved authority.
 use crate::{
     git::{
-        ComparisonResult, MutableDiffIntentV2, MutableDiffKindV2, MutableDiffSourceV2,
-        OriginalComparisonIntentV1, OriginalComparisonSideV1, OriginalComparisonSourceV1, RawPath,
+        MutableDiffIntentV2, MutableDiffKindV2, MutableDiffSourceV2, OriginalComparisonIntentV1,
+        OriginalComparisonSideV1, OriginalComparisonSourceV1, RawPath,
     },
     identity::{ActorIdentity, ActorKind, GitRole},
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
@@ -13,13 +13,14 @@ use crate::{
 };
 use std::sync::Arc;
 
-mod sealed {
+pub(crate) mod sealed {
     pub trait Sealed {}
 }
 
 /// Read-only projection material, NOT a current-state check or write approval.
 pub trait NativeDiffContentV2: sealed::Sealed + std::fmt::Debug + Send + Sync {
-    fn result(&self) -> &ComparisonResult;
+    fn canonical_file(&self, file: usize) -> Option<&crate::diff::FileDiff>;
+    fn content_endpoints(&self) -> (Option<&str>, Option<&str>);
     fn member_count(&self) -> usize;
     fn member_index(&self, file: usize) -> Option<usize>;
     fn member_path(&self, file: usize, side: DiffSide) -> Option<&RawPath>;
@@ -27,8 +28,14 @@ pub trait NativeDiffContentV2: sealed::Sealed + std::fmt::Debug + Send + Sync {
 
 impl sealed::Sealed for OriginalComparisonSourceV1 {}
 impl NativeDiffContentV2 for OriginalComparisonSourceV1 {
-    fn result(&self) -> &ComparisonResult {
-        OriginalComparisonSourceV1::result(self)
+    fn canonical_file(&self, file: usize) -> Option<&crate::diff::FileDiff> {
+        self.result().diff.files.get(file)
+    }
+    fn content_endpoints(&self) -> (Option<&str>, Option<&str>) {
+        (
+            self.result().diff.base.as_deref(),
+            self.result().diff.head.as_deref(),
+        )
     }
     fn member_count(&self) -> usize {
         self.members().len()
@@ -47,8 +54,14 @@ impl NativeDiffContentV2 for OriginalComparisonSourceV1 {
 
 impl sealed::Sealed for MutableDiffSourceV2 {}
 impl NativeDiffContentV2 for MutableDiffSourceV2 {
-    fn result(&self) -> &ComparisonResult {
-        MutableDiffSourceV2::result(self)
+    fn canonical_file(&self, file: usize) -> Option<&crate::diff::FileDiff> {
+        self.result().diff.files.get(file)
+    }
+    fn content_endpoints(&self) -> (Option<&str>, Option<&str>) {
+        (
+            self.result().diff.base.as_deref(),
+            self.result().diff.head.as_deref(),
+        )
     }
     fn member_count(&self) -> usize {
         self.members().len()
@@ -65,12 +78,19 @@ impl NativeDiffContentV2 for MutableDiffSourceV2 {
 /// immutable engine does not share saved authorization with unsaved content.
 pub type CapturedNativeDiffPurposeV2<S> = (Arc<<S as NativeDiffPurposeV2>::Intent>, Option<Arc<S>>);
 pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
+    type Context;
+    type Operation: crate::native_diff_operation_v3::NativeDiffCheckV3;
+    fn validate_full_side_v3(
+        &self,
+        material: &crate::repository_native_full_side_v3::NativeFullSideMaterialV3,
+        operation: &Self::Operation,
+    ) -> Result<(), String>;
     #[doc(hidden)]
     fn prepare_full_side_v3(
         self: &Arc<Self>,
         file: usize,
         side: DiffSide,
-        operation: &LocalGitNavigationReadV1,
+        operation: &Self::Operation,
     ) -> Result<Arc<crate::repository_native_full_side_v3::NativeFullSideMaterialV3>, String>;
     fn closed_status() -> &'static str;
     fn pane_title(wide: bool) -> &'static str;
@@ -79,15 +99,12 @@ pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
     fn selection_help() -> &'static str;
     fn ready_status() -> &'static str;
     type Intent: std::fmt::Debug + Send + Sync;
-    fn capture(workspace: &Workspace) -> Result<CapturedNativeDiffPurposeV2<Self>, String>;
+    fn capture(workspace: &Self::Context) -> Result<CapturedNativeDiffPurposeV2<Self>, String>;
     fn intent(&self) -> &Arc<Self::Intent>;
-    fn intent_owns(intent: &Self::Intent, workspace: &Workspace) -> bool;
-    fn source_owns(source: &Arc<Self>, workspace: &Workspace) -> bool;
-    fn read(
-        intent: Arc<Self::Intent>,
-        operation: &LocalGitNavigationReadV1,
-    ) -> Result<Arc<Self>, String>;
-    fn validate_current(&self, operation: &LocalGitNavigationReadV1) -> Result<(), String>;
+    fn intent_owns(intent: &Self::Intent, workspace: &Self::Context) -> bool;
+    fn source_owns(source: &Arc<Self>, workspace: &Self::Context) -> bool;
+    fn read(intent: Arc<Self::Intent>, operation: &Self::Operation) -> Result<Arc<Self>, String>;
+    fn validate_current(&self, operation: &Self::Operation) -> Result<(), String>;
     fn complete(&self) -> bool;
     fn observed_members(&self) -> usize;
     fn member_label(&self, file: usize) -> Option<&str>;
@@ -96,6 +113,15 @@ pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
 }
 
 impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
+    type Context = Workspace;
+    type Operation = LocalGitNavigationReadV1;
+    fn validate_full_side_v3(
+        &self,
+        material: &crate::repository_native_full_side_v3::NativeFullSideMaterialV3,
+        operation: &Self::Operation,
+    ) -> Result<(), String> {
+        material.validate_local_v3(operation)
+    }
     fn prepare_full_side_v3(
         self: &Arc<Self>,
         file: usize,
@@ -196,6 +222,15 @@ impl NativeDiffPurposeV2 for OriginalComparisonSourceV1 {
 }
 
 impl NativeDiffPurposeV2 for MutableDiffSourceV2 {
+    type Context = Workspace;
+    type Operation = LocalGitNavigationReadV1;
+    fn validate_full_side_v3(
+        &self,
+        material: &crate::repository_native_full_side_v3::NativeFullSideMaterialV3,
+        operation: &Self::Operation,
+    ) -> Result<(), String> {
+        material.validate_local_v3(operation)
+    }
     fn prepare_full_side_v3(
         self: &Arc<Self>,
         file: usize,

@@ -61,6 +61,8 @@ impl RelatedPrOwnerV1 {
             && app.remote_repository.is_none()
             && !app.repository_load_requested
             && app.scoped_inline_work_v1.is_none()
+            && app.pr_native_diff_work_v1.is_none()
+            && !app.pr_native_diff_cancel_v1
             && !app.scoped_inline_cancel_v1
             && app.repository_action.is_none()
             && app.original_tree_work_v1.is_none()

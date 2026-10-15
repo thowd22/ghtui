@@ -120,8 +120,11 @@ fn exact_reads(session: &Session, fixture: &Fixture, steps: &[GhStep]) {
                 .iter()
                 .any(|arg| arg == "--paginate"))
             .count(),
-        5,
-        "actual detail producer's five bounded paginated subprocesses"
+        steps
+            .iter()
+            .filter(|step| step.args.iter().any(|arg| arg == "--paginate"))
+            .count(),
+        "actual bounded paginated subprocesses match the exact original fixture, including explicit reopen"
     );
 }
 fn raw(fixture: &Fixture) -> Connection {

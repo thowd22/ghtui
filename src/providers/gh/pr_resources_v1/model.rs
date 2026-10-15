@@ -123,6 +123,21 @@ impl std::fmt::Debug for PrResourceParentV1 {
     }
 }
 impl PrResourceParentV1 {
+    /// Heap owned by this observation only, not another retained source graph.
+    pub(crate) fn retained_heap_bytes_v2(&self) -> usize {
+        let s = &self.summary;
+        let p = &s.pr;
+        [&p.host,&p.id,&p.repository,&p.title,&p.body,&p.url,&p.state,&p.created_at,&p.updated_at,
+            &s.head_sha,&s.base_sha,&s.head_ref,&s.base_ref,&s.mergeable_state,&self.repository_node,
+            &p.author.login,&p.author.actor_type]
+            .into_iter().map(String::capacity).sum::<usize>()
+            + [&s.merge_commit_sha,&p.author.display_name,&p.author.avatar_url]
+                .into_iter().map(|value|value.as_ref().map_or(0,String::capacity)).sum::<usize>()
+            + self.head_repository.as_ref().map_or(0,|(_,node,name)|node.capacity()+name.capacity())
+            // At most the three typed personal-queue memberships. Charge a
+            // conservative full node per member; do not assume packed leaves.
+            + p.queues.len()*512
+    }
     /// Crate-local journal/identity interoperability only. Non-bound legacy
     /// merge/count fields are not observed permission/rule/capability truth.
     pub(crate) fn summary(&self) -> &PrSummary {

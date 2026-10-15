@@ -315,20 +315,48 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             KeyCode::Char(key),
             KeyModifiers::NONE,
         )));
-        assert_eq!(
-            app.github_action.take(),
-            Some(GithubAction::Resource(action))
-        );
+        if action == PrResourceUiActionV1::NativeDiff {
+            assert!(app.github_action.is_none());
+            let work = app
+                .pr_native_diff_work_v1
+                .take()
+                .expect("Native key captures actual original image work");
+            assert!(app.github.as_ref().unwrap().pr.is_none());
+            work.restore_not_submitted(&mut app);
+            assert!(app.github.as_ref().unwrap().pr.is_some());
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    crate::github_ui::draw(frame, &mut app, area);
+                })
+                .unwrap();
+        } else {
+            assert_eq!(
+                app.github_action.take(),
+                Some(GithubAction::Resource(action))
+            );
+        }
         app.handle_event(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: rect.x,
             row: rect.y,
             modifiers: KeyModifiers::NONE,
         }));
-        assert_eq!(
-            app.github_action.take(),
-            Some(GithubAction::Resource(action))
-        );
+        if action == PrResourceUiActionV1::NativeDiff {
+            assert!(app.github_action.is_none());
+            let work = app
+                .pr_native_diff_work_v1
+                .take()
+                .expect("Native mouse captures SAME original image work");
+            assert!(app.github.as_ref().unwrap().pr.is_none());
+            work.restore_not_submitted(&mut app);
+            assert!(app.github.as_ref().unwrap().pr.is_some());
+        } else {
+            assert_eq!(
+                app.github_action.take(),
+                Some(GithubAction::Resource(action))
+            );
+        }
     }
     let selected = app.selected;
     assert!(matches!(

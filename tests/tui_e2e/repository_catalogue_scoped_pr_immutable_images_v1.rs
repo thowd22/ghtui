@@ -5,6 +5,8 @@ use super::*;
 pub(super) mod history;
 #[path = "scoped_inline_comments_v1.rs"]
 mod inline_comments;
+#[path = "scoped_pr_native_diff_v1.rs"]
+mod scoped_pr_native_diff_v1;
 
 pub(super) fn fixture_and_steps(
     alter: impl FnOnce(&mut Vec<GhStep>),

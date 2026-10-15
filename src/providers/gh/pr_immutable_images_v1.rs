@@ -194,6 +194,7 @@ impl GithubProvider {
         }
         checked_finished(self, cancel)?;
         Ok(PrImmutableFileReadV1 {
+            canonical_file: original.selected.file.clone(),
             parent: closing,
             merge_base,
             head_tree,

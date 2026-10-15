@@ -1,6 +1,6 @@
 //! Bounded patch-local paint. No full-file lexical-state claim is made.
 use super::{NativeDiffPaintRoleV1 as Role, NativeDiffSpanV1, WithinPair};
-use crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1;
+use crate::native_diff_operation_v3::NativeDiffCheckV3;
 use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -51,7 +51,7 @@ impl Lexer {
         &mut self,
         raw: &[u8],
         language: Language,
-        operation: &LocalGitNavigationReadV1,
+        operation: &dyn NativeDiffCheckV3,
     ) -> Result<Vec<(Range<usize>, Role)>, String> {
         if matches!(language, Language::Plain) || std::str::from_utf8(raw).is_err() {
             return Ok(Vec::new());
@@ -164,7 +164,7 @@ impl Lexer {
 pub(super) fn within_line(
     old: &[u8],
     new: &[u8],
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<WithinPair, String> {
     operation.check()?;
     let (Ok(old_text), Ok(new_text)) = (std::str::from_utf8(old), std::str::from_utf8(new)) else {
@@ -230,7 +230,7 @@ fn append_range(ranges: &mut Vec<Range<usize>>, next: Range<usize>) {
 fn fallback(
     old: &[u8],
     new: &[u8],
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<WithinPair, String> {
     let mut prefix = 0;
     while prefix < old.len().min(new.len()) && old[prefix] == new[prefix] {
@@ -267,7 +267,7 @@ pub(crate) fn escape(
     raw: &[u8],
     spans: &[(Range<usize>, Role)],
     mark: bool,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<(String, Vec<NativeDiffSpanV1>), String> {
     operation.check()?;
     let mut endpoints = Vec::with_capacity(spans.len() * 2);
@@ -365,7 +365,7 @@ pub(crate) fn escape(
 // disjoint UTF-8 slices; it does not perform syntax/search/within-line matching.
 fn resolve_spans(
     spans: Vec<NativeDiffSpanV1>,
-    operation: &LocalGitNavigationReadV1,
+    operation: &dyn NativeDiffCheckV3,
 ) -> Result<Vec<NativeDiffSpanV1>, String> {
     let roles = [
         Role::Number,

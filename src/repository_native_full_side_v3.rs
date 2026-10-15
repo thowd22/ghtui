@@ -3,6 +3,7 @@
 use crate::{
     git::{MutableFullSideV3, OriginalComparisonSideV1, OriginalComparisonSourceV1},
     identity::{ActorIdentity, ActorKind, GitRole},
+    native_diff_operation_v3::NativeDiffCheckV3,
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
     repository_native_diff_content_v2::NativeDiffPurposeV2,
     repository_native_diff_projection_v1::{
@@ -23,11 +24,27 @@ pub struct NativeFullSideMaterialV3 {
 }
 #[derive(Debug)]
 enum MaterialV3 {
+    RemotePr(Arc<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSideV1>),
     Saved(Arc<PreparedOriginalDiffSideV1>),
     Mutable(Arc<MutableFullSideV3>),
     Absent(Arc<str>),
 }
 impl NativeFullSideMaterialV3 {
+    pub(crate) fn remote_pr_v1(
+        side: Arc<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSideV1>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            value: MaterialV3::RemotePr(side),
+        })
+    }
+    pub(crate) fn is_original_pr_v1(
+        &self,
+        proof: &Arc<
+            crate::scoped_pr_observed_tabs_v1::resources::immutable_images::ClosedPrFileImagesV1,
+        >,
+    ) -> bool {
+        matches!(&self.value, MaterialV3::RemotePr(side) if Arc::ptr_eq(&side.proof, proof))
+    }
     pub(crate) fn mutable(side: Arc<MutableFullSideV3>) -> Arc<Self> {
         Arc::new(Self {
             value: MaterialV3::Mutable(side),
@@ -60,6 +77,7 @@ impl NativeFullSideMaterialV3 {
     }
     fn content(&self) -> &[u8] {
         match &self.value {
+            MaterialV3::RemotePr(side) => side.content(),
             MaterialV3::Saved(side) => &side.preview().content,
             MaterialV3::Mutable(side) => side.content(),
             MaterialV3::Absent(_) => &[],
@@ -67,6 +85,7 @@ impl NativeFullSideMaterialV3 {
     }
     fn kind(&self) -> Option<&BlobPreviewKind> {
         match &self.value {
+            MaterialV3::RemotePr(side) => side.kind.as_ref(),
             MaterialV3::Saved(side) => Some(&side.preview().kind),
             MaterialV3::Mutable(side) if !side.absent() => Some(side.kind()),
             _ => None,
@@ -74,6 +93,7 @@ impl NativeFullSideMaterialV3 {
     }
     pub(crate) fn label(&self) -> &str {
         match &self.value {
+            MaterialV3::RemotePr(side) => &side.label,
             MaterialV3::Saved(side) => side.sha(),
             MaterialV3::Mutable(side) => side.label(),
             MaterialV3::Absent(reason) => reason,
@@ -81,6 +101,7 @@ impl NativeFullSideMaterialV3 {
     }
     fn preview_source(&self) -> FilePreviewSourceV3<'_> {
         match &self.value {
+            MaterialV3::RemotePr(side) => FilePreviewSourceV3::Saved(side.object()),
             MaterialV3::Saved(side) => FilePreviewSourceV3::Saved(&side.entry().id),
             MaterialV3::Mutable(side) if side.raw_worktree() => FilePreviewSourceV3::RawWorktree,
             MaterialV3::Mutable(side) if side.observed_head() => {
@@ -92,13 +113,19 @@ impl NativeFullSideMaterialV3 {
             MaterialV3::Absent(_) => FilePreviewSourceV3::RawWorktree,
         }
     }
-    pub(crate) fn validate(&self, operation: &LocalGitNavigationReadV1) -> Result<(), String> {
+    pub(crate) fn validate_local_v3(
+        &self,
+        operation: &LocalGitNavigationReadV1,
+    ) -> Result<(), String> {
         match &self.value {
             MaterialV3::Mutable(side) => side.validate_current(operation),
             _ => operation.check(),
         }
     }
     pub(crate) fn retained_bytes(&self) -> usize {
+        if let MaterialV3::RemotePr(side) = &self.value {
+            return side.retained_bytes() + std::mem::size_of::<Self>() + 64;
+        }
         if let MaterialV3::Mutable(side) = &self.value {
             return side.retained_bytes() + std::mem::size_of::<Self>() + 64;
         }
@@ -133,6 +160,22 @@ impl NativeFullSideMaterialV3 {
     }
     fn actors(&self) -> (ActorIdentity, ActorIdentity) {
         match &self.value {
+            MaterialV3::RemotePr(side) => (
+                ActorIdentity::github(
+                    &side.proof.source_scope().host,
+                    &side.proof.observed().parent().summary().pr.author,
+                ),
+                ActorIdentity {
+                    host: None,
+                    login: None,
+                    name: "Commit attribution not observed".into(),
+                    email: None,
+                    avatar_url: None,
+                    kind: ActorKind::Unknown,
+                    git_role: None,
+                    host_associated: false,
+                },
+            ),
             MaterialV3::Saved(side) => {
                 let commit = side.commit_v1();
                 (
@@ -235,7 +278,7 @@ impl<S: NativeDiffPurposeV2> NativeFullSideV3<S> {
         options: NativeDiffOptionsV1,
         query: NativeDiffQueryV1,
         width: u16,
-        operation: &LocalGitNavigationReadV1,
+        operation: &S::Operation,
     ) -> Result<Arc<Self>, String> {
         operation.check()?;
         if !(12..=512).contains(&width) || side == DiffSide::Both || file >= source.member_count() {
@@ -246,7 +289,7 @@ impl<S: NativeDiffPurposeV2> NativeFullSideV3<S> {
         let material = if let Some(old) = retained
             .filter(|old| Arc::ptr_eq(&old.source, &source) && old.file == file && old.side == side)
         {
-            old.material.validate(operation)?;
+            source.validate_full_side_v3(&old.material, operation)?;
             old.material.clone()
         } else {
             source.prepare_full_side_v3(file, side, operation)?
@@ -263,8 +306,18 @@ impl<S: NativeDiffPurposeV2> NativeFullSideV3<S> {
                 .unwrap_or_else(|| "ABSENT • no raw path".into()),
         );
         let (author, committer) = material.actors();
-        let author_label: Arc<str> = Arc::from(author.label());
-        let committer_label: Arc<str> = Arc::from(committer.label());
+        let (author_label, committer_label): (Arc<str>, Arc<str>) =
+            if matches!(&material.value, MaterialV3::RemotePr(_)) {
+                (
+                    Arc::from(format!(
+                        "PR author: {} • NOT file-line attribution",
+                        author.label()
+                    )),
+                    Arc::from("Commit author/committer not observed"),
+                )
+            } else {
+                (Arc::from(author.label()), Arc::from(committer.label()))
+            };
         let language =
             paint::Language::for_path(source.member_path(file, side).map(|path| path.0.as_slice()));
         let mut lexer = paint::Lexer::default();
@@ -412,7 +465,7 @@ impl<S: NativeDiffPurposeV2> NativeFullSideV3<S> {
         if bytes > 8 * 1024 * 1024 {
             return Err("Full-side combined prepared material exceeds8MiB".into());
         }
-        material.validate(operation)?;
+        source.validate_full_side_v3(&material, operation)?;
         source.validate_current(operation)?;
         let syntax = if !options.syntax {
             "Syntax disabled • plain full-file text"

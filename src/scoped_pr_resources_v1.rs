@@ -30,6 +30,7 @@ pub enum PrResourcePhaseV1 {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrResourceUiActionV1 {
+    NativeDiff,
     NextFile,
     NextHunk,
     Layout,

@@ -165,6 +165,11 @@ impl DiffSelection {
 
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
+    pub pr_native_diff_v1: Option<crate::scoped_pr_native_diff_native_v1::PrNativeStateV1>,
+    pub pr_native_diff_layout_v1: crate::scoped_pr_native_diff_native_v1::PrNativeLayoutV1,
+    pub pr_native_diff_work_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeWorkV1>>,
+    pub pr_native_diff_owner_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>>,
+    pub pr_native_diff_cancel_v1: bool,
     pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
     pub scoped_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     pub scoped_inline_cancel_v1: bool,
@@ -345,6 +350,11 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            pr_native_diff_v1: None,
+            pr_native_diff_layout_v1: Default::default(),
+            pr_native_diff_work_v1: None,
+            pr_native_diff_owner_v1: None,
+            pr_native_diff_cancel_v1: false,
             scoped_inline_work_v1: None,
             scoped_inline_owner_v1: None,
             scoped_inline_cancel_v1: false,
@@ -1406,6 +1416,10 @@ impl App {
                 self.form_dismissed = false;
             }
             Action::Github(action) => {
+                if action == GithubAction::Resource(crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::NativeDiff) && self.remote_scope.is_some() {
+                    crate::scoped_pr_native_diff_native_v1::open_files(self);
+                    return;
+                }
                 use crate::github_workspace::GithubAction;
                 if action == GithubAction::Back
                     && self

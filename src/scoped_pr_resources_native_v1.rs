@@ -5,7 +5,8 @@ use crate::app::{Action, App};
 use crate::github_workspace::GithubAction;
 
 impl PrResourceUiActionV1 {
-    pub const CONTROLS: [(Self, &'static str, char); 5] = [
+    pub const CONTROLS: [(Self, &'static str, char); 6] = [
+        (Self::NativeDiff, "Native diff", 'v'),
         (Self::NextFile, "Next file", 'N'),
         (Self::NextHunk, "Next hunk", '}'),
         (Self::Layout, "Layout", 'L'),
@@ -40,6 +41,7 @@ pub struct LoadedResourceResultV1 {
 }
 /// One narrow extension to PreparedView, not a second background publisher.
 pub enum PrResourceCompletionV1 {
+    Native(Box<crate::scoped_pr_native_diff_native_v1::PreparedPrNativeV1>),
     Read(Box<PrResourceResultV1>),
     Images(Box<immutable_images::PrImmutableImageResultV1>),
     Loaded(Box<LoadedResourceResultV1>),
@@ -56,7 +58,9 @@ pub fn resource_action(action: &GithubAction) -> bool {
     )
 }
 pub fn notice_title(notice: &str) -> &'static str {
-    if notice.starts_with("Loaded patch context\n") {
+    if notice.starts_with("Native PR diff • ONE verified selected file\n") {
+        " Native PR source • read-only "
+    } else if notice.starts_with("Loaded patch context\n") {
         " Loaded patch context • observed patch only "
     } else if notice.starts_with("Old image unavailable\n") {
         " Old image unavailable • immutable proof required "
@@ -183,6 +187,9 @@ pub fn prepare_loaded(
         PrResourceUiActionV1::NextFile | PrResourceUiActionV1::NextHunk
     );
     match input.action {
+        PrResourceUiActionV1::NativeDiff => {
+            return Err(ObservedPrTabFailureV1::SelectedPageUnavailable)
+        }
         PrResourceUiActionV1::NextFile | PrResourceUiActionV1::NextHunk => {
             selected = view.next(
                 input.selected,
@@ -261,6 +268,7 @@ pub fn install_completion(
     completion: PrResourceCompletionV1,
 ) -> Result<ResourceInstallEffectsV1, ObservedPrTabFailureV1> {
     match completion {
+        PrResourceCompletionV1::Native(_) => Err(ObservedPrTabFailureV1::SelectedPageUnavailable),
         PrResourceCompletionV1::Images(result) => {
             let limited = immutable_images::native::install(app, *result)?;
             Ok(ResourceInstallEffectsV1 {

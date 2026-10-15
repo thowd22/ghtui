@@ -41,6 +41,10 @@ pub fn action(app: &mut App, action: ui::PrImageUiActionV1) {
         super::inline_v1::native_v1::open(app);
         return;
     }
+    if action == ui::PrImageUiActionV1::NativeDiff {
+        crate::scoped_pr_native_diff_native_v1::open_images(app);
+        return;
+    }
     let Some(view) = app.pr_file_images.as_mut() else {
         return;
     };

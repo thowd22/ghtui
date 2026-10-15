@@ -23,6 +23,7 @@ pub enum ImageVisibleSideV1 {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrImageUiActionV1 {
+    NativeDiff,
     Old,
     New,
     Both,
@@ -83,6 +84,9 @@ impl std::fmt::Debug for PrImageViewerV1 {
     }
 }
 impl PrImageViewerV1 {
+    pub(crate) fn original_proof_v1(&self) -> &Arc<ClosedPrFileImagesV1> {
+        &self.proof
+    }
     pub(crate) fn inline_notice(&mut self, message: &str) {
         self.notice = if message.len() <= 1024 {
             crate::app::safe_text(message)
@@ -280,7 +284,7 @@ impl PrImageViewerV1 {
         let before_scroll = self.scroll;
         let layout_changes = matches!(action, Old | New | Both | Layout | Context | Scroll(_));
         match action {
-            Close | Back | Quit | Comment => return Some(action),
+            Close | Back | Quit | Comment | NativeDiff => return Some(action),
             Old | New | Both => {
                 self.visible = match action {
                     Old => ImageVisibleSideV1::Old,
@@ -392,7 +396,8 @@ impl PrImageViewerV1 {
         None
     }
 }
-const CONTROLS: [(PrImageUiActionV1, &str, char); 12] = [
+const CONTROLS: [(PrImageUiActionV1, &str, char); 13] = [
+    (PrImageUiActionV1::NativeDiff, "Native diff", 'v'),
     (PrImageUiActionV1::Old, "Old", 'O'),
     (PrImageUiActionV1::New, "New", 'N'),
     (PrImageUiActionV1::Both, "Both", 'A'),

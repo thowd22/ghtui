@@ -13,7 +13,24 @@ use std::sync::Arc;
 
 // Private concrete App adapters. The controller algorithm is shared; its typed
 // state/tickets and closed result variants are not interchangeable.
-trait NativeAppV2: NativeDiffPurposeV2 {
+pub(crate) trait NativeAppV2: NativeDiffPurposeV2 {
+    fn view() -> View {
+        View::Repository
+    }
+    fn context(app: &App) -> Option<&Self::Context>;
+    fn cancel(app: &mut App) {
+        app.original_diff_cancel_v1 = true;
+        app.original_diff_work_v1 = None;
+    }
+    fn closed(_app: &mut App) {}
+    fn show_source(app: &mut App) {
+        app.dispatch(Action::RepositorySource);
+    }
+    fn before_open(app: &mut App) {
+        crate::repository_tree_native_v1::retire(app);
+        crate::repository_diff_sides_native_v1::retire(app);
+        retire(app);
+    }
     fn preview(app: &mut App);
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>>;
     fn parts(
@@ -22,11 +39,19 @@ trait NativeAppV2: NativeDiffPurposeV2 {
         &mut Option<NativeDiffStateV1<Self>>,
         &mut NativeDiffLayoutV1<Self>,
     );
-    fn work(
+    fn queue_request(
+        app: &mut App,
         request: Arc<crate::repository_native_diff_v1::NativeDiffRequestV1<Self>>,
-    ) -> OriginalDiffWorkV1;
+    );
 }
 impl NativeAppV2 for OriginalComparisonSourceV1 {
+    fn context(app: &App) -> Option<&Self::Context> {
+        if app.remote_repository.is_some() {
+            None
+        } else {
+            app.workspace.as_ref()
+        }
+    }
     fn preview(app: &mut App) {
         if let Some(state) = app.native_diff_v1.as_mut() {
             state.status = Self::stage_unavailable().into();
@@ -43,13 +68,21 @@ impl NativeAppV2 for OriginalComparisonSourceV1 {
     ) {
         (&mut app.native_diff_v1, &mut app.native_diff_layout_v1)
     }
-    fn work(
+    fn queue_request(
+        app: &mut App,
         request: Arc<crate::repository_native_diff_v1::NativeDiffRequestV1<Self>>,
-    ) -> OriginalDiffWorkV1 {
-        OriginalDiffWorkV1::Native(request)
+    ) {
+        app.original_diff_work_v1 = Some(Arc::new(OriginalDiffWorkV1::Native(request)));
     }
 }
 impl NativeAppV2 for MutableDiffSourceV2 {
+    fn context(app: &App) -> Option<&Self::Context> {
+        if app.remote_repository.is_some() {
+            None
+        } else {
+            app.workspace.as_ref()
+        }
+    }
     fn preview(app: &mut App) {
         crate::repository_native_mutable_plan_native_v2::begin(app);
     }
@@ -67,10 +100,11 @@ impl NativeAppV2 for MutableDiffSourceV2 {
             &mut app.native_mutable_diff_layout_v2,
         )
     }
-    fn work(
+    fn queue_request(
+        app: &mut App,
         request: Arc<crate::repository_native_diff_v1::NativeDiffRequestV1<Self>>,
-    ) -> OriginalDiffWorkV1 {
-        OriginalDiffWorkV1::MutableNative(request)
+    ) {
+        app.original_diff_work_v1 = Some(Arc::new(OriginalDiffWorkV1::MutableNative(request)));
     }
 }
 pub fn open(app: &mut App) {
@@ -104,12 +138,71 @@ pub fn retire(app: &mut App) {
     retire_for::<MutableDiffSourceV2>(app);
 }
 pub fn synchronize(app: &mut App) {
+    synchronize_pr_source_v1(app);
     crate::repository_native_mutable_plan_native_v2::synchronize(app);
     synchronize_for::<OriginalComparisonSourceV1>(app);
     synchronize_for::<MutableDiffSourceV2>(app);
 }
+/// Source notices are overlays, so this must run even when drawing them rather
+/// than the native underlay. Never clear/fence a different newly chosen source.
+pub fn synchronize_pr_source_v1(app: &mut App) {
+    let original_account_lost = app
+        .pr_native_diff_v1
+        .as_ref()
+        .and_then(|state| state.source())
+        .is_some_and(|source| {
+            let proof = source.proof();
+            app.remote_scope_source
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &proof.source))
+                && app
+                    .remote_scope
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &proof.active))
+                && app.github.as_ref().is_some_and(|github| {
+                    github.scope().ok().as_ref() != Some(proof.source_scope())
+                })
+        });
+    if original_account_lost {
+        retire_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(app);
+        app.pr_file_images = None;
+        crate::repository_catalogue_native::privacy(app);
+        // The catalogue fence alone does not retire an already loaded Inbox.
+        // Hide its private presentation synchronously, before this draw, using
+        // the existing no-I/O retirement path. Background owners observe the
+        // fenced source and cancel on the next coordinating iteration.
+        crate::repository_catalogue_native::retire_remote_views(app);
+        let keep_local = app.view == View::Repository
+            || app.view == View::Search
+                && crate::remote_scope_gate_v1::independent_local_search(app.search.as_ref());
+        if !keep_local {
+            let reason = crate::remote_scope_gate_v1::ScopeEntryStopV1::Intent(
+                crate::active_remote_scope_v1::RemoteScopeStopV1::Fenced(
+                    crate::active_remote_scope_v1::RemoteScopeFenceV1::PrivacyFence,
+                ),
+            )
+            .label();
+            app.context = reason.into();
+            app.status = reason.into();
+            app.selected = 0;
+            app.scroll = 0;
+            app.focus = 0;
+            app.github_content_focused = false;
+        }
+    } else {
+        synchronize_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(app);
+    }
+}
 pub fn capture(app: &mut App, event: &Event) -> bool {
     synchronize(app);
+    if crate::scoped_pr_native_diff_native_v1::pending_event(app, event) {
+        return true;
+    }
+    if app.pr_native_diff_v1.is_some() {
+        return capture_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(
+            app, event,
+        );
+    }
     if crate::repository_native_mutable_plan_native_v2::capture(app, event) {
         return true;
     }
@@ -121,6 +214,11 @@ pub fn capture(app: &mut App, event: &Event) -> bool {
 }
 pub fn draw(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Rect) -> bool {
     synchronize(app);
+    if app.pr_native_diff_v1.is_some() {
+        return draw_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(
+            frame, app, area,
+        );
+    }
     if crate::repository_native_mutable_plan_native_v2::draw(frame, app, area) {
         return true;
     }
@@ -133,20 +231,14 @@ pub fn draw(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Re
 
 fn retire_for<S: NativeAppV2>(app: &mut App) {
     if S::parts(app).0.take().is_some() {
-        app.original_diff_cancel_v1 = true;
-        app.original_diff_work_v1 = None;
+        S::cancel(app);
     }
     *S::parts(app).1 = Default::default();
     app.hits.clear();
 }
 fn synchronize_for<S: NativeAppV2>(app: &mut App) {
     if S::state(app).is_some_and(|state| {
-        app.view != View::Repository
-            || app.remote_repository.is_some()
-            || app
-                .workspace
-                .as_ref()
-                .is_none_or(|workspace| !state.owns(workspace))
+        app.view != S::view() || S::context(app).is_none_or(|context| !state.owns(context))
     }) {
         retire_for::<S>(app);
     }
@@ -156,11 +248,10 @@ fn queue<S: NativeAppV2>(app: &mut App) {
         return;
     };
     match state.request() {
-        Ok(request) => app.original_diff_work_v1 = Some(Arc::new(S::work(request))),
+        Ok(request) => S::queue_request(app, request),
         Err(reason) => {
             state.status = reason;
-            app.original_diff_work_v1 = None;
-            app.original_diff_cancel_v1 = true;
+            S::cancel(app);
         }
     }
     S::parts(app).1.clear();
@@ -179,9 +270,9 @@ fn visible<S: NativeAppV2>(app: &mut App) {
 fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
     synchronize(app);
     if action == A::Open {
-        if app.view != View::Repository
+        if app.view != S::view()
             || app.remote_repository.is_some()
-            || app.loading[View::Repository.index()]
+            || app.loading[S::view().index()]
             || app.repository_load_requested
             || app.repository_action.is_some()
         {
@@ -190,9 +281,7 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
             ));
             return;
         }
-        let opened = app
-            .workspace
-            .as_ref()
+        let opened = S::context(app)
             .ok_or_else(|| "Native diff source is unavailable".to_owned())
             .and_then(|workspace| {
                 NativeDiffStateV1::<S>::open_source(
@@ -205,9 +294,7 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
             });
         match opened {
             Ok(state) => {
-                crate::repository_tree_native_v1::retire(app);
-                crate::repository_diff_sides_native_v1::retire(app);
-                retire(app);
+                S::before_open(app);
                 *S::parts(app).0 = Some(state);
                 *S::parts(app).1 = Default::default();
                 queue::<S>(app);
@@ -221,7 +308,8 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
         return;
     }
     if action == A::Close {
-        retire(app);
+        retire_for::<S>(app);
+        S::closed(app);
         app.status = S::closed_status().into();
         return;
     }
@@ -241,7 +329,7 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
     }
     if action == A::Source {
         S::parts(app).1.clear();
-        app.dispatch(Action::RepositorySource);
+        S::show_source(app);
         return;
     }
     if action == A::Controls {

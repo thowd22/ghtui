@@ -243,6 +243,8 @@ pub(super) fn publish_original_diff_sides_v1(
     result: Result<PreparedView, String>,
 ) -> bool {
     if app.repository_load_requested
+        || app.pr_native_diff_work_v1.is_some()
+        || app.pr_native_diff_cancel_v1
         || app.scoped_inline_work_v1.is_some()
         || app.scoped_inline_cancel_v1
         || app.related_pr_requested_v1

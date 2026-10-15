@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 03:50'
+updated_date: '2026-10-15 07:05'
 labels:
   - review
   - e2e
@@ -154,4 +154,6 @@ Root Main actual checked gate GREEN on frozen70-path combined candidate: node sc
 Post-integration reciprocal regression actualGreen15code+12realPTY stash_recovery (including added inline-cancel newer intent)0ignored,2.37s native, journaluwJ1fc; readonly_index regression actualGreen23code+6PTY0ignored,2.97s native, journal7NfGwL. Current70source remainedhash-exact; cargo fmt--all--check0 and strictalltargetClippy--Dwarnings0(60s) on thatcohort. Root now admitted reviewed selection10 onto same code and started newcombined all-target/focused/quality; no superseding full result yet.
 
 2026-10-15 Root verified combined Main checkpoint: cargo test --offline --locked --all-targets terminal0 with2141code/provider (318strictGH)+690realbinaryPTY0failed/ignored, native98.71s; cargo fmt--all--check0, cargo clippy --offline --locked --all-targets -- -D warnings0(58.59s). Frozen76-path root-inline-normal-readonly-selection-freeze-v1-20261015.json source hashes held unchanged across gates; subsequent README-only documentation updates actual counts. Checked inline59/8, selectedplan21/6, readonly23/6, normal8/2, stash15/12, completedframe19/8, corrective18/8 and18continuationPTY all independently passed. Full/quality/focused exact logs and SHA are recorded in root-inline-normal-readonly-selection-final-gates-v1-20261015.json. Dependency audit86roots/10300files/108adaptations/117registry0, current backlog78valid0 after CLI correction. Cache-journal candidate and full-side WIP are NOT admitted. Earlier Main8negative and isolated candidate negatives remain explicit; TASK78 owns controlled generic focus/scroll/overlay diagnosis. This verified Linux feature checkpoint is not full task/dependency/native-macOS/release completion.
+
+Root documentation correction after exact825-source full Linux gate2026-10-15: README previously said native inline composer was not exposed, although integrated main.rs and actual Images entry already exist. Whole root-pr-native-v2-whole-fourth.log passed all59 inline_comments-key code/provider and8 actual key/mouse native journeys (within2261/728 full totals), including actual left/right preview-confirm, changedUID, post-invocation cancellation/retained pending and pending-preview capture. Replaced stale README wording only; no new implementation or feature-completion claim. Native-diff entry, broader pending reviews/thread management and historical recovery remain open; task/AC/DoD/nativeMac not markedDone.
 <!-- SECTION:NOTES:END -->

@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::local_git_navigation_read_v1::LocalGitNavigationReadV1;
 use crate::{
     diff::LineKind,
     git::{MutableDiffKindV2, MutableDiffSourceV2},

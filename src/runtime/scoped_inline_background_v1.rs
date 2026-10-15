@@ -184,6 +184,7 @@ impl Background {
             navigation: Some(navigation),
             check_origin: None,
             continuation_v2: None,
+            pr_native_diff_v1: None,
             inline_v1: Some(owner.clone()),
         };
         if !remote.owns(app) {
