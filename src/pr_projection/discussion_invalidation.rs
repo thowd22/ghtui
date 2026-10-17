@@ -556,7 +556,8 @@ fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, Str
             | "metadata-clear-milestone"=>{crate::pr_metadata_actions::validate_recorded_marker(marker)?;None},
             _=>return Err("Metadata receipt needs an explicit changed-field text impact; no whole-repository invalidation is guessed".into()),
         },
-        PrEffectKind::Reaction | PrEffectKind::ReactionRemoved | PrEffectKind::Subscription | PrEffectKind::ViewedFile=>None,
+        // A merge changes PR state, not comment/review/body text.
+        PrEffectKind::Reaction | PrEffectKind::ReactionRemoved | PrEffectKind::Subscription | PrEffectKind::ViewedFile | PrEffectKind::Merge=>None,
         // These are not the currently integrated text forms. Their future
         // controllers must declare any metadata/filter impact explicitly.
         _=>return Err("This PR effect has no implemented discussion-text impact contract".into()),

@@ -73,8 +73,8 @@ impl PrOperation {
             PrCommand::Subscription => ParsedOperationValuesV17::Subscription(
                 Self::subscription_choice_v17(value("subscription"))?,
             ),
-            PrCommand::MarkViewed | PrCommand::MarkUnviewed => {
-                return Err("File progress is not a Conversation operation".into())
+            PrCommand::MarkViewed | PrCommand::MarkUnviewed | PrCommand::Merge => {
+                return Err("Not a Conversation operation".into())
             }
         })
     }
@@ -129,6 +129,7 @@ impl PrOperation {
             Self::Subscription(_) => PrCommand::Subscription,
             Self::ViewedFile(_, true) => PrCommand::MarkViewed,
             Self::ViewedFile(_, false) => PrCommand::MarkUnviewed,
+            Self::Merge(_) => PrCommand::Merge,
         }
     }
     pub(crate) fn selected_v17(&self) -> Option<&SelectedComment> {

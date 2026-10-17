@@ -8,7 +8,8 @@ use crate::{
     providers::{
         gh::{
             CommentKind, CommentReaction, ConversationComment, CurrentPrSubscription, GithubError,
-            GithubErrorKind, GithubProvider, HostIdentity, PrSummary, Reaction, Subscription,
+            GithubErrorKind, GithubProvider, HostIdentity, MergeMethod, PrSummary, Reaction,
+            Subscription,
         },
         runner::{sanitize_terminal, CancellationToken},
     },
@@ -27,9 +28,10 @@ pub enum PrCommand {
     Subscription,
     MarkViewed,
     MarkUnviewed,
+    Merge,
 }
 impl PrCommand {
-    pub const ALL: [(Self, &'static str); 8] = [
+    pub const ALL: [(Self, &'static str); 9] = [
         (Self::NewComment, "New conversation comment"),
         (Self::EditComment, "Edit selected comment"),
         (Self::DeleteComment, "Delete selected comment"),
@@ -38,6 +40,7 @@ impl PrCommand {
         (Self::Subscription, "Change PR subscription"),
         (Self::MarkViewed, "Mark selected file viewed"),
         (Self::MarkUnviewed, "Mark selected file unviewed"),
+        (Self::Merge, "Merge pull request"),
     ];
     pub fn label(self) -> &'static str {
         Self::ALL
@@ -56,11 +59,15 @@ impl PrCommand {
             Self::Subscription => "subscription",
             Self::MarkViewed => "mark-viewed",
             Self::MarkUnviewed => "unmark-viewed",
+            Self::Merge => "merge",
         }
     }
     pub fn disabled_reason(self, context: &PrActionContext) -> Option<String> {
         if context.identity.account_id.is_none_or(|id| id == 0) {
             return Some("Verify the current account with Refresh before changing GitHub.".into());
+        }
+        if self == Self::Merge {
+            return merge_disabled_reason(&context.target);
         }
         if matches!(self, Self::MarkViewed | Self::MarkUnviewed) {
             let Some(file) = &context.selected_file else {
@@ -390,6 +397,28 @@ pub struct PrField {
     pub multiline: bool,
     pub choices: Vec<PrChoice>,
 }
+/// Loaded-state refusal only; publication re-reads the PR and pins its head.
+pub fn merge_disabled_reason(target: &PrSummary) -> Option<String> {
+    if target.merged {
+        Some("This PR is already merged.".into())
+    } else if target.pr.state != "open" {
+        Some("Only an open PR can be merged.".into())
+    } else if target.pr.draft {
+        Some("Mark this draft PR ready for review before merging.".into())
+    } else if target.mergeable == Some(false) {
+        Some("GitHub reports this PR cannot merge cleanly; resolve its conflicts first.".into())
+    } else {
+        None
+    }
+}
+fn merge_method(value: &str) -> Result<MergeMethod, String> {
+    match value {
+        "merge" => Ok(MergeMethod::Merge),
+        "squash" => Ok(MergeMethod::Squash),
+        "rebase" => Ok(MergeMethod::Rebase),
+        _ => Err("Choose merge, squash or rebase.".into()),
+    }
+}
 pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
     fields_v17(
         command,
@@ -421,6 +450,16 @@ pub(crate) fn fields_v17(
             choices: vec![],
         }],
         PrCommand::DeleteComment | PrCommand::MarkViewed | PrCommand::MarkUnviewed => vec![],
+        PrCommand::Merge => vec![PrField {
+            key: "method",
+            label: "Merge method",
+            value: "merge".into(),
+            multiline: false,
+            choices: ["merge", "squash", "rebase"]
+                .into_iter()
+                .map(PrChoice::plain)
+                .collect(),
+        }],
         PrCommand::AddReaction => vec![PrField {
             key: "reaction",
             label: "Reaction",
@@ -507,6 +546,7 @@ pub(crate) enum PrOperation {
     RemoveReaction(SelectedComment, CommentReaction),
     Subscription(Subscription),
     ViewedFile(crate::pr_progress::FileProgress, bool),
+    Merge(MergeMethod),
 }
 #[path = "pr_actions/operation_v17.rs"]
 mod operation_v17;
@@ -560,6 +600,8 @@ impl PrPlan {
                     .ok_or("Select an exact file in Review progress first.")?,
                 command == PrCommand::MarkViewed,
             )
+        } else if command == PrCommand::Merge {
+            PrOperation::Merge(merge_method(get("method"))?)
         } else {
             PrOperation::from_values_v17(
                 command,
@@ -604,6 +646,11 @@ impl PrPlan {
             || target.base_sha != context.target.base_sha
         {
             return Err("PR identity or saved head changed. Refresh and inspect it; the draft was not published.".into());
+        }
+        if matches!(operation, PrOperation::Merge(_)) {
+            if let Some(reason) = merge_disabled_reason(&target) {
+                return Err(reason);
+            }
         }
         if let PrOperation::ViewedFile(selected, _) = &operation {
             let progress = crate::pr_progress::read(
@@ -734,6 +781,25 @@ impl PrPlan {
                 preview.push(format!(
                     "Requested subscription state: {} • no change before explicit confirmation.",
                     subscription_key(*state)
+                ));
+            }
+            PrOperation::Merge(method) => {
+                preview.push(format!(
+                    "Method: {} • {} → {}",
+                    merge_method_name(*method),
+                    target.head_ref,
+                    target.base_ref
+                ));
+                preview.push(format!(
+                    "Mergeable: {} • {}",
+                    target
+                        .mergeable
+                        .map_or("not yet known", |yes| if yes { "yes" } else { "no" }),
+                    target.mergeable_state
+                ));
+                preview.push(format!(
+                    "GitHub merges only if the head is still {}; branch protection still applies and no branch is deleted.",
+                    target.head_sha
                 ));
             }
             PrOperation::ViewedFile(selected, viewed) => {
@@ -994,6 +1060,16 @@ impl PrPlan {
     }
     fn receipt(&self, effect: &PrActionEffect) -> Result<PrConfirmedEffect, String> {
         let receipt = match (&self.operation, effect) {
+            (PrOperation::Merge(_), PrActionEffect::Merged(summary)) => {
+                if !summary.merged {
+                    return Err("GitHub accepted the merge request, but the PR is not merged yet (it may be queued or waiting on checks). Inspect it before retrying.".into());
+                }
+                PrConfirmedEffect {
+                    kind: PrEffectKind::Merge,
+                    resource_id: summary.pr.number.to_string(),
+                    node_id: Some(summary.pr.id.clone()),
+                }
+            }
             (
                 PrOperation::NewComment(_) | PrOperation::EditComment(_, _),
                 PrActionEffect::Comment(comment),
@@ -1103,6 +1179,9 @@ impl PrPlan {
             PrOperation::NewComment(body) => provider
                 .create_comment(identity, target, body, cancellation)
                 .map(PrActionEffect::Comment),
+            PrOperation::Merge(method) => provider
+                .merge(identity, target, *method, false, cancellation)
+                .map(|summary| PrActionEffect::Merged(Box::new(summary))),
             PrOperation::EditComment(selected, body) => provider
                 .edit_comment(
                     identity,
@@ -1190,6 +1269,14 @@ pub enum PrActionEffect {
         viewed: bool,
         files: Vec<crate::providers::gh::ViewedFile>,
     },
+    Merged(Box<PrSummary>),
+}
+fn merge_method_name(method: MergeMethod) -> &'static str {
+    match method {
+        MergeMethod::Merge => "merge commit",
+        MergeMethod::Squash => "squash",
+        MergeMethod::Rebase => "rebase",
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1220,4 +1307,77 @@ pub enum PrExecution {
         publication: PrPublicationReference,
         error: String,
     },
+}
+
+#[cfg(test)]
+mod pr_merge_tests {
+    use super::*;
+
+    #[test]
+    fn pr_merge_disabled_reasons_and_method_choices_are_explicit() {
+        let mut target = PrSummary {
+            pr: crate::providers::gh::PullRequest {
+                host: "github.invalid".into(),
+                id: "PR_merge_7".into(),
+                repository: "example/repo".into(),
+                number: 7,
+                title: "Merge fixture".into(),
+                body: String::new(),
+                url: "https://github.invalid/example/repo/pull/7".into(),
+                author: Default::default(),
+                state: "open".into(),
+                draft: false,
+                created_at: String::new(),
+                updated_at: String::new(),
+                queues: Default::default(),
+            },
+            head_sha: "a".repeat(40),
+            base_sha: "b".repeat(40),
+            head_ref: "feature".into(),
+            base_ref: "main".into(),
+            merged: false,
+            auto_merge: false,
+            merge_commit_sha: None,
+            mergeable: Some(true),
+            mergeable_state: "clean".into(),
+            additions: 0,
+            deletions: 0,
+            changed_files: 0,
+        };
+        target.pr.state = "open".into();
+        target.mergeable = Some(true);
+        assert_eq!(merge_disabled_reason(&target), None);
+        target.mergeable = None;
+        assert_eq!(
+            merge_disabled_reason(&target),
+            None,
+            "unknown is not refused"
+        );
+        target.mergeable = Some(false);
+        assert!(merge_disabled_reason(&target)
+            .unwrap()
+            .contains("conflicts"));
+        target.mergeable = Some(true);
+        target.pr.draft = true;
+        assert!(merge_disabled_reason(&target).unwrap().contains("draft"));
+        target.pr.draft = false;
+        target.pr.state = "closed".into();
+        assert!(merge_disabled_reason(&target).unwrap().contains("open PR"));
+        target.merged = true;
+        assert!(merge_disabled_reason(&target)
+            .unwrap()
+            .contains("already merged"));
+        for (value, method) in [
+            ("merge", MergeMethod::Merge),
+            ("squash", MergeMethod::Squash),
+            ("rebase", MergeMethod::Rebase),
+        ] {
+            assert_eq!(
+                std::mem::discriminant(&merge_method(value).unwrap()),
+                std::mem::discriminant(&method)
+            );
+        }
+        assert!(merge_method("fast-forward").is_err());
+        assert_eq!(PrCommand::Merge.key(), "merge");
+    }
 }

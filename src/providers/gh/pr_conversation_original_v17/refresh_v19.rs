@@ -72,7 +72,9 @@ pub(crate) fn conversation_post_caps_v19(
         PrOperation::DeleteComment(_) => &DELETE_POST_V19,
         PrOperation::Subscription(_) => &SUBSCRIPTION_POST_V19,
         PrOperation::AddReaction(_, _) | PrOperation::RemoveReaction(_, _) => &REACTION_POST_V19,
-        PrOperation::ViewedFile(_, _) => return Err(bad(GithubErrorKind::InvalidTarget)),
+        PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) => {
+            return Err(bad(GithubErrorKind::InvalidTarget))
+        }
     };
     if caps[..2] != legacy[..2] {
         return Err(bad(GithubErrorKind::InvalidTarget));

@@ -331,7 +331,9 @@ impl GithubProvider {
                     }
                     ConversationReceiptV17::Subscription { state: *state }
                 }
-                PrOperation::ViewedFile(_, _) => return Err(bad(GithubErrorKind::InvalidTarget)),
+                PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) => {
+                    return Err(bad(GithubErrorKind::InvalidTarget))
+                }
             };
             live(cancel, observed.deadline.min(captures.deadline()))?;
             Ok(receipt)

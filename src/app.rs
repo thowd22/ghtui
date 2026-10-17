@@ -734,6 +734,27 @@ impl App {
             })
             .collect::<Vec<_>>();
         let page = self.github.as_ref().and_then(|github| github.pr.as_ref());
+        // Merge sits with the review actions so it is visible without paging.
+        let merge_reason = unavailable
+            .clone()
+            .or_else(|| {
+                (!self.pr_pending_message.is_empty()).then(|| self.pr_pending_message.clone())
+            })
+            .or_else(|| {
+                page.and_then(|page| {
+                    crate::pr_actions::merge_disabled_reason(&page.details.summary)
+                })
+            });
+        controls.insert(
+            controls.len().min(4),
+            (
+                PrCommand::Merge.label().into(),
+                merge_reason.map_or(
+                    Action::Pr(PrUiAction::Command(PrCommand::Merge)),
+                    Action::Explain,
+                ),
+            ),
+        );
         let original_conversation = page.is_some_and(|p| {
             matches!(
                 p.tab,
@@ -834,6 +855,9 @@ impl App {
             .and_then(|page| page.rows.get(self.selected))
             .and_then(|row| row.comment.as_ref());
         for (command, label) in &PrCommand::ALL {
+            if *command == PrCommand::Merge {
+                continue; // Listed beside the review actions above.
+            }
             let reason = if let Some(reason) = &unavailable {
                 Some(reason.clone())
             } else if !self.pr_pending_message.is_empty() {

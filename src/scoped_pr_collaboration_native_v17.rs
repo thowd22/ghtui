@@ -1908,7 +1908,10 @@ pub fn capture_action(app: &mut App, action: &PrUiAction, database: &Path) -> bo
     let PrUiAction::Command(command) = action else {
         return false;
     };
-    if matches!(command, PrCommand::MarkViewed | PrCommand::MarkUnviewed) {
+    if matches!(
+        command,
+        PrCommand::MarkViewed | PrCommand::MarkUnviewed | PrCommand::Merge
+    ) {
         return false;
     }
     match PrCollaborationOpenIntentV17::capture(app, database) {
