@@ -106,7 +106,7 @@ fn happy(mouse: bool) {
     session.wait_for_command_count(&fixture, 41);
     ready(
         &mut session,
-        &["Old image unverified", "src/界.rs", "[b Back]"],
+        &["Old side: current base-branch tip", "src/界.rs", "[b Back]"],
     );
     assert!(!session.screen().contains(DETAIL_BODY));
     assert!(!session.screen().contains(PRIVATE_DRAFT));
@@ -288,7 +288,10 @@ fn loss(mouse: bool) {
         choose(&mut session, mouse, "[f Files]", b"f");
         session.wait_for_command_count(&fixture, if drift { 41 } else { 35 });
         if drift {
-            ready(&mut session, &["Old image unverified", "[k Checks]"]);
+            ready(
+                &mut session,
+                &["Old side: current base-branch tip", "[k Checks]"],
+            );
             choose(&mut session, mouse, "[k Checks]", b"k");
             session.wait_for_command_count(&fixture, 51);
         }

@@ -368,7 +368,7 @@ fn routing(mouse: bool) {
                 && crate::support::overlay_body(frame, "Inbox • focused view").is_some_and(|body| {
                     body.contains("[f Files]")
                         && body.contains("[v Native diff]")
-                        && body.contains("Files: Observed • loaded 1 • total 1 • pages 1")
+                        && body.contains("Files: all 1 loaded")
                         && body.contains("File src/界.rs")
                         && body.contains("new-no-newline")
                         && body

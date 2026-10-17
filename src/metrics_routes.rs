@@ -469,7 +469,7 @@ fn load(
     guard.validate(&request.database)?;
     Ok(PreparedView {
         metrics: Some(workspace),
-        status: "Dashboard loaded • repository-wide snapshot • missing history is not zero".into(),
+        status: "Dashboard loaded • repository-wide snapshot • missing data shows as Unavailable, not zero".into(),
         ..Default::default()
     })
 }

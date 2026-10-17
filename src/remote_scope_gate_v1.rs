@@ -379,6 +379,16 @@ pub fn refuse_legacy_request(
     {
         return false;
     }
+    // Personal queues name no repositories, so they cannot narrow or redirect
+    // repository-scoped views; those keep their own --repo/origin/set scope.
+    if consumer != RemoteConsumerV1::MyPrs
+        && app
+            .remote_scope
+            .as_deref()
+            .is_some_and(ActiveRemoteScopeV1::is_default_personal)
+    {
+        return false;
+    }
     let Err(reason) = legacy_entry(app.remote_scope.as_deref()) else {
         return false;
     };

@@ -66,8 +66,8 @@ fn run(status: &str, conclusion: &str) -> Value {
 fn catalogue(current: Value) -> GhStep {
     read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[current]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[current]}),
+        false,
     )
 }
 fn inspection(current: Value) -> Vec<GhStep> {

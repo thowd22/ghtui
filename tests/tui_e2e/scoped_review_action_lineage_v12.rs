@@ -186,7 +186,10 @@ fn open_notice(session: &mut Session, fixture: &Fixture, mouse: bool, previous: 
     summary_after_restart(session, fixture, mouse, previous);
     choose(session, mouse, "[f Files]", b"f");
     session.wait_for_command_count(fixture, previous + 41);
-    ready(session, &["[F10 Reviews]", "Old image unverified"]);
+    ready(
+        session,
+        &["[F10 Reviews]", "Old side: current base-branch tip"],
+    );
     choose(session, mouse, "[N Next file]", b"N");
     ready(session, &["> File src/界.rs"]);
     choose(session, mouse, "[F10 Reviews]", b"\x1b[21~");

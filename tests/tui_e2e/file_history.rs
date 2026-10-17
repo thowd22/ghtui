@@ -144,7 +144,7 @@ fn happy(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "[g Graph]", b"g");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     select_row(&mut session, mouse, "Chosen snapshot after rename");
     session.wait_for_screen(&chosen);
     tree_file(&mut session, mouse, "new name.txt");
@@ -211,7 +211,7 @@ fn happy(mouse: bool) {
     session.wait_for_screen("Line blame");
     blame_row(&mut session, mouse, "responsible second line");
     choose(&mut session, mouse, "[G Responsible graph]", b"G");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.wait_for_screen(&responsible);
     session.wait_for_screen("Responsible source line change");
     choose(&mut session, mouse, "[u File back]", b"u");
@@ -388,7 +388,7 @@ fn shallow(mouse: bool) {
     session.wait_for_overlay_close("Action unavailable • explanation only");
     session.wait_for_screen("Original path: file.txt");
     choose(&mut session, mouse, "[G Responsible graph]", b"G");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.wait_for_screen("Shallow visible saved version");
     assert!(!session.screen().contains("Older source version"));
     choose(&mut session, mouse, "[u File back]", b"u");

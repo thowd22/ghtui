@@ -30,6 +30,9 @@ pub use transient_choices_v1::{
     CatalogueTransientChoiceSnapshotV1, PreparedCatalogueTransientChoicesV1,
     RestoredCatalogueTransientChoicesV1, UnresolvedCatalogueChoiceV1,
 };
+#[path = "repository_catalogue_local_mappings_v1.rs"]
+mod local_mappings_v1;
+pub use local_mappings_v1::CatalogueLocalMappingsV1;
 
 pub const CATALOGUE_QUERY_BYTES: usize = 512;
 const QUERY_CHARACTERS: usize = 128;
@@ -188,10 +191,12 @@ pub struct CatalogueRow {
     pub actor: Option<ActorIdentity>,
     pub role: SemanticToken,
 }
+#[derive(Clone)]
 pub struct CatalogueLine {
     pub text: String,
     pub role: SemanticToken,
 }
+#[derive(Clone)]
 pub struct CatalogueFrame {
     source: Arc<RepositoryCatalogueRead>,
     revision: u64,
@@ -204,6 +209,8 @@ pub struct CatalogueFrame {
     pub selected_target: Option<CatalogueTarget>,
     pub observed_pull: Option<bool>,
     pub observed_archive: Option<bool>,
+    prepared_bytes: usize,
+    preparation_deadline: Instant,
 }
 impl CatalogueFrame {
     pub fn query(&self) -> &str {
@@ -457,6 +464,8 @@ impl CatalogueJob {
             selected_target,
             observed_pull,
             observed_archive,
+            prepared_bytes: bytes,
+            preparation_deadline: began + Duration::from_secs(2),
         }))
     }
 }

@@ -116,8 +116,8 @@ fn actions_catalog_records_cross_repo_partial_scope_without_inventing_success() 
     fixture.scripted_gh(&[
         step(
             "repos/example/repo/actions/runs?per_page=100",
-            json!([{"total_count":1,"workflow_runs":[raw_run(123)]}]),
-            true,
+            json!({"total_count":1,"workflow_runs":[raw_run(123)]}),
+            false,
         ),
         unavailable,
     ]);
@@ -140,7 +140,7 @@ fn actions_keyboard_and_mouse_resolve_same_exact_run_attempt_at_small_and_large_
     for mouse in [false, true] {
         for (width, height) in [(80, 24), (120, 40)] {
             let fixture = Fixture::new();
-            fixture.scripted_gh(&[step("repos/example/repo/actions/runs?per_page=100",json!([{"total_count":1,"workflow_runs":[raw_run(123)]}]),true),step("repos/example/repo/actions/runs/123/attempts/2",raw_run(123),false),step("repos/example/repo/actions/runs/123/attempts/2/jobs?per_page=100",json!([{"jobs":[{"id":501,"run_id":123,"run_attempt":2,"head_sha":"a".repeat(40),"name":"test linux","status":"completed","conclusion":"failure","steps":[]}]}]),true)]);
+            fixture.scripted_gh(&[step("repos/example/repo/actions/runs?per_page=100",json!({"total_count":1,"workflow_runs":[raw_run(123)]}),false),step("repos/example/repo/actions/runs/123/attempts/2",raw_run(123),false),step("repos/example/repo/actions/runs/123/attempts/2/jobs?per_page=100",json!([{"jobs":[{"id":501,"run_id":123,"run_attempt":2,"head_sha":"a".repeat(40),"name":"test linux","status":"completed","conclusion":"failure","steps":[]}]}]),true)]);
             let mut workspace = workspace();
             let gh = provider(&fixture);
             workspace

@@ -2284,7 +2284,9 @@ impl Form {
         if control && code == KeyCode::Char('e') {
             return Some(FormAction::Editor);
         }
-        if control && code == KeyCode::Enter {
+        // Terminals rarely deliver Ctrl-Enter, so Ctrl-S is the dependable
+        // keyboard equivalent of the confirm/submit button (same action).
+        if control && matches!(code, KeyCode::Enter | KeyCode::Char('s')) {
             return Some(FormAction::Submit);
         }
         if (self.preview
@@ -3517,7 +3519,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         {
             "Tab: buttons • Esc: close"
         } else if form.error.is_empty() {
-            "Tab: controls • Ctrl-A: select all • Ctrl-P: preview • Esc: keep draft"
+            "Tab: controls • Ctrl-A: select all • Ctrl-P: preview • Ctrl-S: confirm • Esc: keep draft"
         } else {
             "Tab: controls • Esc: keep draft"
         }),
@@ -3770,6 +3772,30 @@ mod metadata_preview_tests;
 mod tests {
     use super::*;
     use ratatui::{buffer::Buffer, widgets::Widget};
+    #[test]
+    fn local_confirm_shortcut_ctrl_s_is_the_submit_button_action_without_typing() {
+        use crate::comparison::{CompareEndpoint, CompareIntent, ComparisonMode};
+        let mut form = Form::compare(CompareIntent {
+            directory: "/fixture/local".into(),
+            base: CompareEndpoint::manual("a".repeat(40)),
+            head: CompareEndpoint::manual("b".repeat(40)),
+            mode: ComparisonMode::Snapshot,
+        })
+        .unwrap();
+        form.dispatch(&FormAction::Field(0));
+        let before = form.values();
+        for code in [KeyCode::Char('s'), KeyCode::Enter] {
+            assert_eq!(
+                form.key(code, KeyModifiers::CONTROL),
+                Some(FormAction::Submit)
+            );
+        }
+        assert_eq!(form.values(), before, "Ctrl-S never inserts text");
+        assert_ne!(
+            form.key(KeyCode::Char('s'), KeyModifiers::NONE),
+            Some(FormAction::Submit)
+        );
+    }
     #[test]
     fn compare_commits_form_preserves_pinned_drafts_swaps_and_opens_without_write_confirmation() {
         use crate::comparison::{CompareEndpoint, CompareIntent, ComparisonMode};

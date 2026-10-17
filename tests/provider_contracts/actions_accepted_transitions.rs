@@ -4,9 +4,9 @@ use ghtui::providers::gh::{AcceptedDispatchTransition, AcceptedRunTransition};
 
 fn run_inspection(values: Vec<Value>) -> Vec<GhStep> {
     let mut steps = account_steps(42);
-    steps.push(page_step(
-        "repos/example/repo/actions/runs?per_page=100",
-        json!([{"workflow_runs":values}]),
+    steps.push(step(
+        api_args("repos/example/repo/actions/runs?per_page=100"),
+        json!({"workflow_runs":values}),
     ));
     steps.extend(account_steps(42));
     steps
@@ -195,7 +195,7 @@ fn workflow_inspection(values: Vec<Value>, total: u64) -> Vec<GhStep> {
     let mut steps = account_steps(42);
     steps.extend([
         page_step("repos/example/repo/actions/workflows?per_page=100",json!([{"workflows":[{"id":42,"name":"unit","path":".github/workflows/unit.yml","state":"active"}]}])),
-        page_step("repos/example/repo/actions/workflows/42/runs?per_page=100",json!([{"total_count":total,"workflow_runs":values}])),
+        step(api_args("repos/example/repo/actions/workflows/42/runs?per_page=100"), json!({"total_count":total,"workflow_runs":values})),
     ]);
     steps.extend(account_steps(42));
     steps

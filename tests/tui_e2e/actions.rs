@@ -11,6 +11,8 @@ mod approvals;
 mod lease_selection;
 #[path = "actions/optional_attempt_v1.rs"]
 mod optional_attempt_v1;
+#[path = "actions/origin_default_v1.rs"]
+mod origin_default_v1;
 #[path = "actions/principal_freshness.rs"]
 mod principal_freshness;
 #[path = "../support/actions_publication.rs"]
@@ -73,8 +75,8 @@ fn initial() -> Vec<GhStep> {
         read("user", json!({"id":42,"login":"octocat"}), false),
         read(
             "repos/example/repo/actions/runs?per_page=100",
-            json!([{"total_count":1,"workflow_runs":[raw_run()]}]),
-            true,
+            json!({"total_count":1,"workflow_runs":[raw_run()]}),
+            false,
         ),
     ]
 }
@@ -459,15 +461,15 @@ fn run_control(mouse: bool) {
     steps.extend(current_account());
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[queued.clone()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[queued.clone()]}),
+        false,
     ));
     steps.extend(current_account());
     let acknowledged_count = steps.len();
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[queued.clone()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[queued.clone()]}),
+        false,
     ));
     steps.extend(publication_support::open_attempt(&queued, vec![]));
     steps.extend(compose_identity_steps());
@@ -848,8 +850,8 @@ fn workflow_controls(mouse: bool) {
         ),
         read(
             "repos/example/repo/actions/workflows/7/runs?per_page=100",
-            json!([{"total_count":1,"workflow_runs":[dispatched.clone()]}]),
-            true,
+            json!({"total_count":1,"workflow_runs":[dispatched.clone()]}),
+            false,
         ),
     ]);
     steps.extend(current_account());
@@ -857,8 +859,8 @@ fn workflow_controls(mouse: bool) {
     steps.extend(current_account());
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[dispatched.clone()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[dispatched.clone()]}),
+        false,
     ));
     steps.extend(current_account());
     let acknowledged_count = steps.len();
@@ -898,8 +900,8 @@ fn workflow_controls(mouse: bool) {
     }
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[dispatched]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[dispatched]}),
+        false,
     ));
     let final_count = steps.len();
     fixture.scripted_gh(&steps);
@@ -1182,8 +1184,8 @@ fn uncertain_cancel(mouse: bool) {
     queued["conclusion"] = Value::Null;
     let catalogue = read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[queued.clone()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[queued.clone()]}),
+        false,
     );
     let attempt = read(
         "repos/example/repo/actions/runs/123/attempts/2",

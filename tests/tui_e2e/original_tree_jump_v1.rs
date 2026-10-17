@@ -10,7 +10,7 @@ mod viewport_v2;
 fn saved_root(native: &Native, session: &mut Session, mouse: bool, summary: &str) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "[g Graph]", b"g");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.open_saved_graph_subject(mouse, summary, &native.chosen);
     session.wait_for_screen(&native.chosen);
     choose(session, mouse, "[t Tree]", b"t");

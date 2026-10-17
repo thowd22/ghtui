@@ -49,9 +49,23 @@ fn run() -> Result<()> {
         config.host = host;
     }
     config.validate()?;
+    let mut catalogue_local_mappings = std::sync::Arc::new(
+        ghtui::repository_catalogue_workspace_v1::CatalogueLocalMappingsV1::from_config(&config),
+    );
     if let Some(repository) = &options.repository {
         ghtui::config::validate_repository(repository)?;
     }
+    // Repository views default to the launch checkout's GitHub remote. Unlike
+    // --repo this never narrows the personal Inbox or steals local focus.
+    let detected_repository = options
+        .repository
+        .is_none()
+        .then(|| {
+            std::env::current_dir()
+                .ok()
+                .and_then(|directory| ghtui::origin_repository::detect(&directory, &config.host))
+        })
+        .flatten();
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         bail!("ghtui needs an interactive terminal; use --help for usage");
     }
@@ -224,6 +238,9 @@ fn run() -> Result<()> {
                         }
                     }
                     config = updated;
+                    catalogue_local_mappings = std::sync::Arc::new(
+                        ghtui::repository_catalogue_workspace_v1::CatalogueLocalMappingsV1::from_config(&config),
+                    );
                     next_refresh = Instant::now() + Duration::from_secs(config.refresh_seconds);
                     app.bindings = config.resolved_bindings()?;
                     app.no_color = options.no_color
@@ -1561,11 +1578,18 @@ fn run() -> Result<()> {
             let host = owner.host().to_owned();
             let runner = runner.clone();
             let database = paths.database.clone();
+            let local_mappings = catalogue_local_mappings.clone();
             let task = move |cancel| {
                 let provider = GithubProvider::new(host)
                     .map_err(|_| "Discovery host unavailable".to_owned())?
                     .with_runner(runner);
-                ghtui::repository_catalogue_native::execute(work, &provider, &database, &cancel)
+                ghtui::repository_catalogue_native::execute_with_local_mappings(
+                    work,
+                    &provider,
+                    &database,
+                    &cancel,
+                    &local_mappings,
+                )
             };
             if let Some(recovery) = recovery {
                 background.submit_catalogue_recovery(&mut app, owner, recovery, task);
@@ -2318,6 +2342,11 @@ fn run() -> Result<()> {
                         .as_ref()
                         .and_then(|set| config.repository_sets.get(set).cloned())
                 })
+                .or_else(|| {
+                    detected_repository
+                        .clone()
+                        .map(|repository| vec![repository])
+                })
                 .unwrap_or_else(|| {
                     if let Some(github) = &app.github {
                         github
@@ -2334,7 +2363,7 @@ fn run() -> Result<()> {
             repositories.sort();
             repositories.dedup();
             if previous.is_none() && repositories.is_empty() {
-                app.content[ghtui::app::View::Actions.index()] = vec!["Choose a repository scope before loading Actions.".into(),"Use --repo OWNER/NAME, a saved repository set, or load your PR inbox first.".into(),"No GitHub request was made; an unknown scope is not an empty successful catalogue.".into()];
+                app.content[ghtui::app::View::Actions.index()] = vec!["Choose a repository scope before loading Actions.".into(),"Run ghtui inside a GitHub checkout, use --repo OWNER/NAME, choose a saved repository set, or load your PR inbox first.".into(),"No GitHub request was made; an unknown scope is not an empty successful catalogue.".into()];
                 app.status = "Actions scope needed • no repository selected".into();
             } else {
                 let host = config.host.clone();
@@ -2381,7 +2410,7 @@ fn run() -> Result<()> {
                             return Err(error.to_string());
                         }
                     }
-                    let status = workspace.warnings.last().cloned().unwrap_or_else(||"Actions loaded • exact repository/run/attempt context".into());
+                    let status = workspace.warnings.last().cloned().unwrap_or_else(||"Actions loaded".into());
                     let journal=ghtui::actions_write_journal::ActionsWriteJournal::open(&database).map_err(|error|error.to_string())?;
                     actions_recovery::decorate(&mut workspace,&provider,&journal)?;
                     Ok(PreparedView {context:Some(workspace.context()),status,actions:Some(workspace),clear_actions_inspection:true,..PreparedView::default()})
@@ -2413,6 +2442,11 @@ fn run() -> Result<()> {
                         .active_set
                         .as_ref()
                         .and_then(|set| config.repository_sets.get(set).cloned())
+                })
+                .or_else(|| {
+                    detected_repository
+                        .clone()
+                        .map(|repository| vec![repository])
                 })
                 .unwrap_or_else(|| config.local_repositories.keys().cloned().collect());
             declared.retain(|repository| {
@@ -2528,6 +2562,11 @@ fn run() -> Result<()> {
                         .as_ref()
                         .and_then(|set| config.repository_sets.get(set).cloned())
                 })
+                .or_else(|| {
+                    detected_repository
+                        .clone()
+                        .map(|repository| vec![repository])
+                })
                 .unwrap_or_default();
             repositories.extend(config.local_repositories.keys().cloned());
             repositories.retain(|repository| !config.excluded_repositories.contains(repository));
@@ -2565,6 +2604,7 @@ fn run() -> Result<()> {
             let input = app.search_controls.query.text.clone();
             let name = app.search_controls.name.text.clone();
             let explicit_repository = options.repository.clone();
+            let detected_repository = detected_repository.clone();
             let remote_scope = app.remote_scope.clone();
             let runner = runner.clone();
             background.submit(&mut app, ghtui::app::View::Search, move |cancel| {
@@ -2591,6 +2631,7 @@ fn run() -> Result<()> {
                 if remote_scope.is_none() && search.remote_repositories.is_empty() {
                     search.remote_repositories=explicit_repository.clone().map(|repository|vec![repository])
                         .or_else(||config.active_set.as_ref().and_then(|set|config.repository_sets.get(set).cloned()))
+                        .or_else(||detected_repository.clone().map(|repository|vec![repository]))
                         .unwrap_or_else(||search.selections.iter().filter(|selection|config.local_repositories.contains_key(&selection.repository)).map(|selection|selection.repository.clone()).collect());
                     search.remote_repositories.retain(|repository|!config.excluded_repositories.contains(repository));
                     search.remote_repositories.sort();search.remote_repositories.dedup();
@@ -2626,6 +2667,7 @@ fn run() -> Result<()> {
                     if remote_scope.is_none() && search.remote_repositories.is_empty() {
                         search.remote_repositories=explicit_repository.clone().map(|repository|vec![repository])
                             .or_else(||config.active_set.as_ref().and_then(|set|config.repository_sets.get(set).cloned()))
+                        .or_else(||detected_repository.clone().map(|repository|vec![repository]))
                             .unwrap_or_else(||search.selections.iter().filter(|selection|config.local_repositories.contains_key(&selection.repository)).map(|selection|selection.repository.clone()).collect());
                         search.remote_repositories.retain(|repository|!config.excluded_repositories.contains(repository));
                         search.remote_repositories.sort();search.remote_repositories.dedup();

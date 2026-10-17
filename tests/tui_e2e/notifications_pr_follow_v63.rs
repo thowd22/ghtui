@@ -145,9 +145,9 @@ fn files(session: &mut Session, after: usize, patch_observed: bool) -> String {
                 && text.contains(history::PATH)
                 && text.contains("[v Native diff]")
                 && text.contains(if patch_observed {
-                    "Proposed patch bytes observed"
+                    "Showing the PR patch from gh pr diff"
                 } else {
-                    "Full patch not loaded"
+                    "Patch not loaded; file list only"
                 })
                 && !text.contains(TITLE)
         },

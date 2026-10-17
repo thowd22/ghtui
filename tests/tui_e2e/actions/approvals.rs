@@ -60,8 +60,8 @@ fn deployment_decisions(mouse: bool) {
     let mut steps = initial();
     steps[2] = read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[run.clone()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[run.clone()]}),
+        false,
     );
     steps.extend([
         read(
@@ -260,8 +260,8 @@ fn fork_approval_observed_footer(mouse: bool, controlled: bool) {
     let mut steps = initial();
     steps[2] = read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[awaiting.clone()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[awaiting.clone()]}),
+        false,
     );
     steps.extend([
         read(

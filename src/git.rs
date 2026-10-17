@@ -2879,6 +2879,19 @@ fn git_diagnostic(bytes: &[u8]) -> String {
     }
     result
 }
+/// Raw `remote.<name>.url` config entries (NUL-separated `key\nvalue`),
+/// read under the standard read-only policy. None when absent or failing.
+pub fn remote_url_config_v1(directory: &Path) -> Option<Vec<u8>> {
+    let output = run_git_with_kind(
+        directory,
+        ["config", "--null", "--get-regexp", r"^remote\..*\.url$"],
+        None,
+        false,
+        &CancellationToken::default(),
+    )
+    .ok()?;
+    output.success.then_some(output.stdout)
+}
 fn run_git_with_kind<I, S>(
     directory: &Path,
     args: I,

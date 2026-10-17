@@ -122,7 +122,7 @@ fn gh_provider_inspector_app_offline_source_diagnostic_coexists_with_last_numeri
     let inspector = app.capability_inspector.as_ref().unwrap();
     let details = inspector.details().concat();
     assert!(details.contains("Offline/stale"));
-    assert!(details.contains("fetched 123"));
+    assert!(details.contains("fetched 1970-01-01 00:02:03 UTC"));
     assert!(details.contains("Unknown JSON field"));
     assert!(!details.contains("Unrelated focus state"));
     assert!(details.contains("not observed/granted"));

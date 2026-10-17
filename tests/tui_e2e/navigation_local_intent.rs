@@ -25,7 +25,7 @@ fn intent(mouse: bool) {
     );
     session.wait_for_screen("Recent commits");
     command(&mut session, mouse, "Show Graph");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
     let underlying = session
@@ -42,7 +42,7 @@ fn intent(mouse: bool) {
     }
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close("Action unavailable • explanation only");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     assert_eq!(
         starts(&local.fixture),
         no_read,

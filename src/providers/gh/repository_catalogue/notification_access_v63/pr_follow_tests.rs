@@ -333,7 +333,7 @@ fn notifications_pr_follow_v63_actual_empty_files_and_empty_patch_remain_browsab
     assert!(view.canonical_diff().unwrap().files.is_empty());
     let rendered = paint(&mut app);
     assert!(rendered.contains("ACTUAL_FOLLOW_PRIVATE_PR_TITLE"));
-    assert!(rendered.contains("Files: Observed • loaded 0 • total 0"));
+    assert!(rendered.contains("Files: none"));
     let commands = fs::read(f.root.join("gh-fixture/commands.jsonl")).unwrap();
     crate::scoped_pr_native_diff_native_v1::open_files(&mut app);
     assert!(app.pr_native_diff_work_v1.is_none());

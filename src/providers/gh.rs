@@ -1656,8 +1656,9 @@ impl GithubProvider {
             validate_sha(sha)?;
             endpoint.push_str(&format!("&head_sha={sha}"));
         }
-        let runs = self
-            .api_list(&endpoint, Some("workflow_runs"), cancel)?
+        // Newest page only (see run_catalog): full run history exceeds capture.
+        let page = self.api(&endpoint, "GET", None, None, false, cancel)?;
+        let runs = Self::api_list_pages_v19(Value::Array(vec![page]), Some("workflow_runs"))?
             .iter()
             .map(run_from_json)
             .collect::<Vec<_>>();

@@ -1007,6 +1007,34 @@ fn hidden(owner: Arc<CatalogueOwner>) -> PreparedView {
         ..prepared(owner, CataloguePreparedKind::Hidden)
     }
 }
+/// Existing discovery proofs run unchanged; configured folders decorate only
+/// the resulting read-only prepared details, never a mutation acknowledgement.
+pub fn execute_with_local_mappings(
+    work: CatalogueWork,
+    provider: &GithubProvider,
+    database: &Path,
+    cancel: &CancellationToken,
+    hints: &crate::repository_catalogue_workspace_v1::CatalogueLocalMappingsV1,
+) -> Result<PreparedView, String> {
+    let owner = work.owner().clone();
+    let mut view = execute(work, provider, database, cancel)?;
+    let enriched = match view.catalogue.as_mut().map(|prepared| &mut prepared.kind) {
+        Some(
+            CataloguePreparedKind::Loaded { workspace, .. }
+            | CataloguePreparedKind::Reloaded { workspace, .. },
+        ) => workspace.prepare_local_mapping_hint(hints, cancel),
+        Some(CataloguePreparedKind::Frame(frame)) => frame
+            .with_local_mapping_hint(hints, cancel)
+            .map(|updated| *frame = updated),
+        _ => Ok(()),
+    };
+    Ok(if enriched.is_err() {
+        hidden(owner)
+    } else {
+        view
+    })
+}
+
 pub fn execute(
     work: CatalogueWork,
     provider: &GithubProvider,

@@ -135,7 +135,11 @@ fn files_selected(session: &mut Session, fixture: &Fixture, mouse: bool) {
     session.wait_for_command_count(fixture, 41);
     ready(
         session,
-        &["src/界.rs", "[O Old image]", "Old image unverified"],
+        &[
+            "src/界.rs",
+            "[O Old image]",
+            "Old side: current base-branch tip",
+        ],
     );
     choose(session, mouse, "[N Next file]", b"N");
     ready(session, &["> File src/界.rs"]);

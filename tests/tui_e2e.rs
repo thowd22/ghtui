@@ -540,7 +540,7 @@ fn local_repository_journey(mouse: bool) {
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.wait_for_screen("second saved version");
     session.open_saved_graph_subject(mouse, "first saved version", &old_revision);
     session.wait_for_screen(&old_revision);

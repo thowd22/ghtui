@@ -86,8 +86,8 @@ fn workflow_controls_journal_distinct_dispatch_acceptance_rejects_pending_or_kno
         steps.push(read("repos/example/repo/actions/workflows?per_page=100",json!([{"workflows":[{"id":42,"name":"CI","path":".github/workflows/ci.yml","state":"active"}]}]),true));
         steps.push(read(
             "repos/example/repo/actions/workflows/42/runs?per_page=100",
-            json!([{"total_count":10,"workflow_runs":[]}]),
-            true,
+            json!({"total_count":10,"workflow_runs":[]}),
+            false,
         ));
         steps.extend(account(42));
         if mode == "uncorrelated" {

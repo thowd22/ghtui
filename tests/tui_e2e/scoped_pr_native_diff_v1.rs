@@ -601,8 +601,8 @@ fn cancel(mouse: bool) {
     session.wait_for_cursorless_condition(
         |frame| {
             let screen = frame.contents();
-            screen.contains("Files: Observed")
-                && screen.contains("Old image unverified")
+            screen.contains("Files: all")
+                && screen.contains("Old side: current base-branch tip")
                 && screen.contains("[N Next file]")
         },
         "second Files producer publishes its actual completed original page",

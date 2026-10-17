@@ -340,6 +340,10 @@ impl ActiveRemoteScopeV1 {
         }
         Ok(())
     }
+    /// Personal queues across all repositories: no repository narrowing intent.
+    pub fn is_default_personal(&self) -> bool {
+        matches!(self.state, State::DefaultPersonal)
+    }
     pub fn blocked_intent(&self) -> Option<RemoteScopeStopV1> {
         match &self.state {
             State::Fenced(reason) => Some(RemoteScopeStopV1::Fenced(*reason)),

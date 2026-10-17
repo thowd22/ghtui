@@ -42,8 +42,8 @@ pub fn run(attempt: u64, status: &str, conclusion: Option<&str>) -> Value {
 pub fn catalogue(runs: Vec<Value>, total: u64) -> GhStep {
     read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":total,"workflow_runs":runs}]),
-        true,
+        json!({"total_count":total,"workflow_runs":runs}),
+        false,
     )
 }
 pub fn initial(current: Value) -> Vec<GhStep> {
@@ -209,7 +209,7 @@ pub fn inspect_workflow(runs: Vec<Value>, total: u64, after_account: u64) -> Vec
     let mut steps = account(42);
     steps.extend([
         read("repos/example/repo/actions/workflows?per_page=100",json!([{"workflows":[{"id":7,"name":"CI matrix","path":".github/workflows/ci.yml","state":"active"}]}]),true),
-        read("repos/example/repo/actions/workflows/7/runs?per_page=100",json!([{"total_count":total,"workflow_runs":runs}]),true)]);
+        read("repos/example/repo/actions/workflows/7/runs?per_page=100",json!({"total_count":total,"workflow_runs":runs}),false)]);
     steps.extend(account(after_account));
     steps
 }

@@ -115,16 +115,23 @@ pub enum Freshness {
     Fresh { fetched_at: u64 },
     Offline { fetched_at: u64, error: String },
 }
+fn fetched(seconds: u64) -> String {
+    if seconds == 0 {
+        "never".into()
+    } else {
+        crate::metrics_workspace::utc_label(seconds)
+    }
+}
 impl Freshness {
     pub fn label(&self) -> String {
         match self {
             Self::Empty => "No loaded records".into(),
             // Cached is an observation, not proof that a refresh worker exists.
             // Actual pending work is shown by the application loading state.
-            Self::Cached { fetched_at } => format!("Cached • fetched {fetched_at}"),
-            Self::Fresh { fetched_at } => format!("Fresh • fetched {fetched_at}"),
+            Self::Cached { fetched_at } => format!("Cached • fetched {}", fetched(*fetched_at)),
+            Self::Fresh { fetched_at } => format!("Fresh • fetched {}", fetched(*fetched_at)),
             Self::Offline { fetched_at, error } => {
-                format!("Offline/stale • fetched {fetched_at} • {error}")
+                format!("Offline/stale • {error} • fetched {}", fetched(*fetched_at))
             }
         }
     }

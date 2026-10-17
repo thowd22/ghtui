@@ -584,8 +584,8 @@ fn run_inspection_value(value: Option<Value>) -> Vec<GhStep> {
     let mut steps = account(42);
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"workflow_runs":value.into_iter().collect::<Vec<_>>()}]),
-        true,
+        json!({"workflow_runs":value.into_iter().collect::<Vec<_>>()}),
+        false,
     ));
     steps.extend(account(42));
     steps

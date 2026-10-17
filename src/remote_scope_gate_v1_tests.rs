@@ -578,3 +578,47 @@ fn repo_catalog_scope_consumers_existing_working_search_is_preserved_without_con
     );
     assert_eq!(journal(&fixture).len(), 7);
 }
+
+#[test]
+fn origin_default_personal_scope_does_not_block_repository_views_but_still_guards_inbox_refresh() {
+    let (fixture, read) = actual(42, "same-login", vec![repo(410, "example/one")]);
+    let personal = ActiveRemoteScopeV1::default_personal(read.identity()).unwrap();
+    assert!(personal.is_default_personal());
+    let mut background = crate::runtime::Background::new();
+    for consumer in [
+        RemoteConsumerV1::Actions,
+        RemoteConsumerV1::Search,
+        RemoteConsumerV1::Dashboard,
+    ] {
+        let mut app = App {
+            remote_scope: Some(Arc::new(personal.clone())),
+            ..App::default()
+        };
+        assert!(!refuse_legacy_request(&mut app, &mut background, consumer));
+        assert!(
+            app.remote_scope.is_some(),
+            "{consumer:?} kept the personal scope"
+        );
+    }
+    let mut app = App {
+        remote_scope: Some(Arc::new(personal)),
+        ..App::default()
+    };
+    assert!(refuse_legacy_request(
+        &mut app,
+        &mut background,
+        RemoteConsumerV1::MyPrs
+    ));
+    let explicit = ActiveRemoteScopeV1::explicit_selection(&read, &[410]).unwrap();
+    assert!(!explicit.is_default_personal());
+    let mut app = App {
+        remote_scope: Some(Arc::new(explicit)),
+        ..App::default()
+    };
+    assert!(refuse_legacy_request(
+        &mut app,
+        &mut background,
+        RemoteConsumerV1::Actions
+    ));
+    assert_eq!(journal(&fixture).len(), 7, "gating sends no GitHub request");
+}

@@ -92,9 +92,9 @@ fn actions_run_control_journal_generic_inspection_brackets_positive_principal_an
     for changed in [false, true] {
         let fixture = Fixture::new();
         let mut steps = account_steps(42);
-        steps.push(page_step(
-            "repos/example/repo/actions/runs?per_page=100",
-            json!([{"workflow_runs":[run_value()]}]),
+        steps.push(step(
+            api_args("repos/example/repo/actions/runs?per_page=100"),
+            json!({"workflow_runs":[run_value()]}),
         ));
         steps.extend(account_steps(if changed { 43 } else { 42 }));
         fixture.scripted_gh(&steps);

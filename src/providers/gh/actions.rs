@@ -447,12 +447,11 @@ impl GithubProvider {
         filter: &RunFilter,
         cancel: &CancellationToken,
     ) -> GithubResult<RunCatalog> {
+        // Newest page only: paginating a busy repository's full run history
+        // exceeds the capture cap. Fewer runs than total_count stays PARTIAL.
         let endpoint = run_catalog_endpoint_v2(repo, filter)?;
-        let pages = self.api(&endpoint, "GET", None, None, true, cancel)?;
-        let pages = pages
-            .as_array()
-            .ok_or_else(|| error(GithubErrorKind::Json, "Run pagination returned no pages"))?;
-        parse_run_catalogue_v2(pages, filter)
+        let page = self.api(&endpoint, "GET", None, None, false, cancel)?;
+        parse_run_catalogue_v2(std::slice::from_ref(&page), filter)
     }
     pub fn run_attempt(
         &self,

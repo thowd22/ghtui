@@ -53,14 +53,18 @@ impl GraphPresentationV1 {
             Vec::new(),
         )?;
         builder.push(
-            "● saved version • exact ordered parent links • names observed at graph load".into(),
+            "● commit • lines connect each commit to its parents".into(),
             SemanticRole::Reference,
             None,
             Vec::new(),
         )?;
-        builder.push("200-record projection only • ALL loaded ancestors retained; newer/older do no Git reads".into(),
-            SemanticRole::Boundary,None,Vec::new())?;
-        builder.push("Colors trace parent paths, never permanent branches. Names/HEAD observed at graph load".into(),
+        builder.push(
+            "Showing up to 200 commits at a time • < > page through loaded history".into(),
+            SemanticRole::Boundary,
+            None,
+            Vec::new(),
+        )?;
+        builder.push("Colors trace parent paths, never permanent branches. Branch names are as of graph load".into(),
             SemanticRole::Normal,None,Vec::new())?;
         builder.push(
             graph_explanation_v1(selected),

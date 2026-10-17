@@ -169,7 +169,7 @@ pub fn draw(
     }
     if y < area.bottom() {
         let freshness = workspace.fetched_at.map_or("Not loaded".into(), |at| {
-            format!("Fetched {at} • refresh uses bounded gh requests")
+            format!("Fetched {}", crate::metrics_workspace::utc_label(at))
         });
         let status = format!(
             "{freshness}{}",

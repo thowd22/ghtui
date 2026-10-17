@@ -49,6 +49,7 @@ pub mod notification_pr_v63;
 pub mod notifications_native_v63;
 pub mod notifications_ui_v63;
 pub mod notifications_v63;
+pub mod origin_repository;
 #[cfg(test)]
 pub(crate) mod original_diff_sides_v1_test_support;
 pub mod personal_pr_entry_v13;

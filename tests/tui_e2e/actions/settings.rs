@@ -378,8 +378,8 @@ fn changed_environment_identity(mouse: bool) {
     steps.extend(account_steps());
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[raw_run()]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[raw_run()]}),
+        false,
     ));
     steps.extend(account_steps());
     let acknowledged_count = steps.len();

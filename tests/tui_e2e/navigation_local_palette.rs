@@ -329,7 +329,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("working navigation needle β");
     session.wait_for_screen("Repository loaded • read-only exploration");
     command(&mut session, mouse, "Show Graph");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
     let selected = session.locate("Original navigation ancestry").unwrap();
@@ -396,7 +396,7 @@ fn journey(mouse: bool) {
     let before_back = session.completed_cursorless_end();
     choose(&mut session, mouse, GLOBAL_BACK, GLOBAL_BACK_KEY);
     session.assert_focused_view("Repository");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.wait_for_screen(&local.original);
     let selected = session.wait_for_saved_graph_return(
         before_back,
@@ -445,7 +445,7 @@ fn unavailable(mouse: bool) {
     let mut session = launch(&local.fixture, mouse);
     session.wait_for_screen("Recent commits");
     command(&mut session, mouse, "Show Graph");
-    session.wait_for_screen("● saved version");
+    session.wait_for_screen("● commit • lines connect");
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
     let count = starts(&local.fixture);

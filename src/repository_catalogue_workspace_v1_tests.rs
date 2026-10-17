@@ -77,6 +77,128 @@ fn prepared(source: Arc<RepositoryCatalogueRead>) -> CatalogueWorkspace {
         .unwrap();
     workspace
 }
+
+fn local_mapping_hints(path: &str) -> CatalogueLocalMappingsV1 {
+    let mut config = crate::config::Config {
+        host: "github.invalid".into(),
+        ..Default::default()
+    };
+    config
+        .local_repositories
+        .insert("EXAMPLE/REPO0000".into(), path.into());
+    CatalogueLocalMappingsV1::from_config(&config)
+}
+
+#[test]
+fn repo_catalog_local_mapping_genuine_frame_preserves_source_tickets_selection_and_original() {
+    let (_fixture, source) = actual(2, false);
+    let mut workspace = prepared(source.clone());
+    let original = workspace.frame().unwrap().clone();
+    let hints = local_mapping_hints("/configured/not-created/界 🦀");
+    workspace
+        .prepare_local_mapping_hint(&hints, &CancellationToken::default())
+        .unwrap();
+    let frame = workspace.frame().unwrap();
+    assert!(!Arc::ptr_eq(&original, frame));
+    assert!(Arc::ptr_eq(&original.source, &frame.source));
+    assert!(Arc::ptr_eq(&source, &frame.source));
+    assert!(Arc::ptr_eq(&original.rows, &frame.rows));
+    assert!(Arc::ptr_eq(&original.matches, &frame.matches));
+    assert!(Arc::ptr_eq(&original.header, &frame.header));
+    assert!(Arc::ptr_eq(workspace.basis.as_ref().unwrap(), frame));
+    assert_eq!(frame.revision, original.revision);
+    assert_eq!(frame.query, original.query);
+    assert_eq!(frame.selected_target, original.selected_target);
+    assert_eq!(frame.observed_pull, original.observed_pull);
+    assert_eq!(frame.observed_archive, original.observed_archive);
+    assert_eq!(frame.preparation_deadline, original.preparation_deadline);
+    assert_eq!(
+        frame.detail[0].text,
+        "Local folder (settings hint): /configured/not-created/界 🦀"
+    );
+    assert_eq!(frame.detail[0].role, SemanticToken::Reference);
+    assert_eq!(
+        frame.detail[1].text,
+        "Unverified association; not GitHub access."
+    );
+    assert_eq!(frame.detail[1].role, SemanticToken::Pending);
+    assert!(original.detail[0].text.starts_with("Full repository name:"));
+    assert_eq!(frame.detail.len(), original.detail.len() + 2);
+    let ticket = original.rows[1].original_key.clone();
+    assert!(matches!(
+        workspace.apply(CatalogueInput::Row(ticket)).unwrap(),
+        Some(CatalogueRequest::Prepare(_))
+    ));
+}
+
+#[test]
+fn repo_catalog_local_mapping_terminal_text_is_sanitized_and_cancellation_is_not_ignored() {
+    let (_fixture, source) = actual(1, false);
+    let workspace = prepared(source);
+    let original = workspace.frame().unwrap();
+    let hints = local_mapping_hints("/untrusted/\x1b[31m界 e\u{301} 🦀");
+    let safe = original
+        .with_local_mapping_hint(&hints, &CancellationToken::default())
+        .unwrap();
+    let text = safe
+        .detail
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!text.contains('\x1b'));
+    assert!(text.contains("界 e\u{301} 🦀"));
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert!(original
+        .with_local_mapping_hint(&hints, &cancelled)
+        .err()
+        .unwrap()
+        .contains("cancelled/expired"));
+    let empty = CatalogueLocalMappingsV1::from_config(&crate::config::Config::default());
+    assert!(Arc::ptr_eq(
+        original,
+        &original
+            .with_local_mapping_hint(&empty, &CancellationToken::default())
+            .unwrap()
+    ));
+}
+
+#[test]
+fn repo_catalog_local_mapping_enrichment_uses_original_byte_row_and_time_caps() {
+    let (_fixture, source) = actual(1, false);
+    let workspace = prepared(source);
+    let original = workspace.frame().unwrap();
+    let hints = local_mapping_hints("/configured/only");
+    let mut bytes = original.as_ref().clone();
+    bytes.prepared_bytes = MAX_FRAME_BYTES;
+    assert!(Arc::new(bytes)
+        .with_local_mapping_hint(&hints, &CancellationToken::default())
+        .err()
+        .unwrap()
+        .contains("display cap exceeded"));
+    let mut rows = original.as_ref().clone();
+    rows.detail = (0..MAX_DETAIL_ROWS)
+        .map(|_| CatalogueLine {
+            text: "original".into(),
+            role: SemanticToken::Muted,
+        })
+        .collect::<Vec<_>>()
+        .into();
+    assert!(Arc::new(rows)
+        .with_local_mapping_hint(&hints, &CancellationToken::default())
+        .err()
+        .unwrap()
+        .contains("row cap exceeded"));
+    let mut expired = original.as_ref().clone();
+    expired.preparation_deadline = Instant::now() - Duration::from_secs(1);
+    assert!(Arc::new(expired)
+        .with_local_mapping_hint(&hints, &CancellationToken::default())
+        .err()
+        .unwrap()
+        .contains("cancelled/expired"));
+    assert!(original.detail[0].text.starts_with("Full repository name:"));
+}
 fn prepare(workspace: &mut CatalogueWorkspace, input: CatalogueInput) {
     let Some(CatalogueRequest::Prepare(job)) = workspace.apply(input).unwrap() else {
         panic!("Meaningful preparation request required")

@@ -22,6 +22,8 @@ const SET: &str = "catalog-focus";
 const FIRST: &str = "example/repo0000";
 const LAST: &str = "example/repo1000";
 
+#[path = "repository_catalogue_local_mappings_v1.rs"]
+mod local_mappings_v1;
 #[path = "repository_catalogue_read_limits_v1.rs"]
 mod read_limits_v1;
 

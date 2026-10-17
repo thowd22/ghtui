@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 mod cache_named_v2;
 #[path = "personal_pr_entry_v13.rs"]
 mod personal_pr_entry_v13;
+#[path = "pr_body_wrap_v1.rs"]
+mod pr_body_wrap_v1;
 #[path = "sqlite_dependency.rs"]
 mod sqlite_dependency;
 #[path = "timeline_actor_legacy_v1.rs"]

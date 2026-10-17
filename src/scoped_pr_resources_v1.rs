@@ -24,7 +24,7 @@ pub mod native;
 pub mod threads_v1;
 
 pub const OLD_IMAGE_UNVERIFIED: &str =
-    "Old image unverified: base-branch tip is NOT an immutable merge-base snapshot";
+    "Old side: current base-branch tip, which can differ from the merge base";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrResourcePhaseV1 {
     AfterOpeningSource,
@@ -774,19 +774,13 @@ fn row(label: String, role: SemanticToken) -> PrRow {
     }
 }
 fn coverage(label: &str, value: &crate::providers::gh::PrResourceCoverageV1) -> String {
-    format!(
-        "{label}: {} • loaded {} • total {} • pages {}",
-        if value.complete_observed() {
-            "Observed"
-        } else {
-            "Partial/unavailable"
-        },
-        value.admitted_rows,
-        value
-            .reported_total
-            .map_or("unknown".into(), |total| total.to_string()),
-        value.fetched_pages
-    )
+    let loaded = value.admitted_rows;
+    match value.reported_total {
+        _ if value.complete_observed() && loaded == 0 => format!("{label}: none"),
+        _ if value.complete_observed() => format!("{label}: all {loaded} loaded"),
+        Some(total) => format!("{label}: {loaded} of {total} loaded"),
+        None => format!("{label}: {loaded} loaded (total unknown)"),
+    }
 }
 fn prepare_resource(
     observed: PrResourceReadV1,
@@ -939,11 +933,15 @@ impl ScopedPrResourceViewV1 {
                     SemanticToken::Muted,
                 ));
                 self.targets.push(PrResourceRowV1::Notice);
-                rows.push(row(if self.observed.raw_patch().is_some() {
-                    "Proposed patch bytes observed; full patch/old snapshot completeness not certified"
-                } else {
-                    "Full patch not loaded; only actual API file membership observed • open a fresh immutable viewer for source lines"
-                }.into(),SemanticToken::Muted));
+                rows.push(row(
+                    if self.observed.raw_patch().is_some() {
+                        "Showing the PR patch from gh pr diff"
+                    } else {
+                        "Patch not loaded; file list only • open a file to view its lines"
+                    }
+                    .into(),
+                    SemanticToken::Muted,
+                ));
                 self.targets.push(PrResourceRowV1::Notice);
                 for (i, file) in self.observed.files().iter().enumerate() {
                     rows.push(row(

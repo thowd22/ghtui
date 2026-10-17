@@ -287,7 +287,7 @@ fn actions_inventory_filter_encodes_refs_keeps_membership_and_exposes_search_cap
     let fixture = Fixture::new();
     let mut matching = run_value();
     matching["head_branch"] = json!("feature/fix");
-    fixture.scripted_gh(&[page_step("repos/example/repo/actions/workflows/42/runs?per_page=100&branch=feature%2Ffix&event=pull_request",json!([{"total_count":1001,"workflow_runs":[matching]}]))]);
+    fixture.scripted_gh(&[step(api_args("repos/example/repo/actions/workflows/42/runs?per_page=100&branch=feature%2Ffix&event=pull_request"), json!({"total_count":1001,"workflow_runs":[matching]}))]);
     let filter = RunFilter {
         workflow_id: Some(42),
         branch: Some("feature/fix".into()),
@@ -470,10 +470,7 @@ fn actions_run_control_cancel_and_delete_target_one_run_and_confirm_refreshed_ef
             None,
             Value::Null,
         ),
-        page_step(
-            "repos/example/repo/actions/runs?per_page=100",
-            json!([{"workflow_runs":[{"id":124,"workflow_id":42,"run_attempt":1,"head_sha":run_target().head_sha}]}]),
-        ),
+        step(api_args("repos/example/repo/actions/runs?per_page=100"), json!({"workflow_runs":[{"id":124,"workflow_id":42,"run_attempt":1,"head_sha":run_target().head_sha}]})),
     ]);
     fixture.scripted_gh(&steps);
     let result = provider(&fixture)
@@ -1525,9 +1522,9 @@ fn github_case_alias_cannot_bypass_uncertain_write_or_reconciliation_generation(
             "repos/EXAMPLE/REPO/actions/workflows?per_page=100",
             json!([{"workflows":[value]}]),
         ),
-        page_step(
-            "repos/EXAMPLE/REPO/actions/workflows/7/runs?per_page=100",
-            json!([{"total_count":0,"workflow_runs":[]}]),
+        step(
+            api_args("repos/EXAMPLE/REPO/actions/workflows/7/runs?per_page=100"),
+            json!({"total_count":0,"workflow_runs":[]}),
         ),
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         step(api_args("user"), json!({"login":"octocat"})),
@@ -2736,11 +2733,10 @@ fn gh_provider_stale_head_blocks_mutation_and_inventory_records_gaps() {
 fn actions_runs_keep_actor_attempt_and_commit_identity() {
     let fixture = Fixture::new();
     let sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let mut args = api_args(&format!(
+    let args = api_args(&format!(
         "repos/example/repo/actions/runs?per_page=100&head_sha={sha}"
     ));
-    args.extend(["--paginate".into(), "--slurp".into()]);
-    fixture.scripted_gh(&[step(args,json!([{"workflow_runs":[{"id":123,"workflow_id":42,"head_sha":sha,"head_branch":"feature","run_attempt":2,"actor":{"login":"alice"},"status":"completed","conclusion":"failure","name":"CI"}]}]))]);
+    fixture.scripted_gh(&[step(args,json!({"workflow_runs":[{"id":123,"workflow_id":42,"head_sha":sha,"head_branch":"feature","run_attempt":2,"actor":{"login":"alice"},"status":"completed","conclusion":"failure","name":"CI"}]}))]);
     let runs = provider(&fixture)
         .runs("example/repo", Some(sha), &CancellationToken::default())
         .unwrap();
@@ -4473,9 +4469,9 @@ fn actions_reconciliation_observes_effects_but_does_not_unlock_until_explicit_ac
     fixture.scripted_gh(&[
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         step(api_args("user"), json!({"login":"octocat"})),
-        page_step(
-            "repos/example/repo/actions/runs?per_page=100",
-            json!([{"workflow_runs":[run_value()]}]),
+        step(
+            api_args("repos/example/repo/actions/runs?per_page=100"),
+            json!({"workflow_runs":[run_value()]}),
         ),
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         step(api_args("user"), json!({"login":"octocat"})),
@@ -4585,9 +4581,9 @@ fn actions_old_cloned_observation_cannot_acknowledge_newer_uncertain_write() {
     fixture.scripted_gh(&[
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         step(api_args("user"), json!({"login":"octocat"})),
-        page_step(
-            "repos/example/repo/actions/runs?per_page=100",
-            json!([{"workflow_runs":[run_value()]}]),
+        step(
+            api_args("repos/example/repo/actions/runs?per_page=100"),
+            json!({"workflow_runs":[run_value()]}),
         ),
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         step(api_args("user"), json!({"login":"octocat"})),
@@ -4684,9 +4680,9 @@ fn actions_catalog_rejects_wrong_filter_membership_and_missing_coverage() {
         ),
     ] {
         let fixture = Fixture::new();
-        fixture.scripted_gh(&[page_step(
-            endpoint,
-            json!([{"total_count":1,"workflow_runs":[run_value()]}]),
+        fixture.scripted_gh(&[step(
+            api_args(endpoint),
+            json!({"total_count":1,"workflow_runs":[run_value()]}),
         )]);
         assert!(matches!(
             provider(&fixture)
@@ -4698,9 +4694,9 @@ fn actions_catalog_rejects_wrong_filter_membership_and_missing_coverage() {
         assert_eq!(journal(&fixture).len(), 1);
     }
     let fixture = Fixture::new();
-    fixture.scripted_gh(&[page_step(
-        "repos/example/repo/actions/runs?per_page=100",
-        json!([{"workflow_runs":[]}]),
+    fixture.scripted_gh(&[step(
+        api_args("repos/example/repo/actions/runs?per_page=100"),
+        json!({"workflow_runs":[]}),
     )]);
     assert!(matches!(
         provider(&fixture)

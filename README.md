@@ -122,6 +122,16 @@ Remote-file follow-up coverage passed 9 code/provider tests and 18 keyboard/mous
 - [Local Git operation coverage](<backlog/docs/doc-6 - Local-Git-workspace-and-operation-contract.md>)
 - [macOS/Linux curl bootstrap release contract](<backlog/docs/doc-12 - macOS-and-Linux-curl-bootstrap-release-contract.md>)
 
+## Install from source (Linux)
+
+Requires Rust 1.88+, plus `git` and an authenticated `gh` at runtime. Dependencies are vendored, so no network access is needed for the build:
+
+```sh
+cargo install --path . --locked --offline
+```
+
+That puts `ghtui` in `~/.cargo/bin`. Run it inside a Git checkout. When the checkout's `origin` (or only remote) points at your GitHub host, Actions, Search and Dashboard default to that repository; the Inbox still shows your pull requests across all repositories. Use `--repo OWNER/NAME` to choose a different repository.
+
 ## Planned installation
 
 The primary installation path will be one curl-to-Bash script for macOS and Linux, selecting the matching Intel/ARM prebuilt binary. TASK-68 covers per-user installation without sudo, checksum verification, version pinning, safe upgrades/rollback, and uninstall that preserves user data. `gh` and `git` remain external dependencies. Native package installers and background auto-updates are not required.

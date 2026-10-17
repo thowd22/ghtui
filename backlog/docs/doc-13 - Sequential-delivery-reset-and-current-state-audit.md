@@ -3,7 +3,7 @@ id: doc-13
 title: Sequential delivery reset and current-state audit
 type: guide
 created_date: '2026-10-16 23:29'
-updated_date: '2026-10-17 19:22'
+updated_date: '2026-10-17 20:11'
 ---
 # Sequential delivery reset and current-state audit
 
@@ -495,3 +495,13 @@ Task8 is Done on the approved Linux development track after review of current in
 ### 2026-10-17 — Task8 metadata-only local checkpoint
 
 Task8 exact metadata-only local checkpoint: receipt /home/admin2/CODE/ghtui/target/build/task8-final-linux-evidence-20261017.json SHAd7b7fd393a9c400cd58e5f334be171a3925bb53077f9fed174ddd24f3aecc405 verifies fresh68/12cache,20/10composer,32/10corpus,4/2SQLite,fmt/strict/audits plus explicit unchanged-code5604 global reuse. Current1532/d269ca65ed21f6d296d0ed50a1bc5b969d0c1a7b51879e46147debee8e5efa35 remains unchanged across this2-file task/Doc13 checkpoint; global executed1532/ce102c4374275cbf7967375cc1bdc3d6439145d176ca8031457c18cb5b36b582 and exact prior README successor remain separately pinned. No application/test/build or README change, no new full execution. NativeMac Task1/2/73 and downstream/release remain open, no remote/push.
+
+## 2026-10-17 — Process change: lighter gates, Linux v1 target (user decision)
+
+The user replaced the per-task ceremony above. Effective now, and superseding the "Sequential delivery policy" step 6 and the receipt practice recorded in the sections above:
+
+- Target is a **usable Linux v1**. macOS remains in product scope, but native macOS verification is deferred to later testing and is not a v1 blocker. Core daily flows take priority over niche parity.
+- Per feature: implementation plus focused `node scripts/test-task.mjs <key>` gate (nonzero code and PTY tests, keyboard and mouse).
+- Full `node scripts/test-all.mjs`, `cargo fmt --check` and strict Clippy run once per batch/milestone and before release, not per task.
+- Task notes record the change, gate command and pass counts only. No SHA source vectors, evidence receipts or separate audit receipts.
+- Host resource safety (bounded user scope, jobs=1, test threads=2, disk-backed TMPDIR) is unchanged.

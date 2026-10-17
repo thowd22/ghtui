@@ -17,8 +17,8 @@ fn initial_gates(run: &Value) -> Vec<GhStep> {
     let mut steps = initial();
     steps[2] = read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[run]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[run]}),
+        false,
     );
     steps.extend([
         read(
@@ -199,8 +199,8 @@ fn uncertain(mouse: bool) {
     steps.extend(active_account());
     steps.push(read(
         "repos/example/repo/actions/runs?per_page=100",
-        json!([{"total_count":1,"workflow_runs":[run]}]),
-        true,
+        json!({"total_count":1,"workflow_runs":[run]}),
+        false,
     ));
     steps.extend(active_account());
     let acknowledged_count = steps.len();
