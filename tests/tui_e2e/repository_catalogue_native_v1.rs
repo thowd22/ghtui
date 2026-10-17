@@ -47,7 +47,7 @@ mod remote_repository_v1;
 #[path = "repository_catalogue_scope_stops_v1.rs"]
 mod scope_stops_v1;
 #[path = "repository_catalogue_scoped_pr_read_v1.rs"]
-mod scoped_pr_read_v1;
+pub(crate) mod scoped_pr_read_v1;
 #[path = "repository_catalogue_scoped_refresh_v1.rs"]
 mod scoped_refresh_v1;
 

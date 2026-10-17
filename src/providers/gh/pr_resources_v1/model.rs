@@ -201,6 +201,67 @@ impl std::fmt::Debug for PrResourceReadV1 {
     }
 }
 impl PrResourceReadV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        let mut n = b::sum([
+            b::owner::<Self>(),
+            b::summary(&self.parent.summary)?,
+            self.parent.repository_node.capacity(),
+            match &self.parent.head_repository {
+                Some((_, node, name)) => b::strings([node, name])?,
+                None => 0,
+            },
+            b::vector(&self.files)?,
+            b::vector(&self.checks)?,
+            b::vector(&self.statuses)?,
+            self.patch.as_ref().map_or(0, Vec::capacity),
+        ])?;
+        for file in &self.files {
+            n = n.checked_add(b::strings(
+                [
+                    Some(&file.path),
+                    file.previous_path.as_ref(),
+                    file.status.as_ref(),
+                    file.blob_sha.as_ref(),
+                ]
+                .into_iter()
+                .flatten(),
+            )?)?;
+        }
+        for check in self.checks.iter().chain(&self.statuses) {
+            n = n.checked_add(b::strings(
+                [
+                    Some(&check.head_sha),
+                    check.node_id.as_ref(),
+                    check.name.as_ref(),
+                    check.status.as_ref(),
+                    check.conclusion.as_ref(),
+                    check.created_at.as_ref(),
+                    check.started_at.as_ref(),
+                    check.completed_at.as_ref(),
+                ]
+                .into_iter()
+                .flatten(),
+            )?)?;
+            if let Some(actor) = &check.actor {
+                n = n.checked_add(b::actor(actor)?)?;
+            }
+        }
+        for coverage in [
+            &self.file_coverage,
+            &self.check_coverage,
+            &self.status_coverage,
+        ] {
+            n = n.checked_add(b::lines(&coverage.reasons)?)?;
+        }
+        Some(n)
+    }
+    pub(crate) fn files_capacity_bytes_v63(&self) -> usize {
+        self.files.capacity() * std::mem::size_of::<ObservedPrFileV1>()
+    }
+    pub(crate) fn raw_patch_capacity_bytes_v63(&self) -> usize {
+        self.patch.as_ref().map_or(0, Vec::capacity)
+    }
     pub fn kind(&self) -> PrResourceKindV1 {
         self.kind
     }

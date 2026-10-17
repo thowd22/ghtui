@@ -98,6 +98,7 @@ fn action_context(head: &str, selected: bool) -> PrActionContext {
         checks: None,
         rows: vec![],
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     });
     PrActionContext::from_workspace(

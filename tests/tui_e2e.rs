@@ -22,6 +22,8 @@ mod github;
 mod hydration_fixture;
 #[path = "tui_e2e/identity.rs"]
 mod identity;
+#[path = "support/immutable_git_v1.rs"]
+mod immutable_git_v1;
 #[path = "tui_e2e/local.rs"]
 mod local;
 #[path = "tui_e2e/local_management.rs"]
@@ -36,6 +38,10 @@ mod metrics;
 mod native_external_tools_v4;
 #[path = "tui_e2e/navigation_local_palette.rs"]
 mod navigation_local_palette;
+#[path = "tui_e2e/notifications_v63.rs"]
+mod notifications_v63;
+#[path = "support/owned_form_prose_v120.rs"]
+mod owned_form_prose_v120;
 #[path = "tui_e2e/owned_pty_cleanup_v1.rs"]
 mod owned_pty_cleanup_v1;
 #[path = "support/positive_pid_publication_v1.rs"]
@@ -52,6 +58,8 @@ mod relevance;
 mod remote_search;
 #[path = "tui_e2e/repository_catalogue_native_v1.rs"]
 mod repository_catalogue_native_v1;
+#[path = "tui_e2e/scoped_actions_owned_body_v120.rs"]
+mod scoped_actions_owned_body_v120;
 #[path = "tui_e2e/search.rs"]
 mod search;
 #[path = "tui_e2e/stash_recovery_phase_v2.rs"]

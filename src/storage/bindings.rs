@@ -184,69 +184,134 @@ impl Cache {
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let mut categories = Vec::new();
-        for category in &fence.kinds {
-            if let Some(ordinal) = mutation_ordinal {
-                let previous: Option<u64> = transaction.query_row("SELECT mutation_ordinal FROM sync_mutation_fences WHERE host=?1 AND login=?2 AND namespace=?3 AND repository=?4 AND resource=?5 AND kind=?6",params![scope.host,scope.login,namespace(fence.namespace),fence.repository.to_ascii_lowercase(),fence.resource,kind(*category)],|row|row.get(0)).optional()?;
-                if previous.is_some_and(|previous| previous >= ordinal) {
-                    continue;
-                }
-            }
-            categories.push(*category);
-        }
-        if categories.is_empty() {
-            return Ok(SyncFenceResult {
-                sources: vec![],
-                active_reservations_fenced: 0,
-            });
-        }
-        let mut sources = BTreeSet::new();
-        for category in &categories {
-            let mut statement=transaction.prepare("SELECT source FROM sync_resource_bindings WHERE host=?1 AND login=?2 AND namespace=?3 AND repository=?4 AND resource=?5 AND kind=?6 AND (?7 IS NULL OR repository_id=?7) ORDER BY source LIMIT 33")?;
-            let rows = statement.query_map(
-                params![
-                    scope.host,
-                    scope.login,
-                    namespace(fence.namespace),
-                    fence.repository.to_ascii_lowercase(),
-                    fence.resource,
-                    kind(*category),
-                    fence.repository_id
-                ],
-                |row| row.get::<_, String>(0),
-            )?;
-            for source in rows {
-                sources.insert(source?);
-                if sources.len() > 32 {
-                    bail!("Resource invalidation exceeds 32 canonical source bindings; no partial fence was applied");
-                }
-            }
-        }
+        let result = fence_in_transaction_v19(&transaction, scope, fence, mutation_ordinal)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+}
+
+/// SAME existing fence kernel. The closed Conversation terminal commit needs
+/// it inside its exact-row/fresh-publication transaction, not a second commit.
+/// This is private storage mechanics, not an arbitrary category/source grant.
+pub(super) fn fence_in_transaction_v19(
+    transaction: &rusqlite::Transaction<'_>,
+    scope: &Scope,
+    fence: &SyncFence,
+    mutation_ordinal: Option<u64>,
+) -> Result<SyncFenceResult> {
+    let prepared = prepare_fence_v19(transaction, scope, fence, mutation_ordinal)?;
+    apply_prepared_fence_v19(transaction, &prepared)?;
+    Ok(SyncFenceResult {
+        sources: prepared.sources,
+        active_reservations_fenced: prepared.active_reservations_fenced,
+    })
+}
+pub(super) struct PreparedFenceV19 {
+    scope: Scope,
+    repository: String,
+    resource: String,
+    namespace: SyncNamespace,
+    categories: Vec<SyncBindingKind>,
+    ordinal: Option<u64>,
+    sources: Vec<String>,
+    active_reservations_fenced: usize,
+}
+impl PreparedFenceV19 {
+    pub(super) fn actually_fences(&self) -> bool {
+        !self.categories.is_empty()
+    }
+}
+/// Read/allocate this only BEFORE final UID. The closed caller separately
+/// captures exact row-set predicates, so apply cannot fence a newer hydration.
+pub(super) fn prepare_fence_v19(
+    transaction: &rusqlite::Transaction<'_>,
+    scope: &Scope,
+    fence: &SyncFence,
+    mutation_ordinal: Option<u64>,
+) -> Result<PreparedFenceV19> {
+    positive_scope(scope)?;
+    validate_fence(fence)?;
+    if mutation_ordinal.is_some_and(|n| n == 0 || n > i64::MAX as u64) {
+        bail!("Confirmed invalidation needs a positive bounded publication attempt");
+    }
+    let mut categories = Vec::new();
+    for category in &fence.kinds {
         if let Some(ordinal) = mutation_ordinal {
-            for category in &categories {
-                transaction.execute("INSERT INTO sync_mutation_fences VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(host,login,namespace,repository,resource,kind) DO UPDATE SET mutation_ordinal=excluded.mutation_ordinal",params![scope.host,scope.login,namespace(fence.namespace),fence.repository.to_ascii_lowercase(),fence.resource,kind(*category),ordinal])?;
+            let previous: Option<u64> = transaction.query_row("SELECT mutation_ordinal FROM sync_mutation_fences WHERE host=?1 AND login=?2 AND namespace=?3 AND repository=?4 AND resource=?5 AND kind=?6",params![scope.host,scope.login,namespace(fence.namespace),fence.repository.to_ascii_lowercase(),fence.resource,kind(*category)],|row|row.get(0)).optional()?;
+            if previous.is_some_and(|previous| previous >= ordinal) {
+                continue;
             }
         }
-        let active_reservations_fenced: usize = transaction.query_row(
+        categories.push(*category);
+    }
+    let repository = fence.repository.to_ascii_lowercase();
+    let mut sources = BTreeSet::new();
+    for category in &categories {
+        let mut statement=transaction.prepare("SELECT source FROM sync_resource_bindings WHERE host=?1 AND login=?2 AND namespace=?3 AND repository=?4 AND resource=?5 AND kind=?6 AND (?7 IS NULL OR repository_id=?7) ORDER BY source LIMIT 33")?;
+        let rows = statement.query_map(
+            params![
+                scope.host,
+                scope.login,
+                namespace(fence.namespace),
+                repository,
+                fence.resource,
+                kind(*category),
+                fence.repository_id
+            ],
+            |row| row.get::<_, String>(0),
+        )?;
+        for source in rows {
+            sources.insert(source?);
+            if sources.len() > 32 {
+                bail!("Resource invalidation exceeds 32 canonical source bindings; no partial fence was applied");
+            }
+        }
+    }
+    let active_reservations_fenced: usize = if categories.is_empty() {
+        0
+    } else {
+        transaction.query_row(
             "SELECT COUNT(*) FROM sync_reservations WHERE host=?1 AND login=?2 AND active=1",
             params![scope.host, scope.login],
             |row| row.get(0),
-        )?;
-        // This also fences unbound search-index:<context> tokens derived from old text.
-        Cache::fence_reservations(&transaction, scope)?;
-        transaction.execute(
-            "UPDATE sync_resource_bindings SET active=0 WHERE host=?1 AND login=?2",
-            params![scope.host, scope.login],
-        )?;
-        for source in &sources {
-            transaction.execute("UPDATE sync_resource_bindings SET visible_generation=NULL WHERE host=?1 AND login=?2 AND source=?3",params![scope.host,scope.login,source])?;
-        }
-        transaction.commit()?;
-        Ok(SyncFenceResult {
-            sources: sources.into_iter().collect(),
-            active_reservations_fenced,
-        })
+        )?
+    };
+    Ok(PreparedFenceV19 {
+        scope: scope.clone(),
+        repository,
+        resource: fence.resource.clone(),
+        namespace: fence.namespace,
+        categories,
+        ordinal: mutation_ordinal,
+        sources: sources.into_iter().collect(),
+        active_reservations_fenced,
+    })
+}
+/// Fixed SQL over already captured borrowed keys only. No source/body/JSON
+/// materialization follows the original UID in the closed Conversation path.
+pub(super) fn apply_prepared_fence_v19(
+    transaction: &rusqlite::Transaction<'_>,
+    prepared: &PreparedFenceV19,
+) -> Result<()> {
+    if !prepared.actually_fences() {
+        return Ok(());
     }
+    let scope = &prepared.scope;
+    if let Some(ordinal) = prepared.ordinal {
+        for category in &prepared.categories {
+            transaction.execute("INSERT INTO sync_mutation_fences VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(host,login,namespace,repository,resource,kind) DO UPDATE SET mutation_ordinal=excluded.mutation_ordinal",params![scope.host,scope.login,namespace(prepared.namespace),prepared.repository,prepared.resource,kind(*category),ordinal])?;
+        }
+    }
+    // This also fences unbound search-index:<context> tokens derived from old text.
+    Cache::fence_reservations(transaction, scope)?;
+    transaction.execute(
+        "UPDATE sync_resource_bindings SET active=0 WHERE host=?1 AND login=?2",
+        params![scope.host, scope.login],
+    )?;
+    for source in &prepared.sources {
+        transaction.execute("UPDATE sync_resource_bindings SET visible_generation=NULL WHERE host=?1 AND login=?2 AND source=?3",params![scope.host,scope.login,source])?;
+    }
+    Ok(())
 }
 
 fn positive_scope(scope: &Scope) -> Result<()> {

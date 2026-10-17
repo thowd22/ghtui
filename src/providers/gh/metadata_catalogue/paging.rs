@@ -28,7 +28,48 @@ pub(super) fn collect(
     limits: &PrMetadataReadLimits,
     cancel: &CancellationToken,
 ) -> GithubResult<(Vec<Value>, MetricsReadCoverage)> {
-    let before_bytes = budget.bytes;
+    collect_reader_v48(
+        provider,
+        &mut CataloguePageReaderV48::Legacy(budget),
+        repo,
+        kind,
+        limits,
+        cancel,
+    )
+}
+
+pub(super) enum CataloguePageReaderV48<'a> {
+    Legacy(&'a mut MetricsBudget),
+    Original(super::original_members_v48::MemberPageCaptureV48<'a>),
+}
+impl CataloguePageReaderV48<'_> {
+    fn stdout_bytes(&self) -> usize {
+        match self {
+            Self::Legacy(budget) => budget.bytes,
+            Self::Original(budget) => budget.stdout_bytes(),
+        }
+    }
+    fn read_document(
+        &mut self,
+        provider: &GithubProvider,
+        endpoint: &str,
+        cancel: &CancellationToken,
+    ) -> GithubResult<Value> {
+        match self {
+            Self::Legacy(budget) => budget.read_document(provider, endpoint, cancel),
+            Self::Original(budget) => budget.read(provider, endpoint, cancel),
+        }
+    }
+}
+pub(super) fn collect_reader_v48(
+    provider: &GithubProvider,
+    reader: &mut CataloguePageReaderV48<'_>,
+    repo: &str,
+    kind: MetadataChoices,
+    limits: &PrMetadataReadLimits,
+    cancel: &CancellationToken,
+) -> GithubResult<(Vec<Value>, MetricsReadCoverage)> {
+    let before_bytes = reader.stdout_bytes();
     let mut coverage = MetricsReadCoverage {
         enumeration_complete: false,
         metric_evidence_complete: true,
@@ -57,13 +98,15 @@ pub(super) fn collect(
         let separator = if base.contains('?') { '&' } else { '?' };
         let endpoint = format!("{base}{separator}per_page={}&page={page}", limits.page_size);
         coverage.requested_pages += 1;
-        let document = match budget.read_document(provider, &endpoint, cancel) {
+        let document = match reader.read_document(provider, &endpoint, cancel) {
             Ok(value) => value,
             Err(failure) => {
                 if matches!(
                     failure.kind,
                     GithubErrorKind::Authentication | GithubErrorKind::IdentityChanged
-                ) {
+                ) || matches!(reader, CataloguePageReaderV48::Original(_))
+                    && matches!(failure.kind, GithubErrorKind::OutputLimit)
+                {
                     return Err(failure);
                 }
                 coverage.metric_evidence_complete = false;
@@ -160,7 +203,7 @@ pub(super) fn collect(
             break;
         }
     }
-    coverage.response_bytes = budget.bytes - before_bytes;
+    coverage.response_bytes = reader.stdout_bytes() - before_bytes;
     coverage.admitted_rows = rows.len();
     if !coverage.enumeration_complete {
         coverage.metric_evidence_complete = false;

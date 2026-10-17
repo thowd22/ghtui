@@ -9,12 +9,26 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "runner_issue_link_v87.rs"]
+mod issue_link_v87;
+#[path = "runner/notification_conditional_v63.rs"]
+mod notification_conditional_v63;
+#[path = "runner_notification_recovery_v63.rs"]
+mod notification_recovery_v63;
 #[path = "runner_review_recovery_v11.rs"]
 mod review_recovery_v11;
+pub(in crate::providers) use issue_link_v87::IssueLinkMutationRunV87;
 #[path = "scoped_read_budget_v1.rs"]
 mod scoped_read_budget_v1;
+#[path = "runner/workflow_branch_v9.rs"]
+mod workflow_branch_v9;
+#[path = "runner/workflow_environment_v9.rs"]
+mod workflow_environment_v9;
+pub(crate) use notification_conditional_v63::NotificationConditionalOutputV63;
 pub use scoped_read_budget_v1::ScopedReadAccountingV1;
 pub(crate) use scoped_read_budget_v1::ScopedReadBudgetV1;
+pub use workflow_environment_v9::initialize_workflow_environment_v9;
+pub(crate) use workflow_environment_v9::WorkflowProcessEnvironmentV9;
 
 #[derive(Clone, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
@@ -59,6 +73,13 @@ pub struct CommandSpec {
     pub(crate) original_read_cancellation: Option<CancellationToken>,
     /// Values to remove from diagnostic output; stdin and environment are never logged.
     pub sensitive_values: Vec<String>,
+    /// Restriction-only child creation mask. Only the actual fixed W9
+    /// Worktree planner can mint this private marker; old specs remain None.
+    pub(crate) workflow_worktree_mask_v9:
+        Option<Arc<crate::git::workflow_edit_v9::WorkflowWorktreeMaskV9>>,
+    /// Only actual fixed W9 Git factories can mint this sealed replay token.
+    pub(crate) workflow_environment_v9:
+        Option<Arc<crate::git::workflow_edit_v9::WorkflowGitEnvironmentV9>>,
 }
 impl CommandSpec {
     pub fn new(program: impl Into<OsString>) -> Self {
@@ -77,6 +98,8 @@ impl CommandSpec {
             scoped_read_budget: None,
             original_read_cancellation: None,
             sensitive_values: Vec::new(),
+            workflow_worktree_mask_v9: None,
+            workflow_environment_v9: None,
         }
     }
     pub fn args<I, S>(mut self, args: I) -> Self
@@ -243,6 +266,18 @@ impl CommandRunner {
         Arc::ptr_eq(&self.state, &other.state)
     }
     pub fn run(&self, spec: CommandSpec, cancellation: &CancellationToken) -> RunResult {
+        if let Some(environment) = &spec.workflow_environment_v9 {
+            environment
+                .validate_runner_v9(self)
+                .and_then(|_| environment.validate_spec_v9(&spec, cancellation))
+                .map_err(|_| {
+                    failure(
+                        FailureKind::ReconciliationRequired,
+                        "Original W9 producer/spec changed; no child launched",
+                        false,
+                    )
+                })?;
+        }
         if let Some(budget) = spec.scoped_read_budget.clone() {
             return budget.run(spec, cancellation);
         }
@@ -456,7 +491,21 @@ fn failure(kind: FailureKind, message: impl Into<String>, unknown: bool) -> Comm
 fn execute(
     spec: &CommandSpec,
     cancellation: &CancellationToken,
+    measured: Option<&mut scoped_read_budget_v1::ReadCaptureClaimV1>,
+) -> RunResult {
+    execute_mode_v63(spec, cancellation, measured, ExecutePolicyV63::Strict)
+}
+#[derive(Clone, Copy)]
+enum ExecutePolicyV63 {
+    Strict,
+    NotificationConditionalGet,
+    WorkflowBranchGetV9,
+}
+fn execute_mode_v63(
+    spec: &CommandSpec,
+    cancellation: &CancellationToken,
     mut measured: Option<&mut scoped_read_budget_v1::ReadCaptureClaimV1>,
+    policy: ExecutePolicyV63,
 ) -> RunResult {
     if cancellation.is_cancelled()
         || spec
@@ -477,6 +526,18 @@ fn execute(
             false,
         ));
     }
+    // Validate before Command/env/CString copies or Worktree pre_exec setup.
+    if let Some(environment) = &spec.workflow_environment_v9 {
+        environment
+            .validate_spec_v9(spec, cancellation)
+            .map_err(|_| {
+                failure(
+                    FailureKind::ReconciliationRequired,
+                    "Original private W9 Git command changed; no child launched",
+                    false,
+                )
+            })?;
+    }
     let start = Instant::now();
     let mut command = Command::new(&spec.program);
     command
@@ -487,14 +548,43 @@ fn execute(
     if let Some(cwd) = &spec.cwd {
         command.current_dir(cwd);
     }
-    if spec.clear_env {
-        command.env_clear();
+    if let Some(environment) = &spec.workflow_environment_v9 {
+        environment
+            .configure_command_v9(spec, cancellation, &mut command)
+            .map_err(|_| {
+                failure(
+                    FailureKind::ReconciliationRequired,
+                    "Original private W9 Git environment unavailable; no child launched",
+                    false,
+                )
+            })?;
+    } else {
+        if spec.clear_env {
+            command.env_clear();
+        }
+        command.envs(&spec.env);
     }
-    command.envs(&spec.env);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+        if let Some(mask) = &spec.workflow_worktree_mask_v9 {
+            mask.validate_spec_v9(spec, cancellation).map_err(|_| {
+                failure(
+                    FailureKind::ReconciliationRequired,
+                    "Original private Worktree command identity changed; no child launched",
+                    false,
+                )
+            })?;
+            // ONLY this marked child, after fork and before exec. umask is
+            // async-signal-safe; the parent's process-wide mask is untouched.
+            unsafe {
+                command.pre_exec(|| {
+                    libc::umask(0o077);
+                    Ok(())
+                });
+            }
+        }
     }
     // Original cancellation may occur during process setup, before spawn.
     if cancellation.is_cancelled()
@@ -617,7 +707,7 @@ fn execute(
     let _ = input_thread.join();
     let mut stdout = stdout_thread.join().unwrap_or_default();
     let captured_stdout_bytes = stdout.len();
-    if !spec.sensitive_values.is_empty() {
+    if matches!(policy, ExecutePolicyV63::Strict) && !spec.sensitive_values.is_empty() {
         stdout = redact(&String::from_utf8_lossy(&stdout), &spec.sensitive_values).into_bytes();
     }
     let raw_stderr = stderr_thread.join().unwrap_or_default();
@@ -655,7 +745,12 @@ fn execute(
             outcome_unknown: unknown,
         });
     }
-    if exit_code != 0 {
+    if exit_code != 0
+        && !(matches!(
+            policy,
+            ExecutePolicyV63::NotificationConditionalGet | ExecutePolicyV63::WorkflowBranchGetV9
+        ) && exit_code == 1)
+    {
         return Err(CommandFailure {
             kind: FailureKind::Exit,
             message: format!(

@@ -1,6 +1,7 @@
 //! Typed Actions forms and effect previews. No arbitrary gh/API/JSON command execution.
 use super::*;
 use std::{collections::BTreeMap, path::PathBuf};
+mod native_dispatch_v7;
 mod publication;
 pub use publication::*;
 mod publication_execution;
@@ -46,6 +47,27 @@ impl ActionsCommand {
     }
 }
 impl ActionsWorkspace {
+    /// ONE schema for existing legacy Forms and closed original-run Forms.
+    /// This is presentation, never target/permission or confirmation authority.
+    pub(crate) fn original_run_fields_v4(command: ActionsCommand) -> Option<Vec<ActionsField>> {
+        use ActionsCommand::*;
+        match command {
+            Cancel | DeleteRun | DeleteLogs => Some(vec![]),
+            ForceCancel => Some(vec![choice(
+                "force_ack",
+                "Escalate force cancellation (bypasses always conditions)?",
+                "false",
+                &["false", "true"],
+            )]),
+            RerunAll | RerunFailed | RerunJob => Some(vec![choice(
+                "debug",
+                "Enable debug logging?",
+                "false",
+                &["false", "true"],
+            )]),
+            _ => None,
+        }
+    }
     /// Draft identity uses typed IDs and immutable comparison context, never display rows.
     pub fn resource_key(&self, command: ActionsCommand) -> GithubResult<String> {
         use ActionsCommand::*;
@@ -247,12 +269,9 @@ impl ActionsWorkspace {
                     self.cache_ref.as_deref().unwrap_or(""),
                 ),
             ],
-            RerunAll | RerunFailed | RerunJob => vec![choice(
-                "debug",
-                "Enable debug logging?",
-                "false",
-                &["false", "true"],
-            )],
+            RerunAll | RerunFailed | RerunJob => {
+                Self::original_run_fields_v4(command).expect("closed rerun schema")
+            }
             EnableWorkflow | DisableWorkflow | Cancel | ForceCancel | DeleteRun | DeleteLogs
             | ApproveFork => vec![],
             DispatchWorkflow => {
@@ -727,7 +746,7 @@ enum ActionsOperation {
         observed: RunnerGroup,
     },
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ActionsPlan {
     pub command: ActionsCommand,
     pub identity: HostIdentity,
@@ -735,6 +754,17 @@ pub struct ActionsPlan {
     pub target: Option<ActionsTarget>,
     workspace: ActionsWorkspace,
     operation: ActionsOperation,
+}
+impl std::fmt::Debug for ActionsPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActionsPlan")
+            .field("command", &self.command)
+            .field(
+                "content",
+                &"[REDACTED workspace/definition/inputs/operation]",
+            )
+            .finish()
+    }
 }
 #[derive(Clone, Debug)]
 pub struct ActionsOutcome {

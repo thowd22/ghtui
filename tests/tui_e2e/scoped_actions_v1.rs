@@ -1,9 +1,21 @@
 //! Actual binary, real Git/SQLite, strict offline GH. ALL declarations UNRUN.
 use super::*;
+#[path = "scoped_actions_control_v5.rs"]
+mod control_v5;
+#[path = "scoped_actions_dispatch_v7.rs"]
+mod dispatch_v7;
+#[path = "scoped_actions_publication_v3.rs"]
+mod publication_v3;
 #[path = "scoped_actions_read_v2.rs"]
 mod read_v2;
+#[path = "scoped_actions_rerun_v4.rs"]
+mod rerun_v4;
 #[path = "scoped_actions_resources_v2.rs"]
 mod resources_v2;
+#[path = "scoped_actions_workflow_edit_v9.rs"]
+mod task54_workflow_edit_v9;
+#[path = "scoped_actions_workflow_v6.rs"]
+mod workflow_v6;
 use crate::support::owned_pty_processes_v1::{process_identity, ProcessIdentity};
 const H: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 fn fresh_run(name: &str) -> Value {
@@ -206,7 +218,7 @@ fn open_run(session: &mut Session, fixture: &Fixture, mouse: bool, count: usize,
     session.wait_for_command_count(fixture, count);
     complete(session, after, &["Run 123", "attempt 2", H, name, "alice"]);
 }
-fn selected_row(session: &mut Session, mouse: bool, label: &str) {
+pub(crate) fn selected_row(session: &mut Session, mouse: bool, label: &str) {
     if mouse {
         session.click_visible_action(label);
         return;
@@ -575,9 +587,9 @@ fn drift(mouse: bool) {
 fn disabled_write(session: &mut Session, mouse: bool) {
     let after = session.completed_cursorless_end();
     if mouse {
-        session.activate_completed_actions_control(true, "Rerun all jobs", b"");
+        session.activate_completed_actions_control(true, "Approve fork run", b"");
     } else {
-        session.focus_completed_actions_control_v2("Rerun all jobs");
+        session.focus_completed_actions_control_v2("Approve fork run");
         session.send_key(b"\r");
     }
     session.wait_for_new_cursorless_condition(
@@ -586,7 +598,7 @@ fn disabled_write(session: &mut Session, mouse: bool) {
             // The real narrow modal hard-wraps the warning mid-word. Require
             // BOTH literal observations inside that same completed modal,
             // not a contiguous phrase borrowed from its covered parent.
-            ["Rerun all jobs:", "current-ID adapter;", "[Esc Close]"]
+            ["Approve fork run:", "current-ID adapter;", "[Esc Close]"]
                 .iter()
                 .all(|label| {
                     crate::support::completed_navigation_controls_v1::owned_action_position(

@@ -3,8 +3,10 @@
 //! exclusive Cargo/native gate. Original source metadata is never a permission
 //! receipt, and the existing one-child Actions pagination is explicitly counted.
 use super::*;
+#[path = "scoped_actions_physical_slot_v65.rs"]
+mod physical_slot_v65;
 #[path = "scoped_actions_v1.rs"]
-mod scoped_actions_v1;
+pub(crate) mod scoped_actions_v1;
 
 const CURRENT: &str = "example/ci";
 const INTENT_CANARY: &str = "catalogue-actions-observed-intent";

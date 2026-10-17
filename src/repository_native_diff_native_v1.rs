@@ -34,6 +34,7 @@ pub(crate) trait NativeAppV2: NativeDiffPurposeV2 {
     fn preview(app: &mut App);
     fn comment(_app: &mut App) {}
     fn threads(_app: &mut App) {}
+    fn file_comment_v75(_app: &mut App) {}
     fn thread_back_v4(_app: &mut App) {}
     fn newer_native_input_v4(_app: &mut App) {}
     fn state(app: &App) -> Option<&NativeDiffStateV1<Self>>;
@@ -159,10 +160,14 @@ pub fn synchronize_pr_source_v1(app: &mut App) {
         .and_then(|state| state.source())
         .map(|source| {
             let proof = source.proof();
-            (proof.source.clone(), proof.active.clone())
+            (
+                proof.source.clone(),
+                proof.active.clone(),
+                proof.navigation.clone(),
+            )
         });
-    if original.is_some_and(|(source, active)| {
-        crate::remote_scope_gate_v1::retire_original_account_mismatch(app, &source, &active)
+    if original.is_some_and(|(source, active, navigation)| {
+        source.retire_account_mismatch_v14(app, &active, &navigation)
     }) {
         retire_for::<crate::scoped_pr_native_diff_source_v1::ScopedPrNativeSourceV1>(app);
     } else {
@@ -337,6 +342,10 @@ fn dispatch_for<S: NativeAppV2>(app: &mut App, action: A<S>) {
     }
     if action == A::Threads {
         S::threads(app);
+        return;
+    }
+    if action == A::FileCommentV75 {
+        S::file_comment_v75(app);
         return;
     }
     if action == A::CancelInline {

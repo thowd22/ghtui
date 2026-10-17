@@ -29,11 +29,11 @@ impl Held {
         assert_eq!(unsafe { libc::kill(self.pid, signal) }, 0);
     }
     fn stop(session: &mut Session, fixture: &Fixture, steps: &[GhStep]) -> Self {
-        session.wait_for_command_count(fixture, 16);
-        let journal = records(session, fixture, 16);
-        assert_eq!(journal[15]["matched"], true);
-        assert_eq!(journal[15]["args"], json!(steps[15].args));
-        let pid = i32::try_from(journal[15]["pid"].as_u64().unwrap()).unwrap();
+        session.wait_for_command_count(fixture, 19);
+        let journal = records(session, fixture, 19);
+        assert_eq!(journal[18]["matched"], true);
+        assert_eq!(journal[18]["args"], json!(steps[18].args));
+        let pid = i32::try_from(journal[18]["pid"].as_u64().unwrap()).unwrap();
         assert!(pid > 0 && pid != std::process::id() as i32);
         let owner = OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
         let identity = process_identity(pid)
@@ -90,16 +90,44 @@ fn journey(mouse: bool) {
         .map(|n| format!("Summary original line {n:02}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let original = target("Native collaboration", &body, "main");
+    let mut original = target("Native collaboration", &body, "main");
+    original["url"] = json!("https://github.invalid/api/v3/repos/example/repo/pulls/7");
+    original["milestone"]["id"] = json!(5);
+    let mut linked = issue();
+    linked["milestone"]["id"] = json!(5);
+    for field in ["title", "body", "state", "user"] {
+        linked[field] = original[field].clone();
+    }
+    assert_ne!(original["id"], linked["id"]);
+    assert_ne!(original["node_id"], linked["node_id"]);
     let mut steps = at_target(initial(), &original);
     steps.extend(at_target(details(vec![starter()]), &original));
-    steps.extend(metadata(&original));
-    assert_eq!(steps.len(), 18);
-    assert!(steps[15]
+    let before_metadata = steps.len();
+    steps.extend(identity());
+    steps.push(step("repos/example/repo", "GET", repository(), false));
+    steps.push(step(
+        "repos/example/repo/pulls/7",
+        "GET",
+        original.clone(),
+        false,
+    ));
+    steps.push(step("repos/example/repo/issues/7", "GET", linked, false));
+    steps.push(step("repos/example/repo", "GET", repository(), false));
+    steps.push(step(
+        "repos/example/repo/pulls/7",
+        "GET",
+        original.clone(),
+        false,
+    ));
+    steps.push(step("repos/example/repo", "GET", repository(), false));
+    steps.extend(identity());
+    assert_eq!(steps.len() - before_metadata, 10);
+    assert_eq!(steps.len(), 24);
+    assert!(steps[18]
         .args
         .iter()
         .any(|a| a == "repos/example/repo/issues/7"));
-    steps[15].delay_ms = 3000;
+    steps[18].delay_ms = 3000;
     fixture.scripted_gh(&steps);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
@@ -119,13 +147,17 @@ fn journey(mouse: bool) {
     }
     session.wait_for_command_count(&fixture, 14);
     session.wait_for_screen("[o Summary]");
+    let before_summary = session.completed_cursorless_end();
     choose(&mut session, mouse, "[o Summary]", b"o");
-    session.wait_for_cursorless_condition(
+    session.wait_for_new_cursorless_condition(
+        before_summary,
         |frame| {
-            frame.contents().contains("Summary original line 00")
+            crate::support::main_footer_visible(frame)
+                && frame.contents().contains("Summary original line 00")
+                && !frame.contents().contains("Verifying original")
                 && !frame.contents().contains("[Esc Cancel]")
         },
-        "Actual original Summary before tab request",
+        "NEW completed idle original Summary before the next single tab input",
         Duration::from_secs(8),
     );
     let before = sql(&fixture);
@@ -146,11 +178,11 @@ fn journey(mouse: bool) {
         "Original Summary visibly scrolled while real Metadata child held",
         Duration::from_secs(8),
     );
-    assert_eq!(records(&mut session, &fixture, 16).len(), 16);
+    assert_eq!(records(&mut session, &fixture, 19).len(), 19);
     assert_eq!(sql(&fixture), before);
     let previous = session.completed_cursorless_end();
     held.release();
-    session.wait_for_command_count(&fixture, 18);
+    session.wait_for_command_count(&fixture, 24);
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         session.poll_output(Duration::from_millis(5));
@@ -192,8 +224,8 @@ fn journey(mouse: bool) {
     preserve_git(&fixture, &head, &index, &status);
     assert!(receipts(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
-    let journal = observed_requests(&mut session, &fixture, 18);
-    assert_eq!(journal.len(), 18);
+    let journal = observed_requests(&mut session, &fixture, 24);
+    assert_eq!(journal.len(), 24);
     for (row, step) in journal.iter().zip(&steps) {
         assert_eq!(row["args"], json!(step.args));
         assert_eq!(row["matched"], true);

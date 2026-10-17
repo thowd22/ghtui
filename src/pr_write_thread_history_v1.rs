@@ -349,6 +349,11 @@ impl PrWriteJournal {
         origin: Option<ObservedOriginV2<'_>>,
     ) -> Result<PrWritePermit> {
         let digest = intent.digest()?;
+        if state_origin_v68::recognized(&intent.command, &intent.selected_resource)
+            != matches!(&origin, Some(ObservedOriginV2::StateV68(_)))
+        {
+            bail!("Known State request requires its exact genuine observed State origin");
+        }
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -357,6 +362,25 @@ impl PrWriteJournal {
         }
         if let Some(ObservedOriginV2::ReviewActionV12(seed)) = &origin {
             review_action_lineage_v12::validate_begin(&transaction, &self.path, target, seed)?;
+        }
+        if let Some(ObservedOriginV2::ConversationActionV18(seed)) = &origin {
+            conversation_action_lineage_v18::validate_begin(
+                &transaction,
+                &self.path,
+                target,
+                seed,
+            )?;
+        }
+        if let Some(ObservedOriginV2::MetadataMembersV48(seed)) = &origin {
+            metadata_members_v48::validate_begin(&transaction, &self.path, target, seed)?;
+        }
+        if let Some(ObservedOriginV2::StateV68(seed)) = &origin {
+            state_origin_v68::lineage_v68::validate_begin(&transaction, &self.path, target, seed)?;
+        }
+        if let Some(ObservedOriginV2::IssueLinkV87(seed)) = &origin {
+            issue_link_origin_v87::validate_begin(&transaction, &self.path, target, seed)?;
+        } else if issue_link_origin_v87::recognized(&intent.command) {
+            bail!("Known Issue-link purpose requires its actual native producer; no originless fallback");
         }
         advance(&transaction, target)?;
         let created_at = now();
@@ -393,6 +417,30 @@ impl PrWriteJournal {
             }
             Some(ObservedOriginV2::ReviewActionV12(seed)) => {
                 review_action_lineage_v12::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::FileCommentV75(seed)) => {
+                file_comment_history_v75::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::ConversationV17(seed)) => {
+                conversation_history_v17::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::ConversationActionV18(seed)) => {
+                conversation_action_lineage_v18::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::MetadataTextV25(seed)) => {
+                metadata_origin_v25::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::MetadataMembersV48(seed)) => {
+                metadata_members_v48::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::MetadataBaseV32(seed)) => {
+                metadata_base_origin_v32::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::StateV68(seed)) => {
+                state_origin_v68::insert(&transaction, seed, &marker)?
+            }
+            Some(ObservedOriginV2::IssueLinkV87(seed)) => {
+                issue_link_origin_v87::insert(&transaction, seed, &marker)?
             }
             _ => {}
         }

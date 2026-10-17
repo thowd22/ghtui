@@ -172,6 +172,87 @@ fn read(app: &App) -> &crate::providers::gh::PrCheckAnnotationsReadV2 {
         .unwrap()
 }
 #[test]
+fn task54_workflow_edit_v9_genuine_pr_graph_retains_actual_log_annotation_and_choice_capacities() {
+    use crate::pr_checks_native::scoped::actions_origin_v2::ScopedPrActionsOriginV2;
+    let mut row = annotation_row();
+    let details = "ACTUAL_PRIVATE_ANNOTATION_GRAPH".repeat(1024);
+    row["raw_details"] = json!(details);
+    let logs = "ACTUAL_PRIVATE_LOG_GRAPH\n".repeat(2048);
+    let mut op = log_steps(&logs);
+    op.extend(annotations(501, vec![row], Some(1)));
+    let (f, steps) = script(op);
+    let p = provider(&f);
+    let mut app = captured(&f, &p, 501);
+    let original = app.remote_scope_source.as_ref().unwrap().clone();
+    let before = sql_state(&f);
+    let git = git_state_resource(&f);
+    let log_origin = ScopedPrActionsOriginV2::capture(&app).unwrap();
+    let log_graph = log_origin.workflow_owned_bytes_v9().unwrap();
+    assert_eq!(
+        app.pr_checks_route
+            .as_ref()
+            .unwrap()
+            .loaded_capture_v2()
+            .unwrap()
+            .logs(),
+        logs
+    );
+    let prepared = complete(
+        &mut app,
+        &f,
+        &p,
+        ActionsAction::Annotations(501),
+        &Default::default(),
+    );
+    finish(&mut app, prepared);
+    let route = app.pr_checks_route.as_ref().unwrap().clone();
+    assert!(
+        route.loaded_capture_v2().is_some(),
+        "Actual same-attempt logs remain retained"
+    );
+    let annotation = route.annotations_v2().unwrap();
+    assert_eq!(annotation.rows()[0].details(), Some(details.as_str()));
+    let visible: usize = annotation
+        .rows()
+        .iter()
+        .map(|r| {
+            r.prepared_display()
+                .iter()
+                .map(String::capacity)
+                .sum::<usize>()
+                + std::mem::size_of_val(r.prepared_display())
+        })
+        .sum();
+    let origin = ScopedPrActionsOriginV2::capture(&app).unwrap();
+    let counts = (Arc::strong_count(&original), Arc::strong_count(&route));
+    let commands = fs::read(f.root.join("gh-fixture/commands.jsonl")).unwrap();
+    let graph = origin.workflow_owned_bytes_v9().unwrap();
+    assert!(graph >= log_graph + details.len() + visible);
+    assert!(
+        graph
+            >= annotation.workflow_owned_bytes_v9().unwrap()
+                + route
+                    .loaded_capture_v2()
+                    .unwrap()
+                    .workflow_owned_bytes_v9()
+                    .unwrap()
+                + route.observation().workflow_owned_bytes_v9().unwrap()
+    );
+    assert_eq!(
+        counts,
+        (Arc::strong_count(&original), Arc::strong_count(&route))
+    );
+    assert!(Arc::ptr_eq(
+        app.remote_scope_source.as_ref().unwrap(),
+        &original
+    ));
+    assert_eq!(
+        fs::read(f.root.join("gh-fixture/commands.jsonl")).unwrap(),
+        commands
+    );
+    read_only(&f, &before, &git, &steps);
+}
+#[test]
 fn continued_annotations_actual_matched_job20_current_location_not_canonical_range() {
     let (f, s) = script(annotations(501, vec![annotation_row()], Some(1)));
     let p = provider(&f);

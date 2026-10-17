@@ -5,7 +5,12 @@ pub(super) fn only_threads(p: &PreparedView) -> bool {
     if p.scoped_actions_v1.is_some() {
         return false;
     }
+    if p.notifications_v63.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_pr_collaboration_v17,
+        notifications_v63: _,
         scoped_actions_v1: _,
         scoped_reviews_v2,
         scoped_threads_v1,
@@ -60,6 +65,7 @@ pub(super) fn only_threads(p: &PreparedView) -> bool {
     scoped_threads_v1.is_some()
         && scoped_reviews_v2.is_none()
         && scoped_inline_v1.is_none()
+        && scoped_pr_collaboration_v17.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
         && original_diff_result_v1.is_none()
@@ -150,20 +156,33 @@ impl Background {
             return false;
         }
         let intent = &owner.intent;
-        if crate::remote_scope_gate_v1::stop_before_fallback(Some(intent.active())).is_some() {
+        if intent.read_origin().is_some_and(|(_, active, _)| {
+            crate::remote_scope_gate_v1::stop_before_fallback(Some(active)).is_some()
+        }) {
             return false;
         }
+        let original = if let Some((source, active, navigation)) = intent.read_origin() {
+            ScopedRemoteOriginalV13::Read {
+                scope: active.clone(),
+                source: source.clone(),
+                navigation: navigation.clone(),
+            }
+        } else if let Some(original) = intent.personal_summary() {
+            ScopedRemoteOriginalV13::PersonalSummary(original.clone())
+        } else {
+            return false;
+        };
         self.cancel(View::Inbox);
         self.generation += 1;
         let generation = self.generation;
         app.scoped_threads_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: None,
             reviews_v2: None,
             pr_native_diff_v1: None,
-            scope: intent.active().clone(),
-            source: intent.source().clone(),
-            navigation: Some(intent.navigation().clone()),
+            original,
             check_origin: None,
             continuation_v2: None,
             inline_v1: None,

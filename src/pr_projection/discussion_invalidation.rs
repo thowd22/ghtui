@@ -292,6 +292,9 @@ pub fn confirmed_discussion_impact(
 ) -> Result<PrDiscussionImpact, String> {
     let key = PrWriteTarget::new(identity, target).map_err(|error| error.to_string())?;
     let journal = PrWriteJournal::open(database).map_err(|error| error.to_string())?;
+    journal
+        .reject_non_state_cache_reference_v74(&key, publication)
+        .map_err(|e| e.to_string())?;
     let marker = journal
         .confirmed_publication(&key, publication)
         .map_err(|error| error.to_string())?
@@ -307,6 +310,9 @@ pub fn confirmed_discussion_impact(
                 .into(),
         );
     }
+    journal
+        .reject_non_state_cache_repair_v74(&marker)
+        .map_err(|e| e.to_string())?;
     let categories = impact_categories(&marker)?;
     super::review_operation_impact_v3::validate_original(&marker, &journal, &key)?;
     Ok(PrDiscussionImpact {
@@ -363,6 +369,9 @@ pub fn invalidate_unresolved_discussions(
 ) -> Result<Option<SyncFenceResult>, String> {
     let key = PrWriteTarget::new(identity, target).map_err(|error| error.to_string())?;
     let journal = PrWriteJournal::open(database).map_err(|error| error.to_string())?;
+    journal
+        .reject_non_state_cache_reference_v74(&key, publication)
+        .map_err(|e| e.to_string())?;
     let marker = journal
         .blocking(&key)
         .map_err(|error| error.to_string())?
@@ -375,6 +384,9 @@ pub fn invalidate_unresolved_discussions(
                     .eq_ignore_ascii_case(key.repository())
         })
         .ok_or("No exact original unresolved publication authorizes a possible-text fence")?;
+    journal
+        .reject_non_state_cache_repair_v74(&marker)
+        .map_err(|e| e.to_string())?;
     let categories = possible_text_categories(&marker)?;
     super::review_operation_impact_v3::validate_original(&marker, &journal, &key)?;
     if categories.is_empty() {
@@ -419,6 +431,24 @@ fn comment_category(marker: &PrWriteMarker) -> Result<SyncBindingKind, String> {
 }
 
 fn possible_text_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
+    if let Some(categories) = super::issue_link_impact_v87::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::metadata_members_impact_v48::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::metadata_base_impact_v32::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::metadata_text_impact_v25::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::file_comment_impact_v75::categories(marker, false)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::conversation_impact_v17::categories(marker, false)? {
+        return Ok(categories);
+    }
     if let Some(categories) = super::review_rerequest_impact_v3::categories(marker, false)? {
         return Ok(categories);
     }
@@ -477,6 +507,24 @@ pub(crate) fn unresolved_visibility_diagnostic(
 }
 
 fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, String> {
+    if let Some(categories) = super::issue_link_impact_v87::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::metadata_members_impact_v48::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::metadata_base_impact_v32::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::metadata_text_impact_v25::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::file_comment_impact_v75::categories(marker, true)? {
+        return Ok(categories);
+    }
+    if let Some(categories) = super::conversation_impact_v17::categories(marker, true)? {
+        return Ok(categories);
+    }
     if let Some(categories) = super::review_rerequest_impact_v3::categories(marker, true)? {
         return Ok(categories);
     }

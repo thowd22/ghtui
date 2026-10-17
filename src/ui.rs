@@ -24,6 +24,13 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    crate::notification_pr_v63::retire_invalid(app);
+    crate::notifications_native_v63::retire_invalid(app);
+    if app.overlay == Some(Overlay::NotificationsV63) {
+        let area = frame.area();
+        crate::notifications_ui_v63::draw(frame, app, area);
+        return;
+    }
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui::retire_invalid_form(app);
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::reactions_v3::form::retire_invalid_form(app);
     crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::retire_invalid(app);
@@ -187,7 +194,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             rows[3].inner(ratatui::layout::Margin::new(1, 1)),
         );
     }
-    if app.view == View::Inbox && app.github.is_some() {
+    if app.view == View::Inbox
+        && app.github.is_some()
+        && !crate::scoped_pr_collaboration_native_v17::retired_presentation(app)
+    {
         crate::github_ui::draw(
             frame,
             app,
@@ -443,6 +453,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         frame.render_widget(Clear, rect);
         let title = match overlay {
+            Overlay::NotificationsV63 => unreachable!("Owned Notifications drawn above"),
             Overlay::PrThreadsV1 | Overlay::PrThreadHistoryV1 => {
                 unreachable!("Owned threads drawn above")
             }
@@ -479,6 +490,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
         match overlay {
+            Overlay::NotificationsV63 => unreachable!("Owned Notifications drawn above"),
             Overlay::PrThreadsV1 | Overlay::PrThreadHistoryV1 => {
                 unreachable!("Owned threads drawn above")
             }

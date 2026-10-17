@@ -14,93 +14,20 @@ fn bad() -> GithubError {
     error(GithubErrorKind::AmbiguousWrite, "Reaction HTTP acknowledgement is malformed, incomplete or outside the exact documented status/body shape")
 }
 fn response(bytes: &[u8], add: bool) -> GithubResult<(u16, Option<Value>)> {
-    if bytes.is_empty() || bytes.len() > 128 * 1024 {
-        return Err(bad());
-    }
-    let raw = std::str::from_utf8(bytes).map_err(|_| bad())?;
-    // gh processResponse prints status with Fprintln (LF), printHeaders with
-    // CRLF, then one CRLF. Accept that exact producer shape as well as uniform
-    // HTTP fixtures; do not normalize mixed line breaks inside header values.
-    let (status, remaining) = raw.split_once('\n').ok_or_else(bad)?;
-    let status_crlf = status.ends_with('\r');
-    let status = status.strip_suffix('\r').unwrap_or(status);
-    let separator = if remaining.contains("\r\n") {
-        "\r\n"
+    let profile = if add {
+        super::pinned_http_response_v5::ProfileV5::ReactionAdd200Or201
     } else {
-        "\n"
+        super::pinned_http_response_v5::ProfileV5::ReactionRemove204
     };
-    if status_crlf && separator != "\r\n" {
-        return Err(bad());
-    }
-    let (headers, body) = if let Some(body) = remaining.strip_prefix(separator) {
-        ("", body)
-    } else {
-        remaining
-            .split_once(&format!("{separator}{separator}"))
-            .ok_or_else(bad)?
-    };
-    if headers.len() > 16 * 1024 {
-        return Err(bad());
-    }
-    let lines = headers.split(separator).filter(|line| !line.is_empty());
-    if status.len() > 1024 || status.bytes().any(|b| !matches!(b, 0x20..=0x7e)) {
-        return Err(bad());
-    }
-    let mut parts = status.splitn(3, ' ');
-    if !matches!(
-        parts.next(),
-        Some("HTTP/1.0" | "HTTP/1.1" | "HTTP/2" | "HTTP/2.0" | "HTTP/3" | "HTTP/3.0")
-    ) {
-        return Err(bad());
-    }
-    let status = match parts.next() {
-        Some("200") if add => 200,
-        Some("201") if add => 201,
-        Some("204") if !add => 204,
-        _ => return Err(bad()),
-    };
-    let mut length = None;
-    for (index, line) in lines.enumerate() {
-        if index >= 128 || line.len() > 4096 {
-            return Err(bad());
-        }
-        let (name, value) = line.split_once(':').ok_or_else(bad)?;
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
-            || value.bytes().any(|b| !matches!(b, b'\t' | 0x20..=0x7e))
-        {
-            return Err(bad());
-        }
-        if name.eq_ignore_ascii_case("content-length") {
-            let raw = value.trim();
-            if length.is_some() || raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
-                return Err(bad());
-            }
-            length = Some(raw.parse::<usize>().map_err(|_| bad())?);
-        }
-        // gh --include emits decoded JSON, not a wire chunk stream. We do not
-        // infer a complete acknowledgement from transfer-encoded ambiguity.
-        if name.eq_ignore_ascii_case("transfer-encoding") {
-            return Err(bad());
-        }
-    }
-    if length.is_some_and(|length| length != body.len()) {
-        return Err(bad());
-    }
+    let parsed = super::pinned_http_response_v5::response(bytes, profile)?;
     if !add {
-        return if body.is_empty() {
-            Ok((status, None))
-        } else {
-            Err(bad())
-        };
+        return Ok((parsed.status, None));
     }
-    let value: Value = serde_json::from_str(body).map_err(|_| bad())?;
+    let value: Value = serde_json::from_str(parsed.body).map_err(|_| bad())?;
     if !value.is_object() {
         return Err(bad());
     }
-    Ok((status, Some(value)))
+    Ok((parsed.status, Some(value)))
 }
 impl PostWriteCaptureAllowanceV2 {
     pub(crate) fn thread_reaction_write_ack_v3(

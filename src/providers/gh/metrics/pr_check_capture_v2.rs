@@ -15,6 +15,17 @@ impl fmt::Debug for PrCheckCapturedTargetV2 {
     }
 }
 impl PrCheckCapturedTargetV2 {
+    pub(super) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        crate::providers::gh::workflow_capacity_v9::strings(
+            [
+                Some(&self.run_node),
+                Some(&self.head),
+                self.job_node.as_ref(),
+            ]
+            .into_iter()
+            .flatten(),
+        )
+    }
     pub fn run_id(&self) -> u64 {
         self.run_id
     }

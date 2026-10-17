@@ -4,6 +4,8 @@ use yaml_rust2::{
     parser::{Event, Parser},
     Yaml, YamlLoader,
 };
+mod edit_v9;
+pub(crate) use edit_v9::WorkflowDefinitionReadV9;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -14,7 +16,7 @@ pub enum DispatchInputType {
     Choice,
     Environment,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DispatchInput {
     pub name: String,
     pub description: String,
@@ -22,6 +24,11 @@ pub struct DispatchInput {
     pub required: bool,
     pub default: Option<Value>,
     pub options: Vec<String>,
+}
+impl std::fmt::Debug for DispatchInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DispatchInput(<schema/default/options redacted>)")
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DefinitionJob {
@@ -32,7 +39,7 @@ pub struct DefinitionJob {
     pub matrix: Value,
     pub environment: Value,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WorkflowDefinition {
     pub workflow: Workflow,
     pub revision: String,
@@ -41,6 +48,11 @@ pub struct WorkflowDefinition {
     pub triggers: Vec<String>,
     pub dispatch_inputs: Vec<DispatchInput>,
     pub jobs: Vec<DefinitionJob>,
+}
+impl std::fmt::Debug for WorkflowDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WorkflowDefinition(<workflow/schema/YAML/defaults redacted>)")
+    }
 }
 pub(in crate::providers::gh) fn workflow_from_json_v2(raw: &Value) -> Workflow {
     Workflow {
@@ -88,7 +100,23 @@ fn yaml_value(value: &Yaml) -> Value {
     }
 }
 /// Preflight expansion accounting prevents recursive alias copies from becoming an archive bomb.
-fn bounded_yaml(source: &str) -> GithubResult<Yaml> {
+#[derive(Clone, Copy)]
+struct YamlBoundsV7 {
+    events: usize,
+    nodes: usize,
+    bytes: usize,
+}
+const LEGACY_YAML_BOUNDS_V7: YamlBoundsV7 = YamlBoundsV7 {
+    events: 100_000,
+    nodes: 100_000,
+    bytes: 8 * 1024 * 1024,
+};
+const NATIVE_YAML_BOUNDS_V7: YamlBoundsV7 = YamlBoundsV7 {
+    events: 32_768,
+    nodes: 4096,
+    bytes: 512 * 1024,
+};
+fn bounded_yaml(source: &str, bounds: YamlBoundsV7) -> GithubResult<Yaml> {
     if source.len() > 512 * 1024 {
         return Err(error(
             GithubErrorKind::Unsupported,
@@ -104,7 +132,7 @@ fn bounded_yaml(source: &str) -> GithubResult<Yaml> {
             .next_token()
             .map_err(|e| error(GithubErrorKind::Json, format!("Workflow YAML: {e}")))?;
         events += 1;
-        if events > 100_000 {
+        if events > bounds.events {
             return Err(error(
                 GithubErrorKind::Unsupported,
                 "Workflow YAML exceeds the event limit",
@@ -143,7 +171,7 @@ fn bounded_yaml(source: &str) -> GithubResult<Yaml> {
         if let Some((anchor, count, size)) = node {
             nodes = nodes.saturating_add(count);
             bytes = bytes.saturating_add(size);
-            if nodes > 100_000 || bytes > 8 * 1024 * 1024 {
+            if nodes > bounds.nodes || bytes > bounds.bytes {
                 return Err(error(
                     GithubErrorKind::Unsupported,
                     "Workflow YAML alias expansion exceeds the bounded viewer budget",
@@ -169,15 +197,56 @@ fn bounded_yaml(source: &str) -> GithubResult<Yaml> {
     Ok(documents.remove(0))
 }
 impl WorkflowDefinition {
+    /// Native workflow editing reuses the SAME preflight/parser and its small
+    /// expanded profile. No copied YAML/model/defaults or parse diagnostics
+    /// containing private source are returned to the foreground.
+    pub(crate) fn validate_edit_yaml_v9(source: &str) -> GithubResult<()> {
+        if source.is_empty() || source.len() > 256 * 1024 || source.contains('\0') {
+            return Err(error(
+                GithubErrorKind::Unsupported,
+                "Workflow editing needs nonempty UTF-8 YAML within 256 KiB; source retained unchanged",
+            ));
+        }
+        let root = bounded_yaml(source, NATIVE_YAML_BOUNDS_V7).map_err(|failure| {
+            error(
+                failure.kind,
+                "Edited workflow YAML is invalid or exceeds the bounded expanded profile; private definition omitted",
+            )
+        })?;
+        if root.as_hash().is_none() {
+            return Err(error(
+                GithubErrorKind::Json,
+                "Edited workflow YAML must contain exactly one mapping document",
+            ));
+        }
+        Ok(())
+    }
     pub fn parse(
         workflow: Workflow,
         revision: String,
         commit_sha: String,
         yaml: String,
     ) -> GithubResult<Self> {
+        Self::parse_inner_v7(workflow, revision, commit_sha, yaml, LEGACY_YAML_BOUNDS_V7)
+    }
+    pub(crate) fn parse_dispatch_native_v7(
+        workflow: Workflow,
+        revision: String,
+        commit_sha: String,
+        yaml: String,
+    ) -> GithubResult<Self> {
+        Self::parse_inner_v7(workflow, revision, commit_sha, yaml, NATIVE_YAML_BOUNDS_V7)
+    }
+    fn parse_inner_v7(
+        workflow: Workflow,
+        revision: String,
+        commit_sha: String,
+        yaml: String,
+        bounds: YamlBoundsV7,
+    ) -> GithubResult<Self> {
         validate_sha(&commit_sha)?;
         nonempty_parameter(&revision)?;
-        let root = bounded_yaml(&yaml)?;
+        let root = bounded_yaml(&yaml, bounds)?;
         if root.as_hash().is_none() {
             return Err(error(
                 GithubErrorKind::Json,
@@ -383,7 +452,7 @@ impl GithubProvider {
         }
         Ok(workflow)
     }
-    fn revision_sha(
+    pub(super) fn revision_sha(
         &self,
         repo: &str,
         revision: &str,
@@ -455,40 +524,7 @@ impl GithubProvider {
         enabled: bool,
         cancel: &CancellationToken,
     ) -> GithubResult<Workflow> {
-        self.actions_identity(identity, cancel)?;
-        let current = self.workflow(repo, observed.id, cancel)?;
-        if current.path != observed.path || current.state != observed.state {
-            return Err(error(
-                GithubErrorKind::StaleHead,
-                "Workflow path/state changed; refresh before changing it",
-            ));
-        }
-        let resource = format!("{}/{repo}/workflow/{}", self.host, observed.id);
-        self.api(
-            &format!(
-                "repos/{repo}/actions/workflows/{}/{}",
-                observed.id,
-                if enabled { "enable" } else { "disable" }
-            ),
-            "PUT",
-            None,
-            Some(resource.clone()),
-            false,
-            cancel,
-        )?;
-        let fresh = self.after_write(&resource, self.workflow(repo, observed.id, cancel))?;
-        let expected = if enabled {
-            "active"
-        } else {
-            "disabled_manually"
-        };
-        if fresh.state != expected {
-            return Err(self.actions_ambiguous(
-                &resource,
-                "Workflow state change was not confirmed; reconcile without repeating the request",
-            ));
-        }
-        Ok(fresh)
+        self.set_workflow_enabled_legacy_v6(identity, repo, observed, enabled, cancel)
     }
     pub fn dispatch_workflow(
         &self,
@@ -498,67 +534,6 @@ impl GithubProvider {
         inputs: &BTreeMap<String, Value>,
         cancel: &CancellationToken,
     ) -> GithubResult<DispatchOutcome> {
-        self.actions_identity(identity, cancel)?;
-        let current = self.workflow(repo, definition.workflow.id, cancel)?;
-        if current.path != definition.workflow.path || current.state != "active" {
-            return Err(error(
-                GithubErrorKind::StaleHead,
-                "Workflow path changed or workflow is not active; refresh before dispatch",
-            ));
-        }
-        if self.revision_sha(repo, &definition.revision, cancel)? != definition.commit_sha {
-            return Err(error(GithubErrorKind::StaleHead,"Selected ref moved after its workflow definition was opened; refresh before dispatch"));
-        }
-        let environments = if definition
-            .dispatch_inputs
-            .iter()
-            .any(|input| input.input_type == DispatchInputType::Environment)
-        {
-            self.api_list(
-                &format!("repos/{repo}/environments?per_page=100"),
-                Some("environments"),
-                cancel,
-            )?
-            .iter()
-            .map(|v| text(v, "name"))
-            .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
-        let inputs = definition.validated_inputs(inputs, &environments)?;
-        let resource = format!("{}/{repo}/workflow/{}", self.host, definition.workflow.id);
-        let v = self.api(
-            &format!(
-                "repos/{repo}/actions/workflows/{}/dispatches",
-                definition.workflow.id
-            ),
-            "POST",
-            Some(json!({"ref":definition.revision,"inputs":inputs})),
-            Some(resource.clone()),
-            false,
-            cancel,
-        )?;
-        let id = number(&v, "workflow_run_id");
-        if id == 0 {
-            if !v.is_null() {
-                return Err(self.actions_ambiguous(&resource,"Dispatch returned an unusable run identity; refresh matching runs without redispatching"));
-            }
-            return Ok(DispatchOutcome{accepted:true,run:None,explanation:"Dispatch accepted; this host did not return a workflow run ID. Correlation by matching event/ref/actor is only a candidate, not proof; refresh without redispatching.".into()});
-        }
-        let run = self.after_write(&resource, self.run(repo, id, cancel))?;
-        if run.workflow_id != definition.workflow.id
-            || run.head_sha != definition.commit_sha
-            || run.event != "workflow_dispatch"
-        {
-            return Err(self.actions_ambiguous(
-                &resource,
-                "Dispatch run does not match the selected workflow/ref commit/event; reconcile",
-            ));
-        }
-        Ok(DispatchOutcome {
-            accepted: true,
-            run: Some(run),
-            explanation: "Exact workflow run ID, event and selected commit confirmed".into(),
-        })
+        self.dispatch_workflow_legacy_v7(identity, repo, definition, inputs, cancel)
     }
 }

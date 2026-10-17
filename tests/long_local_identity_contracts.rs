@@ -239,12 +239,10 @@ fn long_local_identity_local_full_input_view_is_unverified_no_selection_and_reti
     form.dispatch(&FormAction::FullInput(0));
     assert!(form.picker.as_ref().unwrap().is_current_input());
     assert!(form.picker.as_ref().unwrap().options.is_empty());
-    let mut app = App {
-        view: View::Repository,
-        overlay: Some(Overlay::Form),
-        form: Some(form),
-        ..Default::default()
-    };
+    let mut app = App::new();
+    app.view = View::Repository;
+    app.overlay = Some(Overlay::Form);
+    app.form = Some(form);
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
         .draw(|frame| ghtui::ui::draw(frame, &mut app))
@@ -285,12 +283,10 @@ fn long_local_identity_input_purpose_directory_preview_secret_and_clone_retire_b
         form.fields[0].editor =
             ghtui::editor::TextBuffer::new("/original-observed-private-intent").unwrap();
         form.dispatch(&FormAction::FullInput(0));
-        let mut app = App {
-            view: View::Repository,
-            overlay: Some(Overlay::Form),
-            form: Some(form),
-            ..Default::default()
-        };
+        let mut app = App::new();
+        app.view = View::Repository;
+        app.overlay = Some(Overlay::Form);
+        app.form = Some(form);
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal
             .draw(|frame| ghtui::ui::draw(frame, &mut app))

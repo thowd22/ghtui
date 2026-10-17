@@ -28,6 +28,7 @@ fn workspace() -> GithubWorkspace {
         checks: None,
         rows: vec![],
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     });
     workspace.replace_pr_details(details).unwrap();
@@ -48,10 +49,8 @@ fn conversation_comments_account_change_is_not_confused_with_resource_node_stale
     assert!(!ghtui::pr_ui::account_failure(
         "Comment body changed; refresh before editing"
     ));
-    let mut app = App {
-        github: Some(workspace()),
-        ..Default::default()
-    };
+    let mut app = App::new();
+    app.github = Some(workspace());
     app.github.as_mut().unwrap().identity.account_id = None;
     assert!(app
         .pr_controls()
@@ -110,10 +109,8 @@ fn conversation_comments_v2_form_restores_original_reference_not_current_head_an
 
 #[test]
 fn conversation_comments_exact_rows_and_paged_menu_share_mouse_keyboard_targets_and_disabled_ack() {
-    let mut app = App {
-        github: Some(workspace()),
-        ..Default::default()
-    };
+    let mut app = App::new();
+    app.github = Some(workspace());
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
     terminal
         .draw(|frame| ghtui::ui::draw(frame, &mut app))
@@ -226,14 +223,12 @@ fn conversation_comments_reaction_catalog_is_readonly_paged_shared_actor_and_ove
         assert!(all.contains("@ghost [deleted]"));
         assert!(all.contains("ownership unverified"));
         assert!(all.contains("Created: unavailable"));
-        let mut app = App {
-            github: Some(workspace()),
-            pr_reactions: Some(page),
-            pr_reaction_display: display,
-            overlay: Some(Overlay::PrReactions),
-            pr_pending_message: "uncertain original publication".into(),
-            ..Default::default()
-        };
+        let mut app = App::new();
+        app.github = Some(workspace());
+        app.pr_reactions = Some(page);
+        app.pr_reaction_display = display;
+        app.overlay = Some(Overlay::PrReactions);
+        app.pr_pending_message = "uncertain original publication".into();
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| ghtui::ui::draw(frame, &mut app))
@@ -323,11 +318,9 @@ fn conversation_comments_current_subscription_is_distinct_from_requested_draft_a
         assert_eq!(form.values()["subscription"], expected);
         form.restore_draft(r#"{"subscription":"subscribed"}"#)
             .unwrap();
-        let mut app = App {
-            form: Some(form),
-            overlay: Some(Overlay::Form),
-            ..Default::default()
-        };
+        let mut app = App::new();
+        app.form = Some(form);
+        app.overlay = Some(Overlay::Form);
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal
             .draw(|frame| ghtui::ui::draw(frame, &mut app))

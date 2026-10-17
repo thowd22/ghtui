@@ -97,21 +97,7 @@ fn source_identity(
     intent: &ReviewOperationHistoryIntentV3,
     identity: &HostIdentity,
 ) -> Result<(), ScopedReviewFailureV2> {
-    let RemoteScopeConsumerV1::Explicit(members) = intent.active.consumer(identity) else {
-        return Err(source_failure(safe_local()));
-    };
-    if Scope::github(&identity.host, identity.account_id)
-        .ok()
-        .as_ref()
-        != Some(intent.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == intent.navigation.original())
-    {
-        return Err(source_failure(safe_local()));
-    }
-    Ok(())
+    intent.source_identity_v15(identity)
 }
 fn local(
     database: &Path,
@@ -121,10 +107,7 @@ fn local(
     deadline: Instant,
 ) -> Result<(), GithubError> {
     private_clock(cancel, deadline)?;
-    Cache::open(database)
-        .map_err(|_| safe_local())?
-        .validate_repository_catalogue_intent_source(&intent.source)
-        .map_err(|_| safe_local())?;
+    intent.validate_local_source_v15(database)?;
     PrWriteJournal::open(database)
         .map_err(|_| safe_local())?
         .validate_review_inspection_v11(witness)
@@ -149,45 +132,21 @@ pub(crate) fn inspect(
         .rows
         .get(request.row)
         .ok_or_else(|| refused("Original selected history row unavailable"))?;
-    let issuer = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = issuer
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), cancel)
-        .map_err(source_failure)?;
-    let identity = session.identity().clone();
-    source_identity(intent, &identity)?;
-    // At most P catalogue + (P+2) exact selected review/comments + requested1
-    // + opening/closing raw parents2. SAME actual pool; no extra page/window.
-    let requests = reviews
-        .max_pages
-        .checked_mul(2)
-        .and_then(|n| n.checked_add(5))
-        .filter(|n| *n <= 32)
-        .ok_or_else(|| {
-            refused("Bounded review recovery needs at most32 original measured children")
-        })?;
-    let window = session
-        .reserve_measured_external_reads(
-            requests,
-            reviews.max_document_bytes.max(128 * 1024),
-            8 * 1024 * 1024,
-            2,
-            cancel,
-        )
-        .map_err(source_failure)?;
-    let measured = issuer
+    let issuer = provider
         .clone()
-        .with_measured_read_window(window)
+        .with_original_pr_read_bounds_v13(deadline, 1024 * 1024)
         .map_err(source_failure)?;
-    let current = session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_failure)?;
-    let parent = measured
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_failure)?;
-    Cache::open(database)
-        .map_err(|_| source_failure(safe_local()))?
-        .validate_repository_catalogue_intent_source(&intent.source)
-        .map_err(|_| source_failure(safe_local()))?;
+    let phase = ReviewHistoryReadPhaseV15::begin(
+        intent,
+        &issuer,
+        database,
+        cancel,
+        deadline,
+        Some(reviews),
+    )?;
+    let identity = phase.identity().clone();
+    source_identity(intent, &identity)?;
+    let parent = phase.parent().clone();
     let journal = PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;
     let target = PrWriteTarget::new(&identity, parent.summary())
         .map_err(|_| source_failure(safe_local()))?;
@@ -216,17 +175,11 @@ pub(crate) fn inspect(
                 .and_then(|id| id.parse().ok())
                 .map(|id| (id, None))
         });
-    let observation = measured
-        .inspect_review_outcome_v11(
-            &identity,
-            &parent,
-            selected,
-            witness.marker().command == "review-rerequest-v3",
-            reviews,
-            cancel,
-            deadline,
-        )
-        .map_err(source_failure)?;
+    let observation = phase.inspect_review_outcome_v15(
+        selected,
+        witness.marker().command == "review-rerequest-v3",
+        reviews,
+    )?;
     let deadline = deadline.min(observation.deadline());
     let mut lines=vec![format!("Original attempt #{} • {} • {:?}",old.marker.attempt_id,old.marker.command,old.marker.state),
         format!("HISTORICAL requested H {} • NOT current truth",old.marker.observed_head),
@@ -242,35 +195,15 @@ pub(crate) fn inspect(
             .map_err(|_| {
                 refused("Fresh recovery observation cannot fit bounded original-phase display")
             })?;
-    let current = session
-        .observation_v1(parent.repository_id())
-        .ok_or_else(|| source_failure(safe_local()))?;
-    let last = measured
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_failure)?;
-    if !GithubProvider::same_thread_history_parent_v1(&parent, &last) {
-        return Err(source_failure(safe_local()));
-    }
-    session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_failure)?;
-    let closed = session
-        .close_with_guard(cancel, || {
-            local(database, intent, &witness, cancel, deadline)?;
-            issuer.validate_review_inspection_v11(
-                &observation,
-                &identity,
-                &parent,
-                cancel,
-                deadline,
-            )
-        })
-        .map_err(source_failure)?;
-    source_identity(intent, closed.identity())?;
-    if closed.identity().login.len() > 4096 {
+    let closing_identity = phase.finish(|| {
+        local(database, intent, &witness, cancel, deadline)?;
+        issuer.validate_review_inspection_v11(&observation, &identity, &parent, cancel, deadline)
+    })?;
+    source_identity(intent, &closing_identity)?;
+    if closing_identity.login.len() > 4096 {
         return Err(refused("Actual recovery inspector metadata exceeds bounds"));
     }
-    let identity = closed.identity().clone();
+    let identity = closing_identity;
     let actor = crate::identity::ActorIdentity::github(
         &identity.host,
         &Actor {
@@ -319,59 +252,29 @@ pub(crate) fn acknowledge(
     observation
         .validate(provider, cancel, deadline)
         .map_err(source_failure)?;
-    let issuer = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = issuer
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), cancel)
+    let issuer = provider
+        .clone()
+        .with_original_pr_read_bounds_v13(deadline, 1024 * 1024)
         .map_err(source_failure)?;
-    let identity = session.identity().clone();
+    let phase =
+        ReviewHistoryReadPhaseV15::begin(intent, &issuer, database, cancel, deadline, None)?;
+    let identity = phase.identity().clone();
     source_identity(intent, &identity)?;
     if identity.host != prepared.identity.host
         || identity.account_id != prepared.identity.account_id
     {
         return Err(source_failure(safe_local()));
     }
-    let window = session
-        .reserve_measured_external_reads(2, 128 * 1024, 1024 * 1024, 2, cancel)
-        .map_err(source_failure)?;
-    let measured = issuer
-        .clone()
-        .with_measured_read_window(window)
-        .map_err(source_failure)?;
-    let current = session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_failure)?;
-    let parent = measured
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_failure)?;
+    let parent = phase.parent().clone();
     issuer
         .validate_review_inspection_v11(&observation, &identity, &parent, cancel, deadline)
         .map_err(source_failure)?;
-    let current = session
-        .observation_v1(parent.repository_id())
-        .ok_or_else(|| source_failure(safe_local()))?;
-    let last = measured
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_failure)?;
-    if !GithubProvider::same_thread_history_parent_v1(&parent, &last) {
-        return Err(source_failure(safe_local()));
-    }
-    session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_failure)?;
-    let closed = session
-        .close_with_guard(cancel, || {
-            clock(&prepared.cancellation, deadline).map_err(|_| safe_local())?;
-            local(database, intent, &witness, cancel, deadline)?;
-            issuer.validate_review_inspection_v11(
-                &observation,
-                &identity,
-                &parent,
-                cancel,
-                deadline,
-            )
-        })
-        .map_err(source_failure)?;
-    source_identity(intent, closed.identity())?;
+    let closing_identity = phase.finish(|| {
+        clock(&prepared.cancellation, deadline).map_err(|_| safe_local())?;
+        local(database, intent, &witness, cancel, deadline)?;
+        issuer.validate_review_inspection_v11(&observation, &identity, &parent, cancel, deadline)
+    })?;
+    source_identity(intent, &closing_identity)?;
     clock(cancel, deadline)?;
     clock(&prepared.cancellation, deadline)?;
     let reference = witness.marker().publication_reference();
@@ -381,7 +284,7 @@ pub(crate) fn acknowledge(
             &issuer,
             witness,
             observation,
-            closed.identity(),
+            &closing_identity,
             cancel,
             deadline,
         )

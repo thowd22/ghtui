@@ -11,6 +11,11 @@ impl std::fmt::Debug for ThreadHistoryParentObservationV1 {
     }
 }
 impl ThreadHistoryParentObservationV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        crate::providers::gh::workflow_capacity_v9::owner::<Self>().checked_add(
+            crate::providers::gh::workflow_capacity_v9::summary(&self.summary)?,
+        )
+    }
     pub(crate) fn capture(summary: &PrSummary) -> GithubResult<Self> {
         let fields = [
             summary.pr.host.as_str(),
@@ -92,6 +97,53 @@ impl ThreadHistoryParentObservationV1 {
     }
 }
 impl GithubProvider {
+    pub(crate) fn pr_thread_workflow_history_parent_v9(
+        &self,
+        current: &CurrentCatalogueRepository,
+        expected: &ThreadHistoryParentObservationV1,
+        heap: &crate::providers::gh::WorkflowJsonLedgerV9,
+        cancel: &CancellationToken,
+    ) -> GithubResult<PrResourceParentV1> {
+        if current.repository().permissions.pull != Some(true)
+            || current.repository().id == 0
+            || current
+                .repository()
+                .node_id
+                .as_deref()
+                .is_none_or(|node| !opaque(node))
+        {
+            return Err(safe(GithubErrorKind::InvalidTarget));
+        }
+        let capture = heap.capture_v9(
+            self,
+            crate::providers::gh::WorkflowJsonRoleV9::CurrentPrParent,
+            cancel,
+        )?;
+        let mut spec = self.spec(vec![
+            "api".into(),
+            format!(
+                "repos/{}/pulls/{}",
+                current.repository().full_name,
+                expected.summary.pr.number
+            ),
+            "--hostname".into(),
+            self.host.clone(),
+            "--method".into(),
+            "GET".into(),
+        ]);
+        spec.output_limit = spec.output_limit.min(128 * 1024).min(capture.cap_v9());
+        spec.original_read_cancellation = Some(cancel.clone());
+        capture.check_spec_v9(&mut spec)?;
+        let raw = self
+            .runner
+            .run(spec, cancel)
+            .map_err(|_| safe(GithubErrorKind::Transport))?
+            .stdout;
+        let length = raw.len();
+        let value = capture.decode_owned_v9(raw, 0..length)?;
+        // SAME canonical parent parser and complete current Summary predicate.
+        parent(self, current, &expected.summary, value.value())
+    }
     pub(crate) fn pr_thread_history_parent_v1(
         &self,
         current: &CurrentCatalogueRepository,

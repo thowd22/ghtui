@@ -409,15 +409,13 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
     );
     action(&mut workspace, FileAction::History);
     let make_app = |busy| {
-        let mut app = App {
-            view: View::Repository,
-            workspace: Some(workspace.clone()),
-            repository_mode: RepositoryMode::Tree,
-            color_mode: ColorMode::TrueColor,
-            no_color: false,
-            repository_content_focused: true,
-            ..App::default()
-        };
+        let mut app = App::new();
+        app.view = View::Repository;
+        app.workspace = Some(workspace.clone());
+        app.repository_mode = RepositoryMode::Tree;
+        app.color_mode = ColorMode::TrueColor;
+        app.no_color = false;
+        app.repository_content_focused = true;
         app.loading[View::Repository.index()] = busy;
         app
     };

@@ -14,6 +14,8 @@ use crate::{
     },
 };
 use std::collections::BTreeMap;
+#[path = "pr_actions/lifecycle_v17.rs"]
+mod lifecycle_v17;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrCommand {
@@ -389,15 +391,29 @@ pub struct PrField {
     pub choices: Vec<PrChoice>,
 }
 pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
+    fields_v17(
+        command,
+        context.comment.as_ref(),
+        &context.reactions,
+        context.identity.account_id,
+        context.current_subscription.as_ref(),
+    )
+}
+/// Same actual form-field policy; no fabricated workspace/context is needed
+/// by a closed original Conversation producer. Worker-only body/choice work.
+pub(crate) fn fields_v17(
+    command: PrCommand,
+    comment: Option<&SelectedComment>,
+    reactions: &[CommentReaction],
+    account: Option<u64>,
+    subscription: Option<&CurrentPrSubscription>,
+) -> Vec<PrField> {
     match command {
         PrCommand::NewComment | PrCommand::EditComment => vec![PrField {
             key: "body",
             label: "Comment text",
             value: if command == PrCommand::EditComment {
-                context
-                    .comment
-                    .as_ref()
-                    .map_or(String::new(), |comment| comment.observed.body.clone())
+                comment.map_or(String::new(), |comment| comment.observed.body.clone())
             } else {
                 String::new()
             },
@@ -418,10 +434,9 @@ pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
             .collect(),
         }],
         PrCommand::RemoveReaction => {
-            let choices: Vec<PrChoice> = context
-                .reactions
+            let choices: Vec<PrChoice> = reactions
                 .iter()
-                .filter(|reaction| reaction.account_id == context.identity.account_id)
+                .filter(|reaction| reaction.account_id == account)
                 .map(|reaction| PrChoice {
                     value: reaction.id.to_string(),
                     label: sanitize_terminal(&format!(
@@ -445,9 +460,7 @@ pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
         PrCommand::Subscription => vec![PrField {
             key: "subscription",
             label: "Requested subscription state",
-            value: context
-                .current_subscription
-                .as_ref()
+            value: subscription
                 .and_then(|current| current.state.map(subscription_key))
                 .unwrap_or("")
                 .into(),
@@ -486,7 +499,7 @@ fn require_subscription_observation(
 }
 
 #[derive(Clone, Debug)]
-enum PrOperation {
+pub(crate) enum PrOperation {
     NewComment(String),
     EditComment(SelectedComment, String),
     DeleteComment(SelectedComment),
@@ -495,6 +508,8 @@ enum PrOperation {
     Subscription(Subscription),
     ViewedFile(crate::pr_progress::FileProgress, bool),
 }
+#[path = "pr_actions/operation_v17.rs"]
+mod operation_v17;
 #[derive(Clone, Debug)]
 pub struct PrPlan {
     pub context: PrActionContext,
@@ -533,63 +548,26 @@ impl PrPlan {
                 })
                 .unwrap_or("")
         };
-        let body = || {
-            let body = get("body");
-            if body.trim().is_empty() || body.len() > 65_536 {
-                Err("Comment must contain text and fit within 65536 UTF-8 bytes.".to_owned())
-            } else {
-                Ok(body.to_owned())
-            }
-        };
-        let operation = match command {
-            PrCommand::NewComment => PrOperation::NewComment(body()?),
-            PrCommand::EditComment => PrOperation::EditComment(
-                context.comment.clone().ok_or("Select a comment first.")?,
-                body()?,
-            ),
-            PrCommand::DeleteComment => PrOperation::DeleteComment(
-                context.comment.clone().ok_or("Select a comment first.")?,
-            ),
-            PrCommand::AddReaction => PrOperation::AddReaction(
-                context.comment.clone().ok_or("Select a comment first.")?,
-                match get("reaction") {
-                    "+1" => Reaction::ThumbsUp,
-                    "-1" => Reaction::ThumbsDown,
-                    "laugh" => Reaction::Laugh,
-                    "confused" => Reaction::Confused,
-                    "heart" => Reaction::Heart,
-                    "hooray" => Reaction::Hooray,
-                    "rocket" => Reaction::Rocket,
-                    "eyes" => Reaction::Eyes,
-                    _ => return Err("Choose a supported reaction from the visible list.".into()),
-                },
-            ),
-            PrCommand::RemoveReaction => {
-                let selected = context.comment.clone().ok_or("Select a comment first.")?;
-                let reaction = context
-                    .reactions
-                    .iter()
-                    .find(|reaction| {
-                        reaction.id.to_string() == get("reaction_id")
-                            && reaction.account_id == context.identity.account_id
-                    })
-                    .cloned()
-                    .ok_or("Choose an exact loaded reaction by the verified account.")?;
-                PrOperation::RemoveReaction(selected, reaction)
-            }
-            PrCommand::Subscription => PrOperation::Subscription(match get("subscription") {
-                "subscribed" => Subscription::Subscribed,
-                "unsubscribed" => Subscription::Unsubscribed,
-                "ignored" => Subscription::Ignored,
-                _ => return Err("Choose a supported subscription state.".into()),
-            }),
-            PrCommand::MarkViewed | PrCommand::MarkUnviewed => PrOperation::ViewedFile(
+        let normalized = allowed
+            .iter()
+            .map(|field| (field.key.to_owned(), get(field.key).to_owned()))
+            .collect();
+        let operation = if matches!(command, PrCommand::MarkViewed | PrCommand::MarkUnviewed) {
+            PrOperation::ViewedFile(
                 context
                     .selected_file
                     .clone()
                     .ok_or("Select an exact file in Review progress first.")?,
                 command == PrCommand::MarkViewed,
-            ),
+            )
+        } else {
+            PrOperation::from_values_v17(
+                command,
+                context.comment.as_ref(),
+                &context.reactions,
+                context.identity.account_id,
+                &normalized,
+            )?
         };
         let fresh_subscription = if matches!(operation, PrOperation::Subscription(_)) {
             let fresh = provider
@@ -915,11 +893,10 @@ impl PrPlan {
             Err(error) => return refused(error.to_string()),
         };
         let publication = permit.marker().publication_reference();
-        if let Err(error) = persist_publication(permit.marker()) {
-            return refused(format!("Publication metadata could not be saved. No GitHub write was sent; the durable pending marker remains blocked. {error}"));
-        }
-        if let Err(error) = journal.claim(&permit, &target, &self.intent) {
-            return refused(error.to_string());
+        if let Err(error) =
+            Self::claim_persisted_v17(journal, &permit, &target, &self.intent, persist_publication)
+        {
+            return refused(error);
         }
         let effect = match self.publish(provider, cancel) {
             Ok(effect) => effect,

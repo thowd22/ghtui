@@ -9,16 +9,31 @@ use crate::{
 };
 #[path = "scoped_pr_thread_comment_history_v2.rs"]
 pub mod comments_v2;
+#[path = "scoped_pr_file_comment_history_v75.rs"]
+pub mod files_v75;
+#[path = "scoped_pr_history_phase_v75.rs"]
+pub(crate) mod phase_v75;
 #[path = "scoped_pr_thread_reaction_history_v3.rs"]
 pub mod reactions_v3;
 #[path = "scoped_pr_thread_history_ui_v1.rs"]
 pub mod ui;
 
+/// Genuine closed presentation alternatives. Personal Summary does not mint a
+/// Files/source/navigation capability merely to inspect protected local rows.
+pub(crate) enum HistoryOriginV75 {
+    Read {
+        source: crate::pr_read_origin_v13::PrReadOriginV13,
+        active: Arc<ActiveRemoteScopeV1>,
+        navigation: Arc<ScopedPrNavigationV1>,
+        expected: Box<ThreadHistoryParentObservationV1>,
+    },
+    PersonalSummary(
+        Arc<crate::personal_pr_entry_v13::summary_v14::PersonalPrSummaryPresentationV14>,
+    ),
+}
+
 pub struct ThreadHistoryIntentV1 {
-    pub(crate) source: Arc<CatalogueIntentSource>,
-    pub(crate) active: Arc<ActiveRemoteScopeV1>,
-    pub(crate) navigation: Arc<ScopedPrNavigationV1>,
-    expected: ThreadHistoryParentObservationV1,
+    pub(crate) origin: HistoryOriginV75,
     selected: usize,
     scroll: usize,
 }
@@ -39,23 +54,23 @@ impl ThreadHistoryIntentV1 {
             .filter(|page| page.tab == crate::github_workspace::PrTab::Summary)
             .ok_or("Thread history opens from genuine scoped Summary, not blocked Files")?;
         let intent = Arc::new(Self {
-            source: app
-                .remote_scope_source
-                .as_ref()
-                .ok_or("Original source unavailable")?
-                .clone(),
-            active: app
-                .remote_scope
-                .as_ref()
-                .ok_or("Original active scope unavailable")?
-                .clone(),
-            navigation: github
-                .scoped_pr_navigation
-                .as_ref()
-                .ok_or("Original Summary navigation unavailable")?
-                .clone(),
-            expected: ThreadHistoryParentObservationV1::capture(&page.details.summary)
-                .map_err(|_| "Bounded actual Summary observation unavailable")?,
+            origin: HistoryOriginV75::Read {
+                source: crate::pr_read_origin_v13::PrReadOriginV13::capture(app)?,
+                active: app
+                    .remote_scope
+                    .as_ref()
+                    .ok_or("Original active scope unavailable")?
+                    .clone(),
+                navigation: github
+                    .scoped_pr_navigation
+                    .as_ref()
+                    .ok_or("Original Summary navigation unavailable")?
+                    .clone(),
+                expected: Box::new(
+                    ThreadHistoryParentObservationV1::capture(&page.details.summary)
+                        .map_err(|_| "Bounded actual Summary observation unavailable")?,
+                ),
+            },
             selected: app.selected,
             scroll: app.scroll,
         });
@@ -65,32 +80,93 @@ impl ThreadHistoryIntentV1 {
         Ok(intent)
     }
     pub fn scope(&self) -> &Scope {
-        self.source.scope()
+        match &self.origin {
+            HistoryOriginV75::Read { source, .. } => source.scope(),
+            HistoryOriginV75::PersonalSummary(original) => original.scope(),
+        }
+    }
+    pub(crate) fn capture_personal(app: &App, database: &Path) -> Result<Arc<Self>, String> {
+        let original =
+            crate::personal_pr_entry_v13::summary_v14::PersonalPrSummaryPresentationV14::capture(
+                app, database,
+            )?;
+        if !original.matches_capture(app) {
+            return Err("Exact idle original Personal Summary required".into());
+        }
+        Ok(Arc::new(Self {
+            origin: HistoryOriginV75::PersonalSummary(original),
+            selected: app.selected,
+            scroll: app.scroll,
+        }))
+    }
+    pub(crate) fn personal_summary(
+        &self,
+    ) -> Option<&Arc<crate::personal_pr_entry_v13::summary_v14::PersonalPrSummaryPresentationV14>>
+    {
+        match &self.origin {
+            HistoryOriginV75::PersonalSummary(original) => Some(original),
+            _ => None,
+        }
+    }
+    pub(crate) fn read_origin(
+        &self,
+    ) -> Option<(
+        &crate::pr_read_origin_v13::PrReadOriginV13,
+        &Arc<ActiveRemoteScopeV1>,
+        &Arc<ScopedPrNavigationV1>,
+    )> {
+        match &self.origin {
+            HistoryOriginV75::Read {
+                source,
+                active,
+                navigation,
+                ..
+            } => Some((source, active, navigation)),
+            _ => None,
+        }
+    }
+    pub(crate) fn retire_account_mismatch(&self, app: &mut App) -> bool {
+        match &self.origin {
+            HistoryOriginV75::Read {
+                source,
+                active,
+                navigation,
+                ..
+            } => retire_original_account_v75(app, source, active, navigation),
+            HistoryOriginV75::PersonalSummary(original) => original.retire_account_mismatch(app),
+        }
     }
     pub fn owns(&self, app: &App) -> bool {
         app.view == View::Inbox
             && app.selected == self.selected
             && app.scroll == self.scroll
-            && app
-                .remote_scope_source
-                .as_ref()
-                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
-            && app
-                .remote_scope
-                .as_ref()
-                .is_some_and(|active| Arc::ptr_eq(active, &self.active))
-            && app.github.as_ref().is_some_and(|github| {
-                github.scope().ok().as_ref() == Some(self.scope())
-                    && github
-                        .scoped_pr_navigation
-                        .as_ref()
-                        .is_some_and(|nav| Arc::ptr_eq(nav, &self.navigation))
-                    && github.pr.as_ref().is_some_and(|page| {
-                        page.tab == crate::github_workspace::PrTab::Summary
-                            && self.expected.matches(&page.details.summary)
-                            && matches_page(&self.navigation, page)
-                    })
-            })
+            && match &self.origin {
+                HistoryOriginV75::PersonalSummary(original) => original.owns_presentation(app),
+                HistoryOriginV75::Read {
+                    source,
+                    active,
+                    navigation,
+                    expected,
+                } => {
+                    source.matches_source(app)
+                        && app
+                            .remote_scope
+                            .as_ref()
+                            .is_some_and(|current| Arc::ptr_eq(current, active))
+                        && app.github.as_ref().is_some_and(|github| {
+                            github.scope().ok().as_ref() == Some(self.scope())
+                                && github
+                                    .scoped_pr_navigation
+                                    .as_ref()
+                                    .is_some_and(|nav| Arc::ptr_eq(nav, navigation))
+                                && github.pr.as_ref().is_some_and(|page| {
+                                    page.tab == crate::github_workspace::PrTab::Summary
+                                        && expected.matches(&page.details.summary)
+                                        && matches_page(navigation, page)
+                                })
+                        })
+                }
+            }
     }
 }
 pub struct PreparedThreadHistoryV1 {
@@ -132,44 +208,13 @@ pub fn load_history(
         return Err(ThreadBrowseFailureV1::Source);
     }
     let provider = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = provider
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), cancel)
-        .map_err(source_error)?;
-    let identity = session.identity().clone();
-    let RemoteScopeConsumerV1::Explicit(members) = intent.active.consumer(&identity) else {
-        return Err(ThreadBrowseFailureV1::Source);
-    };
-    if Scope::github(&identity.host, identity.account_id)
-        .ok()
-        .as_ref()
-        != Some(intent.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == intent.navigation.original())
-    {
-        return Err(ThreadBrowseFailureV1::Source);
-    }
-    let window = session
-        .reserve_measured_external_reads(2, 128 * 1024, 1024 * 1024, 2, cancel)
-        .map_err(source_error)?;
-    let bounded = provider
-        .clone()
-        .with_measured_read_window(window)
-        .map_err(source_error)?;
-    let current = session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_error)?;
-    let parent = bounded
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_error)?;
+    let phase =
+        phase_v75::HistoryReadPhaseV75::begin(&intent, &provider, database, cancel, deadline)?;
+    let identity = phase.identity().clone();
+    let parent = phase.parent().clone();
     // No ResourceLocalGuard capture/weakening. This read deliberately INSPECTS
     // protected history; current original Source/UID/actual IDs come first.
     original_check(cancel, deadline).map_err(source_error)?;
-    Cache::open(database)
-        .map_err(source_error)?
-        .validate_repository_catalogue_intent_source(&intent.source)
-        .map_err(source_error)?;
     let journal = PrWriteJournal::open(database).map_err(source_error)?;
     let target = PrWriteTarget::new(&identity, parent.summary()).map_err(source_error)?;
     if let Some((old, _)) = previous {
@@ -357,7 +402,7 @@ pub fn load_history(
     let mut actor = ActorIdentity::github(&identity.host, &actor_observation);
     let header=vec![
         format!("Fresh current {} PR #{} • repo #{} / PR #{}",parent.repository(),parent.number(),parent.repository_id(),parent.database_id()),
-        format!("Current H {} • current base {}",intent.expected.head(),intent.expected.base()),
+        format!("Current H {} • current base {}",parent.head_sha(),parent.base_tip_sha()),
         format!("Latest {} local attempts • {} • current numeric account {:?}",snapshot.rows.len(),snapshot.total.map_or_else(||"further rows not enumerated; total unknown".into(),|total|format!("bounded enumeration complete: {total}")),identity.account_id),
         "Read-only local history; observed targets are historical, not current thread locations or write permissions".into(),
     ];
@@ -377,50 +422,31 @@ pub fn load_history(
     }
     // Re-read same current raw parent/repository, then private SQL inside the
     // original close and finally the positive numeric principal. NO later IO.
-    let current = session
-        .observation_v1(parent.repository_id())
-        .ok_or(ThreadBrowseFailureV1::Source)?;
-    let last = bounded
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_error)?;
-    if !GithubProvider::same_thread_history_parent_v1(&parent, &last) {
-        return Err(ThreadBrowseFailureV1::Source);
-    }
-    session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_error)?;
-    let closed = session
-        .close_with_guard(cancel, || {
-            original_check(cancel, deadline)?;
-            let cache = Cache::open(database).map_err(|_| safe_local())?;
-            cache
-                .validate_repository_catalogue_intent_source(&intent.source)
-                .map_err(|_| safe_local())?;
-            let current = PrWriteJournal::open(database).map_err(|_| safe_local())?;
-            current
-                .validate_thread_history_v1(
-                    &target,
-                    parent.repository_id(),
-                    parent.repository_node(),
-                    parent.database_id(),
-                    &snapshot,
-                )
-                .map_err(|_| safe_local())?;
-            if let Some((key, expected)) = &body_witness {
-                if cache
-                    .bounded_draft(intent.scope(), key, 128 * 1024)
-                    .map_err(|_| safe_local())?
-                    .as_ref()
-                    != expected.as_ref()
-                {
-                    return Err(safe_local());
-                }
+    let identity = phase.finish(|| {
+        original_check(cancel, deadline)?;
+        let cache = Cache::open(database).map_err(|_| safe_local())?;
+        let current = PrWriteJournal::open(database).map_err(|_| safe_local())?;
+        current
+            .validate_thread_history_v1(
+                &target,
+                parent.repository_id(),
+                parent.repository_node(),
+                parent.database_id(),
+                &snapshot,
+            )
+            .map_err(|_| safe_local())?;
+        if let Some((key, expected)) = &body_witness {
+            if cache
+                .bounded_draft(intent.scope(), key, 128 * 1024)
+                .map_err(|_| safe_local())?
+                .as_ref()
+                != expected.as_ref()
+            {
+                return Err(safe_local());
             }
-            Ok(())
-        })
-        .map_err(source_error)?;
-    original_check(cancel, deadline).map_err(source_error)?;
-    let identity = closed.identity().clone();
+        }
+        Ok(())
+    })?;
     if opened.is_none() {
         if identity.login.len() > 4096 {
             return Err(ThreadBrowseFailureV1::Display);

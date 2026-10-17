@@ -19,6 +19,179 @@ fn directory() -> tempfile::TempDir {
         .tempdir()
         .unwrap()
 }
+
+fn owned_run_v4(
+    path: &Path,
+    node: &str,
+    uid: u64,
+) -> (ActionsWriteJournal, ActionsWriteTarget, ActionsWriteIntent) {
+    use crate::actions_write_journal::{
+        ActionsOriginalPrContextV3, ActionsOriginalRepositoryContextV3, ActionsOriginalRunContextV3,
+    };
+    let context = ActionsImmutableContext {
+        run_id: Some(123),
+        attempt: Some(2),
+        head_sha: Some("a".repeat(40)),
+        original_repository_v3: Some(ActionsOriginalRepositoryContextV3 {
+            repository_id: 10000,
+            repository_node: "R_10000".into(),
+            original_name: "example/repo".into(),
+        }),
+        original_run_v3: Some(ActionsOriginalRunContextV3 {
+            run_node: "RUN_123".into(),
+            workflow_id: 7,
+            check_suite_id: Some(900),
+        }),
+        original_pr_v3: Some(ActionsOriginalPrContextV3 {
+            id: 1007,
+            node: node.into(),
+            number: 7,
+            head_sha: "a".repeat(40),
+            base_sha: "b".repeat(40),
+        }),
+        ..Default::default()
+    };
+    let target = ActionsWriteTarget::from_original_context_v3(
+        &Scope::github("github.invalid", Some(uid)).unwrap(),
+        &ActionsTarget::Run {
+            repository: "example/repo".into(),
+            id: 123,
+        },
+        &context,
+    )
+    .unwrap();
+    let intent = ActionsWriteIntent::new(
+        ActionsWriteKind::Cancel,
+        context,
+        Default::default(),
+        b"exact original run binding",
+    )
+    .unwrap();
+    (ActionsWriteJournal::open(path).unwrap(), target, intent)
+}
+
+#[test]
+fn scoped_actions_rerun_v4_pr_checks_sql_guard_accepts_only_actual_own_claim_and_typed_result() {
+    use crate::actions_write_journal::{ActionsReceipt, ActionsReceiptKind};
+    let temp = directory();
+    let path = temp.path().join("cache.sqlite3");
+    seed_cache(&path);
+    let guard = PrChecksSqlGuard::capture(&path, &identity(42), &summary()).unwrap();
+    let (mut journal, target, intent) = owned_run_v4(&path, "PR_checks_7", 42);
+    let permit = journal.begin(&target, &intent).unwrap();
+    assert!(journal.capture_claim_stamp_v3(&permit).is_err());
+    journal.claim(&permit, &target, &intent).unwrap();
+    let claim = journal.capture_claim_stamp_v3(&permit).unwrap();
+    assert!(
+        guard.validate(&path).is_err(),
+        "Ordinary stale Checks presentation remains fenced"
+    );
+    guard
+        .validate_owned_publication_v4(&path, &journal, &claim, None)
+        .unwrap();
+    let receipt = ActionsReceipt {
+        kind: ActionsReceiptKind::RunTransition,
+        resource_id: Some(123),
+        observed_attempt: Some(2),
+        observed_run_id: None,
+        original_dispatch_run_v7: None,
+        workflow_remote_v9: None,
+    };
+    journal.mark_confirmed(&permit, &receipt).unwrap();
+    assert!(guard
+        .validate_owned_publication_v4(&path, &journal, &claim, None)
+        .is_err());
+    guard
+        .validate_owned_publication_v4(
+            &path,
+            &journal,
+            &claim,
+            Some((ActionsWriteState::Confirmed, &receipt)),
+        )
+        .unwrap();
+    let mut wrong = receipt;
+    wrong.resource_id = Some(999);
+    assert!(guard
+        .validate_owned_publication_v4(
+            &path,
+            &journal,
+            &claim,
+            Some((ActionsWriteState::Confirmed, &wrong))
+        )
+        .is_err());
+    assert!(
+        guard.validate(&path).is_err(),
+        "No replacement guard or released protection minted"
+    );
+}
+
+#[test]
+fn scoped_actions_rerun_v4_pr_checks_sql_guard_own_claim_never_waives_cache_pr_or_alias_drift() {
+    for sql in [
+        "UPDATE checkpoints SET generation=generation+1",
+        "UPDATE records SET fetched_at=fetched_at+1",
+        "UPDATE actions_write_generations SET generation=generation+1 WHERE resource_key LIKE '%repository-id/%'",
+        "UPDATE actions_write_attempts SET claimed=0",
+    ] {
+        let temp = directory(); let path = temp.path().join("cache.sqlite3"); seed_cache(&path);
+        let guard = PrChecksSqlGuard::capture(&path, &identity(42), &summary()).unwrap();
+        let (mut journal, target, intent) = owned_run_v4(&path, "PR_checks_7", 42);
+        let permit = journal.begin(&target, &intent).unwrap(); journal.claim(&permit, &target, &intent).unwrap();
+        let claim = journal.capture_claim_stamp_v3(&permit).unwrap();
+        guard.validate_owned_publication_v4(&path, &journal, &claim, None).unwrap();
+        let writer = Connection::open(&path).unwrap(); assert_eq!(writer.execute(sql, []).unwrap(), 1, "{sql}");
+        assert!(guard.validate_owned_publication_v4(&path, &journal, &claim, None).is_err(), "{sql}");
+        let state: (String, i64) = writer.query_row("SELECT state,COUNT(*) FROM actions_write_attempts", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(state, ("pending".into(), 1), "No repair/ACK/resend");
+    }
+    let temp = directory();
+    let path = temp.path().join("cache.sqlite3");
+    seed_cache(&path);
+    let guard = PrChecksSqlGuard::capture(&path, &identity(42), &summary()).unwrap();
+    let (mut actions, target, intent) = owned_run_v4(&path, "PR_checks_7", 42);
+    let permit = actions.begin(&target, &intent).unwrap();
+    actions.claim(&permit, &target, &intent).unwrap();
+    let claim = actions.capture_claim_stamp_v3(&permit).unwrap();
+    let mut pr = PrWriteJournal::open(&path).unwrap();
+    let target = PrWriteTarget::new(&identity(42), &summary()).unwrap();
+    let intent = PrWriteIntent {
+        command: "comment".into(),
+        selected_resource: "conversation".into(),
+        observed_head: summary().head_sha,
+        values: BTreeMap::from([("body".into(), "new protected comment".into())]),
+    };
+    let _protected = pr.begin(&target, &intent).unwrap();
+    assert!(guard
+        .validate_owned_publication_v4(&path, &actions, &claim, None)
+        .is_err());
+}
+
+#[test]
+fn scoped_actions_rerun_v4_pr_checks_sql_guard_refuses_other_pr_uid_or_database_claim() {
+    for (node, uid, other_db) in [
+        ("PR_other_7", 42, false),
+        ("PR_checks_7", 43, false),
+        ("PR_checks_7", 42, true),
+    ] {
+        let temp = directory();
+        let path = temp.path().join("cache.sqlite3");
+        seed_cache(&path);
+        let guard = PrChecksSqlGuard::capture(&path, &identity(42), &summary()).unwrap();
+        let claimed_path = if other_db {
+            temp.path().join("other.sqlite3")
+        } else {
+            path.clone()
+        };
+        let (mut journal, target, intent) = owned_run_v4(&claimed_path, node, uid);
+        let permit = journal.begin(&target, &intent).unwrap();
+        journal.claim(&permit, &target, &intent).unwrap();
+        let claim = journal.capture_claim_stamp_v3(&permit).unwrap();
+        journal.validate_claim_stamp_v3(&claim).unwrap();
+        assert!(guard
+            .validate_owned_publication_v4(&path, &journal, &claim, None)
+            .is_err());
+    }
+}
 fn identity(id: u64) -> HostIdentity {
     HostIdentity {
         host: "github.invalid".into(),

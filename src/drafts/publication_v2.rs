@@ -9,6 +9,19 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
+#[path = "atomic_publication_v85.rs"]
+mod atomic_v85;
+#[path = "workflow_cleanup_v9.rs"]
+mod workflow_cleanup_v9;
+pub(crate) use atomic_v85::{
+    AcknowledgedProjectionCleanupV85, AtomicCleanupBindingV85, AtomicDraftInputV85,
+    AtomicPublicationFailureV85,
+};
+pub(crate) use workflow_cleanup_v9::{
+    AcknowledgedWorkflowCleanupV9, ClosedWorkflowCleanupV9, PreparedWorkflowCleanupMessageV9,
+    WorkflowCleanupBindingV9, WorkflowCleanupFailureV9, WorkflowCleanupInputV9,
+    WorkflowCleanupOutcomeV9,
+};
 
 pub(super) struct PublicationSnapshotV2 {
     pub(super) revision: u64,
@@ -24,6 +37,14 @@ pub struct DraftPublicationFenceV2 {
     snapshot: PublicationSnapshotV2,
     cancel: CancellationToken,
     deadline: Instant,
+    // This exact fixed profile travels through the SAME message/ACK; decoded
+    // text and resource spelling can never select cleanup policy.
+    body_profile_v9: DraftBodyProfileV9,
+}
+#[derive(Clone, Copy)]
+enum DraftBodyProfileV9 {
+    Standard128,
+    WorkflowEdit361,
 }
 impl fmt::Debug for DraftPublicationFenceV2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -117,12 +138,21 @@ impl DraftPublicationAckV2 {
 enum PublicationEffectV2 {
     Save(String),
     Remove(String),
+    CommitConversation(Box<atomic_v85::AtomicProjectionV85>),
+    CommitWorkflowCleanupV9(Box<workflow_cleanup_v9::WorkflowCleanupPayloadV9>),
+}
+enum PublicationReplyV85 {
+    Draft(SyncSender<Result<DraftPublicationAckV2, DraftPublicationErrorV2>>),
+    Atomic(SyncSender<Result<atomic_v85::AtomicCommitReplyV85, AtomicPublicationFailureV85>>),
+    WorkflowCleanupV9(
+        SyncSender<Result<workflow_cleanup_v9::WorkflowCleanupReplyV9, WorkflowCleanupFailureV9>>,
+    ),
 }
 pub(super) struct PublicationMessageV2 {
     fence: DraftPublicationFenceV2,
     effect: PublicationEffectV2,
     activity: LegacyActivityV4,
-    reply: SyncSender<Result<DraftPublicationAckV2, DraftPublicationErrorV2>>,
+    reply: PublicationReplyV85,
 }
 impl PublicationMessageV2 {
     pub(super) fn run(self: Box<Self>, cache: &Result<Cache, String>) {
@@ -132,6 +162,32 @@ impl PublicationMessageV2 {
             activity,
             reply,
         } = *self;
+        let (effect, reply) = match (effect, reply) {
+            (
+                PublicationEffectV2::CommitWorkflowCleanupV9(data),
+                PublicationReplyV85::WorkflowCleanupV9(reply),
+            ) => {
+                return workflow_cleanup_v9::run_workflow_cleanup_v9(
+                    fence, *data, activity, reply, cache,
+                );
+            }
+            (PublicationEffectV2::CommitConversation(data), PublicationReplyV85::Atomic(reply)) => {
+                return atomic_v85::run_atomic_v85(fence, *data, activity, reply);
+            }
+            (effect, PublicationReplyV85::Draft(reply)) => (effect, reply),
+            (_, PublicationReplyV85::Atomic(reply)) => {
+                drop(activity);
+                let _ = reply.try_send(Err(AtomicPublicationFailureV85::Retained(
+                    "Closed publication message/reply mismatch".into(),
+                )));
+                return;
+            }
+            (_, PublicationReplyV85::WorkflowCleanupV9(reply)) => {
+                drop(activity);
+                let _ = reply.try_send(Err(WorkflowCleanupFailureV9::Retained));
+                return;
+            }
+        };
         let current = (|| {
             fence.clock(&fence.cancel)?;
             let state = fence.producer.lock()?;
@@ -151,15 +207,33 @@ impl PublicationMessageV2 {
                 PublicationEffectV2::Save(body) => {
                     cache.put_draft(&fence.snapshot.scope, &fence.snapshot.resource, body)
                 }
-                PublicationEffectV2::Remove(body) => cache.remove_publication_draft_exact_v2(
-                    &fence.snapshot.scope,
-                    &fence.snapshot.resource,
-                    body,
-                ),
+                PublicationEffectV2::Remove(body) => match fence.body_profile_v9 {
+                    DraftBodyProfileV9::Standard128 => cache.remove_publication_draft_exact_v2(
+                        &fence.snapshot.scope,
+                        &fence.snapshot.resource,
+                        body,
+                    ),
+                    DraftBodyProfileV9::WorkflowEdit361 => cache
+                        .remove_workflow_edit_draft_exact_v9(
+                            &fence.snapshot.scope,
+                            &fence.snapshot.resource,
+                            body,
+                        ),
+                },
+                PublicationEffectV2::CommitConversation(_) => {
+                    return Err("Closed atomic publication used an ordinary reply".into());
+                }
+                PublicationEffectV2::CommitWorkflowCleanupV9(_) => {
+                    return Err("Closed W9 cleanup used an ordinary reply".into())
+                }
             }
             .map_err(|error| error.to_string())?;
             Ok(match effect {
                 PublicationEffectV2::Save(body) | PublicationEffectV2::Remove(body) => body,
+                PublicationEffectV2::CommitConversation(_) => unreachable!("closed reply checked"),
+                PublicationEffectV2::CommitWorkflowCleanupV9(_) => {
+                    unreachable!("closed reply checked")
+                }
             })
         });
         let still_current = (|| {
@@ -220,7 +294,27 @@ impl DraftClient {
             snapshot,
             cancel: cancel.clone(),
             deadline,
+            body_profile_v9: DraftBodyProfileV9::Standard128,
         })
+    }
+    /// Mechanical fence only, derived from an actual workflow intent. The
+    /// decoded draft cannot mint this fence or grant remote publication.
+    pub(crate) fn capture_workflow_edit_publication_v9(
+        &self,
+        database: &Path,
+        intent: &crate::scoped_actions_workflow_edit_v9::WorkflowEditIntentV9,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<DraftPublicationFenceV2, DraftPublicationErrorV2> {
+        let mut fence = self.capture_publication_v2(
+            database,
+            intent.source().original().scope(),
+            intent.key(),
+            cancel,
+            deadline,
+        )?;
+        fence.body_profile_v9 = DraftBodyProfileV9::WorkflowEdit361;
+        Ok(fence)
     }
     /// Worker-only. Caller captures BEFORE queueing the original remote work.
     /// A body is moved once; after queue acceptance there is never a re-send.
@@ -230,9 +324,19 @@ impl DraftClient {
         body: String,
         cancel: &CancellationToken,
     ) -> Result<DraftPublicationAckV2, DraftPublicationErrorV2> {
-        if body.len() > 128 * 1024 {
+        if matches!(fence.body_profile_v9, DraftBodyProfileV9::Standard128)
+            && body.len() > 128 * 1024
+        {
             return Err(DraftPublicationErrorV2::NotSubmitted(
                 "Encoded publication draft exceeds128KiB".into(),
+            ));
+        }
+        if matches!(fence.body_profile_v9, DraftBodyProfileV9::WorkflowEdit361)
+            && body.len()
+                > crate::scoped_actions_workflow_edit_v9::draft_v9::WORKFLOW_DRAFT_BYTES_V9
+        {
+            return Err(DraftPublicationErrorV2::NotSubmitted(
+                "Encoded workflow publication draft exceeds361KiB".into(),
             ));
         }
         self.publication_wait_v2(fence, PublicationEffectV2::Save(body), cancel)
@@ -253,12 +357,65 @@ impl DraftClient {
         )
         .map(|_| ())
     }
+    /// Restrict the SAME acknowledged cleanup to its actual enclosing phase.
+    /// No new queue snapshot, token, body copy or later clock is issued.
+    #[cfg(test)]
+    pub(crate) fn remove_publication_before_v82(
+        &self,
+        mut ack: DraftPublicationAckV2,
+        cancel: &CancellationToken,
+        cutoff: Instant,
+    ) -> Result<(), DraftPublicationErrorV2> {
+        ack.fence.deadline = ack.fence.deadline.min(cutoff);
+        self.remove_publication_and_wait_v2(ack, cancel)
+    }
     fn publication_wait_v2(
         &self,
-        mut fence: DraftPublicationFenceV2,
+        fence: DraftPublicationFenceV2,
         effect: PublicationEffectV2,
         cancel: &CancellationToken,
     ) -> Result<DraftPublicationAckV2, DraftPublicationErrorV2> {
+        let (reply, result) = mpsc::sync_channel(1);
+        let (token, deadline) =
+            self.enqueue_publication_v85(fence, effect, PublicationReplyV85::Draft(reply), cancel)?;
+        loop {
+            if token.is_cancelled() || Instant::now() >= deadline {
+                return Err(DraftPublicationErrorV2::AcknowledgementUnknown("Publication draft accepted; original token/deadline ended before ACK. Inspect durable state; no POST or resend".into()));
+            }
+            match result.recv_timeout(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(20)),
+            ) {
+                Ok(ack) => {
+                    return ack.and_then(|ack| {
+                        ack.check_current(
+                            self,
+                            &ack.fence.database,
+                            &ack.fence.snapshot.scope,
+                            &ack.fence.snapshot.resource,
+                            cancel,
+                        )
+                        .map_err(DraftPublicationErrorV2::AcknowledgementUnknown)?;
+                        Ok(ack)
+                    })
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(DraftPublicationErrorV2::AcknowledgementUnknown(
+                        "Draft worker exited after publication acceptance; no durable ACK".into(),
+                    ))
+                }
+            }
+        }
+    }
+    fn enqueue_publication_v85(
+        &self,
+        mut fence: DraftPublicationFenceV2,
+        effect: PublicationEffectV2,
+        reply: PublicationReplyV85,
+        cancel: &CancellationToken,
+    ) -> Result<(CancellationToken, Instant), DraftPublicationErrorV2> {
         if !Arc::ptr_eq(&fence.producer, &self.producer) {
             return Err(DraftPublicationErrorV2::NotSubmitted(
                 "Publication fence belongs to another producer".into(),
@@ -294,7 +451,6 @@ impl DraftClient {
         drop(state);
         let deadline = fence.deadline;
         let token = fence.cancel.clone();
-        let (reply, result) = mpsc::sync_channel(1);
         let mut message = Message::PublicationV2(Box::new(PublicationMessageV2 {
             fence,
             effect,
@@ -343,36 +499,7 @@ impl DraftClient {
                 }
             }
         }
-        loop {
-            if token.is_cancelled() || Instant::now() >= deadline {
-                return Err(DraftPublicationErrorV2::AcknowledgementUnknown("Publication draft accepted; original token/deadline ended before ACK. Inspect durable state; no POST or resend".into()));
-            }
-            match result.recv_timeout(
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_millis(20)),
-            ) {
-                Ok(ack) => {
-                    return ack.and_then(|ack| {
-                        ack.check_current(
-                            self,
-                            &ack.fence.database,
-                            &ack.fence.snapshot.scope,
-                            &ack.fence.snapshot.resource,
-                            cancel,
-                        )
-                        .map_err(DraftPublicationErrorV2::AcknowledgementUnknown)?;
-                        Ok(ack)
-                    })
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(DraftPublicationErrorV2::AcknowledgementUnknown(
-                        "Draft worker exited after publication acceptance; no durable ACK".into(),
-                    ))
-                }
-            }
-        }
+        Ok((token, deadline))
     }
 }
 

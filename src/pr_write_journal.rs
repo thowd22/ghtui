@@ -1,4 +1,22 @@
 //! Durable duplicate-write protection. SQLite work belongs in application workers.
+#[path = "pr_write_conversation_action_lineage_v18.rs"]
+pub(crate) mod conversation_action_lineage_v18;
+#[path = "pr_write_conversation_history_v17.rs"]
+pub(crate) mod conversation_history_v17;
+#[path = "pr_write_conversation_refresh_v19.rs"]
+pub(crate) mod conversation_refresh_v19;
+#[path = "pr_write_exact_ack_v17.rs"]
+mod exact_ack_v17;
+#[path = "pr_write_file_comment_history_v75.rs"]
+pub(crate) mod file_comment_history_v75;
+#[path = "pr_write_issue_link_origin_v87.rs"]
+pub(crate) mod issue_link_origin_v87;
+#[path = "pr_write_metadata_base_origin_v32.rs"]
+pub(crate) mod metadata_base_origin_v32;
+#[path = "pr_write_metadata_members_v48.rs"]
+pub(crate) mod metadata_members_v48;
+#[path = "pr_write_metadata_origin_v25.rs"]
+pub(crate) mod metadata_origin_v25;
 #[path = "pr_write_original.rs"]
 mod original_publication;
 #[path = "pr_write_review_action_lineage_v12.rs"]
@@ -9,6 +27,8 @@ pub(crate) mod review_operation_history_v3;
 pub(crate) mod review_recovery_v11;
 #[path = "pr_source_metadata.rs"]
 mod source_metadata;
+#[path = "pr_write_state_origin_v68.rs"]
+pub(crate) mod state_origin_v68;
 #[path = "pr_write_thread_comment_history_v2.rs"]
 pub(crate) mod thread_comment_history_v2;
 #[path = "pr_write_thread_history_v1.rs"]
@@ -22,7 +42,23 @@ enum ObservedOriginV2<'a> {
     ReviewOperationV3(&'a review_operation_history_v3::ReviewOperationOriginSeedV3),
     ReactionV3(&'a thread_reaction_history_v3::ThreadReactionOriginSeedV3),
     ReviewActionV12(&'a review_action_lineage_v12::ReviewActionOriginSeedV12),
+    FileCommentV75(&'a file_comment_history_v75::FileCommentOriginSeedV75),
+    ConversationV17(&'a conversation_history_v17::ConversationOriginSeedV17),
+    ConversationActionV18(&'a conversation_action_lineage_v18::ConversationActionOriginSeedV18),
+    MetadataTextV25(&'a metadata_origin_v25::MetadataOriginSeedV25),
+    MetadataMembersV48(&'a metadata_members_v48::MetadataMembersOriginSeedV48),
+    MetadataBaseV32(&'a metadata_base_origin_v32::BaseOriginSeedV32),
+    StateV68(&'a state_origin_v68::StateOriginSeedV68),
+    IssueLinkV87(&'a issue_link_origin_v87::IssueLinkOriginSeedV87),
 }
+
+#[cfg(test)]
+#[path = "scoped_pr_collaboration_recovery_v17_tests.rs"]
+mod conversation_recovery_v17_tests;
+
+#[cfg(test)]
+#[path = "pr_write_cross_family_v106_tests.rs"]
+mod cross_family_v106;
 
 use crate::{
     config::validate_repository,
@@ -51,6 +87,15 @@ pub struct PrWriteTarget {
     number: u64,
 }
 impl PrWriteTarget {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        crate::providers::gh::workflow_capacity_v9::sum([
+            std::mem::size_of::<Self>(),
+            self.scope.host.capacity(),
+            self.scope.login.capacity(),
+            self.pr_node_id.capacity(),
+            self.repository.capacity(),
+        ])
+    }
     pub(crate) fn for_source(
         scope: &Scope,
         repository: &str,
@@ -277,7 +322,28 @@ impl PrWriteJournal {
         // New review commands enter BOTH relevant selectors by purpose before
         // parsing. Never filter malformed owned resources out and revive an
         // older apparently valid receipt; the closed impact validator refuses.
-        let selector=match category {PullRequestBody=>"(command IN('legacy-title','legacy-description'))",ConversationComment=>"(command IN('new-comment','edit-comment','delete-comment') AND (selected_resource LIKE 'Conversation/%' OR (command='new-comment' AND selected_resource='pr')))",Review=>"(command IN('legacy-approve','legacy-request-changes','legacy-review-comment','review-create-pending-v2','review-update-pending-v2','review-submit-v2','review-discard-v2','review-dismiss-v2','review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3'))",InlineComment=>"((command IN('new-comment','edit-comment','delete-comment') AND selected_resource LIKE 'Review/%') OR (command='inline-comment' AND selected_resource LIKE 'inline/%' AND length(selected_resource)=71 AND substr(selected_resource,8) NOT GLOB '*[^0-9a-f]*') OR command IN('review-create-pending-v2','review-submit-v2','review-discard-v2','thread-reply','thread-resolve','thread-reopen','thread-comment-edit-v2','thread-comment-delete-v2','review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3'))",IssueBody=>return Ok(None)};
+        let selector=match category {PullRequestBody=>"(command IN('legacy-title','legacy-description'))",ConversationComment=>"((command IN('new-comment','edit-comment','delete-comment') AND (selected_resource LIKE 'Conversation/%' OR (command='new-comment' AND selected_resource='pr'))) OR command IN('conversation-create-v17','conversation-edit-v17','conversation-delete-v17'))",Review=>"(command IN('legacy-approve','legacy-request-changes','legacy-review-comment','review-create-pending-v2','review-update-pending-v2','review-submit-v2','review-discard-v2','review-dismiss-v2','review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3'))",InlineComment=>"((command IN('new-comment','edit-comment','delete-comment') AND selected_resource LIKE 'Review/%') OR (command='inline-comment' AND selected_resource LIKE 'inline/%' AND length(selected_resource)=71 AND substr(selected_resource,8) NOT GLOB '*[^0-9a-f]*') OR command IN('review-create-pending-v2','review-submit-v2','review-discard-v2','thread-reply','thread-resolve','thread-reopen','thread-comment-edit-v2','thread-comment-delete-v2','review-pending-comment-add-v3','review-pending-comment-edit-v3','review-pending-comment-delete-v3'))",IssueBody=>return Ok(None)};
+        let metadata_selector_v25;
+        let selector = if matches!(category, PullRequestBody) {
+            metadata_selector_v25 = format!(
+                "({selector} OR command IN('metadata-title-v25','metadata-description-v25'))"
+            );
+            metadata_selector_v25.as_str()
+        } else {
+            selector
+        };
+        // FILE purpose first, exact digest/typed receipt validated by its
+        // closed impact helper before any fence/private admission.
+        let selector = if category == InlineComment {
+            format!("({selector} OR command='file-comment-create-v75')")
+        } else {
+            selector.to_owned()
+        };
+        let selector = if matches!(category, Review | InlineComment) {
+            format!("({selector} OR command='metadata-base-v32')")
+        } else {
+            selector
+        };
         let bounded = source_metadata::METADATA_BYTES_SQL;
         let sql=format!("SELECT attempt_id,{bounded} FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND state='confirmed' AND {selector} ORDER BY attempt_id DESC LIMIT 1");
         let found: Option<(i64, usize)> = self
@@ -340,6 +406,14 @@ impl PrWriteJournal {
         review_operation_history_v3::migrate(&transaction)?;
         thread_reaction_history_v3::migrate(&transaction)?;
         review_action_lineage_v12::migrate(&transaction)?;
+        file_comment_history_v75::migrate(&transaction)?;
+        conversation_history_v17::migrate(&transaction)?;
+        conversation_action_lineage_v18::migrate(&transaction)?;
+        metadata_origin_v25::migrate(&transaction)?;
+        metadata_members_v48::migrate(&transaction)?;
+        metadata_base_origin_v32::migrate(&transaction)?;
+        state_origin_v68::migrate(&transaction)?;
+        issue_link_origin_v87::migrate(&transaction)?;
         transaction.commit()?;
         Ok(Self { connection, path })
     }
@@ -378,6 +452,7 @@ impl PrWriteJournal {
         {
             bail!("Publication permit is stale or uncertain; inspect before retrying");
         }
+        issue_link_origin_v87::validate_claim(&transaction, &self.path, target, &current)?;
         // Invalidate an inspection prepared before publication starts. The permit
         // remains conservative if commit fails: it cannot be used a second time.
         permit.claim()?;
@@ -477,7 +552,22 @@ impl PrWriteJournal {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let updated=transaction.execute("UPDATE pr_write_attempts SET state=?1,confirmed_json=?2 WHERE attempt_id=?3 AND host=?4 AND principal=?5 AND pr_node=?6 AND payload_sha256=?7 AND state IN('pending','uncertain')",params![state_name(state),effect.map(serde_json::to_string).transpose()?,marker.attempt_id,target.scope.host,target.scope.login,target.pr_node_id,marker.payload_sha256])?;
+        if state == PrWriteState::Confirmed {
+            state_origin_v68::reject_non_state_marker(&transaction, marker)?;
+        }
+        let sql=format!("UPDATE pr_write_attempts SET state=?1,confirmed_json=?2 WHERE attempt_id=?3 AND host=?4 AND principal=?5 AND pr_node=?6 AND payload_sha256=?7 AND state IN('pending','uncertain') AND (?1<>'confirmed' OR ({}))",state_origin_v68::NON_STATE_ATTEMPT_SQL_V68);
+        let updated = transaction.execute(
+            &sql,
+            params![
+                state_name(state),
+                effect.map(serde_json::to_string).transpose()?,
+                marker.attempt_id,
+                target.scope.host,
+                target.scope.login,
+                target.pr_node_id,
+                marker.payload_sha256
+            ],
+        )?;
         if updated != 1 {
             bail!(
                 "Publication record changed or was already completed; inspect it before proceeding"
@@ -523,6 +613,7 @@ impl PrWriteJournal {
         if inspection.issuer != self.path {
             bail!("Inspection belongs to another journal");
         }
+        state_origin_v68::reject_non_state_target(&self.connection, &inspection.target)?;
         let current = PrWriteTarget::new(current_identity, inspection.observation.target())?;
         if !current.same_barrier(&inspection.target)
             || !current_identity.same_account(inspection.observation.identity())
@@ -549,7 +640,12 @@ impl PrWriteJournal {
         if generation(&transaction, &current)? != inspection.generation {
             bail!("Publication changed during acknowledgement; durable marker remains blocked");
         }
-        let changed=transaction.execute("UPDATE pr_write_attempts SET state='acknowledged' WHERE host=?1 AND principal=?2 AND pr_node=?3 AND state IN('pending','uncertain')",params![current.scope.host,current.scope.login,current.pr_node_id])?;
+        state_origin_v68::reject_non_state_target(&transaction, &current)?;
+        let sql=format!("UPDATE pr_write_attempts SET state='acknowledged' WHERE host=?1 AND principal=?2 AND pr_node=?3 AND state IN('pending','uncertain') AND ({})",state_origin_v68::NON_STATE_ATTEMPT_SQL_V68);
+        let changed = transaction.execute(
+            &sql,
+            params![current.scope.host, current.scope.login, current.pr_node_id],
+        )?;
         advance(&transaction, &current)?;
         transaction.commit()?;
         Ok(changed)

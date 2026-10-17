@@ -10,6 +10,17 @@ use std::{
 
 #[path = "repository_catalogue/budget.rs"]
 mod budget;
+#[path = "repository_catalogue/state_source_heap_v80.rs"]
+mod state_source_heap_v80;
+pub(crate) use state_source_heap_v80::{StateSourceCaptureV80, StateSourceChargeV80};
+#[path = "repository_catalogue/state_source_read_v80.rs"]
+mod state_source_read_v80;
+pub(crate) use state_source_read_v80::{
+    ClosedStateSourceV80, StateSourcePreparedBindingV80, StateSourceReadV80,
+};
+#[path = "repository_catalogue/workflow_core_json_v9.rs"]
+mod workflow_core_json_v9;
+pub(crate) use workflow_core_json_v9::WorkflowCoreJsonV9;
 #[path = "repository_catalogue/model.rs"]
 mod model;
 #[path = "repository_catalogue/parse.rs"]
@@ -18,8 +29,23 @@ use budget::CatalogueBudget;
 pub use model::*;
 #[path = "repository_catalogue/current_access_v1.rs"]
 mod current_access_v1;
+pub(crate) use current_access_v1::OriginalPrClosedAccessV13;
+pub(super) use current_access_v1::{workflow_branch_response_v9, workflow_history_response_v9};
+#[path = "repository_catalogue/notifications_v63.rs"]
+pub(crate) mod notifications_v63;
+pub(crate) use current_access_v1::WorkflowCleanupSealV9;
 pub use current_access_v1::*;
+pub(crate) use current_access_v1::{
+    ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationInspectionV63,
+    NotificationPrFollowIntentV63, NotificationPrSourceV63, NotificationPublicationStateV63,
+    NotificationPublicationV63, NotificationSelectionV63, NotificationWriteReceiptV63,
+};
+pub(in crate::providers::gh) use current_access_v1::{
+    MembersMetadataClosingInputV62, MembersMetadataContextInputV62, MembersMetadataRoleV62,
+};
+pub(crate) use current_access_v1::{OriginalPrAccessSessionV13, OriginalPrMembershipRefV13};
 pub(crate) use current_access_v1::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
+pub(crate) use current_access_v1::{WorkflowEditPhaseV9, WorkflowGitRoleV9, WorkflowPostCaptureV9};
 #[path = "repository_catalogue/local_commit_actor_v1.rs"]
 mod local_commit_actor_v1;
 pub use local_commit_actor_v1::*;
@@ -282,7 +308,7 @@ fn principal(
     budget: &mut CatalogueBudget,
     cancel: &CancellationToken,
 ) -> GithubResult<HostIdentity> {
-    let raw = budget.command(provider, vec!["--version".into()], 4096, cancel)?;
+    let raw = budget.principal_version_v9(provider, cancel)?;
     let version=GhCliVersion::parse_stdout(&raw).map_err(|_|error(GithubErrorKind::Unsupported,"gh version syntax is unverified; inspect/install a reviewed release before catalogue requests"))?;
     if !matches!(
         ActualGhTransport::FixedPageApiJson
@@ -293,7 +319,7 @@ fn principal(
     ) {
         return Err(error(GithubErrorKind::Unsupported,"gh compatibility is unverified/outside reviewed major; no authenticated catalogue API probe made"));
     }
-    let user = budget.json(provider, "user", 64 * 1024, cancel)?;
+    let user = budget.principal_user_v9(provider, cancel)?;
     let login = user
         .get("login")
         .and_then(Value::as_str)

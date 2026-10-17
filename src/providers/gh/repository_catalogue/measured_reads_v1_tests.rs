@@ -2,6 +2,8 @@
 use super::*;
 #[path = "original_repository_access_core_v13_tests.rs"]
 mod original_core_v13;
+#[path = "personal_access_v13_tests.rs"]
+mod personal_entry_v13;
 #[path = "postwrite_capture_v2_tests.rs"]
 mod postwrite_capture_v2_tests;
 use crate::{

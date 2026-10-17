@@ -49,11 +49,13 @@ impl ReviewRepairSelectionV8 {
         categories: &[SyncBindingKind],
     ) -> Result<Option<(Self, Vec<PrWriteMarker>)>, String> {
         let both = [SyncBindingKind::Review, SyncBindingKind::InlineComment];
-        if super::super::review_impact_v2::categories(marker, true)?.as_deref()
-            != Some(both.as_slice())
-        {
+        let base = super::super::metadata_base_impact_v32::categories(marker, true)?;
+        let review = super::super::review_impact_v2::categories(marker, true)?;
+        if base.as_deref() != Some(both.as_slice()) && review.as_deref() != Some(both.as_slice()) {
             return Ok(None);
         }
+        // A pure closed category is not proof of an actual atomic origin.
+        super::super::metadata_base_impact_v32::validate_original(marker, journal, target)?;
         if categories != both {
             return Err("Original review composite category set changed".into());
         }

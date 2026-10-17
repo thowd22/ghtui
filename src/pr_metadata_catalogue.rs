@@ -28,6 +28,7 @@ pub struct LoadedPrMetadataChoices {
     prepared: PrMetadataChoices,
     read_limits: PrMetadataReadLimits,
     prepare_limits: PrMetadataLimits,
+    original_v48: Option<Arc<crate::providers::gh::OriginalMetadataMembersV48>>,
 }
 impl std::fmt::Debug for LoadedPrMetadataChoices {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35,6 +36,38 @@ impl std::fmt::Debug for LoadedPrMetadataChoices {
     }
 }
 impl LoadedPrMetadataChoices {
+    pub(crate) fn from_original_members_v48(
+        actual: Arc<crate::providers::gh::OriginalMetadataMembersV48>,
+    ) -> GithubResult<Self> {
+        let prepare_limits = PrMetadataLimits::default();
+        prepare_limits
+            .validate()
+            .map_err(|message| failure(GithubErrorKind::InvalidTarget, message))?;
+        let source = Arc::clone(actual.read());
+        let prepared = PrMetadataChoices::prepare_original_members_v48(&actual, prepare_limits)
+            .map_err(|message| failure(GithubErrorKind::InvalidTarget, message))?;
+        Ok(Self {
+            read_limits: actual.limits().clone(),
+            source,
+            prepared,
+            prepare_limits,
+            original_v48: Some(actual),
+        })
+    }
+    pub(crate) fn matches_original_members_v48(
+        &self,
+        actual: &Arc<crate::providers::gh::OriginalMetadataMembersV48>,
+    ) -> bool {
+        self.original_v48
+            .as_ref()
+            .is_some_and(|retained| Arc::ptr_eq(retained, actual))
+            && Arc::ptr_eq(&self.source, actual.read())
+    }
+    pub(crate) fn observed_original_members_available_v48(&self) -> Option<bool> {
+        self.original_v48
+            .as_ref()
+            .map(|actual| actual.observed_mutation_available_v48())
+    }
     /// Genuine read-produced snapshot, not reconstructed from prepared labels.
     pub fn source(&self) -> &Arc<PrMetadataCatalogueRead> {
         &self.source
@@ -187,6 +220,7 @@ fn load_selected(
         prepared,
         read_limits: read_limits.clone(),
         prepare_limits,
+        original_v48: None,
     })
 }
 

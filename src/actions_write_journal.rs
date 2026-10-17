@@ -14,6 +14,9 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+pub(crate) use scoped_claim_v3::ActionsOwnedDispatchHistoryV7;
+pub(crate) use scoped_claim_v3::ActionsOwnedWorkflowRemoteHistoryV9;
+pub(crate) use scoped_claim_v3::{ActionsOwnedRunHistoryV8, ActionsOwnedWorkflowHistoryV6};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -26,8 +29,40 @@ use std::{
 mod availability;
 mod bounded_candidates;
 mod bounded_original;
+mod force_escalation_v5;
+mod scoped_history_v5;
+mod workflow_capacity_v9;
+pub(crate) use scoped_history_v5::{
+    dispatch_acceptance_available_v7, ActionsDispatchAckV7, ActionsHistoricalDispatchKeyV7,
+};
+pub(crate) use scoped_history_v5::{
+    workflow_ack_available_v6, ActionsHistoricalWorkflowKeyV6, ActionsWorkflowAckV6,
+};
+pub(crate) use scoped_history_v5::{
+    workflow_remote_ack_available_v9, ActionsHistoricalWorkflowRemoteKeyV9,
+    ActionsWorkflowRemoteAckV9,
+};
+pub(crate) use scoped_history_v5::{
+    ActionsHistoricalRunKeyV5, ActionsHistoryAckV5, ActionsHistorySnapshotV5,
+    ActionsRunHistoryAckV8,
+};
 mod scope_target;
+mod scoped_claim_v3;
+mod scoped_context_v3;
+mod workflow_edit_context_v9;
+pub use workflow_edit_context_v9::{
+    ActionsOriginalWorkflowEditContextV9, WorkflowRemotePhaseV9, WorkflowRemoteReceiptV9,
+};
+mod scoped_inspection_v3;
 pub use availability::{ActionsInspectionDisposition, ActionsUnresolvedPage};
+pub use force_escalation_v5::ActionsForceEscalationContextV5;
+pub(crate) use force_escalation_v5::ScopedForceEscalationV5;
+pub(crate) use scoped_claim_v3::ActionsClaimStampV3;
+pub use scoped_context_v3::{
+    ActionsOriginalDispatchContextV7, ActionsOriginalPrContextV3,
+    ActionsOriginalRepositoryContextV3, ActionsOriginalRunContextV3,
+    ActionsOriginalWorkflowContextV6,
+};
 
 /// Only remote effects belong here. Filtering, browsing and archive export do not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +79,8 @@ pub enum ActionsWriteKind {
     EnableWorkflow,
     DisableWorkflow,
     DispatchWorkflow,
+    PublishWorkflowBranch,
+    CreateWorkflowPr,
     DeleteArtifact,
     ApproveDeployment,
     RejectDeployment,
@@ -76,6 +113,26 @@ pub struct ActionsImmutableContext {
     pub head_sha: Option<String>,
     pub workflow_commit: Option<String>,
     pub job_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_repository_v3: Option<ActionsOriginalRepositoryContextV3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_run_v3: Option<ActionsOriginalRunContextV3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_pr_v3: Option<ActionsOriginalPrContextV3>,
+    /// Descriptive original accepted Cancel; never a restored escalation permit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_escalation_v5: Option<ActionsForceEscalationContextV5>,
+    /// Historical workflow identity, never a current API/write capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_workflow_v6: Option<ActionsOriginalWorkflowContextV6>,
+    /// Safe descriptive ref/protocol metadata only. Never input bytes/digests,
+    /// a live schema, permission, source or restored publication capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_dispatch_v7: Option<ActionsOriginalDispatchContextV7>,
+    /// Safe observed repository/ref/C-D facts only, never edited private text
+    /// or restored source, permission, request or publication capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_edit_v9: Option<ActionsOriginalWorkflowEditContextV9>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionsSafeOptions {
@@ -163,8 +220,43 @@ impl ActionsWriteIntent {
     }
     pub fn fingerprint(&self, target: &ActionsWriteTarget) -> Result<String> {
         validate_context(&self.context)?;
+        if self.context.original_repository_v3.is_some() {
+            let expected = ActionsWriteTarget::from_original_context_v3(
+                &target.scope,
+                &target.target,
+                &self.context,
+            )?;
+            if !expected.same_resources(target) {
+                bail!("Original numeric Actions metadata requires every exact original/current/numeric resource alias");
+            }
+        }
         validate_options(&self.options)?;
         validate_kind_target(self.kind, &target.target)?;
+        if self.context.original_workflow_v6.is_some()
+            && self.context.original_dispatch_v7.is_none()
+            && self.context.workflow_edit_v9.is_none()
+            && (!matches!(
+                self.kind,
+                ActionsWriteKind::EnableWorkflow | ActionsWriteKind::DisableWorkflow
+            ) || self.options.enabled != Some(self.kind == ActionsWriteKind::EnableWorkflow)
+                || self.options.debug_logging
+                || !self.options.selected_ids.is_empty())
+        {
+            bail!("Original workflow metadata only describes its exact enable/disable choice");
+        }
+        if self.context.original_dispatch_v7.is_some()
+            && (self.kind != ActionsWriteKind::DispatchWorkflow
+                || self.options.enabled.is_some()
+                || self.options.debug_logging
+                || !self.options.selected_ids.is_empty())
+        {
+            bail!("Original Dispatch metadata only describes its exact dispatch choice");
+        }
+        if self.context.force_escalation_v5.is_some() && self.kind != ActionsWriteKind::ForceCancel
+        {
+            bail!("Only an explicit original Force cancellation may describe an escalation");
+        }
+        workflow_edit_context_v9::validate_intent(self)?;
         if let ActionsTarget::Run { id, .. } = &target.target {
             if self.context.run_id != Some(*id)
                 || self.context.attempt.is_none()
@@ -237,6 +329,10 @@ pub enum ActionsReceiptKind {
     SecretMetadata,
     VariableMetadata,
     SettingsMetadata,
+    /// Documented HTTP204 acceptance, NOT observed deletion/causality.
+    RunDeletionAccepted,
+    WorkflowBranchObserved,
+    WorkflowPrObserved,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionsReceipt {
@@ -246,6 +342,23 @@ pub struct ActionsReceipt {
     /// Dispatch correlation is a canonical observed run, never workflow completion.
     #[serde(default)]
     pub observed_run_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_dispatch_run_v7: Option<ActionsDispatchRunReceiptV7>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_remote_v9: Option<WorkflowRemoteReceiptV9>,
+}
+/// Only descriptive actual POST200+prepaid raw Run facts. Never a live target.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionsDispatchRunReceiptV7 {
+    pub repository_id: u64,
+    pub repository_node: String,
+    pub run_id: u64,
+    pub run_node: String,
+    pub workflow_id: u64,
+    pub attempt: u64,
+    pub head_sha: String,
+    pub event: String,
+    pub check_suite_id: u64,
 }
 #[derive(Clone, Debug)]
 pub struct ActionsWriteMarker {
@@ -312,6 +425,12 @@ pub struct ActionsWritePermit {
     marker: ActionsWriteMarker,
     transient_binding: [u8; 32],
     used: AtomicBool,
+    // Some-only original transaction generations. None performs no new SQL,
+    // serializes nothing and keeps exact legacy fingerprints/claim policy.
+    scoped_begin_generations_v3: Option<Vec<i64>>,
+    force_escalation_v5: Option<std::sync::Arc<ScopedForceEscalationV5>>,
+    workflow_pr_prior_branch_v9:
+        Option<std::sync::Arc<scoped_claim_v3::WorkflowPrPriorBranchFenceV9>>,
 }
 impl fmt::Debug for ActionsWritePermit {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -387,11 +506,58 @@ impl ActionsWriteJournal {
         target: &ActionsWriteTarget,
         intent: &ActionsWriteIntent,
     ) -> Result<ActionsWritePermit> {
+        self.begin_with_force_v5(target, intent, None)
+    }
+    fn begin_with_force_v5(
+        &mut self,
+        target: &ActionsWriteTarget,
+        intent: &ActionsWriteIntent,
+        escalation: Option<std::sync::Arc<ScopedForceEscalationV5>>,
+    ) -> Result<ActionsWritePermit> {
+        self.begin_closed_v9(target, intent, escalation, None)
+    }
+    pub(crate) fn begin_workflow_pr_after_branch_v9(
+        &mut self,
+        target: &ActionsWriteTarget,
+        intent: &ActionsWriteIntent,
+        branch: &crate::scoped_actions_workflow_edit_v9::WorkflowPublishedBranchV9,
+    ) -> Result<ActionsWritePermit> {
+        self.begin_closed_v9(target, intent, None, Some(branch))
+    }
+    fn begin_closed_v9(
+        &mut self,
+        target: &ActionsWriteTarget,
+        intent: &ActionsWriteIntent,
+        escalation: Option<std::sync::Arc<ScopedForceEscalationV5>>,
+        branch: Option<&crate::scoped_actions_workflow_edit_v9::WorkflowPublishedBranchV9>,
+    ) -> Result<ActionsWritePermit> {
         let fingerprint = intent.fingerprint(target)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if !blocking(&transaction, target, intent.kind)?.is_empty() {
+        scoped_context_v3::before_begin(&transaction, target, intent)?;
+        let workflow_pr_prior_branch_v9 = branch
+            .map(|branch| {
+                scoped_claim_v3::WorkflowPrPriorBranchFenceV9::prepare_before_begin_v9(
+                    &transaction,
+                    &self.path,
+                    target,
+                    intent,
+                    branch,
+                )
+            })
+            .transpose()?;
+        let blocked = blocking(&transaction, target, intent.kind)?;
+        if let Some(proof) = &escalation {
+            force_escalation_v5::before_begin(
+                &transaction,
+                &self.path,
+                target,
+                intent,
+                proof,
+                &blocked,
+            )?;
+        } else if intent.context.force_escalation_v5.is_some() || !blocked.is_empty() {
             bail!("Actions publication unresolved: inspect and explicitly acknowledge its exact result before another overlapping effect");
         }
         advance(&transaction, target)?;
@@ -401,6 +567,11 @@ impl ActionsWriteJournal {
         for key in &target.resources {
             transaction.execute("INSERT INTO actions_write_resources(host,principal,resource_key,attempt_id) VALUES(?1,?2,?3,?4)",params![target.scope.host,target.scope.login,key,attempt_id])?;
         }
+        let scoped_begin_generations_v3 = if intent.context.original_repository_v3.is_some() {
+            Some(generations(&transaction, target)?)
+        } else {
+            None
+        };
         transaction.commit()?;
         Ok(ActionsWritePermit {
             issuer: self.path.clone(),
@@ -417,6 +588,9 @@ impl ActionsWriteJournal {
             },
             transient_binding: intent.transient_binding,
             used: AtomicBool::new(false),
+            scoped_begin_generations_v3,
+            force_escalation_v5: escalation,
+            workflow_pr_prior_branch_v9,
         })
     }
     pub fn claim(
@@ -435,6 +609,7 @@ impl ActionsWriteJournal {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        scoped_claim_v3::before_claim(&transaction, permit)?;
         let changed = transaction.execute("UPDATE actions_write_attempts SET claimed=1 WHERE attempt_id=?1 AND host=?2 AND principal=?3 AND fingerprint_sha256=?4 AND state='pending' AND claimed=0",params![permit.marker.attempt_id,target.scope.host,target.scope.login,permit.marker.fingerprint_sha256])?;
         if changed != 1 {
             bail!("Actions permit is stale or already claimed; no effect is authorized");
@@ -489,6 +664,7 @@ impl ActionsWriteJournal {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        scoped_claim_v3::before_finish(&transaction, permit)?;
         let changed = transaction.execute("UPDATE actions_write_attempts SET state=?1,receipt_json=?2 WHERE attempt_id=?3 AND host=?4 AND principal=?5 AND fingerprint_sha256=?6 AND state IN('pending','uncertain') AND (claimed=1 OR ?7=0)",params![state_name(state),receipt.map(serde_json::to_string).transpose()?,permit.marker.attempt_id,target.scope.host,target.scope.login,permit.marker.fingerprint_sha256,receipt.is_some()])?;
         if changed != 1 {
             bail!("Actions result changed or was already completed; durable protection remains");
@@ -543,7 +719,12 @@ impl ActionsWriteJournal {
         if marker.fingerprint_sha256 != reference.fingerprint_sha256 {
             bail!("Original Actions publication fingerprint differs; nothing may be resent");
         }
-        let canonical = ActionsWriteTarget::new(provider, identity, &marker.target.target)?;
+        let legacy = ActionsWriteTarget::new(provider, identity, &marker.target.target)?;
+        let canonical = ActionsWriteTarget::from_original_context_v3(
+            legacy.scope(),
+            legacy.target(),
+            &marker.context,
+        )?;
         let closed = ActionsWriteIntent::new(
             marker.kind,
             marker.context.clone(),
@@ -579,6 +760,9 @@ impl ActionsWriteJournal {
         let marker = bounded_original::read_checked_attempt(&self.connection, &scope, attempt_id)?
             .context("No Actions publication exists for this verified principal")?;
         availability::validate_saved_marker(provider, &marker)?;
+        if marker.context.original_repository_v3.is_some() {
+            bail!("Original scoped Actions inspection requires its genuine current numeric source and raw run proof; the legacy name-only inspector cannot adopt it");
+        }
         if !matches!(
             marker.state,
             ActionsWriteState::Pending
@@ -671,13 +855,24 @@ impl ActionsWriteJournal {
         provider
             .acknowledge_actions_observation(inspection.observation)
             .map_err(anyhow::Error::msg)?;
+        self.acknowledge_closed_v3(inspection.marker, inspection.generations, next)
+    }
+    /// SAME durable acknowledgement commit. The specialized caller must have
+    /// consumed a genuine provider observation after its original source close.
+    fn acknowledge_closed_v3(
+        &mut self,
+        marker: ActionsWriteMarker,
+        expected: Vec<i64>,
+        next: ActionsWriteState,
+    ) -> Result<()> {
+        let target = &marker.target;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if generations(&transaction, target)? != inspection.generations {
+        if generations(&transaction, target)? != expected {
             bail!("Actions publication changed during acknowledgement; durable protection remains");
         }
-        let changed = transaction.execute("UPDATE actions_write_attempts SET state=?1 WHERE attempt_id=?2 AND host=?3 AND principal=?4 AND state=?5",params![state_name(next),inspection.marker.attempt_id,target.scope.host,target.scope.login,state_name(inspection.marker.state)])?;
+        let changed = transaction.execute("UPDATE actions_write_attempts SET state=?1 WHERE attempt_id=?2 AND host=?3 AND principal=?4 AND state=?5",params![state_name(next),marker.attempt_id,target.scope.host,target.scope.login,state_name(marker.state)])?;
         if changed != 1 {
             bail!("Actions result changed before acknowledgement; protection remains");
         }
@@ -793,9 +988,36 @@ fn validate_context(context: &ActionsImmutableContext) -> Result<()> {
             bail!("Actions comparison context requires immutable Git identities");
         }
     }
+    scoped_context_v3::validate(context)?;
     Ok(())
 }
 fn validate_receipt(receipt: &ActionsReceipt) -> Result<()> {
+    workflow_edit_context_v9::validate_receipt(receipt)?;
+    if let Some(run) = &receipt.original_dispatch_run_v7 {
+        if receipt.kind != ActionsReceiptKind::Dispatch
+            || receipt.observed_run_id != Some(run.run_id)
+            || receipt.observed_attempt != Some(run.attempt)
+            || [
+                run.repository_id,
+                run.run_id,
+                run.workflow_id,
+                run.attempt,
+                run.check_suite_id,
+            ]
+            .into_iter()
+            .any(|id| id == 0 || id > i64::MAX as u64)
+            || [run.repository_node.as_str(), run.run_node.as_str()]
+                .into_iter()
+                .any(|node| {
+                    node.is_empty() || node.len() > 256 || node.chars().any(char::is_control)
+                })
+            || !matches!(run.head_sha.len(), 40 | 64)
+            || !run.head_sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || run.event != "workflow_dispatch"
+        {
+            bail!("Actual Dispatch receipt facts are invalid");
+        }
+    }
     if [
         receipt.resource_id,
         receipt.observed_attempt,
@@ -826,7 +1048,11 @@ fn validate_kind_target(kind: ActionsWriteKind, target: &ActionsTarget) -> Resul
     let valid = match kind {
         RerunAll | RerunFailed | RerunJob | Cancel | ForceCancel | DeleteRun | DeleteLogs
         | ApproveFork => matches!(target, ActionsTarget::Run { .. }),
-        EnableWorkflow | DisableWorkflow | DispatchWorkflow => {
+        EnableWorkflow
+        | DisableWorkflow
+        | DispatchWorkflow
+        | PublishWorkflowBranch
+        | CreateWorkflowPr => {
             matches!(target, ActionsTarget::Workflow { .. })
         }
         DeleteArtifact => matches!(target, ActionsTarget::Artifact { .. }),
@@ -862,15 +1088,61 @@ fn validate_kind_target(kind: ActionsWriteKind, target: &ActionsTarget) -> Resul
     Ok(())
 }
 fn validate_receipt_target(marker: &ActionsWriteMarker, receipt: &ActionsReceipt) -> Result<()> {
+    workflow_edit_context_v9::validate_receipt_target(marker, receipt)?;
+    if let Some(dispatch) = &marker.context.original_dispatch_v7 {
+        if receipt.kind != ActionsReceiptKind::Dispatch
+            || match dispatch.protocol.as_str() {
+                "2026-03-10" => {
+                    receipt.observed_run_id.is_none()
+                        || receipt.observed_attempt.is_none()
+                        || receipt.original_dispatch_run_v7.is_none()
+                }
+                "2022-11-28" => {
+                    receipt.observed_run_id.is_some()
+                        || receipt.observed_attempt.is_some()
+                        || receipt.original_dispatch_run_v7.is_some()
+                }
+                _ => true,
+            }
+        {
+            bail!("Original Dispatch typed receipt differs from its documented protocol");
+        }
+        if let Some(run) = &receipt.original_dispatch_run_v7 {
+            if marker
+                .context
+                .original_repository_v3
+                .as_ref()
+                .is_none_or(|repo| {
+                    repo.repository_id != run.repository_id
+                        || repo.repository_node != run.repository_node
+                })
+                || marker
+                    .context
+                    .original_workflow_v6
+                    .as_ref()
+                    .is_none_or(|workflow| workflow.workflow_id != run.workflow_id)
+                || dispatch.commit != run.head_sha
+            {
+                bail!("Actual Dispatch run receipt differs from original repository/workflow/definition");
+            }
+        }
+    } else if receipt.original_dispatch_run_v7.is_some() {
+        bail!("Actual native Dispatch receipt requires its exact original Dispatch context");
+    }
     use ActionsWriteKind::*;
     let expected_kind = match marker.kind {
         RerunAll | RerunFailed | RerunJob | Cancel | ForceCancel | ApproveFork => {
             ActionsReceiptKind::RunTransition
         }
+        DeleteRun if marker.context.original_repository_v3.is_some() => {
+            ActionsReceiptKind::RunDeletionAccepted
+        }
         DeleteRun => ActionsReceiptKind::RunDeleted,
         DeleteLogs => ActionsReceiptKind::LogsDeleted,
         EnableWorkflow | DisableWorkflow => ActionsReceiptKind::WorkflowState,
         DispatchWorkflow => ActionsReceiptKind::Dispatch,
+        PublishWorkflowBranch => ActionsReceiptKind::WorkflowBranchObserved,
+        CreateWorkflowPr => ActionsReceiptKind::WorkflowPrObserved,
         DeleteArtifact => ActionsReceiptKind::ArtifactDeleted,
         ApproveDeployment | RejectDeployment => ActionsReceiptKind::DeploymentAccepted,
         DeleteCache => ActionsReceiptKind::CacheDeleted,
@@ -881,17 +1153,35 @@ fn validate_receipt_target(marker: &ActionsWriteMarker, receipt: &ActionsReceipt
     if receipt.kind != expected_kind {
         bail!("Actions receipt does not describe the authorized effect");
     }
-    let expected_id = match &marker.target.target {
-        ActionsTarget::Run { id, .. }
-        | ActionsTarget::Workflow { id, .. }
-        | ActionsTarget::Artifact { id, .. }
-        | ActionsTarget::Cache { id, .. }
-        | ActionsTarget::Runner { id, .. }
-        | ActionsTarget::RunnerGroup { id, .. }
-        | ActionsTarget::GroupAssociations { id, .. } => Some(*id),
-        ActionsTarget::DeploymentReview { run_id, .. } => Some(*run_id),
-        ActionsTarget::EnvironmentProtection { environment_id, .. } => Some(*environment_id),
-        _ => None,
+    let expected_id = if marker.context.workflow_edit_v9.is_some() {
+        // The paired W9 context/receipt was fully validated above, followed by
+        // the SAME generic kind check. Its exact effect is the actual head
+        // repository (Branch) or actual PR number, not workflow container ID.
+        Some(
+            match receipt
+                .workflow_remote_v9
+                .as_ref()
+                .context("Actual typed W9 receipt missing")?
+            {
+                WorkflowRemoteReceiptV9::Branch {
+                    head_repository_id, ..
+                } => *head_repository_id,
+                WorkflowRemoteReceiptV9::Pr { number, .. } => *number,
+            },
+        )
+    } else {
+        match &marker.target.target {
+            ActionsTarget::Run { id, .. }
+            | ActionsTarget::Workflow { id, .. }
+            | ActionsTarget::Artifact { id, .. }
+            | ActionsTarget::Cache { id, .. }
+            | ActionsTarget::Runner { id, .. }
+            | ActionsTarget::RunnerGroup { id, .. }
+            | ActionsTarget::GroupAssociations { id, .. } => Some(*id),
+            ActionsTarget::DeploymentReview { run_id, .. } => Some(*run_id),
+            ActionsTarget::EnvironmentProtection { environment_id, .. } => Some(*environment_id),
+            _ => None,
+        }
     };
     if expected_id.is_some() && receipt.resource_id != expected_id {
         bail!("Actions receipt belongs to another canonical effect target");

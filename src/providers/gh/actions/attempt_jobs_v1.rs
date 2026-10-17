@@ -26,6 +26,18 @@ impl ExactAttemptJobs {
         attempt: u64,
         cancel: &CancellationToken,
     ) -> GithubResult<Self> {
+        Self::read_with_raw_guard_v4(provider, repo, id, attempt, cancel, |_| Ok(()))
+    }
+    /// SAME actual response/grammar/argv. Scoped publication may add a pure
+    /// original-raw-pin guard, never an extra child, second parser or new clock.
+    pub(super) fn read_with_raw_guard_v4(
+        provider: &GithubProvider,
+        repo: &str,
+        id: u64,
+        attempt: u64,
+        cancel: &CancellationToken,
+        guard: impl FnOnce(&Value) -> GithubResult<()>,
+    ) -> GithubResult<Self> {
         // Preserve the existing target/SHA policy and argv. Tightening all
         // legacy read budgets/identity policies is a separate reviewed change.
         validate_pr(repo, id)?;
@@ -44,6 +56,7 @@ impl ExactAttemptJobs {
                 "Attempt response does not match the selected run/attempt",
             ));
         }
+        guard(&raw)?;
         Ok(Self {
             run,
             jobs_endpoint: format!("{endpoint}/jobs?per_page=100"),

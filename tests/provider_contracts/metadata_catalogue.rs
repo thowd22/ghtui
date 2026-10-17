@@ -85,6 +85,34 @@ fn read(
         &CancellationToken::default(),
     )
 }
+#[test]
+fn pr_metadata_catalogue_provider_legacy_none_output_limit_keeps_exhausted_budget_refusal() {
+    for stdout in [true, false] {
+        let fixture = Fixture::new();
+        let mut calls = complete(vec![page("labels", 1, vec![])]);
+        if stdout {
+            calls[4].stdout = b"LEGACY_NONE_CAPTURE_CANARY".repeat(6000);
+        } else {
+            calls[4].stderr = b"\x01\x02".repeat(70_000);
+        }
+        calls.truncate(5);
+        fixture.scripted_gh(&calls);
+        // Public ordinary provider has no original measured window. Its old
+        // collector consumes the failed-page error, but the SAME MetricsBudget
+        // is already exhausted and refuses the first closing read prechild.
+        let error = match read(&fixture, MetadataChoices::Labels, &limits()) {
+            Err(error) => error,
+            Ok(_) => panic!("Old exhausted Legacy budget cannot complete a catalogue"),
+        };
+        assert!(matches!(error.kind, GithubErrorKind::Transport));
+        assert_eq!(
+            error.message,
+            "Metric read budget/cancellation reached before another gh request"
+        );
+        assert!(!format!("{error:?} {error}").contains("LEGACY_NONE_CAPTURE_CANARY"));
+        reads(&fixture, 5);
+    }
+}
 fn reads(fixture: &Fixture, count: usize) {
     let rows = journal(fixture);
     assert_eq!(rows.len(), count);

@@ -1,8 +1,12 @@
 //! UNREGISTERED child of repository_catalogue_scoped_pr_resources_v1.
 //! Four actual-binary key/mouse declarations. No executed/native PASS claim.
 use super::*;
+#[path = "scoped_actions_rerun_pr_v4.rs"]
+mod actions_rerun_v4;
 #[path = "scoped_actions_pr_origin_v2.rs"]
 mod actions_resources_v2;
+#[path = "scoped_actions_workflow_pr_v6.rs"]
+mod actions_workflow_v6;
 #[path = "repository_catalogue_scoped_pr_check_choices_v1.rs"]
 mod choices;
 #[path = "scoped_check_first_selection_v1.rs"]

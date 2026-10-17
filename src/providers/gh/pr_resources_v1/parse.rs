@@ -1,6 +1,6 @@
 use super::*;
 
-fn positive(raw: &Value, field: &str) -> GithubResult<u64> {
+pub(super) fn positive(raw: &Value, field: &str) -> GithubResult<u64> {
     raw[field]
         .as_u64()
         .filter(|id| *id > 0 && *id <= i64::MAX as u64)
@@ -19,7 +19,7 @@ fn bounded(raw: &Value, field: &str) -> GithubResult<Option<String>> {
         _ => Err(safe(GithubErrorKind::Json)),
     }
 }
-fn actual_node(raw: &Value, field: &str) -> GithubResult<String> {
+pub(super) fn actual_node(raw: &Value, field: &str) -> GithubResult<String> {
     raw[field]
         .as_str()
         .filter(|node| opaque(node))
@@ -32,7 +32,7 @@ fn optional_node(raw: &Value) -> GithubResult<Option<String>> {
         _ => actual_node(raw, "node_id").map(Some),
     }
 }
-fn exact_source(
+pub(super) fn exact_source(
     provider: &GithubProvider,
     raw: &Value,
     field: &str,
@@ -64,24 +64,59 @@ pub(super) fn parent(
     original: &PrSummary,
     raw: &Value,
 ) -> GithubResult<PrResourceParentV1> {
-    let repository = current.repository();
+    parent_expected_v13(
+        provider,
+        current,
+        ExpectedPrParentV13::ExistingSummary(original),
+        raw,
+    )
+}
+pub(super) fn parent_expected_v13(
+    provider: &GithubProvider,
+    current: &CurrentCatalogueRepository,
+    original: ExpectedPrParentV13<'_>,
+    raw: &Value,
+) -> GithubResult<PrResourceParentV1> {
+    parent_against_repository_expected_v75(provider, current.repository(), original, raw)
+}
+// Pure parser reuse ONLY within the genuine resource factory. A DTO remains
+// descriptive; it cannot mint a Current/source/permission or skip Core close.
+pub(super) fn parent_against_repository_v75(
+    provider: &GithubProvider,
+    repository: &RepositoryCatalogueRepository,
+    original: &PrSummary,
+    raw: &Value,
+) -> GithubResult<PrResourceParentV1> {
+    parent_against_repository_expected_v75(
+        provider,
+        repository,
+        ExpectedPrParentV13::ExistingSummary(original),
+        raw,
+    )
+}
+fn parent_against_repository_expected_v75(
+    provider: &GithubProvider,
+    repository: &RepositoryCatalogueRepository,
+    original: ExpectedPrParentV13<'_>,
+    raw: &Value,
+) -> GithubResult<PrResourceParentV1> {
     let database_id = positive(raw, "id")?;
     let node = actual_node(raw, "node_id")?;
-    if raw["number"].as_u64() != Some(original.pr.number)
-        || node != original.pr.id
-        || raw["head"]["sha"].as_str() != Some(&original.head_sha)
-        || raw["base"]["sha"].as_str() != Some(&original.base_sha)
-        || actual_ref(&raw["head"])? != original.head_ref
-        || actual_ref(&raw["base"])? != original.base_ref
+    if raw["number"].as_u64() != Some(original.number())
+        || node != original.node()
+        || raw["head"]["sha"].as_str() != Some(original.head())
+        || raw["base"]["sha"].as_str() != Some(original.base())
+        || actual_ref(&raw["head"])? != original.head_ref()
+        || actual_ref(&raw["base"])? != original.base_ref()
         || raw["state"].as_str()
-            != Some(if original.merged {
+            != Some(if original.merged() {
                 "closed"
             } else {
-                &original.pr.state
+                original.state()
             })
         || !matches!(raw["state"].as_str(), Some("open" | "closed"))
-        || raw["draft"].as_bool() != Some(original.pr.draft)
-        || raw["merged"].as_bool() != Some(original.merged)
+        || raw["draft"].as_bool() != Some(original.draft())
+        || raw["merged"].as_bool() != Some(original.merged())
     {
         return Err(safe(GithubErrorKind::StaleHead));
     }
@@ -89,10 +124,7 @@ pub(super) fn parent(
         provider,
         raw,
         "url",
-        &format!(
-            "repos/{}/pulls/{}",
-            repository.full_name, original.pr.number
-        ),
+        &format!("repos/{}/pulls/{}", repository.full_name, original.number()),
         true,
         true,
     )?;
@@ -100,7 +132,7 @@ pub(super) fn parent(
         provider,
         raw,
         "html_url",
-        &format!("{}/pull/{}", repository.full_name, original.pr.number),
+        &format!("{}/pull/{}", repository.full_name, original.number()),
         false,
         true,
     )?;
@@ -146,26 +178,26 @@ pub(super) fn parent(
             host: provider.host.clone(),
             id: node,
             repository: repository.full_name.clone(),
-            number: original.pr.number,
+            number: original.number(),
             title: bounded(raw, "title")?.unwrap_or_else(|| "Title unavailable".into()),
             body: String::new(),
             url: raw["html_url"].as_str().unwrap().into(),
             author: Actor::from_json(&raw["user"]),
-            state: if original.merged {
+            state: if original.merged() {
                 "merged".into()
             } else {
                 raw["state"].as_str().unwrap().into()
             },
-            draft: original.pr.draft,
+            draft: original.draft(),
             created_at: String::new(),
             updated_at: String::new(),
             queues: BTreeSet::new(),
         },
-        head_sha: original.head_sha.clone(),
-        base_sha: original.base_sha.clone(),
-        head_ref: original.head_ref.clone(),
-        base_ref: original.base_ref.clone(),
-        merged: original.merged,
+        head_sha: original.head().into(),
+        base_sha: original.base().into(),
+        head_ref: original.head_ref().into(),
+        base_ref: original.base_ref().into(),
+        merged: original.merged(),
         auto_merge: false,
         merge_commit_sha: None,
         mergeable: None,
@@ -174,7 +206,7 @@ pub(super) fn parent(
         deletions: 0,
         changed_files: raw["changed_files"].as_u64().unwrap_or(0),
     };
-    Ok(PrResourceParentV1 {
+    let parent = PrResourceParentV1 {
         summary,
         database_id,
         // Only the actual raw numeric author is usable for self-review checks.
@@ -189,7 +221,20 @@ pub(super) fn parent(
             None | Some(Value::Null) => None,
             Some(value) => Some(value.as_u64().ok_or_else(|| safe(GithubErrorKind::Json))?),
         },
-    })
+    };
+    if original
+        .base_old_parent_v32()
+        .is_some_and(|old| !metadata_base_v32::stable_parent(old, &parent))
+    {
+        return Err(safe(GithubErrorKind::IdentityChanged));
+    }
+    if original
+        .state_old_parent_v68()
+        .is_some_and(|old| !state_v68::stable_state_parent_v68(old, &parent))
+    {
+        return Err(safe(GithubErrorKind::IdentityChanged));
+    }
+    Ok(parent)
 }
 pub(super) fn same_parent(first: &PrResourceParentV1, last: &PrResourceParentV1) -> bool {
     first.database_id == last.database_id

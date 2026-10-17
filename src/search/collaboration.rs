@@ -218,22 +218,70 @@ impl DiscussionSnapshot {
                 "PR discussion snapshot belongs to another canonical host/repository",
             ));
         }
+        Self::from_pr_categories_v19(
+            scope,
+            repository.id,
+            &repository.full_name,
+            details,
+            threads,
+            fetched_at,
+            &[
+                DiscussionKind::PullRequestBody,
+                DiscussionKind::ConversationComment,
+                DiscussionKind::Review,
+                DiscussionKind::InlineComment,
+            ],
+        )
+    }
+    /// Actual bounded Conversation refresh admits ONLY its read categories.
+    /// It cannot fabricate Review/Inline hydration or empty known labels.
+    pub(crate) fn from_conversation_refresh_v19(
+        scope: Scope,
+        actual: &crate::providers::gh::ConversationDetailSnapshotV19,
+        fetched_at: u64,
+    ) -> Result<Vec<Self>, QueryError> {
+        let parent = actual.parent();
+        if parent.summary().pr.host != scope.host
+            || actual.details().summary.pr.id != parent.node_id()
+        {
+            return Err(error(
+                "Actual Conversation refresh belongs to another parent/scope",
+            ));
+        }
+        Self::from_pr_categories_v19(
+            scope,
+            parent.repository_id(),
+            parent.repository(),
+            actual.details(),
+            None,
+            fetched_at,
+            &[
+                DiscussionKind::PullRequestBody,
+                DiscussionKind::ConversationComment,
+            ],
+        )
+    }
+    fn from_pr_categories_v19(
+        scope: Scope,
+        repository_id: u64,
+        repository: &str,
+        details: &PrDetails,
+        threads: Option<ThreadInput<'_>>,
+        fetched_at: u64,
+        categories: &[DiscussionKind],
+    ) -> Result<Vec<Self>, QueryError> {
+        let pr = &details.summary.pr;
         let target = |category| DiscussionTarget {
             scope: scope.clone(),
-            repository_id: repository.id,
-            repository: repository.full_name.clone(),
+            repository_id,
+            repository: repository.into(),
             parent_kind: ParentKind::PullRequest,
             parent_node: pr.id.clone(),
             number: pr.number,
             category,
         };
         let mut snapshots = Vec::new();
-        for category in [
-            DiscussionKind::PullRequestBody,
-            DiscussionKind::ConversationComment,
-            DiscussionKind::Review,
-            DiscussionKind::InlineComment,
-        ] {
+        for &category in categories {
             let target = target(category);
             target.validate()?;
             let mut snapshot = Self {
@@ -543,6 +591,73 @@ impl DiscussionSnapshot {
             })
             .collect()
     }
+}
+
+/// Pure bounded preparation for the closed atomic Conversation transaction.
+/// Unlike generic partial publication, this profile has complete actual list
+/// enumeration, never reads retained old bodies, and refuses rather than
+/// publish a guessed subset. `complete=false` still honestly marks unknown
+/// parent labels; it does NOT negate actual membership/deletion enumeration.
+pub(crate) fn prepare_complete_conversation_records_v19(
+    snapshot: &DiscussionSnapshot,
+    cancel: &CancellationToken,
+) -> Result<Vec<Record>, QueryError> {
+    snapshot.validate()?;
+    if snapshot.access != Access::Allowed
+        || !snapshot.enumeration_complete
+        || !matches!(
+            snapshot.target.category,
+            DiscussionKind::PullRequestBody | DiscussionKind::ConversationComment
+        )
+        || !snapshot.excluded_nodes.is_empty()
+        || !snapshot.excluded_threads.is_empty()
+        || snapshot.thread_enumeration.is_some()
+    {
+        return Err(error(
+            "Closed Conversation projection requires its actual complete body/comment enumeration",
+        ));
+    }
+    let mut records = Vec::new();
+    let mut total = 0usize;
+    for document in snapshot.documents()? {
+        if cancel.is_cancelled() {
+            return Err(error("Conversation projection preparation cancelled"));
+        }
+        let payload = serde_json::to_value(&document).map_err(error)?;
+        let bytes = serde_json::to_vec(&payload).map_err(error)?.len();
+        total = total
+            .checked_add(bytes)
+            .filter(|n| *n <= 8 * 1024 * 1024)
+            .ok_or_else(|| error("Conversation prepared source exceeds8MiB"))?;
+        if bytes > 256 * 1024 || records.len() >= 10_000 {
+            return Err(error(
+                "Conversation prepared document/count bound exceeded; no partial fresh projection",
+            ));
+        }
+        let mut record = Record::new(
+            DOCUMENT,
+            document.key.stable_id(),
+            &snapshot.target.repository,
+            payload,
+        );
+        record.fetched_at = snapshot.fetched_at;
+        record.source_updated_at = document.metadata.updated_at;
+        record.complete = document.metadata.complete;
+        records.push(record);
+    }
+    let state = State {
+        target: snapshot.target.clone(),
+        access: snapshot.access.clone(),
+        enumeration_complete: true,
+        complete: snapshot.complete,
+        reasons: snapshot.reasons.clone(),
+        fetched_at: snapshot.fetched_at,
+        head_sha: snapshot.head_sha.clone(),
+        suppressed_resources: BTreeSet::new(),
+        suppressed_threads: BTreeSet::new(),
+    };
+    records.push(state_record(&state)?);
+    Ok(records)
 }
 
 /// GraphQL BigInt identities may be strings. An out-of-range value keeps its opaque node

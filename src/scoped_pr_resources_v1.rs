@@ -69,6 +69,18 @@ impl std::fmt::Debug for ScopedPrResourceViewV1 {
     }
 }
 impl ScopedPrResourceViewV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        b::sum([
+            b::owner::<Self>(),
+            self.observed.workflow_owned_bytes_v9()?,
+            b::vector(&self.targets)?,
+            match &self.diff {
+                Some(diff) => b::diff(diff)?,
+                None => 0,
+            },
+        ])
+    }
     pub fn observed(&self) -> &PrResourceReadV1 {
         &self.observed
     }
@@ -215,7 +227,7 @@ impl std::error::Error for PrResourceFailureV1 {}
 fn refused(kind: GithubErrorKind) -> PrResourceFailureV1 {
     PrResourceFailureV1(kind)
 }
-fn safe_local() -> GithubError {
+pub(crate) fn safe_local() -> GithubError {
     GithubError {
         kind: GithubErrorKind::IdentityChanged,
         message: "Original selected resource local fence unavailable".into(),
@@ -426,17 +438,264 @@ pub(crate) struct ResourceLocalGuard {
     target: PrWriteTarget,
     generation: i64,
 }
+/// Closed ORIGINAL boundary variants, not caller-supplied callbacks or flags.
+#[derive(Clone, Copy)]
+pub(crate) enum PrLocalSourceBoundaryV13<'a> {
+    Catalogue(&'a CatalogueIntentSource),
+    Personal(&'a crate::storage::PersonalPrSourceV13),
+    PersonalReservation(&'a crate::storage::PersonalPrReservationV13),
+    PersonalParent(&'a crate::storage::ClosedPersonalParentBoundaryV16),
+    /// Only actual closed Notifications membership, not an arbitrary row/URL.
+    NotificationsRead(&'a crate::providers::gh::ClosedNotificationReadV63),
+    Notifications(&'a crate::providers::gh::NotificationPrSourceV63),
+}
+impl PrLocalSourceBoundaryV13<'_> {
+    fn validate(self, cache: &Cache) -> Result<(), GithubError> {
+        match self {
+            Self::Catalogue(source) => cache
+                .validate_repository_catalogue_intent_source(source)
+                .map_err(|_| safe_local()),
+            Self::Personal(source) => cache
+                .validate_personal_pr_source_v13(source)
+                .map_err(|_| safe_local()),
+            Self::PersonalReservation(source) => cache
+                .validate_personal_pr_reservation_v13(source)
+                .map_err(|_| safe_local()),
+            Self::PersonalParent(source) => cache
+                .validate_personal_parent_boundary_v16(source)
+                .map_err(|_| safe_local()),
+            Self::NotificationsRead(source) => source.validate_allocation_v63(cache),
+            Self::Notifications(source) => source.validate_cache(cache),
+        }
+    }
+}
 impl ResourceLocalGuard {
+    /// State-only revocation guard. It borrows the already genuine opaque
+    /// repair and cannot construct a source, writer guard or ACK permission.
+    /// In particular the ordinary Pending/Confirmed validator is unchanged.
+    pub(crate) fn validate_state_cache_repair_boundary_v75(
+        &self,
+        repair: &crate::pr_write_journal::state_origin_v68::StateCacheRepairV74,
+    ) -> Result<(), GithubError> {
+        let path = repair.database();
+        if std::fs::canonicalize(path).map_err(|_| safe_local())? != self.path
+            || file_identity(path)? != self.file
+            || !repair.follows_original_guard_v75(&self.target, self.generation)
+        {
+            return Err(safe_local());
+        }
+        repair
+            .source()
+            .local_boundary()
+            .validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        repair.validate_current_raw_v75().map_err(|_| safe_local())
+    }
+    /// Closed State history only; no ordinary guard or writer bypass is issued.
+    pub(crate) fn validate_state_history_v74(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        history: &crate::pr_write_journal::state_origin_v68::history_v74::StateHistoryV74,
+    ) -> Result<(), GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_state_history_v74(target, parent, history)
+            .map_err(|_| safe_local())
+    }
+    /// A Metadata SECTION may display actual read-only facts around exactly
+    /// this known Members blocker. This issues neither this ordinary guard nor
+    /// a Source/current inspection/ACK permission and never admits another
+    /// purpose through an ordinary guard error.
+    pub(crate) fn validate_members_metadata_section_v62(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        witness:&crate::pr_write_journal::metadata_members_v48::history_v48::MetadataMembersRecoveryWitnessV48,
+    ) -> Result<(), GithubError> {
+        if witness.origin.seed.scope != *target.scope()
+            || !witness.origin.seed.same_object(parent)
+            || target.node_id() != parent.node_id()
+            || target.number() != parent.number()
+            || !target
+                .repository()
+                .eq_ignore_ascii_case(parent.repository())
+        {
+            return Err(safe_local());
+        }
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_metadata_members_inspection_v48(witness)
+            .map_err(|_| safe_local())
+    }
+    /// Manual Issue history only: actual boundary + exact saved rows, never a
+    /// writer guard, Current, selection or source from a protected record.
+    pub(crate) fn validate_issue_link_history_v87(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        history: &crate::pr_write_journal::issue_link_origin_v87::history_v87::IssueLinkHistoryV87,
+    ) -> Result<(), GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_issue_link_history_v87(target, parent, history)
+            .map_err(|_| safe_local())
+    }
+    /// Member history only. Exact blocker witnesses remain read-only and can
+    /// never manufacture the ordinary ResourceLocalGuard needed by a writer.
+    pub(crate) fn validate_metadata_members_history_v48(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        history:&crate::pr_write_journal::metadata_members_v48::history_v48::MetadataMembersHistoryV48,
+    ) -> Result<(), GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_metadata_members_history_v48(target, parent, history)
+            .map_err(|_| safe_local())
+    }
+    /// Base-only read witness; no publisher guard or selection is issued.
+    pub(crate) fn validate_base_history_v32(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        history: &crate::pr_write_journal::metadata_base_origin_v32::history_v32::BaseHistoryV32,
+    ) -> Result<(), GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_base_history_v32(target, parent, history)
+            .map_err(|_| safe_local())
+    }
+
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        crate::providers::gh::workflow_capacity_v9::sum([
+            std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>(),
+            self.path.capacity(),
+            self.target.workflow_owned_bytes_v9()?,
+        ])
+    }
+    /// Closed Metadata history only; no ordinary guard/source or write bypass.
+    pub(crate) fn validate_metadata_history_v25(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        history: &crate::pr_write_journal::metadata_origin_v25::history_v25::MetadataHistoryV25,
+    ) -> Result<(), GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_metadata_history_v25(target, parent, history)
+            .map_err(|_| safe_local())
+    }
+    /// Purpose-CLOSED protected Conversation history. This validates ONLY the
+    /// actual source boundary and exact original known-purpose snapshot; it
+    /// grants no ResourceLocalGuard or source to a writer with a blocker.
+    pub(crate) fn validate_conversation_history_v17(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        target: &PrWriteTarget,
+        parent: &crate::providers::gh::PrResourceParentV1,
+        history: &crate::pr_write_journal::conversation_history_v17::ConversationHistoryV17,
+    ) -> Result<(), GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        PrWriteJournal::open(path)
+            .map_err(|_| safe_local())?
+            .validate_conversation_history_v17(target, parent, history)
+            .map_err(|_| safe_local())
+    }
+    pub(crate) fn target_v17(&self) -> &PrWriteTarget {
+        &self.target
+    }
+    pub(crate) fn generation_v17(&self) -> i64 {
+        self.generation
+    }
+    /// Exact sole-journal owned step, not an epoch waiver. Ordinary reads keep
+    /// their original generation/no-blocker guard. Only THIS actual marker may
+    /// explain its own begin/claim/receipt generation during publication.
+    pub(crate) fn validate_owned_boundary_v17(
+        &self,
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        marker: &crate::pr_write_journal::PrWriteMarker,
+        generation: i64,
+        state: crate::pr_write_journal::PrWriteState,
+        receipt: Option<&crate::pr_write_journal::PrConfirmedEffect>,
+    ) -> Result<(), GithubError> {
+        use crate::pr_write_journal::PrWriteState;
+        if generation <= self.generation
+            || marker.target != self.target
+            || std::fs::canonicalize(path).map_err(|_| safe_local())? != self.path
+            || file_identity(path)? != self.file
+        {
+            return Err(safe_local());
+        }
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
+        let journal = PrWriteJournal::open(path).map_err(|_| safe_local())?;
+        let actual = journal
+            .original_publication(&self.target, &marker.publication_reference())
+            .map_err(|_| safe_local())?
+            .ok_or_else(safe_local)?;
+        if actual.target != marker.target
+            || actual.command != marker.command
+            || actual.selected_resource != marker.selected_resource
+            || actual.observed_head != marker.observed_head
+            || actual.payload_sha256 != marker.payload_sha256
+            || actual.created_at != marker.created_at
+            || actual.state != state
+            || actual.confirmed.as_ref() != receipt
+            || journal
+                .source_generation(&self.target)
+                .map_err(|_| safe_local())?
+                != generation
+        {
+            return Err(safe_local());
+        }
+        let blocking = journal
+            .source_blocking(&self.target)
+            .map_err(|_| safe_local())?;
+        match state {
+            PrWriteState::Pending
+                if blocking.as_ref().is_some_and(|current| {
+                    current.publication_reference() == marker.publication_reference()
+                        && current.state == PrWriteState::Pending
+                }) =>
+            {
+                Ok(())
+            }
+            PrWriteState::Confirmed if actual.confirmed.is_some() && blocking.is_none() => Ok(()),
+            _ => Err(safe_local()),
+        }
+    }
     pub(crate) fn capture(
         path: &Path,
         original: &CatalogueIntentSource,
         identity: &crate::providers::gh::HostIdentity,
         summary: &PrSummary,
     ) -> Result<Self, GithubError> {
-        Cache::open(path)
-            .map_err(|_| safe_local())?
-            .validate_repository_catalogue_intent_source(original)
-            .map_err(|_| safe_local())?;
+        Self::capture_boundary_v13(
+            path,
+            PrLocalSourceBoundaryV13::Catalogue(original),
+            identity,
+            summary,
+        )
+    }
+    pub(crate) fn capture_boundary_v13(
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+        identity: &crate::providers::gh::HostIdentity,
+        summary: &PrSummary,
+    ) -> Result<Self, GithubError> {
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
         let journal = PrWriteJournal::open(path).map_err(|_| safe_local())?;
         let target = PrWriteTarget::new(identity, summary).map_err(|_| safe_local())?;
         let generation = journal
@@ -464,15 +723,19 @@ impl ResourceLocalGuard {
         path: &Path,
         original: &CatalogueIntentSource,
     ) -> Result<(), GithubError> {
+        self.validate_boundary_v13(path, PrLocalSourceBoundaryV13::Catalogue(original))
+    }
+    pub(crate) fn validate_boundary_v13(
+        &self,
+        path: &Path,
+        source: PrLocalSourceBoundaryV13<'_>,
+    ) -> Result<(), GithubError> {
         if std::fs::canonicalize(path).map_err(|_| safe_local())? != self.path
             || file_identity(path)? != self.file
         {
             return Err(safe_local());
         }
-        Cache::open(path)
-            .map_err(|_| safe_local())?
-            .validate_repository_catalogue_intent_source(original)
-            .map_err(|_| safe_local())?;
+        source.validate(&Cache::open(path).map_err(|_| safe_local())?)?;
         let journal = PrWriteJournal::open(path).map_err(|_| safe_local())?;
         if journal
             .source_generation(&self.target)
@@ -529,11 +792,19 @@ fn prepare_resource(
     observed: PrResourceReadV1,
     cancel: &CancellationToken,
 ) -> Result<(Option<ScopedPrResourceViewV1>, Option<Vec<PrRow>>), String> {
+    prepare_resource_arc_v13(Arc::new(observed), cancel)
+}
+/// SAME parser/row foundation, with the actual read Arc shared by the new
+/// personal source rather than cloning private patch/source material.
+pub(crate) fn prepare_resource_arc_v13(
+    observed: Arc<PrResourceReadV1>,
+    cancel: &CancellationToken,
+) -> Result<(Option<ScopedPrResourceViewV1>, Option<Vec<PrRow>>), String> {
     if cancel.is_cancelled() {
         return Err("cancelled".into());
     }
     let mut view = ScopedPrResourceViewV1 {
-        observed: Arc::new(observed),
+        observed,
         diff: None,
         targets: vec![],
         layout: DiffLayout::Unified,
@@ -668,7 +939,11 @@ impl ScopedPrResourceViewV1 {
                     SemanticToken::Muted,
                 ));
                 self.targets.push(PrResourceRowV1::Notice);
-                rows.push(row("Proposed patch bytes observed; full patch/old snapshot completeness not certified".into(),SemanticToken::Muted));
+                rows.push(row(if self.observed.raw_patch().is_some() {
+                    "Proposed patch bytes observed; full patch/old snapshot completeness not certified"
+                } else {
+                    "Full patch not loaded; only actual API file membership observed • open a fresh immutable viewer for source lines"
+                }.into(),SemanticToken::Muted));
                 self.targets.push(PrResourceRowV1::Notice);
                 for (i, file) in self.observed.files().iter().enumerate() {
                     rows.push(row(

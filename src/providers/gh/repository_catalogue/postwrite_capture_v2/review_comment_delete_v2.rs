@@ -2,6 +2,9 @@
 //! a deletion receipt; the caller must additionally obtain exact-node null
 //! readback and close the unchanged original private-visibility bracket.
 use super::*;
+#[cfg(test)]
+#[path = "http_envelope_compat_v75_tests.rs"]
+mod file_compat_v75_tests;
 
 pub(crate) struct ReviewCommentDeleteAckV2 {
     comment_id: u64,
@@ -13,110 +16,11 @@ impl ReviewCommentDeleteAckV2 {
 }
 
 fn exact_204(bytes: &[u8]) -> GithubResult<()> {
-    if bytes.is_empty() || bytes.len() > 16 * 1024 {
-        return Err(error(
-            GithubErrorKind::AmbiguousWrite,
-            "Review comment DELETE acknowledgement exceeds its closed header bound",
-        ));
-    }
-    let raw = std::str::from_utf8(bytes).map_err(|_| {
-        error(
-            GithubErrorKind::AmbiguousWrite,
-            "Review comment DELETE returned non-UTF8 HTTP headers",
-        )
-    })?;
-    // cli/cli v2.101.0 processResponse prints LF status (fmt.Fprintln),
-    // printHeaders writes CRLF header lines, then a final CRLF. Accept that
-    // exact producer framing without normalizing mixed header-value bytes.
-    let missing_boundary = || {
-        error(
-            GithubErrorKind::AmbiguousWrite,
-            "Review comment DELETE omitted the complete HTTP header boundary",
-        )
-    };
-    let (status, remaining) = raw.split_once('\n').ok_or_else(missing_boundary)?;
-    let status_crlf = status.ends_with('\r');
-    let status = status.strip_suffix('\r').unwrap_or(status);
-    let separator = if remaining.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    if status_crlf && separator != "\r\n" {
-        return Err(missing_boundary());
-    }
-    let (headers, body) = if let Some(body) = remaining.strip_prefix(separator) {
-        ("", body)
-    } else {
-        remaining
-            .split_once(&format!("{separator}{separator}"))
-            .ok_or_else(missing_boundary)?
-    };
-    if !body.is_empty() {
-        return Err(error(
-            GithubErrorKind::AmbiguousWrite,
-            "HTTP204 must have no content; trailing payload is not a receipt",
-        ));
-    }
-    let lines = headers.split(separator).filter(|line| !line.is_empty());
-    if status.len() > 1024 || status.bytes().any(|b| !matches!(b, 0x20..=0x7e)) {
-        return Err(error(
-            GithubErrorKind::AmbiguousWrite,
-            "Malformed review-comment HTTP status line",
-        ));
-    }
-    let mut parts = status.splitn(3, ' ');
-    if !matches!(
-        parts.next(),
-        Some("HTTP/1.0" | "HTTP/1.1" | "HTTP/2" | "HTTP/2.0" | "HTTP/3" | "HTTP/3.0")
-    ) || parts.next() != Some("204")
-    {
-        return Err(error(GithubErrorKind::AmbiguousWrite, "Review comment DELETE requires exact documented HTTP204; 200/404/null is not an acknowledgement"));
-    }
-    let mut count = 0;
-    let mut length_seen = false;
-    for line in lines {
-        count += 1;
-        if count > 128 || line.len() > 4096 {
-            return Err(error(
-                GithubErrorKind::AmbiguousWrite,
-                "Review-comment HTTP header count/line bound exceeded",
-            ));
-        }
-        let (name, value) = line.split_once(':').ok_or_else(|| {
-            error(
-                GithubErrorKind::AmbiguousWrite,
-                "Malformed review-comment HTTP header",
-            )
-        })?;
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
-            || value.bytes().any(|b| !matches!(b, b'\t' | 0x20..=0x7e))
-        {
-            return Err(error(
-                GithubErrorKind::AmbiguousWrite,
-                "Invalid review-comment HTTP header bytes",
-            ));
-        }
-        if name.eq_ignore_ascii_case("content-length") {
-            if length_seen || value.trim() != "0" {
-                return Err(error(
-                    GithubErrorKind::AmbiguousWrite,
-                    "HTTP204 content length is not uniquely zero",
-                ));
-            }
-            length_seen = true;
-        }
-        if name.eq_ignore_ascii_case("transfer-encoding") {
-            return Err(error(
-                GithubErrorKind::AmbiguousWrite,
-                "HTTP204 must not advertise a transferred body",
-            ));
-        }
-    }
-    Ok(())
+    super::empty_http_ack_v5::validate(bytes, "204")
+}
+#[cfg(test)]
+pub(super) fn exact_204_for_test_v107(bytes: &[u8]) -> GithubResult<()> {
+    exact_204(bytes)
 }
 
 impl PostWriteCaptureAllowanceV2 {

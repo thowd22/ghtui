@@ -246,6 +246,19 @@ pub fn active(app: &App) -> Option<(HostIdentity, String, Vec<Actor>)> {
     match app.view {
         View::Repository => None,
         View::Inbox => {
+            if crate::scoped_pr_collaboration_native_v17::retired_presentation(app) {
+                return None;
+            }
+            if app.overlay == Some(Overlay::Form)
+                && app.form.as_ref().is_some_and(|form| {
+                    matches!(
+                        form.purpose,
+                        crate::forms::FormPurpose::PrCollaborationV17(_)
+                    )
+                })
+            {
+                return crate::scoped_pr_collaboration_ui_v17::avatar_surface(app);
+            }
             if app.overlay == Some(Overlay::PrThreadHistoryV1) {
                 let view = app
                     .scoped_thread_history_v1

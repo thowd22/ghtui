@@ -1,5 +1,6 @@
 //! Genuine catalogue-source Actions reads, not legacy repository-name fallback.
 use crate::pr_checks_native::scoped::actions_origin_v2::ScopedPrActionsOriginV2;
+use crate::scoped_actions_native_v1::publication_v3::dispatch_v7::run_read_v7::DispatchRunReadRequestV7;
 use crate::scoped_actions_read_v2::{
     ActionsLoadedMatchesV2, ActionsLoadedQueryV2, ActionsReadWatchV2, LogSearchModeV2,
 };
@@ -24,8 +25,49 @@ pub struct ScopedActionsSourceV1 {
     scope: Arc<ActiveRemoteScopeV1>,
     reference: IntentReference,
     pr_v2: Option<Arc<ScopedPrActionsOriginV2>>,
+    pub(crate) history_pr_v5:
+        Option<Arc<crate::scoped_actions_summary_history_v5::ActionsSummaryHistoryOriginV5>>,
 }
 impl ScopedActionsSourceV1 {
+    pub(crate) fn prepare_cleanup_pr_v9(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        rows: &mut Vec<crate::storage::workflow_cleanup_v9::WorkflowRawRowsV9>,
+        heap: &WorkflowJsonLedgerV9,
+    ) -> anyhow::Result<()> {
+        if self
+            .history_pr_v5
+            .as_ref()
+            .is_some_and(|history| !Arc::ptr_eq(history.source(), &self.original))
+        {
+            anyhow::bail!("Original Summary local source differs; no cleanup rebase");
+        }
+        if let Some(pr) = &self.pr_v2 {
+            pr.prepare_cleanup_pr_v9(tx, rows, heap)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_owned_workflow_remote_history_v9(
+        &self,
+        database: &Path,
+        journal: &crate::actions_write_journal::ActionsWriteJournal,
+        proof: &crate::actions_write_journal::ActionsOwnedWorkflowRemoteHistoryV9,
+    ) -> GithubResult<()> {
+        original_guard(&self.original, database)?;
+        journal
+            .validate_owned_workflow_remote_history_v9(proof)
+            .map_err(|_| GithubError {
+                kind: GithubErrorKind::IdentityChanged,
+                message: "Original W9 history row/aliases changed".into(),
+            })?;
+        if let Some(pr) = &self.pr_v2 {
+            pr.validate_owned_workflow_remote_history_v9(database, journal, proof)?;
+        }
+        if let Some(pr) = &self.history_pr_v5 {
+            pr.validate_local(database)?;
+        }
+        Ok(())
+    }
     pub fn original(&self) -> &Arc<CatalogueIntentSource> {
         &self.original
     }
@@ -40,6 +82,103 @@ impl ScopedActionsSourceV1 {
     }
     pub(crate) fn prepare_policy(&self, workspace: &mut ActionsWorkspace, pending: bool) {
         crate::actions_workspace::scoped_read_v1::prepare_policy(workspace, pending);
+        prepare_publications_label_v124(workspace);
+        // Presentation eligibility only. The Workflow intent separately demands
+        // the actual retained ResourcePage/Definition/member Arc before work.
+        if let Some(definition) = workspace
+            .definition
+            .as_ref()
+            .filter(|_| !pending && workspace.view == ActionsView::Workflow)
+        {
+            for control in &mut workspace.controls {
+                if control.action == ActionsAction::EditWorkflowLocalV9 {
+                    control.disabled_reason =
+                        if crate::scoped_actions_workflow_edit_v9::safe_workflow_path_v9(
+                            &definition.workflow.path,
+                        ) && !definition.yaml.is_empty()
+                            && definition.yaml.len() <= 256 * 1024
+                            && crate::git::original_actor_saved_sha(&definition.commit_sha)
+                        {
+                            None
+                        } else {
+                            Some("Actual workflow path/revision/definition exceeds the supported local editor bound; no mapping/permission inferred".into())
+                        };
+                }
+                if control.action
+                    == ActionsAction::Compose(
+                        crate::actions_workspace::ActionsCommand::DispatchWorkflow,
+                    )
+                {
+                    control.disabled_reason = if definition.workflow.state == "active" {
+                        None
+                    } else {
+                        Some("Dispatch needs an actual active workflow; inspect state first".into())
+                    };
+                }
+                if let ActionsAction::Compose(
+                    command @ (crate::actions_workspace::ActionsCommand::EnableWorkflow
+                    | crate::actions_workspace::ActionsCommand::DisableWorkflow),
+                ) = control.action
+                {
+                    control.disabled_reason = if crate::providers::gh::state_eligible_v6(
+                        &definition.workflow,
+                        command == crate::actions_workspace::ActionsCommand::EnableWorkflow,
+                    ) {
+                        None
+                    } else {
+                        Some("Workflow state is unknown, unsupported or already desired; refresh actual Definition".into())
+                    };
+                }
+            }
+        }
+        if let Some(page) = workspace.run.as_ref().filter(|_| !pending) {
+            for control in &mut workspace.controls {
+                if control.action
+                    == ActionsAction::Compose(crate::actions_workspace::ActionsCommand::Cancel)
+                {
+                    control.label = "[C Cancel / history]".into();
+                    control.disabled_reason = None;
+                }
+                if let ActionsAction::Compose(
+                    command @ (crate::actions_workspace::ActionsCommand::ForceCancel
+                    | crate::actions_workspace::ActionsCommand::DeleteRun
+                    | crate::actions_workspace::ActionsCommand::DeleteLogs),
+                ) = &control.action
+                {
+                    control.disabled_reason = if *command
+                        == crate::actions_workspace::ActionsCommand::ForceCancel
+                        && workspace
+                            .run
+                            .as_ref()
+                            .is_some_and(|page| page.attempt.run.status == "completed")
+                    {
+                        Some(
+                            "The actual run is completed; force cancellation cannot target it"
+                                .into(),
+                        )
+                    } else {
+                        None
+                    };
+                }
+                if let ActionsAction::Compose(
+                    command @ (crate::actions_workspace::ActionsCommand::RerunAll
+                    | crate::actions_workspace::ActionsCommand::RerunFailed
+                    | crate::actions_workspace::ActionsCommand::RerunJob),
+                ) = &control.action
+                {
+                    control.disabled_reason = if page.attempt.run.status != "completed" {
+                        Some("Open a completed run to rerun; original protected result remains inspectable through Cancel / history".into())
+                    } else if *command == crate::actions_workspace::ActionsCommand::RerunJob
+                        && page.selected_job.is_none()
+                    {
+                        Some("Open an actual exact-attempt job before rerunning it; URL numbers are not targets".into())
+                    } else {
+                        None
+                    };
+                }
+            }
+        }
+        self.prepare_publications_control_v124(workspace, pending);
         if self.pr_v2.is_some() {
             for control in &mut workspace.controls {
                 if matches!(control.action, ActionsAction::View(ActionsView::Runs)) {
@@ -48,9 +187,129 @@ impl ScopedActionsSourceV1 {
             }
         }
     }
-    fn validate_local(&self, database: &Path) -> GithubResult<()> {
+    // Only a genuine closed Source enables this existing reader. Initial seed
+    // preparation already owns the fixed label before its final principal
+    // proof; enabling it does not allocate or rebuild private presentation.
+    fn prepare_publications_control_v124(&self, workspace: &mut ActionsWorkspace, pending: bool) {
+        if !pending {
+            for control in &mut workspace.controls {
+                if control.action == ActionsAction::PublicationList {
+                    debug_assert_eq!(control.label, "[P Publications]");
+                    control.disabled_reason = None;
+                }
+            }
+        }
+    }
+    pub(crate) fn validate_local(&self, database: &Path) -> GithubResult<()> {
         original_guard(&self.original, database)?;
         if let Some(pr) = &self.pr_v2 {
+            pr.validate_local(database)?;
+        }
+        if let Some(pr) = &self.history_pr_v5 {
+            pr.validate_local(database)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_owned_publication_local_v4(
+        &self,
+        database: &Path,
+        journal: &crate::actions_write_journal::ActionsWriteJournal,
+        claim: &crate::actions_write_journal::ActionsClaimStampV3,
+        result: Option<(
+            crate::actions_write_journal::ActionsWriteState,
+            &crate::actions_write_journal::ActionsReceipt,
+        )>,
+    ) -> GithubResult<()> {
+        original_guard(&self.original, database)?;
+        if let Some(pr) = &self.pr_v2 {
+            pr.validate_owned_publication_local_v4(database, journal, claim, result)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_owned_run_history_v8(
+        &self,
+        database: &Path,
+        journal: &crate::actions_write_journal::ActionsWriteJournal,
+        proof: &crate::actions_write_journal::ActionsOwnedRunHistoryV8,
+    ) -> GithubResult<()> {
+        original_guard(&self.original, database)?;
+        journal
+            .validate_owned_run_history_v8(proof)
+            .map_err(|_| GithubError {
+                kind: GithubErrorKind::IdentityChanged,
+                message: "Original Run history changed".into(),
+            })?;
+        if let Some(pr) = &self.pr_v2 {
+            pr.validate_owned_run_history_v8(database, journal, proof)?;
+        }
+        if let Some(pr) = &self.history_pr_v5 {
+            pr.validate_local(database)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_workflow_branch_transition_v9(
+        &self,
+        database: &Path,
+        journal: &crate::actions_write_journal::ActionsWriteJournal,
+        branch: &crate::scoped_actions_workflow_edit_v9::WorkflowPublishedBranchV9,
+    ) -> GithubResult<()> {
+        original_guard(&self.original, database)?;
+        if !branch.matches_source_v9(self) {
+            return Err(GithubError {
+                kind: GithubErrorKind::IdentityChanged,
+                message: "Actual workflow branch belongs to another original source".into(),
+            });
+        }
+        branch.validate_journal_v9(journal)?;
+        if let Some(pr) = &self.pr_v2 {
+            pr.validate_workflow_branch_transition_v9(database, journal, branch)?;
+        }
+        if self.history_pr_v5.is_some() {
+            return Err(GithubError {
+                kind: GithubErrorKind::IdentityChanged,
+                message: "Historical source cannot continue workflow publication".into(),
+            });
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_owned_dispatch_history_v7(
+        &self,
+        database: &Path,
+        journal: &crate::actions_write_journal::ActionsWriteJournal,
+        proof: &crate::actions_write_journal::ActionsOwnedDispatchHistoryV7,
+    ) -> GithubResult<()> {
+        original_guard(&self.original, database)?;
+        journal
+            .validate_owned_dispatch_history_v7(proof)
+            .map_err(|_| GithubError {
+                kind: GithubErrorKind::IdentityChanged,
+                message: "Actual owned Dispatch history changed".into(),
+            })?;
+        if let Some(pr) = &self.pr_v2 {
+            pr.validate_owned_dispatch_history_v7(database, journal, proof)?;
+        }
+        if let Some(pr) = &self.history_pr_v5 {
+            pr.validate_local(database)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_owned_workflow_history_v6(
+        &self,
+        database: &Path,
+        journal: &crate::actions_write_journal::ActionsWriteJournal,
+        proof: &crate::actions_write_journal::ActionsOwnedWorkflowHistoryV6,
+    ) -> GithubResult<()> {
+        original_guard(&self.original, database)?;
+        journal
+            .validate_owned_workflow_history_v6(proof)
+            .map_err(|_| GithubError {
+                kind: GithubErrorKind::IdentityChanged,
+                message: "Actual owned workflow history changed".into(),
+            })?;
+        if let Some(pr) = &self.pr_v2 {
+            pr.validate_owned_workflow_history_v6(database, journal, proof)?;
+        }
+        if let Some(pr) = &self.history_pr_v5 {
             pr.validate_local(database)?;
         }
         Ok(())
@@ -58,6 +317,7 @@ impl ScopedActionsSourceV1 {
 }
 #[derive(Clone)]
 pub enum ScopedActionsPageKindV1 {
+    HistorySeedV5,
     Catalogue {
         runs: Arc<[Arc<ScopedActionsRunTargetV1>]>,
         window: Arc<ScopedRunWindowV2>,
@@ -79,7 +339,7 @@ pub struct ScopedActionsPageV1 {
     fetched_at: Option<u64>,
 }
 impl ScopedActionsPageV1 {
-    fn retained_bytes(&self) -> usize {
+    pub(crate) fn retained_bytes(&self) -> usize {
         let mut bytes = std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>();
         bytes = bytes.saturating_add(
             self.identity.host.capacity()
@@ -97,7 +357,11 @@ impl ScopedActionsPageV1 {
                     .as_ref()
                     .map_or(0, String::capacity),
         );
+        if self.source.history_pr_v5.is_some() {
+            bytes = bytes.saturating_add(128 * 1024);
+        }
         match &self.kind {
+            ScopedActionsPageKindV1::HistorySeedV5 => {}
             ScopedActionsPageKindV1::Catalogue { runs, window } => {
                 bytes = bytes.saturating_add(window.owned_bytes());
                 bytes = bytes.saturating_add(
@@ -186,6 +450,44 @@ impl ScopedActionsPageV1 {
             _ => None,
         }
     }
+    /// Actual current selected exact-attempt member, not a rendered row/URL ID.
+    pub(crate) fn selected_job_for_publication_v4(&self) -> Option<Arc<ScopedActionsJobTargetV1>> {
+        let ScopedActionsPageKindV1::Attempt {
+            run, jobs, model, ..
+        } = &self.kind
+        else {
+            return None;
+        };
+        let id = self.selected_job?;
+        let target = jobs
+            .iter()
+            .find(|job| job.id() == id && Arc::ptr_eq(job.run(), run))?;
+        let member = model.jobs.iter().find(|job| job.id == id)?;
+        (member.run_id == run.run().id
+            && member.attempt == run.run().attempt
+            && member.head_sha == run.run().head_sha)
+            .then(|| target.clone())
+    }
+    /// Borrowed original presentation only; not a target or permission.
+    pub(crate) fn original_job_label_v4(
+        &self,
+        selected: &Arc<ScopedActionsJobTargetV1>,
+    ) -> Option<&str> {
+        let ScopedActionsPageKindV1::Attempt {
+            run, jobs, model, ..
+        } = &self.kind
+        else {
+            return None;
+        };
+        if !Arc::ptr_eq(run, selected.run()) || !jobs.iter().any(|job| Arc::ptr_eq(job, selected)) {
+            return None;
+        }
+        model
+            .jobs
+            .iter()
+            .find(|job| job.id == selected.id())
+            .map(|job| job.name.as_str())
+    }
     pub fn run_target(&self, id: u64, attempt: u64) -> Option<Arc<ScopedActionsRunTargetV1>> {
         match &self.kind {
             ScopedActionsPageKindV1::Catalogue { runs, .. } => runs
@@ -211,12 +513,65 @@ pub struct InitialScopedActionsV1 {
     pub(crate) workspace: ActionsWorkspace,
     pub(crate) retained_bytes: usize,
 }
+/// Pure actual Summary presentation seed. No run/catalogue read is invented;
+/// the one captured history Work still must verify its fresh source/parent.
+pub(crate) fn summary_history_seed_v5(
+    app: &crate::app::App,
+) -> Result<InitialScopedActionsV1, String> {
+    let origin =
+        crate::scoped_actions_summary_history_v5::ActionsSummaryHistoryOriginV5::capture(app)?;
+    let identity = app
+        .github
+        .as_ref()
+        .ok_or("Actual Summary unavailable")?
+        .identity
+        .clone();
+    let source = Arc::new(ScopedActionsSourceV1 {
+        original: origin.source().clone(),
+        scope: origin.active().clone(),
+        reference: origin.reference().clone(),
+        pr_v2: None,
+        history_pr_v5: Some(origin),
+    });
+    let mut workspace =
+        ActionsWorkspace::new(identity.clone(), vec![source.reference.last_name.clone()]);
+    workspace.view = ActionsView::Publications;
+    workspace.prepare_rows();
+    workspace.controls.retain(|control| {
+        matches!(
+            control.action,
+            ActionsAction::Back | ActionsAction::PublicationList
+        )
+    });
+    let page = Arc::new(ScopedActionsPageV1 {
+        source: source.clone(),
+        kind: ScopedActionsPageKindV1::HistorySeedV5,
+        view: ActionsView::Publications,
+        selected_job: None,
+        identity,
+        fetched_at: None,
+    });
+    let retained_bytes = charge(&workspace, &page)?;
+    Ok(InitialScopedActionsV1 {
+        source,
+        page,
+        workspace,
+        retained_bytes,
+    })
+}
 /// Worker-only presentation prepared from the actual opaque read BEFORE its
 /// owning session's closing repository/SQL/principal proof. No new source or
 /// publication authority is created here.
 pub(crate) struct PreparedActionsSeedV1 {
     read: ScopedActionsCatalogueReadV1,
     workspace: ActionsWorkspace,
+}
+fn prepare_publications_label_v124(workspace: &mut ActionsWorkspace) {
+    for control in &mut workspace.controls {
+        if control.action == ActionsAction::PublicationList {
+            control.label = "[P Publications]".into();
+        }
+    }
 }
 pub(crate) fn prepare_initial_read(
     read: ScopedActionsCatalogueReadV1,
@@ -238,6 +593,10 @@ pub(crate) fn prepare_initial_read(
     workspace.fetched_at = Some(crate::storage::now());
     workspace.prepare_rows();
     crate::actions_workspace::scoped_read_v1::prepare_policy(&mut workspace, false);
+    // Allocate only fixed public text while still inside the original read,
+    // before closing repository/SQL/UID proof. It remains disabled until the
+    // opaque read is admitted as a genuine Source in initial().
+    prepare_publications_label_v124(&mut workspace);
     crate::actions_workspace::scoped_read_v1::prepare_catalogue_window_v2(
         &mut workspace,
         read.window(),
@@ -295,7 +654,9 @@ pub(crate) fn initial(
         scope,
         reference,
         pr_v2: None,
+        history_pr_v5: None,
     });
+    source.prepare_publications_control_v124(&mut workspace, false);
     let page = Arc::new(ScopedActionsPageV1 {
         source: source.clone(),
         kind: ScopedActionsPageKindV1::Catalogue { runs, window },
@@ -345,6 +706,7 @@ pub(crate) fn retained_pr_route_v2(
         scope: origin.scope().clone(),
         reference: origin.reference().clone(),
         pr_v2: Some(origin.clone()),
+        history_pr_v5: None,
     });
     let page = Arc::new(ScopedActionsPageV1 {
         source: source.clone(),
@@ -364,6 +726,7 @@ pub(crate) fn retained_pr_route_v2(
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopedActionsRequestKindV1 {
+    Publication,
     Catalogue,
     Attempt,
     Logs,
@@ -373,6 +736,10 @@ pub enum ScopedActionsRequestKindV1 {
     Search,
 }
 pub struct ScopedActionsWorkV1 {
+    pub(crate) journal_v5:
+        Option<Arc<crate::scoped_actions_native_v1::journal_v5::JournalRequestV5>>,
+    pub(crate) publication_v3:
+        Option<Arc<crate::scoped_actions_native_v1::publication_v3::PublicationWorkV3>>,
     pub(crate) source: Arc<ScopedActionsSourceV1>,
     pub(crate) page: Arc<ScopedActionsPageV1>,
     pub(crate) run: Option<Arc<ScopedActionsRunTargetV1>>,
@@ -391,6 +758,35 @@ pub struct ScopedActionsWorkV1 {
     pub(crate) after_read_fault_v1: Option<fn()>,
 }
 impl ScopedActionsWorkV1 {
+    pub(crate) fn capture_journal_v5(
+        page: Arc<ScopedActionsPageV1>,
+        epoch: u64,
+        request: Arc<crate::scoped_actions_native_v1::journal_v5::JournalRequestV5>,
+    ) -> Result<Arc<Self>, String> {
+        if !request.matches_page(&page) {
+            return Err("Actual original history page/source differs".into());
+        }
+        Ok(Arc::new(Self {
+            journal_v5: Some(request),
+            publication_v3: None,
+            source: page.source.clone(),
+            page,
+            run: None,
+            job: None,
+            kind: ScopedActionsRequestKindV1::Publication,
+            query_v2: None,
+            resource_v2: None,
+            search_v2: None,
+            watch_v2: None,
+            position_v2: None,
+            requested_view_v2: None,
+            deadline: Instant::now() + Duration::from_secs(30),
+            cancellation: CancellationToken::default(),
+            epoch,
+            #[cfg(test)]
+            after_read_fault_v1: None,
+        }))
+    }
     pub fn host(&self) -> &str {
         &self.source.original.scope().host
     }
@@ -405,6 +801,9 @@ impl ScopedActionsWorkV1 {
         action: &ActionsAction,
         epoch: u64,
     ) -> Result<Arc<Self>, String> {
+        if page.source.history_pr_v5.is_some() {
+            return Err("Actual Summary history is READ/ACK only; it cannot construct run/resource/write work".into());
+        }
         let mut query_v2 = page.run_window_v2().map(|window| window.query().clone());
         if page.source.pr_v2.is_some()
             && matches!(
@@ -503,6 +902,8 @@ impl ScopedActionsWorkV1 {
             }
         };
         Ok(Arc::new(Self {
+            journal_v5: None,
+            publication_v3: None,
             source: page.source.clone(),
             page,
             run,
@@ -679,22 +1080,64 @@ pub fn execute(
     database: &Path,
 ) -> Result<PreparedScopedActionsV1, String> {
     work.check()?;
+    if work.publication_v3.is_some() || work.kind == ScopedActionsRequestKindV1::Publication {
+        return Err(
+            "Original Actions publication requires its SAME typed Actions worker; no read fallback"
+                .into(),
+        );
+    }
     let claim = work
         .watch_v2
         .as_ref()
         .map(|watch| watch.claim(&work.page))
         .transpose()?;
-    let mut prepared = execute_inner_v2(work, provider, database)?;
+    let mut prepared = execute_inner_v2(work, provider, database, None)?;
     if let Some(claim) = claim {
         prepared.watch_progress_v2 = Some(claim.finish(prepared.transport_bytes_v2)?);
     }
     prepared.work.check()?;
     Ok(prepared)
 }
+/// Closed, actual returned-run purpose only. Ordinary execute continues to
+/// refuse every publication window; no DTO or saved ID can select this branch.
+pub(crate) fn execute_dispatch_read_v7(
+    work: Arc<ScopedActionsWorkV1>,
+    request: &Arc<DispatchRunReadRequestV7>,
+    provider: &GithubProvider,
+    database: &Path,
+) -> Result<PreparedScopedActionsV1, String> {
+    work.check()?;
+    if !request.matches_work(&work)
+        || !matches!(work.publication_v3.as_deref(),Some(crate::scoped_actions_native_v1::publication_v3::PublicationWorkV3::Dispatch(d))
+            if matches!(&**d,crate::scoped_actions_native_v1::publication_v3::dispatch_v7::DispatchWorkV7::Read(r)if Arc::ptr_eq(r,request)))
+    {
+        return Err("Exact returned Dispatch read purpose/source differs".into());
+    }
+    let result = execute_inner_v2(work, provider, database, Some(request))?;
+    result.work.check()?;
+    if !result.matches(&result.work) {
+        return Err(
+            "Returned Dispatch read projection does not match its exact requested view".into(),
+        );
+    }
+    Ok(result)
+}
+fn validate_read_source_v7(
+    work: &ScopedActionsWorkV1,
+    dispatch: Option<&Arc<DispatchRunReadRequestV7>>,
+    database: &Path,
+) -> GithubResult<()> {
+    match dispatch {
+        Some(request) if request.matches_work(work) => request.validate(database),
+        Some(_) => Err(guard_error()),
+        None => work.source.validate_local(database),
+    }
+}
 fn execute_inner_v2(
     work: Arc<ScopedActionsWorkV1>,
     provider: &GithubProvider,
     database: &Path,
+    dispatch: Option<&Arc<DispatchRunReadRequestV7>>,
 ) -> Result<PreparedScopedActionsV1, String> {
     let remaining = work.check()?;
     if work.kind == ScopedActionsRequestKindV1::Search {
@@ -849,9 +1292,18 @@ fn execute_inner_v2(
         .resource_v2
         .as_ref()
         .and_then(|request| request.archive_target());
-    let original_bounded = provider.clone().with_timeout(remaining);
+    let original_bounded = if dispatch.is_some() {
+        provider
+            .clone()
+            .with_catalogue_read_deadline(work.deadline)
+            .with_timeout(remaining)
+    } else {
+        provider.clone().with_timeout(remaining)
+    };
     let bounded = if archive_target.is_some() {
         original_bounded.with_actions_archive_read_deadline_v2(work.deadline)
+    } else if dispatch.is_some() {
+        original_bounded
     } else {
         original_bounded
             .with_scoped_read_window(work.deadline, 512 * 1024)
@@ -859,12 +1311,18 @@ fn execute_inner_v2(
     };
     let mut limits = RepositoryCatalogueAccessLimits::default();
     limits.transport.max_duration = remaining;
-    limits.transport.max_response_bytes = if archive_target.is_some() {
+    limits.transport.max_response_bytes = if dispatch.is_some() {
+        2 * 1024 * 1024
+    } else if archive_target.is_some() {
         9 * 1024 * 1024
     } else {
         4 * 1024 * 1024
     };
-    limits.transport.max_document_bytes = 128 * 1024;
+    limits.transport.max_document_bytes = if dispatch.is_some() {
+        64 * 1024
+    } else {
+        128 * 1024
+    };
     limits.max_references = 1;
     limits.max_repository_reads = 2;
     let mut session = bounded
@@ -874,7 +1332,14 @@ fn execute_inner_v2(
             &work.cancellation,
         )
         .map_err(|_| "Original Actions principal unavailable")?;
-    let window = if let Some(target) = archive_target {
+    let window = if let Some(request) = dispatch {
+        validate_read_source_v7(&work, dispatch, database)
+            .map_err(|_| "Original returned-run SQL/source unavailable")?;
+        session
+            .verify(&work.source.reference, &work.cancellation)
+            .map_err(|_| "Original Dispatch repository unavailable before read allocation")?;
+        session.reserve_dispatch_reads_v7(request.intent().original(), 18, 1, &work.cancellation)
+    } else if let Some(target) = archive_target {
         session
             .verify(&work.source.reference, &work.cancellation)
             .map_err(|_| "Original artifact repository unavailable before allocation")?;
@@ -894,7 +1359,7 @@ fn execute_inner_v2(
         .with_measured_read_window(window)
         .map_err(|_| "Original Actions measured window cannot be replaced")?;
     let opening_identity = session.identity().clone();
-    let current = if archive_target.is_some() {
+    let current = if archive_target.is_some() || dispatch.is_some() {
         session
             .observed_original_v1(work.source.reference.id)
             .ok_or("Actual original artifact repository observation lost")?
@@ -910,8 +1375,7 @@ fn execute_inner_v2(
     if let Some(pr) = work.source.pr_origin_v2() {
         pr.fresh_parent(&scoped, &opening_identity, current, &work.cancellation)
             .map_err(|_| "Original PR/check/head unavailable before Actions resource")?;
-        work.source
-            .validate_local(database)
+        validate_read_source_v7(&work, dispatch, database)
             .map_err(|_| "Original PR Actions local source changed")?;
     }
     enum Inner {
@@ -945,10 +1409,14 @@ fn execute_inner_v2(
                 .as_ref()
                 .ok_or("Actual original run target unavailable")?
                 .clone();
-            let read_kind = match kind {
-                ScopedActionsRequestKindV1::Logs => ScopedActionsReadKindV1::Logs,
-                ScopedActionsRequestKindV1::Annotations => ScopedActionsReadKindV1::Annotations,
-                _ => ScopedActionsReadKindV1::Attempt,
+            let read_kind = if let Some(request) = dispatch {
+                request.read_kind()
+            } else {
+                match kind {
+                    ScopedActionsRequestKindV1::Logs => ScopedActionsReadKindV1::Logs,
+                    ScopedActionsRequestKindV1::Annotations => ScopedActionsReadKindV1::Annotations,
+                    _ => ScopedActionsReadKindV1::Attempt,
+                }
             };
             scoped
                 .scoped_actions_attempt_v1(
@@ -957,7 +1425,7 @@ fn execute_inner_v2(
                     work.job.clone(),
                     read_kind,
                     &work.cancellation,
-                    || work.source.validate_local(database),
+                    || validate_read_source_v7(&work, dispatch, database),
                 )
                 .map(|read| Inner::Attempt(Box::new(read)))
         }
@@ -1082,7 +1550,11 @@ fn execute_inner_v2(
             resource.prepare_run_controls(&mut workspace);
         }
         crate::actions_workspace::scoped_read_v1::focus_selected_job(&mut workspace);
-        work.source.prepare_policy(&mut workspace, false);
+        if dispatch.is_some() {
+            crate::scoped_actions_native_v1::publication_v3::dispatch_v7::run_read_v7::prepare_policy(&mut workspace,false);
+        } else {
+            work.source.prepare_policy(&mut workspace, false);
+        }
         let page = Arc::new(ScopedActionsPageV1 {
             source: work.source.clone(),
             kind,
@@ -1113,7 +1585,9 @@ fn execute_inner_v2(
         return Err("Original Actions access/name changed during read".into());
     }
     let closed = session
-        .close_with_guard(&work.cancellation, || work.source.validate_local(database))
+        .close_with_guard(&work.cancellation, || {
+            validate_read_source_v7(&work, dispatch, database)
+        })
         .map_err(|_| "Original Actions closing source/account proof unavailable")?;
     work.check()?;
     let (mut workspace, mut page, mut retained_bytes) = prepared?;

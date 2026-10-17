@@ -89,9 +89,11 @@ impl ThreadLocalV1 {
         identity: &HostIdentity,
         actual: &crate::providers::gh::PrResourceParentV1,
     ) -> Result<Self, GithubError> {
-        Cache::open(path)
-            .map_err(|_| safe_local())?
-            .validate_repository_catalogue_intent_source(&intent.prepared.intent.source)
+        intent
+            .prepared
+            .intent
+            .source
+            .validate_cache(&Cache::open(path).map_err(|_| safe_local())?)
             .map_err(|_| safe_local())?;
         let journal = PrWriteJournal::open(path).map_err(|_| safe_local())?;
         let target = PrWriteTarget::new(identity, actual.summary()).map_err(|_| safe_local())?;
@@ -121,9 +123,11 @@ impl ThreadLocalV1 {
         {
             return Err(safe_local());
         }
-        Cache::open(path)
-            .map_err(|_| safe_local())?
-            .validate_repository_catalogue_intent_source(&intent.prepared.intent.source)
+        intent
+            .prepared
+            .intent
+            .source
+            .validate_cache(&Cache::open(path).map_err(|_| safe_local())?)
             .map_err(|_| safe_local())?;
         Ok(())
     }
@@ -227,8 +231,8 @@ fn fresh<T>(
     check(cancel, deadline)?;
     let provider = provider.clone().with_catalogue_read_deadline(deadline);
     let source = &intent.prepared.intent.source;
-    let mut session = provider
-        .begin_repository_catalogue_access(source.source(), &Default::default(), cancel)
+    let mut session = source
+        .begin_access(&provider, &Default::default(), cancel)
         .map_err(unavailable)?;
     let identity = session.identity().clone();
     let window = session
@@ -781,8 +785,8 @@ impl ScopedThreadPreviewV1 {
             .map_err(unavailable)?;
         let phase_provider = provider.clone().with_catalogue_read_deadline(deadline);
         let source = &self.intent.prepared.intent.source;
-        let mut session = phase_provider
-            .begin_repository_catalogue_access(source.source(), &Default::default(), cancel)
+        let mut session = source
+            .begin_access(&phase_provider, &Default::default(), cancel)
             .map_err(unavailable)?;
         let identity = session.identity().clone();
         if identity.host != self.identity.host
@@ -1083,7 +1087,12 @@ impl ScopedThreadPreviewV1 {
         let mut draft_retained = true;
         let visible = original_closed
             .as_ref()
-            .and_then(|closed| closed.observation(actual.parent().repository_id()))
+            .and_then(|closed| {
+                closed
+                    .verified()
+                    .iter()
+                    .find(|row| row.repository().id == actual.parent().repository_id())
+            })
             .is_some_and(|current| {
                 phase_provider
                     .close_thread_postwrite_visibility_v2(

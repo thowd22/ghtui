@@ -357,6 +357,36 @@ fn raw_capture_loss(mouse: bool) {
     preserved_remote(&fixture, &objects, &config, None);
     session.quit_and_assert_restored_terminal(mouse);
 }
+fn parent_capture_loss(mouse: bool) {
+    let (fixture, objects) = configured_remote();
+    let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
+    let mut steps = private_file_steps(&objects);
+    let mut opening = fx::prefix();
+    opening[2].stderr = b"PRIVATE_PARENT_CAPTURE_CANARY ".repeat(50000);
+    assert!(opening[2].stderr.len() > 1024 * 1024);
+    steps.extend(opening);
+    assert_eq!(steps.len(), 34);
+    fixture.scripted_gh(&steps);
+    let mut session = launch(&fixture, mouse);
+    open_private_body(&mut session, &fixture, mouse, &objects);
+    let source = extra::source_row(&fixture);
+    let saved = extra::saved_bytes(&fixture);
+    refresh_private_body(&mut session, mouse);
+    hidden_main(&mut session);
+    assert_commands(&session, &fixture, 34);
+    no_original_rewrite(&fixture, &source, &saved);
+    preserved_remote(&fixture, &objects, &config, None);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn remote_tree_v1_parent_capture_keyboard_exhaustion_no_hidden_principal_or_private_body() {
+    parent_capture_loss(false);
+}
+#[test]
+fn remote_tree_v1_parent_capture_mouse_exhaustion_no_hidden_principal_or_private_body() {
+    parent_capture_loss(true);
+}
 fn cancel_live_child(mouse: bool) {
     let (fixture, objects) = configured_remote();
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();

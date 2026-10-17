@@ -167,6 +167,56 @@ impl fmt::Debug for PrCheckRunObservation {
     }
 }
 impl PrCheckRunObservation {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        let o = &self.original;
+        let r = &self.repository;
+        let mut n = b::sum([
+            b::owner::<Self>(),
+            b::identity(&self.identity)?,
+            b::strings([
+                &o.host,
+                &o.repository,
+                &o.pr_node,
+                &o.head,
+                &o.base,
+                &o.head_ref,
+                &o.base_ref,
+                &o.state,
+                &r.host,
+                &r.node_id,
+                &r.full_name,
+                &self.check_node,
+            ])?,
+            b::lines(&self.run_coverage.reasons)?,
+            b::lines(&self.job_coverage.reasons)?,
+            b::vector(&self.run_candidates)?,
+        ])?;
+        for candidate in &self.run_candidates {
+            n = n.checked_add(candidate.workflow_owned_bytes_v9()?)?;
+        }
+        if let Some(selected) = &self.selected_run {
+            n = n.checked_add(selected.workflow_owned_bytes_v9()?)?;
+        }
+        if let Some(link) = &self.link {
+            // B6 map scalar u64/origin node fits512; sparse nodes/root are
+            // bounded by2n+1 without treating len as an allocated capacity.
+            let map = link
+                .sources
+                .len()
+                .checked_mul(2)?
+                .checked_add(1)?
+                .checked_mul(512)?;
+            n = b::sum([
+                n,
+                link.run_node.capacity(),
+                map,
+                crate::actions_workspace::scoped_read_v1::attempt_owned_bytes(&link.attempt),
+                2 * std::mem::size_of::<usize>(),
+            ])?;
+        }
+        Some(n)
+    }
     /// Borrow original producer identity for a closed read-only Actions
     /// adapter. No read/write/account permission is granted by this handle.
     pub(crate) fn producing_runner_v2(&self) -> &CommandRunner {

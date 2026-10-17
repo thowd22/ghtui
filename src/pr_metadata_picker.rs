@@ -32,7 +32,11 @@ const MAX_DETAIL_ROWS: usize = 1024;
 const PREPARED_CELLS: usize = 68;
 #[path = "pr_metadata_member_picker.rs"]
 mod member_picker;
-use member_picker::{CurrentMemberRows, PickerChoicesView, PickerRowView};
+use member_picker::{CurrentMemberRows, PickerChoicesView, PickerKindV87, PickerRowView};
+#[path = "pr_metadata_base_picker_v32.rs"]
+pub(crate) mod base_v32;
+#[path = "pr_issue_link_picker_v87.rs"]
+pub(crate) mod issue_link_v87;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrMetadataPickerAction {
@@ -707,23 +711,23 @@ impl PickerState {
             return hits;
         }
         frame.render_widget(Clear, area);
-        let title = if choices.current_members() {
-            match choices.kind() {
+        let title = match choices.kind() {
+            PickerKindV87::IssueLinks => "PR development links · Issue",
+            PickerKindV87::Metadata(kind) if choices.current_members() => match kind {
                 MetadataChoices::Labels => "Current PR metadata members · Label",
                 MetadataChoices::Assignees => "Current PR metadata members · Assignee",
                 MetadataChoices::Collaborators => "Current PR metadata members · Reviewer",
                 MetadataChoices::Teams => "Current PR metadata members · Reviewer team",
                 _ => "Current PR metadata members",
-            }
-        } else {
-            match choices.kind() {
+            },
+            PickerKindV87::Metadata(kind) => match kind {
                 MetadataChoices::Branches => "PR metadata choices · Base branch",
                 MetadataChoices::Labels => "PR metadata choices · Label",
                 MetadataChoices::Assignees => "PR metadata choices · Assignee",
                 MetadataChoices::Collaborators => "PR metadata choices · Reviewer",
                 MetadataChoices::Teams => "PR metadata choices · Reviewer team",
                 MetadataChoices::Milestones => "PR metadata choices · Milestone",
-            }
+            },
         };
         let focus_label = match self.focus {
             Focus::Query => "Filter focused",

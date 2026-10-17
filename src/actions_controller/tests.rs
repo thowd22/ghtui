@@ -461,6 +461,8 @@ fn actions_secrets_controller_original_confirmed_lookup_needs_no_new_secret_body
                 resource_id: None,
                 observed_attempt: None,
                 observed_run_id: None,
+                original_dispatch_run_v7: None,
+                workflow_remote_v9: None,
             },
         )
         .unwrap();

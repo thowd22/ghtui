@@ -107,6 +107,7 @@ fn github() -> GithubWorkspace {
         checks: Some(checks),
         rows: vec![],
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     };
     page.prepare_rows().unwrap();

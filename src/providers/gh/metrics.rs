@@ -4,11 +4,27 @@ use super::*;
 mod access;
 #[path = "metadata_catalogue.rs"]
 mod metadata_catalogue;
+pub(in crate::providers::gh) use metadata_catalogue::{
+    MembersVisibilityV48, MetadataMembersContextV48, PreparedMembersRequestV48,
+};
 mod model;
 mod paging;
 mod parse;
 mod threads;
 pub use metadata_catalogue::*;
+// Pure validators/converter only; no MetricsBudget/transport/source escapes.
+pub(in crate::providers::gh) use metadata_catalogue::context::{
+    issue_identity as metadata_context_issue_identity_v51,
+    observed_context as metadata_context_observed_v51,
+    require_same_context as metadata_context_consistent_v51,
+};
+pub(crate) use metadata_catalogue::{
+    ActualMembersPageContextV61, MembersMetadataHistoryReadV62, MembersWriteV48,
+    MetadataMembersObservationV48, MetadataMembersReadPurposeV48,
+    MetadataMembersRecoveryCurrentV48, OriginalMetadataMembersV48, PrMetadataMembersFailureV48,
+    PrMetadataMembersReceiptV48, METADATA_MEMBERS_POST_CAPS_V48, METADATA_MEMBERS_REFRESH_CAPS_V48,
+    METADATA_MEMBERS_TAB_POST_CAPS_V62, METADATA_MEMBERS_TAB_REFRESH_CAPS_V62,
+};
 pub use model::*;
 use paging::*;
 use parse::*;

@@ -191,6 +191,7 @@ pub fn open_with_limits(
         checks: None,
         rows: vec![],
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     };
     if !crate::scoped_pr_observed_tabs_v1::initial_summary_fits(&page, cancel)

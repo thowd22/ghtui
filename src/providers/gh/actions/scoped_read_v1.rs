@@ -23,8 +23,121 @@ impl std::fmt::Debug for ScopedActionsRunTargetV1 {
     }
 }
 impl ScopedActionsRunTargetV1 {
+    pub(crate) fn dispatch_receipt_v7(
+        &self,
+    ) -> GithubResult<crate::actions_write_journal::ActionsDispatchRunReceiptV7> {
+        let node = self
+            .node
+            .as_ref()
+            .filter(|node| bounded_node_v3(node))
+            .ok_or_else(|| {
+                error(
+                    GithubErrorKind::AmbiguousWrite,
+                    "Actual Dispatch run node missing",
+                )
+            })?;
+        let repository_node = self
+            .repository_node
+            .as_ref()
+            .filter(|node| bounded_node_v3(node))
+            .ok_or_else(|| {
+                error(
+                    GithubErrorKind::AmbiguousWrite,
+                    "Actual Dispatch repository node missing",
+                )
+            })?;
+        let suite = self.suite.filter(|id| *id > 0).ok_or_else(|| {
+            error(
+                GithubErrorKind::AmbiguousWrite,
+                "Actual Dispatch suite missing",
+            )
+        })?;
+        if self.run.event != "workflow_dispatch"
+            || self.run.id == 0
+            || self.run.attempt == 0
+            || validate_sha(&self.run.head_sha).is_err()
+        {
+            return Err(error(
+                GithubErrorKind::AmbiguousWrite,
+                "Actual Dispatch receipt identities missing",
+            ));
+        }
+        Ok(crate::actions_write_journal::ActionsDispatchRunReceiptV7 {
+            repository_id: self.repository_id,
+            repository_node: repository_node.clone(),
+            run_id: self.run.id,
+            run_node: node.clone(),
+            workflow_id: self.run.workflow_id,
+            attempt: self.run.attempt,
+            head_sha: self.run.head_sha.clone(),
+            event: self.run.event.clone(),
+            check_suite_id: suite,
+        })
+    }
+    /// Only the SAME producing provider's prepaid HTTP200-ID receipt can call
+    /// this factory. Reuse the canonical run decoder, retaining raw identities
+    /// that legacy DTOs intentionally do not carry. Never a saved-row issuer.
+    pub(in crate::providers::gh) fn from_dispatch_raw_v7(
+        provider: &GithubProvider,
+        schema: &Arc<ScopedDispatchSchemaV7>,
+        id: u64,
+        raw: &Value,
+    ) -> GithubResult<Arc<Self>> {
+        let run = run_from_json(raw);
+        let node = bounded_optional_node(raw)?;
+        let suite = raw
+            .get("check_suite_id")
+            .and_then(Value::as_u64)
+            .filter(|id| *id > 0 && *id <= i64::MAX as u64);
+        if !schema.producing_provider_v7(provider)
+            || id == 0
+            || id > i64::MAX as u64
+            || raw["id"].as_u64() != Some(id)
+            || run.id != id
+            || run.workflow_id != schema.original().model().id
+            || run.head_sha != schema.commit()
+            || run.event != "workflow_dispatch"
+            || raw["run_attempt"]
+                .as_u64()
+                .filter(|a| *a > 0 && *a <= i64::MAX as u64)
+                != Some(run.attempt)
+            || node.is_none()
+            || suite.is_none()
+            || raw["repository"]["id"].as_u64() != Some(schema.original().repository().id())
+            || raw["repository"]["node_id"].as_str() != schema.original().repository().node()
+            || raw["repository"]["full_name"].as_str() != Some(schema.repository())
+            || validate_sha(&run.head_sha).is_err()
+        {
+            return Err(error(GithubErrorKind::AmbiguousWrite,"Actual Dispatch run/repository/node/suite/event/head differs; no run target adopted"));
+        }
+        Ok(Arc::new(Self {
+            producer: provider.runner.clone(),
+            repository_id: schema.original().repository().id(),
+            repository_node: schema.original().repository().node().map(str::to_owned),
+            repository: schema.repository().into(),
+            run,
+            node,
+            suite,
+        }))
+    }
     pub(crate) fn node_v2(&self) -> Option<&str> {
         self.node.as_deref()
+    }
+    pub(crate) fn suite_v3(&self) -> Option<u64> {
+        self.suite
+    }
+    pub(crate) fn original_writer_v3(&self, provider: &GithubProvider) -> bool {
+        self.producer.same_instance(&provider.runner)
+            && self.repository_id > 0
+            && self.repository_id <= i64::MAX as u64
+            && self.repository_node.as_deref().is_some_and(bounded_node_v3)
+            && self.node.as_deref().is_some_and(bounded_node_v3)
+            && self.suite.is_none_or(|id| id > 0 && id <= i64::MAX as u64)
+            && self.run.id > 0
+            && self.run.id <= i64::MAX as u64
+            && self.run.workflow_id > 0
+            && self.run.attempt > 0
+            && validate_sha(&self.run.head_sha).is_ok()
     }
     pub(crate) fn same_watch_pin_v2(&self, old: &Self) -> bool {
         self.producer.same_instance(&old.producer)
@@ -110,6 +223,9 @@ impl std::fmt::Debug for ScopedActionsJobTargetV1 {
     }
 }
 impl ScopedActionsJobTargetV1 {
+    pub(super) fn check_url_v4(&self) -> &str {
+        &self.check_url
+    }
     pub(crate) fn node_v2(&self) -> Option<&str> {
         self.node.as_deref()
     }
@@ -267,6 +383,96 @@ fn run_identity(actual: &WorkflowRun, wanted: &WorkflowRun) -> bool {
         && actual.head_sha == wanted.head_sha
         && actual.event == wanted.event
 }
+fn bounded_node_v3(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+}
+#[derive(Clone, Copy)]
+pub(super) enum ScopedActionsRunRawPhaseV3 {
+    Read,
+    UnchangedPrewrite,
+    CancelReceipt,
+    RerunReceipt,
+    HistoricalReadV8,
+}
+/// ONE binder for the existing actual read and the exact prepaid receipt GET.
+/// A Value or DTO is never promoted into a new original target by this helper.
+pub(super) fn bind_scoped_actions_run_raw_v3(
+    raw: &Value,
+    repo: &str,
+    target: &ScopedActionsRunTargetV1,
+    phase: ScopedActionsRunRawPhaseV3,
+) -> GithubResult<(WorkflowRun, Option<String>, Option<u64>)> {
+    let run = run_from_json(raw);
+    let node = bounded_optional_node(raw)?;
+    let suite = raw
+        .get("check_suite_id")
+        .and_then(Value::as_u64)
+        .filter(|id| *id > 0);
+    let same_attempt = run.attempt == target.run.attempt
+        || matches!(
+            phase,
+            ScopedActionsRunRawPhaseV3::RerunReceipt | ScopedActionsRunRawPhaseV3::HistoricalReadV8
+        ) && run.attempt >= target.run.attempt;
+    if !same_attempt
+        || run.id != target.run.id
+        || run.workflow_id != target.run.workflow_id
+        || run.head_sha != target.run.head_sha
+        || run.event != target.run.event
+        || raw["repository"]["id"].as_u64() != Some(target.repository_id)
+        || target
+            .repository_node
+            .as_deref()
+            .is_some_and(|known| raw["repository"]["node_id"].as_str() != Some(known))
+        || raw["repository"]["full_name"].as_str() != Some(repo)
+        || target
+            .node
+            .as_ref()
+            .is_some_and(|known| node.as_ref() != Some(known))
+        || target.suite.is_some_and(|known| suite != Some(known))
+    {
+        return Err(error(
+            GithubErrorKind::StaleHead,
+            "Original run/workflow/attempt/head/repository/node/suite changed; no replacement adopted",
+        ));
+    }
+    if !matches!(phase, ScopedActionsRunRawPhaseV3::Read)
+        && (target
+            .repository_node
+            .as_deref()
+            .is_none_or(|s| !bounded_node_v3(s))
+            || target.node.as_deref().is_none_or(|s| !bounded_node_v3(s))
+            || suite != target.suite
+            || raw.get("check_suite_id").is_some_and(|value| {
+                !value.is_null()
+                    && value
+                        .as_u64()
+                        .is_none_or(|id| id == 0 || id > i64::MAX as u64)
+            })
+            || run.id == 0
+            || run.attempt == 0
+            || raw
+                .get("run_attempt")
+                .and_then(Value::as_u64)
+                .filter(|a| *a > 0)
+                != Some(run.attempt)
+            || run.workflow_id == 0
+            || validate_sha(&run.head_sha).is_err())
+    {
+        return Err(error(
+            GithubErrorKind::Unsupported,
+            "Original scoped run publication requires actual repository and run nodes",
+        ));
+    }
+    if matches!(phase, ScopedActionsRunRawPhaseV3::UnchangedPrewrite)
+        && (run.status != target.run.status || run.conclusion != target.run.conclusion)
+    {
+        return Err(error(
+            GithubErrorKind::StaleHead,
+            "Run state changed after Preview; inspect the actual current run before confirming",
+        ));
+    }
+    Ok((run, node, suite))
+}
 fn check_cancel(cancel: &CancellationToken) -> GithubResult<()> {
     if cancel.is_cancelled() {
         Err(error(
@@ -284,6 +490,35 @@ fn unavailable(error: &GithubError) -> bool {
     )
 }
 impl GithubProvider {
+    /// One genuine bounded run GET under the existing original Session. Only
+    /// the caller's same original source/SQL/final-principal close may publish
+    /// this candidate; it grants no access/confirmation/write permission.
+    pub(crate) fn scoped_actions_run_snapshot_v3(
+        &self,
+        current: &CurrentCatalogueRepository,
+        original: &Arc<ScopedActionsRunTargetV1>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<Arc<ScopedActionsRunTargetV1>> {
+        if !original.current(self, current) {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Actual original numeric run source changed",
+            ));
+        }
+        let (run, node, suite) =
+            self.scoped_actions_run_raw_v1(&current.repository().full_name, original, cancel)?;
+        let value = Arc::new(ScopedActionsRunTargetV1 {
+            producer: self.runner.clone(),
+            repository_id: current.repository().id,
+            repository_node: current.repository().node_id.clone(),
+            repository: current.repository().full_name.clone(),
+            run,
+            node,
+            suite,
+        });
+        check_cancel(cancel)?;
+        Ok(value)
+    }
     pub(super) fn scoped_resource_run_current_v2(
         &self,
         current: &CurrentCatalogueRepository,
@@ -374,10 +609,19 @@ impl GithubProvider {
             window,
         })
     }
-    fn scoped_actions_run_raw_v1(
+    pub(super) fn scoped_actions_run_raw_v1(
         &self,
         repo: &str,
         target: &ScopedActionsRunTargetV1,
+        cancel: &CancellationToken,
+    ) -> GithubResult<(WorkflowRun, Option<String>, Option<u64>)> {
+        self.scoped_actions_run_raw_phase_v3(repo, target, ScopedActionsRunRawPhaseV3::Read, cancel)
+    }
+    pub(super) fn scoped_actions_run_raw_phase_v3(
+        &self,
+        repo: &str,
+        target: &ScopedActionsRunTargetV1,
+        phase: ScopedActionsRunRawPhaseV3,
         cancel: &CancellationToken,
     ) -> GithubResult<(WorkflowRun, Option<String>, Option<u64>)> {
         let raw = self.api(
@@ -388,31 +632,7 @@ impl GithubProvider {
             false,
             cancel,
         )?;
-        let run = run_from_json(&raw);
-        let node = bounded_optional_node(&raw)?;
-        let suite = raw
-            .get("check_suite_id")
-            .and_then(Value::as_u64)
-            .filter(|id| *id > 0);
-        if !run_identity(&run, &target.run)
-            || raw["repository"]["id"].as_u64() != Some(target.repository_id)
-            || target
-                .repository_node
-                .as_deref()
-                .is_some_and(|node| raw["repository"]["node_id"].as_str() != Some(node))
-            || raw["repository"]["full_name"].as_str() != Some(repo)
-            || target
-                .node
-                .as_ref()
-                .is_some_and(|known| node.as_ref() != Some(known))
-            || target.suite.is_some_and(|known| suite != Some(known))
-        {
-            return Err(error(
-                GithubErrorKind::StaleHead,
-                "Original run/workflow/attempt/head changed; no latest attempt adopted",
-            ));
-        }
-        Ok((run, node, suite))
+        bind_scoped_actions_run_raw_v3(&raw, repo, target, phase)
     }
     fn scoped_actions_job_raw_v1(
         &self,

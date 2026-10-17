@@ -11,6 +11,8 @@ use std::time::Instant;
 pub mod code_v4;
 #[path = "scoped_pr_thread_comments_v2.rs"]
 pub mod comments_v2;
+#[path = "scoped_pr_file_comment_v75.rs"]
+pub mod file_comments_v75;
 #[path = "scoped_pr_thread_historical_v5.rs"]
 pub mod historical_v5;
 #[path = "scoped_pr_thread_history_v1.rs"]
@@ -26,8 +28,40 @@ pub const ROW_CAP: usize = 20_000;
 pub const TEXT_CAP: usize = 4 * 1024 * 1024;
 pub const FIELD_CAP: usize = 16 * 1024;
 
+/// Presentation-only privacy. Never clears a genuinely newer page/Nav/source
+/// and never touches a replacement Background slot, token or generation.
+pub(crate) fn retire_original_account_v75(
+    app: &mut App,
+    source: &crate::pr_read_origin_v13::PrReadOriginV13,
+    active: &Arc<ActiveRemoteScopeV1>,
+    navigation: &Arc<ScopedPrNavigationV1>,
+) -> bool {
+    if !source.matches_source(app)
+        || app
+            .remote_scope
+            .as_ref()
+            .is_none_or(|v| !Arc::ptr_eq(v, active))
+        || app.github.as_ref().is_none_or(|g| {
+            g.scope().ok().as_ref() == Some(source.scope())
+                || g.scoped_pr_navigation
+                    .as_ref()
+                    .is_none_or(|n| !Arc::ptr_eq(n, navigation))
+        })
+    {
+        return false;
+    }
+    if let Some(catalogue) = source.catalogue_source() {
+        crate::remote_scope_gate_v1::retire_original_account_mismatch(app, catalogue, active)
+    } else if crate::personal_pr_entry_v13::retire_source(app, source, navigation) {
+        native_v1::retire_private(app);
+        true
+    } else {
+        false
+    }
+}
+
 pub struct ThreadBrowseIntentV1 {
-    pub(crate) source: Arc<CatalogueIntentSource>,
+    pub(crate) source: crate::pr_read_origin_v13::PrReadOriginV13,
     pub(crate) active: Arc<ActiveRemoteScopeV1>,
     pub(crate) navigation: Arc<ScopedPrNavigationV1>,
     origin_v4: ThreadBrowseOriginV4,
@@ -58,10 +92,7 @@ impl std::fmt::Debug for ThreadBrowseIntentV1 {
 impl ThreadBrowseIntentV1 {
     pub fn capture(app: &App) -> Result<Arc<Self>, String> {
         let github = app.github.as_ref().ok_or("Open scoped Files first")?;
-        let source = app
-            .remote_scope_source
-            .as_ref()
-            .ok_or("Original source unavailable")?;
+        let source = crate::pr_read_origin_v13::PrReadOriginV13::capture(app)?;
         let active = app
             .remote_scope
             .as_ref()
@@ -100,7 +131,7 @@ impl ThreadBrowseIntentV1 {
             _ => return Err("Select an actual changed file or its patch row first".into()),
         };
         let result = Arc::new(Self {
-            source: source.clone(),
+            source,
             active: active.clone(),
             navigation: navigation.clone(),
             origin_v4: ThreadBrowseOriginV4::Files {
@@ -192,11 +223,7 @@ impl ThreadBrowseIntentV1 {
                 "All threads opens from actual Summary or Timeline, not a fabricated Files member",
             )?;
         let intent = Arc::new(Self {
-            source: app
-                .remote_scope_source
-                .as_ref()
-                .ok_or("Original source unavailable")?
-                .clone(),
+            source: crate::pr_read_origin_v13::PrReadOriginV13::capture(app)?,
             active: app
                 .remote_scope
                 .as_ref()
@@ -229,13 +256,21 @@ impl ThreadBrowseIntentV1 {
     pub fn scope(&self) -> &Scope {
         self.source.scope()
     }
+    pub(crate) fn admits_identity_v75(
+        &self,
+        identity: &crate::providers::gh::HostIdentity,
+    ) -> bool {
+        self.source.admits_navigation(
+            &self.active,
+            identity,
+            &self.navigation,
+            &self.navigation.canonical,
+        )
+    }
     pub fn owns(&self, app: &App) -> bool {
         app.view == View::Inbox
             && app.selected == self.selected_row
-            && app
-                .remote_scope_source
-                .as_ref()
-                .is_some_and(|x| Arc::ptr_eq(x, &self.source))
+            && self.source.matches_source(app)
             && app
                 .remote_scope
                 .as_ref()
@@ -329,21 +364,16 @@ pub fn load(
     let source_error = |_| ThreadBrowseFailureV1::Source;
     original_check(cancel, deadline).map_err(source_error)?;
     let provider = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = provider
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), cancel)
+    let mut session = intent
+        .source
+        .begin_access(&provider, &Default::default(), cancel)
         .map_err(source_error)?;
     let identity = session.identity().clone();
-    let RemoteScopeConsumerV1::Explicit(members) = intent.active.consumer(&identity) else {
-        return Err(ThreadBrowseFailureV1::Source);
-    };
     if Scope::github(&identity.host, identity.account_id)
         .ok()
         .as_ref()
         != Some(intent.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == intent.navigation.original())
+        || !intent.admits_identity_v75(&identity)
     {
         return Err(ThreadBrowseFailureV1::Source);
     }
@@ -365,8 +395,13 @@ pub fn load(
             .map_err(source_error)?,
     );
     original_check(cancel, deadline).map_err(source_error)?;
-    let local = ResourceLocalGuard::capture(database, &intent.source, &identity, parent.summary())
-        .map_err(source_error)?;
+    let local = ResourceLocalGuard::capture_boundary_v13(
+        database,
+        intent.source.local_boundary(),
+        &identity,
+        parent.summary(),
+    )
+    .map_err(source_error)?;
     let expected = bounded
         .pr_thread_resource_parent_v1(&parent, cancel)
         .map_err(source_error)?;
@@ -388,7 +423,7 @@ pub fn load(
     let mut prepared = prepare(intent.clone(), parent.clone(), snapshot, identity, cancel)?;
     original_check(cancel, deadline).map_err(source_error)?;
     local
-        .validate(database, &intent.source)
+        .validate_boundary_v13(database, intent.source.local_boundary())
         .map_err(source_error)?;
     intent
         .read_parent_v4(&bounded, current, cancel)
@@ -405,7 +440,7 @@ pub fn load(
     let closed = session
         .close_with_guard(cancel, || {
             original_check(cancel, deadline)?;
-            local.validate(database, &intent.source)?;
+            local.validate_boundary_v13(database, intent.source.local_boundary())?;
             original_check(cancel, deadline)
         })
         .map_err(source_error)?;

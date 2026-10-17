@@ -938,6 +938,15 @@ pub fn accept(app: &mut App, prepared: CataloguePrepared) -> bool {
     false
 }
 pub fn retire_remote_views(app: &mut App) {
+    app.closed_conversation_draft_v20 = None;
+    if let Some(work) = app.personal_pr_entry_work_v13.take() {
+        work.cancellation().cancel();
+    }
+    if let Some(owner) = &app.personal_pr_entry_owner_v13 {
+        owner.cancellation().cancel();
+    }
+    app.personal_pr_source_v13 = None;
+    app.notification_pr_source_v63 = None;
     crate::scoped_actions_native_v1::retire(app);
     crate::pr_checks_native::retire(app, true);
     app.github = None;

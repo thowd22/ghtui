@@ -1,6 +1,8 @@
 //! DECLARED/UNRUN. Real binary, original strict source/PR/Files producer,
 //! actual key/click byte paths; independent SQL/config/Git/TTY oracles.
 use super::*;
+#[path = "file_comments_v75.rs"]
+pub(crate) mod file_comments_v75;
 #[path = "review_thread_publication_v1.rs"]
 mod publication_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};

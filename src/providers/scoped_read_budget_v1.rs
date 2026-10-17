@@ -197,6 +197,13 @@ impl ScopedReadBudgetV1 {
     pub(crate) fn max_child_bytes(&self) -> usize {
         self.max_child_bytes
     }
+    /// Allocation identity only; no source/auth grant or clock renewal.
+    pub(in crate::providers) fn original_token_matches_v63(
+        &self,
+        token: &CancellationToken,
+    ) -> bool {
+        self.original_cancellation.same_instance(token)
+    }
     pub(crate) fn abort(&self) {
         self.aborted.cancel();
         if let Ok(mut state) = self.state.lock() {
@@ -309,6 +316,48 @@ impl ScopedReadBudgetV1 {
             .timeout
             .min(self.deadline.saturating_duration_since(Instant::now()));
         let result = execute(&spec, cancel, Some(&mut claim));
+        claim.finish(&result)?;
+        result
+    }
+    /// Same claim, original pool and actual capture settlement as strict
+    /// reads. Only the opaque notification request can reach this entry.
+    pub(super) fn run_notification_conditional_v63(
+        self: &Arc<Self>,
+        mut spec: CommandSpec,
+        cancel: &CancellationToken,
+    ) -> RunResult {
+        let mut claim = self.claim(&spec, cancel)?;
+        spec.output_limit = claim.reserved;
+        spec.timeout = spec
+            .timeout
+            .min(self.deadline.saturating_duration_since(Instant::now()));
+        let result = execute_mode_v63(
+            &spec,
+            cancel,
+            Some(&mut claim),
+            ExecutePolicyV63::NotificationConditionalGet,
+        );
+        claim.finish(&result)?;
+        result
+    }
+    /// Only the closed actual original Workflow branch GET request reaches
+    /// this runner entry. Claim/settlement remain the SAME measured ledger.
+    pub(super) fn run_workflow_branch_v9(
+        self: &Arc<Self>,
+        mut spec: CommandSpec,
+        cancel: &CancellationToken,
+    ) -> RunResult {
+        let mut claim = self.claim(&spec, cancel)?;
+        spec.output_limit = claim.reserved;
+        spec.timeout = spec
+            .timeout
+            .min(self.deadline.saturating_duration_since(Instant::now()));
+        let result = execute_mode_v63(
+            &spec,
+            cancel,
+            Some(&mut claim),
+            ExecutePolicyV63::WorkflowBranchGetV9,
+        );
         claim.finish(&result)?;
         result
     }

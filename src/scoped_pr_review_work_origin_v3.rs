@@ -21,22 +21,26 @@ impl<'a> ReviewWorkOriginV3<'a> {
             Self::Summary(intent) => intent.owns(app),
         }
     }
-    pub fn source(self) -> &'a Arc<CatalogueIntentSource> {
+    pub(crate) fn source(self) -> Option<crate::pr_read_origin_v13::PrReadOriginV13> {
         match self {
-            Self::Files(intent) => &intent.source,
-            Self::Summary(intent) => intent.source(),
+            Self::Files(intent) => Some(intent.source.clone()),
+            Self::Summary(intent) => intent.catalogue_parts_v15().map(|(source, _, _)| {
+                crate::pr_read_origin_v13::PrReadOriginV13::catalogue(source.clone())
+            }),
         }
     }
-    pub fn active(self) -> &'a Arc<ActiveRemoteScopeV1> {
+    pub fn active(self) -> Option<&'a Arc<ActiveRemoteScopeV1>> {
         match self {
-            Self::Files(intent) => &intent.active,
-            Self::Summary(intent) => intent.active(),
+            Self::Files(intent) => Some(&intent.active),
+            Self::Summary(intent) => intent.catalogue_parts_v15().map(|(_, active, _)| active),
         }
     }
-    pub fn navigation(self) -> &'a Arc<ScopedPrNavigationV1> {
+    pub fn navigation(self) -> Option<&'a Arc<ScopedPrNavigationV1>> {
         match self {
-            Self::Files(intent) => &intent.navigation,
-            Self::Summary(intent) => intent.navigation(),
+            Self::Files(intent) => Some(&intent.navigation),
+            Self::Summary(intent) => intent
+                .catalogue_parts_v15()
+                .map(|(_, _, navigation)| navigation),
         }
     }
     pub fn files(self) -> Option<&'a Arc<ScopedReviewIntentV2>> {

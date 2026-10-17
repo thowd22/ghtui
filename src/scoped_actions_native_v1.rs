@@ -7,6 +7,10 @@ use crate::{
     scoped_actions_v1::*,
 };
 use std::sync::Arc;
+#[path = "scoped_actions_journal_v5.rs"]
+pub mod journal_v5;
+#[path = "scoped_actions_publication_native_v3.rs"]
+pub mod publication_v3;
 #[path = "scoped_actions_read_ui_v2.rs"]
 pub mod read_ui_v2;
 struct SnapshotV1 {
@@ -16,6 +20,9 @@ struct SnapshotV1 {
     matches_v2: Option<Arc<ActionsLoadedMatchesV2>>,
 }
 pub struct ScopedActionsStateV1 {
+    dispatch_run_v7: Option<publication_v3::dispatch_v7::run_read_v7::DispatchRunReturnV7>,
+    journal_v5: Option<Arc<journal_v5::ClosedJournalViewV5>>,
+    journal_back_v5: Option<journal_v5::JournalBackV5>,
     source: Arc<ScopedActionsSourceV1>,
     page: Arc<ScopedActionsPageV1>,
     retained_bytes: usize,
@@ -28,11 +35,28 @@ pub struct ScopedActionsStateV1 {
 }
 pub struct ScopedActionsOwnerV1 {
     work: Arc<ScopedActionsWorkV1>,
+    publication_v3: std::sync::Mutex<Option<crate::drafts::DraftPublicationFenceV2>>,
+    workflow_edit_read_v9: std::sync::Mutex<
+        Option<crate::scoped_actions_workflow_edit_v9::draft_cutoff_v9::WorkflowEditReadCutoffV9>,
+    >,
+}
+#[cfg(test)]
+impl ScopedActionsStateV1 {
+    pub(crate) fn source_for_test_v107(&self) -> &Arc<ScopedActionsSourceV1> {
+        &self.source
+    }
+    pub(crate) fn page_for_test_v107(&self) -> &Arc<ScopedActionsPageV1> {
+        &self.page
+    }
 }
 impl ScopedActionsOwnerV1 {
     pub(crate) fn new(work: Arc<ScopedActionsWorkV1>) -> Result<Arc<Self>, String> {
         work.check()?;
-        Ok(Arc::new(Self { work }))
+        Ok(Arc::new(Self {
+            work,
+            publication_v3: std::sync::Mutex::new(None),
+            workflow_edit_read_v9: std::sync::Mutex::new(None),
+        }))
     }
     pub fn cancellation(&self) -> &CancellationToken {
         self.work.cancellation()
@@ -56,8 +80,8 @@ impl ScopedActionsOwnerV1 {
     }
     pub fn owns(&self, app: &App) -> bool {
         app.view == View::Actions
-            && app.overlay.is_none()
-            && !newer_foreign_intent(app)
+            && publication_v3::overlay_current(app, &self.work)
+            && !publication_v3::foreign_intent(app, &self.work)
             && app.scoped_actions_v1.as_ref().is_some_and(|state| {
                 current(app, state)
                     && Arc::ptr_eq(&state.source, &self.work.source)
@@ -88,6 +112,11 @@ fn current(app: &App, state: &ScopedActionsStateV1) -> bool {
             .source
             .pr_origin_v2()
             .is_none_or(|origin| origin.current(app))
+        && state
+            .source
+            .history_pr_v5
+            .as_ref()
+            .is_none_or(|origin| origin.current(app))
         && app.github.as_ref().is_none_or(|github| {
             github.scope().ok().as_ref() == Some(state.source.original().scope())
         })
@@ -112,11 +141,11 @@ fn current(app: &App, state: &ScopedActionsStateV1) -> bool {
 /// work whose source/page is otherwise still retained.
 pub(crate) fn current_input(app: &App, work: &Arc<ScopedActionsWorkV1>) -> bool {
     app.view == View::Actions
-        && app.overlay.is_none()
+        && publication_v3::overlay_current(app, work)
         && !app.loading[View::Actions.index()]
         && !app.scoped_actions_cancel_v1
         && app.scoped_actions_owner_v1.is_none()
-        && !newer_foreign_intent(app)
+        && !publication_v3::foreign_intent(app, work)
         && app
             .scoped_actions_work_v1
             .as_ref()
@@ -137,7 +166,23 @@ pub(crate) fn current_input(app: &App, work: &Arc<ScopedActionsWorkV1>) -> bool 
         })
 }
 pub fn newer_foreign_intent(app: &App) -> bool {
-    app.pr_native_diff_work_v1.is_some()
+    newer_foreign_without_form_v3(app)
+        || app
+            .form
+            .as_ref()
+            .is_some_and(|form| form.preview_requested || form.submit_requested)
+}
+fn newer_foreign_without_form_v3(app: &App) -> bool {
+    app.notifications_work_v63.is_some()
+        || app.notifications_owner_v63.is_some()
+        || app.notifications_cancel_v63
+        || app.scoped_pr_collaboration_work_v17.is_some()
+        || app.scoped_pr_collaboration_owner_v17.is_some()
+        || app.scoped_pr_collaboration_cancel_v17
+        || app.personal_pr_entry_work_v13.is_some()
+        || app.personal_pr_entry_owner_v13.is_some()
+        || app.personal_pr_entry_cancel_v13
+        || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
         || app.pr_native_diff_owner_v1.is_some()
         || app.scoped_threads_owner_v1.is_some()
@@ -190,10 +235,6 @@ pub fn newer_foreign_intent(app: &App) -> bool {
             .catalogue
             .as_ref()
             .is_some_and(|modal| modal.request.is_some())
-        || app
-            .form
-            .as_ref()
-            .is_some_and(|form| form.preview_requested || form.submit_requested)
 }
 pub fn install_initial(app: &mut App, state: InitialScopedActionsV1) {
     app.remote_scope = Some(state.source.scope().clone());
@@ -205,6 +246,9 @@ pub fn install_initial(app: &mut App, state: InitialScopedActionsV1) {
     // worker-prepared Actions workspace is already installed.
     app.dispatch(Action::View(View::Actions));
     app.scoped_actions_v1 = Some(ScopedActionsStateV1 {
+        dispatch_run_v7: None,
+        journal_v5: None,
+        journal_back_v5: None,
         source: state.source,
         entry_page_v2: Arc::downgrade(&state.page),
         page: state.page,
@@ -254,6 +298,7 @@ pub fn synchronize(app: &mut App) {
     {
         retire(app);
     }
+    publication_v3::workflow_edit_v9::observe_cleanup_wait_v9(app);
 }
 fn explain(app: &mut App, reason: impl Into<String>) {
     app.dispatch(Action::Explain(reason.into()));
@@ -264,7 +309,21 @@ fn prepare_policy(app: &mut App, pending: bool) {
         .as_ref()
         .map(|state| state.source.clone());
     if let (Some(source), Some(workspace)) = (source, app.actions.as_mut()) {
-        source.prepare_policy(workspace, pending);
+        if app
+            .scoped_actions_v1
+            .as_ref()
+            .is_some_and(|state| state.dispatch_run_v7.is_some())
+        {
+            publication_v3::dispatch_v7::run_read_v7::prepare_policy(workspace, pending);
+        } else if app
+            .scoped_actions_v1
+            .as_ref()
+            .is_some_and(|state| state.journal_v5.is_some() || state.source.history_pr_v5.is_some())
+        {
+            journal_v5::prepare_policy(workspace, pending);
+        } else {
+            source.prepare_policy(workspace, pending);
+        }
     }
 }
 fn cancel_current(app: &mut App) {
@@ -293,6 +352,82 @@ fn cancel_current(app: &mut App) {
 /// All keys AND hit actions arrive here before generic Actions/forms handling.
 pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
     synchronize(app);
+    if publication_v3::workflow_edit_v9::intercept(app, action) {
+        return true;
+    }
+    if publication_v3::dispatch_v7::run_read_v7::intercept(app, action) {
+        return true;
+    }
+    if journal_v5::intercept(app, action) {
+        return true;
+    }
+    if publication_v3::intercept(app, action) {
+        return true;
+    }
+    if app.scoped_actions_v1.is_none()
+        && app
+            .pr_checks_route
+            .as_ref()
+            .is_some_and(|route| route.scoped_v1())
+        && crate::pr_checks_native::scoped::actions_origin_v2::run_command_entry_v4(action)
+    {
+        // Pure admission MUST precede source seeding, cancellation, epoch,
+        // hits/status/loading or queue effects. A generic live Actions slot
+        // and independently newer source/intent must remain untouched.
+        let eligible = app.view == View::Actions
+            && app.overlay.is_none()
+            && !app.loading[View::Actions.index()]
+            && app.scoped_actions_work_v1.is_none()
+            && app.scoped_actions_owner_v1.is_none()
+            && !app.scoped_actions_cancel_v1
+            && !newer_foreign_intent(app);
+        if !eligible {
+            return true;
+        }
+        let ActionsAction::Compose(command) = action else {
+            unreachable!("closed run entry");
+        };
+        let prepared =
+            crate::pr_checks_native::scoped::actions_origin_v2::ScopedPrActionsOriginV2::capture(
+                app,
+            )
+            .and_then(|origin| {
+                retained_pr_route_v2(
+                    origin,
+                    app.actions
+                        .as_ref()
+                        .ok_or("Original Actions workspace unavailable")?,
+                )
+            })
+            .and_then(|(source, page, retained_bytes)| {
+                let work = publication_v3::prepare_initial_run_v4(page.clone(), *command)?;
+                Ok((source, page, retained_bytes, work))
+            });
+        // Refusal deliberately does not replace another overlay/status/hits.
+        if let Ok((source, page, retained_bytes, work)) = prepared {
+            app.scoped_actions_v1 = Some(ScopedActionsStateV1 {
+                dispatch_run_v7: None,
+                journal_v5: None,
+                journal_back_v5: None,
+                source,
+                entry_page_v2: Arc::downgrade(&page),
+                page,
+                retained_bytes,
+                back: vec![],
+                epoch: work.epoch,
+                matches_v2: None,
+                watch_v2: None,
+                editor_v2: None,
+            });
+            app.scoped_actions_work_v1 = Some(work);
+            app.hits.clear();
+            app.status = format!(
+                "Opening original {} intent • read only • original30s includes queue • no POST",
+                command.label()
+            );
+        }
+        return true;
+    }
     if app.scoped_actions_v1.is_none()
         && app
             .pr_checks_route
@@ -323,6 +458,9 @@ pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
         match seed {
             Ok((source, page, retained_bytes)) => {
                 app.scoped_actions_v1 = Some(ScopedActionsStateV1 {
+                    dispatch_run_v7: None,
+                    journal_v5: None,
+                    journal_back_v5: None,
                     source,
                     entry_page_v2: Arc::downgrade(&page),
                     page,
@@ -494,6 +632,9 @@ pub fn take_work(app: &mut App) -> Option<Arc<ScopedActionsWorkV1>> {
     Some(work)
 }
 pub fn submission_failed(app: &mut App, work: &Arc<ScopedActionsWorkV1>) {
+    if publication_v3::submission_failed(app, work) {
+        return;
+    }
     if app.scoped_actions_v1.as_ref().is_some_and(|state| {
         current(app, state) && Arc::ptr_eq(&state.page, &work.page) && state.epoch == work.epoch
     }) {
@@ -512,17 +653,37 @@ pub(crate) fn publish(
     if !owner.owns(app) || !prepared.matches(owner.work()) || owner.work.check().is_err() {
         return false;
     }
+    publish_admitted_v7(app, owner, prepared);
+    true
+}
+/// Mechanical publication body shared by ordinary reads and the closed
+/// returned-Dispatch read after their distinct exact-current owner admission.
+fn publish_admitted_v7(
+    app: &mut App,
+    owner: &Arc<ScopedActionsOwnerV1>,
+    prepared: PreparedScopedActionsV1,
+) {
     let mut state = app.scoped_actions_v1.take().expect("checked");
     let transient_projection =
         owner.work.kind == ScopedActionsRequestKindV1::Search || owner.work.watch_v2.is_some();
     if let Some(mut old) = app.actions.take().filter(|_| !transient_projection) {
-        state.source.prepare_policy(&mut old, false);
+        if state.dispatch_run_v7.is_some() {
+            publication_v3::dispatch_v7::run_read_v7::prepare_policy(&mut old, false)
+        } else {
+            state.source.prepare_policy(&mut old, false)
+        };
         let mut retained = state
             .back
             .iter()
             .map(|s| s.bytes)
             .sum::<usize>()
-            .saturating_add(state.retained_bytes);
+            .saturating_add(state.retained_bytes)
+            .saturating_add(
+                state
+                    .dispatch_run_v7
+                    .as_ref()
+                    .map_or(0, |view| view.retained),
+            );
         while !state.back.is_empty()
             && (state.back.len() >= 3 || retained > BACK_LIMIT_V1.saturating_sub(4096))
         {
@@ -536,7 +697,9 @@ pub(crate) fn publish(
             let removed = state.back.remove(index);
             retained = retained.saturating_sub(removed.bytes);
         }
-        if state.retained_bytes <= BACK_LIMIT_V1 {
+        if state.retained_bytes <= BACK_LIMIT_V1
+            && (state.dispatch_run_v7.is_none() || retained <= BACK_LIMIT_V1.saturating_sub(4096))
+        {
             state.back.push(SnapshotV1 {
                 page: state.page.clone(),
                 workspace: Box::new(old),
@@ -575,11 +738,16 @@ pub(crate) fn publish(
         "Original scoped Actions target verified • bounded non-atomic read • no mutation".into()
     };
     app.hits.clear();
-    true
 }
 pub(crate) fn fail(app: &mut App, owner: &Arc<ScopedActionsOwnerV1>) -> bool {
     if !owner.owns(app) {
         return false;
+    }
+    if owner.work.journal_v5.is_some() {
+        return journal_v5::fail(app, owner);
+    }
+    if owner.work.publication_v3.is_some() {
+        return publication_v3::fail(app, owner);
     }
     if owner.work.kind == ScopedActionsRequestKindV1::Search {
         prepare_policy(app, false);
@@ -613,6 +781,9 @@ pub fn resize(app: &mut App) {
     if app.scoped_actions_v1.is_none() {
         return;
     }
+    if publication_v3::resize(app) {
+        return;
+    }
     if app.scoped_actions_work_v1.is_some() || app.scoped_actions_owner_v1.is_some() {
         cancel_current(app);
     }
@@ -624,6 +795,15 @@ pub fn resize(app: &mut App) {
         editor.clear_geometry_v2();
     }
     app.hits.clear();
+}
+pub(crate) fn form_source_current_v3(
+    app: &App,
+    intent: &crate::scoped_actions_publication_v3::ScopedActionsIntentV3,
+) -> bool {
+    publication_v3::form_source_current(app, intent)
+}
+pub(crate) fn cancel_publication_v3(app: &mut App) {
+    publication_v3::cancel(app);
 }
 #[cfg(test)]
 #[path = "scoped_actions_read_v2_tests.rs"]

@@ -128,6 +128,8 @@ fn original(
                         resource_id: Some(123),
                         observed_attempt: Some(3),
                         observed_run_id: None,
+                        original_dispatch_run_v7: None,
+                        workflow_remote_v9: None,
                     },
                 )
                 .unwrap(),

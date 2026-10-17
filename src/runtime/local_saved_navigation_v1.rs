@@ -99,7 +99,8 @@ impl Background {
 }
 
 pub(super) fn original_local_prepared_only_v1(prepared: &PreparedView) -> bool {
-    if prepared.scoped_threads_v1.is_some()
+    if prepared.notifications_v63.is_some()
+        || prepared.scoped_threads_v1.is_some()
         || prepared.scoped_inline_v1.is_some()
         || prepared.scoped_reviews_v2.is_some()
     {

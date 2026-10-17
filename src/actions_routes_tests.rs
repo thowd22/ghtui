@@ -263,6 +263,8 @@ fn actions_run_control_confirmed_reference_survives_unrelated_publication_view_f
         resource_id: None,
         observed_attempt: None,
         observed_run_id: None,
+        original_dispatch_run_v7: None,
+        workflow_remote_v9: None,
     };
     journal.mark_confirmed(&permit, &receipt).unwrap();
     let reference = permit.marker().publication_reference();

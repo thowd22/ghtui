@@ -271,10 +271,10 @@ fn inline_comments_post_transport_failure_keeps_uncertain_original_body_and_neve
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        confirm[13].status = 1;
-        confirm[13].stdout.clear();
-        confirm[13].stderr = b"PRIVATE_POST_FAILURE_DIAGNOSTIC".to_vec();
-        confirm.truncate(14);
+        confirm[11].status = 1;
+        confirm[11].stdout.clear();
+        confirm[11].stderr = b"PRIVATE_POST_FAILURE_DIAGNOSTIC".to_vec();
+        confirm.truncate(12);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -465,8 +465,8 @@ fn inline_comments_held_original_closing_read_observes_sql_clear_before_prepost_
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        confirm[9].delay_ms = 1000;
-        confirm.truncate(11);
+        confirm[7].delay_ms = 1000;
+        confirm.truncate(9);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -487,9 +487,9 @@ fn inline_comments_held_original_closing_read_observes_sql_clear_before_prepost_
                 Instant::now() + Duration::from_secs(30),
             )
         });
-        let pid = wait_for_original_call(&s.fixture, before + 9);
+        let pid = wait_for_original_call(&s.fixture, before + 7);
         let held = HeldOriginalChild::stop(pid);
-        assert_eq!(commands(&s.fixture).len(), before + 10);
+        assert_eq!(commands(&s.fixture).len(), before + 8);
         Cache::open(&database(&s.fixture))
             .unwrap()
             .clear_scope(preview.intent().scope(), false)
@@ -520,8 +520,8 @@ fn inline_comments_original_confirm_deadline_expires_during_actual_closing_child
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        confirm[9].delay_ms = 10_000;
-        confirm.truncate(10);
+        confirm[7].delay_ms = 10_000;
+        confirm.truncate(8);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -555,7 +555,7 @@ fn inline_comments_confirmed_receipt_journal_failure_keeps_pending_draft_real_id
 ) {
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
-        steps.extend(confirm_steps(h).into_iter().take(15));
+        steps.extend(confirm_steps(h).into_iter().take(13));
     });
     let preview = prepared(&mut s);
     let writer = DraftWriter::new(database(&s.fixture));
@@ -660,17 +660,11 @@ fn inline_receipt(h: &history::GitImagesV1) -> Value {
 fn confirm_steps(h: &history::GitImagesV1) -> Vec<GhStep> {
     let mut parent = resource_parent(REPO);
     h.bind_parent(&mut parent);
-    let mut result = principal(42, "inline-publisher");
-    result.push(get(&format!("repos/{REPO}"), repo(410, REPO)));
+    // ONE existing Files producer P+3, not the legacy unmetered guard.
+    let mut result = resource_steps(PrResourceKindV1::Files, REPO);
+    bind_steps(&mut result, h);
+    result.truncate(7); // actual user/version, repo, PR+page+patch+PR
     result.push(get(&format!("repos/{REPO}/pulls/7"), parent.clone()));
-    result.extend(principal(42, "inline-publisher"));
-    result.push(get(&format!("repos/{REPO}/pulls/7"), parent.clone()));
-    result.push(list(
-        &format!("repos/{REPO}/pulls/7/files?per_page=100"),
-        json!([h.file()]),
-    ));
-    result.push(get(&format!("repos/{REPO}/pulls/7"), parent.clone()));
-    result.push(get(&format!("repos/{REPO}/pulls/7"), parent));
     result.push(get(&format!("repos/{REPO}"), repo(410, REPO)));
     result.extend(principal(42, "inline-publisher"));
     let payload = json!({"path":history::PATH,"side":"LEFT","line":2,"start_line":1,"start_side":"LEFT","commit_id":h.h,"body":INLINE_BODY});
@@ -693,8 +687,12 @@ fn confirm_steps(h: &history::GitImagesV1) -> Vec<GhStep> {
         &format!("repos/{REPO}/pulls/comments/901"),
         inline_receipt(h),
     ));
-    result.extend(source_fence_steps(h, false));
-    assert_eq!(result.len(), 22);
+    // SAME four prepaid postwrite slots, no session/version/pool reset.
+    result.push(get("user", json!({"id":42,"login":"inline-publisher"})));
+    result.push(get(&format!("repos/{REPO}"), repo(410, REPO)));
+    result.push(get(&format!("repos/{REPO}/pulls/7"), parent));
+    result.push(get("user", json!({"id":42,"login":"inline-publisher"})));
+    assert_eq!(result.len(), 17);
     result
 }
 fn prepared(s: &mut Setup) -> Arc<ScopedInlinePreviewV1> {
@@ -776,7 +774,7 @@ fn inline_comments_confirm_persists_exact_attempt_posts_once_then_terminally_ret
             Instant::now() + Duration::from_secs(30),
         )
         .unwrap();
-    assert_eq!(commands(&s.fixture).len() - before, 22);
+    assert_eq!(commands(&s.fixture).len() - before, 17);
     assert_eq!(
         result.state(),
         ScopedInlinePublicationStateV1::ConfirmedSnapshotRetired
@@ -921,10 +919,10 @@ fn inline_comments_prepost_changed_parent_retains_pending_reference_and_never_cl
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        let mut changed: Value = serde_json::from_slice(&confirm[9].stdout).unwrap();
+        let mut changed: Value = serde_json::from_slice(&confirm[7].stdout).unwrap();
         changed["head"]["sha"] = json!(h.m);
-        confirm[9].stdout = changed.to_string().into_bytes();
-        confirm.truncate(10);
+        confirm[7].stdout = changed.to_string().into_bytes();
+        confirm.truncate(8);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -943,7 +941,7 @@ fn inline_comments_prepost_changed_parent_retains_pending_reference_and_never_cl
             Instant::now() + Duration::from_secs(30),
         )
         .unwrap();
-    assert_eq!(commands(&s.fixture).len() - before, 10);
+    assert_eq!(commands(&s.fixture).len() - before, 8);
     assert_eq!(result.state(), ScopedInlinePublicationStateV1::NotStarted);
     assert!(result.hide_private());
     assert!(result.confirmed_comment_id().is_none());
@@ -959,10 +957,10 @@ fn inline_comments_mismatched_post_receipt_is_uncertain_with_draft_and_no_readba
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        let mut changed: Value = serde_json::from_slice(&confirm[13].stdout).unwrap();
+        let mut changed: Value = serde_json::from_slice(&confirm[11].stdout).unwrap();
         changed["user"]["id"] = json!(43);
-        confirm[13].stdout = changed.to_string().into_bytes();
-        confirm.truncate(14);
+        confirm[11].stdout = changed.to_string().into_bytes();
+        confirm.truncate(12);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -995,10 +993,10 @@ fn inline_comments_post_confirmed_then_account_loss_hides_receipt_but_keeps_exac
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        confirm[16].stdout = json!({"id":43,"login":"different-account"})
+        confirm[13].stdout = json!({"id":43,"login":"different-account"})
             .to_string()
             .into_bytes();
-        confirm.truncate(17);
+        confirm.truncate(14);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -1322,10 +1320,7 @@ fn inline_comments_changed_uid_before_confirm_has_two_reads_no_attempt_or_post()
 fn inline_comments_cleared_original_sql_new_inode_or_new_pending_generation_refuses_before_own_begin(
 ) {
     for kind in 0..3 {
-        let mut s = inline_setup(|h, steps| {
-            steps.extend(image_steps(h));
-            steps.extend(confirm_steps(h).into_iter().take(4));
-        });
+        let mut s = inline_setup(|h, steps| steps.extend(image_steps(h)));
         let preview = prepared(&mut s);
         match kind {
             0 => Cache::open(&database(&s.fixture))
@@ -1393,23 +1388,35 @@ fn inline_comments_failed_ordered_draft_persistence_keeps_pending_and_never_star
 ) {
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
-        steps.extend(confirm_steps(h).into_iter().take(4));
+        steps.extend(confirm_steps(h).into_iter().take(7));
     });
     let preview = prepared(&mut s);
     let writer = DraftWriter::new(database(&s.fixture));
     let client = writer.client();
+    let cancel = CancellationToken::default();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let publication = client
+        .capture_publication_v2(
+            &database(&s.fixture),
+            preview.intent().scope(),
+            preview.draft_key(),
+            &cancel,
+            deadline,
+        )
+        .unwrap();
     drop(writer);
     let result = preview
-        .execute(
+        .execute_with_publication_v14(
             &provider(&s.fixture),
             &database(&s.fixture),
             &Default::default(),
             &Default::default(),
             &client,
+            publication,
             true,
             None,
-            &Default::default(),
-            Instant::now() + Duration::from_secs(30),
+            &cancel,
+            deadline,
         )
         .unwrap();
     assert_eq!(result.state(), ScopedInlinePublicationStateV1::NotStarted);
@@ -1430,10 +1437,10 @@ fn inline_comments_final_prepost_principal_change_retains_pending_without_post_o
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        confirm[12].stdout = json!({"id":43,"login":"wrong-final-principal"})
+        confirm[10].stdout = json!({"id":43,"login":"wrong-final-principal"})
             .to_string()
             .into_bytes();
-        confirm.truncate(13);
+        confirm.truncate(11);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);
@@ -1465,10 +1472,10 @@ fn inline_comments_bad_readback_is_uncertain_and_retains_original_reference_with
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));
         let mut confirm = confirm_steps(h);
-        let mut value: Value = serde_json::from_slice(&confirm[14].stdout).unwrap();
+        let mut value: Value = serde_json::from_slice(&confirm[12].stdout).unwrap();
         value["start_side"] = json!("RIGHT");
-        confirm[14].stdout = value.to_string().into_bytes();
-        confirm.truncate(15);
+        confirm[12].stdout = value.to_string().into_bytes();
+        confirm.truncate(13);
         steps.extend(confirm);
     });
     let preview = prepared(&mut s);

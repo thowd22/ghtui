@@ -350,6 +350,55 @@ impl std::fmt::Debug for PrMetadataPlan {
     }
 }
 impl PrMetadataPlan {
+    /// Borrowed live-plan allocation debit; the source Arc's actual read is
+    /// charged by its genuine producer, not cloned or reconstructed here.
+    pub(crate) fn retained_plan_bytes_v62(&self) -> Option<usize> {
+        fn member(value: &PrMetadataMember) -> Option<usize> {
+            value
+                .node
+                .capacity()
+                .checked_add(value.name.capacity())?
+                .checked_add(value.namespace.as_ref().map_or(0, String::capacity))
+        }
+        let mut bytes = std::mem::size_of::<Self>();
+        for rows in [&self.before, &self.after, &self.preserved] {
+            bytes = bytes.checked_add(
+                rows.capacity()
+                    .checked_mul(std::mem::size_of::<PrMetadataMember>())?,
+            )?;
+            for value in rows {
+                bytes = bytes.checked_add(member(value)?)?;
+            }
+        }
+        if let Some(value) = &self.selected {
+            bytes = bytes.checked_add(member(value)?)?;
+        }
+        for value in [
+            &self.repository_node,
+            &self.issue_node,
+            &self.intent.command,
+            &self.intent.selected_resource,
+            &self.intent.observed_head,
+        ] {
+            bytes = bytes.checked_add(value.capacity())?;
+        }
+        // The closed PrWriteTarget factory owns only host/principal/repo/node
+        // strings cloned from this actual bounded target; 2x capacity plus
+        // its fixed struct bounds their live copies without a target getter.
+        for value in [&self.target.scope().host, &self.target.scope().login] {
+            bytes = bytes.checked_add(value.capacity())?;
+        }
+        bytes = bytes
+            .checked_add(self.target.repository().len().checked_mul(2)?)?
+            .checked_add(self.target.node_id().len().checked_mul(2)?)?;
+        for (key, value) in &self.intent.values {
+            bytes = bytes
+                .checked_add(1024)?
+                .checked_add(key.capacity())?
+                .checked_add(value.capacity())?;
+        }
+        Some(bytes)
+    }
     /// Add/set index is a genuine eligible catalogue index; remove index is a
     /// genuine current field index. ClearMilestone takes None, never an ID.
     pub fn prepare(
@@ -358,6 +407,21 @@ impl PrMetadataPlan {
         index: Option<usize>,
     ) -> Result<Self, String> {
         permission(&source)?;
+        Self::prepare_material_v48(source, command, index)
+    }
+    pub(crate) fn prepare_original_members_v48(
+        actual: &crate::providers::gh::OriginalMetadataMembersV48,
+        index: Option<usize>,
+    ) -> Result<Self, String> {
+        actual.require_mutation_v48().map_err(|e| e.message)?;
+        actual.require_selected_v48(index).map_err(|e| e.message)?;
+        Self::prepare_material_v48(Arc::clone(actual.read()), actual.command(), index)
+    }
+    fn prepare_material_v48(
+        source: Arc<PrMetadataCatalogueRead>,
+        command: PrMetadataCommand,
+        index: Option<usize>,
+    ) -> Result<Self, String> {
         if !matches!(
             source.parent_raw()["state"].as_str(),
             Some("open" | "closed")
@@ -569,6 +633,30 @@ impl PrMetadataPlan {
     }
     pub(crate) fn validate_fresh(&self, fresh: &PrMetadataCatalogueRead) -> Result<(), String> {
         permission(fresh)?;
+        self.validate_fresh_material_v48(fresh)
+    }
+    pub(crate) fn validate_original_members_v48(
+        &self,
+        actual: &crate::providers::gh::OriginalMetadataMembersV48,
+    ) -> Result<(), String> {
+        actual.require_mutation_v48().map_err(|e| e.message)?;
+        if actual.command() != self.command {
+            return Err("Original metadata purpose differs".into());
+        }
+        if self.command == PrMetadataCommand::AddLabel {
+            let index = actual.read().rows().iter().position(|row| {
+                PrMetadataMember::from_rest(
+                    row,
+                    self.command.field(),
+                    &actual.read().target().pr.repository,
+                )
+                .is_ok_and(|member| Some(&member) == self.selected.as_ref())
+            });
+            actual.require_selected_v48(index).map_err(|e| e.message)?;
+        }
+        self.validate_fresh_material_v48(actual.read())
+    }
+    fn validate_fresh_material_v48(&self, fresh: &PrMetadataCatalogueRead) -> Result<(), String> {
         let target =
             PrWriteTarget::new(fresh.identity(), fresh.target()).map_err(|e| e.to_string())?;
         if target.scope() != self.target.scope()
@@ -715,6 +803,14 @@ pub struct PrMetadataReceipt {
     node: String,
 }
 impl PrMetadataReceipt {
+    pub(crate) fn original_binding_v48(&self) -> (u64, u64, &str, &str) {
+        (
+            self.pr_id,
+            self.issue_id,
+            &self.before_sha256,
+            &self.after_sha256,
+        )
+    }
     pub fn decode(effect: &PrConfirmedEffect) -> Result<Self, String> {
         if effect.kind != PrEffectKind::Metadata
             || effect.resource_id.len() > 4096

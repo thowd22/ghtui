@@ -13,6 +13,8 @@ pub(crate) struct RemoteGitReadWindowV1 {
     deadline: Instant,
     max_child_bytes: usize,
     original: CancellationToken,
+    workflow_environment_v9:
+        Option<Arc<crate::git::workflow_edit_v9::WorkflowGitReadEnvironmentV9>>,
 }
 impl std::fmt::Debug for RemoteGitReadWindowV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,7 +49,29 @@ impl RemoteGitReadWindowV1 {
             deadline,
             max_child_bytes,
             original,
+            workflow_environment_v9: None,
         }
+    }
+    pub(crate) fn with_workflow_environment_v9(
+        mut self,
+        context: Arc<crate::git::workflow_edit_v9::WorkflowGitReadEnvironmentV9>,
+    ) -> Self {
+        self.workflow_environment_v9 = Some(context);
+        self
+    }
+    /// SAME installed-Git discovery has just parsed this actual root. This
+    /// narrows subsequent fixed reads; it does not construct any Source.
+    pub(crate) fn observe_workflow_discovered_root_v9(
+        &self,
+        root: &std::path::Path,
+        cancel: &CancellationToken,
+    ) -> Result<(), CommandFailure> {
+        if let Some(context) = &self.workflow_environment_v9 {
+            context
+                .observe_discovered_root_v9(root, cancel)
+                .map_err(|_| failure("Original W9 discovered-root environment boundary changed"))?;
+        }
+        Ok(())
     }
     pub(crate) fn check(&self, cancel: &CancellationToken) -> Result<(), CommandFailure> {
         if self.original.is_cancelled() || cancel.is_cancelled() || Instant::now() >= self.deadline
@@ -79,6 +103,15 @@ impl RemoteGitReadWindowV1 {
         // Each operation's actual read must be charged, never borrow a result
         // from a differently bounded in-flight legacy Git child.
         spec.coalesce_read = false;
+        if let Some(context) = &self.workflow_environment_v9 {
+            context
+                .prepare_spec_v9(&mut spec, self, cancel)
+                .map_err(|_| {
+                    failure(
+                        "Original fixed W9 read/environment boundary refused; no child launched",
+                    )
+                })?;
+        }
         self.actual_runner_v1().run(spec, cancel)
     }
 }

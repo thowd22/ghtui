@@ -2,8 +2,40 @@
 use super::pr::url_component;
 use super::*;
 mod attempt_jobs_v1;
+mod scoped_dispatch_v7;
+mod scoped_dispatch_write_v7;
+pub(crate) use scoped_dispatch_write_v7::ScopedDispatchInvocationV7;
+mod scoped_history_v5;
 mod scoped_loaded_logs_v2;
 mod scoped_read_v1;
+mod scoped_rerun_job_v4;
+mod scoped_run_write_v3;
+mod scoped_workflow_write_v6;
+mod workflow_json_v9;
+mod workflow_remote_v9;
+pub(crate) use scoped_dispatch_v7::{
+    dispatch_environment_names_v7, dispatch_payload_v7, dispatch_values_v7,
+    CapturedDispatchInputsV7, DispatchProtocolV7, DispatchRefChoiceV7, ScopedDispatchEnvironmentV7,
+    ScopedDispatchSchemaV7, DISPATCH_CHILDREN_V7, DISPATCH_POOL_CHILDREN_V7,
+};
+pub(in crate::providers::gh) use workflow_json_v9::{
+    WorkflowJsonBoxedValueV9, WorkflowJsonCaptureV9, WorkflowJsonRawV9, WorkflowJsonRoleV9,
+    WorkflowJsonValueV9,
+};
+pub(crate) use workflow_json_v9::{WorkflowJsonChargeV9, WorkflowJsonLedgerV9};
+pub(crate) use workflow_remote_v9::{
+    ScopedHistoricalWorkflowRemoteReadV9, WorkflowBranchObservedV9, WorkflowExactBranchGetV9,
+    WorkflowHistoricalGetV9, WorkflowPrCreatedV9, WorkflowPrPayloadV9, WorkflowRemoteRefsV9,
+    WorkflowRemoteRepositoriesV9, WorkflowRemoteRepositoryV9,
+};
+mod dispatch_history_v7;
+mod workflow_history_v6;
+pub(crate) use dispatch_history_v7::ScopedHistoricalDispatchReadV7;
+pub(crate) use scoped_history_v5::ScopedHistoricalRunReadV5;
+pub use scoped_run_write_v3::ScopedDeletedRunAvailabilityV5;
+pub(crate) use scoped_run_write_v3::{ActionsInvocationFailureV3, ScopedRunInvocationRefV3};
+pub(crate) use scoped_workflow_write_v6::{state_eligible_v6, ScopedWorkflowInvocationV6};
+pub(crate) use workflow_history_v6::ScopedHistoricalWorkflowReadV6;
 mod scoped_resources_v2;
 mod scoped_run_catalogue_v2;
 mod settings;
@@ -511,183 +543,6 @@ impl GithubProvider {
                 &super::super::runner::sanitize_terminal(&String::from_utf8_lossy(&v)),
                 &[],
             )
-        })
-    }
-    pub fn mutate_run(
-        &self,
-        identity: &HostIdentity,
-        repo: &str,
-        target: &WorkflowRun,
-        action: RunMutation,
-        cancel: &CancellationToken,
-    ) -> GithubResult<RunMutationOutcome> {
-        let fresh = self.guard_run(identity, repo, target, cancel)?;
-        let resource = self.actions_resource(repo, target.id);
-        let base = format!("repos/{repo}/actions/runs/{}", target.id);
-        let mut input = None;
-        let (endpoint, method) = match action {
-            RunMutation::RerunAll { debug } | RunMutation::RerunFailed { debug } => {
-                if fresh.status != "completed" {
-                    return Err(error(
-                        GithubErrorKind::InvalidTarget,
-                        "Only a completed run can be rerun",
-                    ));
-                }
-                input = Some(json!({"enable_debug_logging":debug}));
-                (
-                    format!(
-                        "{base}/{}",
-                        if matches!(action, RunMutation::RerunFailed { .. }) {
-                            "rerun-failed-jobs"
-                        } else {
-                            "rerun"
-                        }
-                    ),
-                    "POST",
-                )
-            }
-            RunMutation::RerunJob { job_id, debug } => {
-                if fresh.status != "completed" || job_id == 0 {
-                    return Err(error(
-                        GithubErrorKind::InvalidTarget,
-                        "Select a job in a completed run",
-                    ));
-                }
-                let job = self.api(
-                    &format!("repos/{repo}/actions/jobs/{job_id}"),
-                    "GET",
-                    None,
-                    None,
-                    false,
-                    cancel,
-                )?;
-                if number(&job, "id") != job_id
-                    || number(&job, "run_id") != fresh.id
-                    || number(&job, "run_attempt") != fresh.attempt
-                    || text(&job, "head_sha") != fresh.head_sha
-                {
-                    return Err(error(
-                        GithubErrorKind::StaleHead,
-                        "The job does not belong to the selected current run attempt",
-                    ));
-                }
-                input = Some(json!({"enable_debug_logging":debug}));
-                (format!("repos/{repo}/actions/jobs/{job_id}/rerun"), "POST")
-            }
-            RunMutation::Cancel | RunMutation::ForceCancel => {
-                if fresh.status == "completed" {
-                    return Err(error(
-                        GithubErrorKind::InvalidTarget,
-                        "The run already completed",
-                    ));
-                }
-                (
-                    format!(
-                        "{base}/{}",
-                        if matches!(action, RunMutation::ForceCancel) {
-                            "force-cancel"
-                        } else {
-                            "cancel"
-                        }
-                    ),
-                    "POST",
-                )
-            }
-            RunMutation::DeleteRun => (base.clone(), "DELETE"),
-            RunMutation::DeleteLogs => (format!("{base}/logs"), "DELETE"),
-            RunMutation::ApproveFork => {
-                if fresh.event != "pull_request"
-                    || fresh.status != "action_required" && fresh.conclusion != "action_required"
-                {
-                    return Err(error(
-                        GithubErrorKind::InvalidTarget,
-                        "The selected fork run is not awaiting approval",
-                    ));
-                }
-                (format!("{base}/approve"), "POST")
-            }
-        };
-        self.api(
-            &endpoint,
-            method,
-            input,
-            Some(resource.clone()),
-            false,
-            cancel,
-        )?;
-        if matches!(action, RunMutation::DeleteRun) {
-            let runs = self.after_write(&resource, self.runs(repo, None, cancel))?;
-            if runs.iter().any(|r| r.id == target.id) {
-                return Err(self.actions_ambiguous(
-                    &resource,
-                    "Run is still visible after deletion; reconcile without repeating DELETE",
-                ));
-            }
-            return Ok(RunMutationOutcome {
-                action,
-                run: None,
-                accepted: true,
-                completed: true,
-                explanation: "The selected run is absent from the refreshed catalog".into(),
-            });
-        }
-        let observed = self.after_write(&resource, self.run(repo, target.id, cancel))?;
-        let rerun = matches!(
-            action,
-            RunMutation::RerunAll { .. }
-                | RunMutation::RerunFailed { .. }
-                | RunMutation::RerunJob { .. }
-        );
-        if observed.head_sha != target.head_sha
-            || observed.workflow_id != target.workflow_id
-            || observed.attempt < target.attempt
-            || !rerun && observed.attempt != target.attempt
-        {
-            return Err(self.actions_ambiguous(
-                &resource,
-                "Post-write run identity no longer matches the selected workflow/commit/original attempt; reconcile",
-            ));
-        }
-        if !matches!(
-            observed.status.as_str(),
-            "queued"
-                | "requested"
-                | "pending"
-                | "waiting"
-                | "in_progress"
-                | "completed"
-                | "action_required"
-        ) || observed.status == "completed" && observed.conclusion.is_empty()
-        {
-            return Err(self.actions_ambiguous(
-                &resource,
-                "Post-write run state is absent or unrecognized; no completed transition is inferred",
-            ));
-        }
-        let completed = match action {
-            RunMutation::RerunAll { .. }
-            | RunMutation::RerunFailed { .. }
-            | RunMutation::RerunJob { .. } => observed.attempt > target.attempt,
-            RunMutation::Cancel | RunMutation::ForceCancel => {
-                observed.status == "completed" && observed.conclusion == "cancelled"
-            }
-            RunMutation::ApproveFork => {
-                observed.status != "action_required" && observed.conclusion != "action_required"
-            }
-            _ => false,
-        };
-        Ok(RunMutationOutcome {
-            action,
-            run: Some(observed),
-            accepted: true,
-            completed,
-            explanation: if matches!(action, RunMutation::DeleteLogs) {
-                "Log deletion accepted; the API does not expose a log-deleted field. A later log request may report unavailable; do not retry deletion automatically.".into()
-            } else if completed {
-                "The requested state transition was observed".into()
-            } else {
-                "GitHub accepted the request; the expected state transition has not yet been observed. Refresh or watch this exact run; do not issue the mutation again.".into()
-            },
         })
     }
     pub fn action_caches(

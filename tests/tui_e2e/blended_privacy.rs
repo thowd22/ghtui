@@ -4,7 +4,8 @@
 use super::*;
 use ghtui::search::{model::DiscussionKind, sources::MetadataSources};
 use rusqlite::{params, Connection};
-use std::time::Duration;
+use sha2::{Digest, Sha256};
+use std::time::{Duration, Instant};
 
 fn database(fixture: &Fixture) -> std::path::PathBuf {
     fixture.root.join("config/ghtui/cache.sqlite3")
@@ -347,16 +348,11 @@ fn pr_details(parent: &Value) -> Vec<GhStep> {
 }
 
 fn description_publication(original: &Value, published: &Value, body: &str) -> Vec<GhStep> {
-    let mut steps = gh_fixture::account(42); // durable legacy controller preflight.
-    steps.push(gh_fixture::read(
-        "repos/example/repo/pulls/7",
-        original.clone(),
-    ));
-    steps.extend(gh_fixture::account(42)); // provider's exact original-target guard.
-    steps.push(gh_fixture::read(
-        "repos/example/repo/pulls/7",
-        original.clone(),
-    ));
+    // Actual Open9, Preview9 and Confirm pre9 share the SAME current Core
+    // producer, not the retired legacy3+3 protocol or local-only Preview.
+    let mut steps = description_phase_v51(original);
+    steps.extend(description_phase_v51(original));
+    steps.extend(description_phase_v51(original));
     let mut write = gh_fixture::read("repos/example/repo/pulls/7", published.clone());
     write.args[5] = "PATCH".into();
     write.args.extend(["--input".into(), "-".into()]);
@@ -366,10 +362,94 @@ fn description_publication(original: &Value, published: &Value, body: &str) -> V
         "repos/example/repo/pulls/7",
         published.clone(),
     ));
-    // The visibility failure happens after durable confirmation and before
-    // optional PR refresh. Neither a failed refresh nor a read resends PATCH.
-    assert_eq!(steps.len(), 8);
+    steps.push(gh_fixture::read("user", json!({"id":42,"login":"octocat"})));
+    steps.push(gh_fixture::read(
+        "repos/example/repo",
+        gh_fixture::repository(),
+    ));
+    steps.extend(pr_details(published));
+    steps.push(gh_fixture::read("user", json!({"id":42,"login":"octocat"})));
+    // The exact real SQL insertion trigger fails AFTER actual paid visibility
+    // and durable confirmation. It never changes the remote effect or resends.
+    assert_eq!(steps.len(), 39);
     steps
+}
+const DESCRIPTION_QUERY_V51:&str="query($id:ID!){node(id:$id){__typename ... on PullRequest{id fullDatabaseId number headRefOid baseRefOid headRefName baseRefName state isDraft merged viewerCanUpdate repository{id nameWithOwner}}}}";
+fn description_phase_v51(parent: &Value) -> Vec<GhStep> {
+    let mut calls = gh_fixture::account(42);
+    calls.push(gh_fixture::read(
+        "repos/example/repo",
+        gh_fixture::repository(),
+    ));
+    calls.push(gh_fixture::read(
+        "repos/example/repo/pulls/7",
+        parent.clone(),
+    ));
+    let mut gql = gh_fixture::read(
+        "graphql",
+        json!({"data":{"node":{"__typename":"PullRequest","id":gh_fixture::PR_NODE,"fullDatabaseId":"700","number":7,"headRefOid":gh_fixture::HEAD,"baseRefOid":gh_fixture::BASE,"headRefName":"feature","baseRefName":"main","state":"OPEN","isDraft":false,"merged":false,"viewerCanUpdate":true,"repository":{"id":"R_hydration_410","nameWithOwner":gh_fixture::REPOSITORY}}}}),
+    );
+    gql.args[5] = "POST".into();
+    gql.args.extend(["--input".into(), "-".into()]);
+    gql.stdin = serde_json::to_vec(
+        &json!({"query":DESCRIPTION_QUERY_V51,"variables":{"id":gh_fixture::PR_NODE}}),
+    )
+    .unwrap();
+    calls.push(gql);
+    calls.push(gh_fixture::read(
+        "repos/example/repo/pulls/7",
+        parent.clone(),
+    ));
+    calls.push(gh_fixture::read(
+        "repos/example/repo",
+        gh_fixture::repository(),
+    ));
+    calls.extend(gh_fixture::account(42));
+    assert_eq!(calls.len(), 9);
+    calls
+}
+fn canonical_first_source_fixture_v51(steps: &mut [GhStep]) {
+    fn canonical(value: &mut Value) {
+        match value {
+            Value::Object(map) => {
+                if map.get("id") == Some(&json!(410))
+                    && map.get("full_name") == Some(&json!(gh_fixture::REPOSITORY))
+                {
+                    map.insert("node_id".into(), json!("R_hydration_410"));
+                    map.insert("owner".into(), json!({"id":71,"node_id":"O_hydration_71","login":"example","type":"Organization"}));
+                }
+                if map.get("node_id") == Some(&json!(gh_fixture::PR_NODE))
+                    && map.contains_key("head")
+                    && map.contains_key("base")
+                {
+                    map.insert("merged".into(), json!(false));
+                    let mut repo = gh_fixture::repository();
+                    repo["node_id"] = json!("R_hydration_410");
+                    map.get_mut("head").unwrap()["repo"] = repo.clone();
+                    map.get_mut("base").unwrap()["repo"] = repo;
+                }
+                for child in map.values_mut() {
+                    canonical(child);
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    canonical(child);
+                }
+            }
+            _ => {}
+        }
+    }
+    for step in steps {
+        if step.args == ["--version"] {
+            step.stdout = b"gh version 2.99.0 (2026-10-01)\n".to_vec();
+            continue;
+        }
+        if let Ok(mut value) = serde_json::from_slice::<Value>(&step.stdout) {
+            canonical(&mut value);
+            step.stdout = serde_json::to_vec(&value).unwrap();
+        }
+    }
 }
 
 fn publication_commands(
@@ -377,6 +457,7 @@ fn publication_commands(
     fixture: &Fixture,
     count: usize,
     published_body: &str,
+    expected: &[GhStep],
 ) {
     session.wait_for_command_count(fixture, count);
     let rows = session
@@ -386,6 +467,18 @@ fn publication_commands(
         .collect::<Vec<_>>();
     assert_eq!(rows.len(), count);
     assert!(rows.iter().all(|row| row["matched"] == true));
+    assert_eq!(expected.len(), count);
+    for (n, (row, step)) in rows.iter().zip(expected).enumerate() {
+        assert_eq!(row["step"], n);
+        assert_eq!(row["args"], json!(step.args));
+        assert_eq!(
+            row["stdin_hex"],
+            step.stdin
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+    }
     let mutations = rows
         .iter()
         .filter(|row| {
@@ -429,7 +522,8 @@ fn select_remote(session: &mut Session, mouse: bool) {
     session.wait_for_screen(&format!("Preview {title}"));
 }
 
-fn open_description(session: &mut Session, mouse: bool) {
+fn open_description(session: &mut Session, fixture: &Fixture, mouse: bool, end: usize) {
+    let before = session.completed_cells_end();
     choose(session, mouse, "[p PR actions]", b"p");
     session.wait_for_screen("PR actions • native workflows");
     if mouse {
@@ -441,23 +535,71 @@ fn open_description(session: &mut Session, mouse: bool) {
                 .is_ok()
             {
                 session.send_key(b"\r");
-                session.wait_for_screen("Description");
-                return;
+                break;
             }
             session.send_key(b"\x1b[B");
         }
-        panic!(
-            "Exact PR description action never became selected\n{}",
+    }
+    session.wait_for_command_count(fixture, end);
+    let until = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if session.completed_cells_end() > before
+            && session.completed_cells_screen().is_some_and(|frame| {
+                crate::support::overlay_body(frame, "Edit PR Description • example/repo#7")
+                    .is_some_and(|body| {
+                        [
+                            "Description:",
+                            "[Preview]",
+                            "[Confirm action]",
+                            "[Keep draft / Close]",
+                        ]
+                        .iter()
+                        .all(|label| body.contains(label))
+                    })
+            })
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "Actual completed Metadata Form after current Open9\n{}",
             session.screen()
         );
     }
-    session.wait_for_screen("Description");
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetadataDatabaseV51 {
+    path: Vec<u8>,
+    device: u64,
+    inode: u64,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetadataSeedV51 {
+    version: u8,
+    database: MetadataDatabaseV51,
+    scope: Scope,
+    repository_id: u64,
+    repository_node: String,
+    repository: String,
+    pr_id: u64,
+    pr_node: String,
+    number: u64,
+    head: String,
+    base: String,
+    field: ghtui::providers::gh::PrMetadataTextFieldV25,
+    before_sha256: String,
+    requested_sha256: String,
+    requester: String,
+    author_uid: Option<u64>,
+}
 fn confirmed_attempt(fixture: &Fixture) -> i64 {
     let sql = Connection::open(database(fixture)).unwrap();
     let (id, state, receipt, head):(i64,String,String,String) = sql.query_row(
-        "SELECT attempt_id,state,confirmed_json,observed_head FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND repository=?4 AND pr_number=7 AND command='legacy-description' AND selected_resource='pr' ORDER BY attempt_id DESC LIMIT 1",
+        "SELECT attempt_id,state,confirmed_json,observed_head FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND repository=?4 AND pr_number=7 AND command='metadata-description-v25' AND selected_resource LIKE 'metadata-text-v25/%' ORDER BY attempt_id DESC LIMIT 1",
         params![scope().host,scope().login,gh_fixture::PR_NODE,gh_fixture::REPOSITORY],
         |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
     ).unwrap();
@@ -470,10 +612,80 @@ fn confirmed_attempt(fixture: &Fixture) -> i64 {
         receipt.kind,
         ghtui::pr_write_journal::PrEffectKind::Metadata
     );
-    assert_eq!(receipt.resource_id, gh_fixture::PR_NODE);
+    let origin: String = sql
+        .query_row(
+            "SELECT origin_json FROM pr_write_metadata_origins_v25 WHERE attempt_id=?1",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let origin: Value = serde_json::from_str(&origin).unwrap();
+    assert_eq!(origin["seed"]["version"], 25);
+    assert_eq!(origin["seed"]["field"], "description");
+    assert_eq!(origin["seed"]["repository_id"], 410);
+    assert_eq!(origin["seed"]["pr_id"], 700);
+    assert_eq!(origin["seed"]["author_uid"], 42);
+    let expected_body = format!("{NEEDLE} FirstSourceConfirmedPublishedCanary");
+    let digest = format!("{:x}", Sha256::digest(expected_body.as_bytes()));
+    assert_eq!(origin["seed"]["requested_sha256"], digest);
+    assert_eq!(
+        origin["seed"]["before_sha256"],
+        format!(
+            "{:x}",
+            Sha256::digest(b"Original remote body before any source hydration")
+        )
+    );
+    let key = format!(
+        "metadata-text-v25/{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&(
+                scope(),
+                410u64,
+                "R_hydration_410",
+                700u64,
+                gh_fixture::PR_NODE,
+                7u64,
+                gh_fixture::HEAD,
+                gh_fixture::BASE,
+                ghtui::providers::gh::PrMetadataTextFieldV25::Description
+            ))
+            .unwrap()
+        )
+    );
+    let (selected, payload): (String, String) = sql
+        .query_row(
+            "SELECT selected_resource,payload_sha256 FROM pr_write_attempts WHERE attempt_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(selected, key);
+    let seed: MetadataSeedV51 = serde_json::from_value(origin["seed"].clone()).unwrap();
+    let origin_digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&seed).unwrap()));
+    assert_eq!(
+        payload,
+        ghtui::pr_write_journal::PrWriteIntent {
+            command: "metadata-description-v25".into(),
+            selected_resource: key,
+            observed_head: gh_fixture::HEAD.into(),
+            values: BTreeMap::from([
+                ("body".into(), expected_body),
+                ("origin-v25".into(), origin_digest)
+            ])
+        }
+        .digest()
+        .unwrap()
+    );
+    assert_eq!(
+        receipt.resource_id,
+        format!(
+            "metadata-text-v25/description/{}",
+            origin["seed"]["requested_sha256"].as_str().unwrap()
+        )
+    );
     assert_eq!(receipt.node_id.as_deref(), Some(gh_fixture::PR_NODE));
     let count:i64=sql.query_row(
-        "SELECT COUNT(*) FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND repository=?4 AND pr_number=7 AND command='legacy-description' AND selected_resource='pr'",
+        "SELECT COUNT(*) FROM pr_write_attempts WHERE host=?1 AND principal=?2 AND pr_node=?3 AND repository=?4 AND pr_number=7 AND command='metadata-description-v25' AND selected_resource LIKE 'metadata-text-v25/%'",
         params![scope().host,scope().login,gh_fixture::PR_NODE,gh_fixture::REPOSITORY],
         |row|row.get(0),
     ).unwrap();
@@ -482,6 +694,60 @@ fn confirmed_attempt(fixture: &Fixture) -> i64 {
         "All recovery reads preserve the one original attempt"
     );
     id
+}
+fn confirm_description_v51(session: &mut Session, mouse: bool) {
+    const TITLE: &str = "Edit PR Description • example/repo#7";
+    const CONTROLS: &[&str] = &[
+        "[Preview]",
+        "[External editor]",
+        "[Confirm action]",
+        "[Keep draft / Close]",
+    ];
+    if !mouse {
+        session.focus_completed_owned_action_v1(
+            TITLE,
+            "[Confirm action]",
+            crate::support::completed_navigation_controls_v1::FocusAttributeV1::Inverse,
+            CONTROLS,
+            &[],
+        );
+    }
+    let until = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        let point = session.completed_cells_screen().and_then(|frame| {
+            if !crate::support::overlay_body(frame, TITLE).is_some_and(|body| {
+                CONTROLS.iter().all(|label| body.contains(label))
+                    && body.contains("READ-ONLY PREVIEW")
+            }) {
+                return None;
+            }
+            crate::support::completed_navigation_controls_v1::owned_action_position(
+                frame,
+                TITLE,
+                "[Confirm action]",
+                &[],
+            )
+            .filter(|(x, y)| {
+                frame
+                    .cell(*y, *x)
+                    .is_some_and(|cell| cell.underline() && (mouse || cell.inverse()))
+            })
+        });
+        if let Some((x, y)) = point {
+            if mouse {
+                session.click(x, y);
+            } else {
+                session.send_key(b"\r");
+            }
+            return;
+        }
+        assert!(
+            Instant::now() < until,
+            "Actual enabled topmost Metadata Confirm\n{}",
+            session.screen()
+        );
+    }
 }
 
 fn scoped_body_bindings(sql: &Connection) -> i64 {
@@ -525,7 +791,8 @@ fn first_source_receipt(mouse: bool) {
     steps.extend(gh_fixture::pr_load(&published, vec![], vec![], vec![], 42));
     steps.extend(blend_steps(remote()));
     steps.extend(gh_fixture::private_source_read(42));
-    assert_eq!(steps.len(), 113);
+    assert_eq!(steps.len(), 144);
+    canonical_first_source_fixture_v51(&mut steps);
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
     start(&mut session, mouse);
@@ -552,11 +819,14 @@ fn first_source_receipt(mouse: bool) {
     // Inject a narrowly scoped local post-receipt failure: metadata visibility
     // cannot be committed, but the original durable remote receipt survives.
     sql.execute_batch("CREATE TRIGGER fixture_fail_first_source_fence BEFORE INSERT ON sync_mutation_fences BEGIN SELECT RAISE(ABORT,'fixture first-source visibility failure'); END;").unwrap();
-    open_description(&mut session, mouse);
+    open_description(&mut session, &fixture, mouse, count + 9);
+    count += 9;
     session.send_key(b"\x01");
     session.paste(&body);
     session.wait_for_screen("FirstSourceConfirmedPublishedCanary");
     choose(&mut session, mouse, "[Preview]", b"\x10");
+    count += 9;
+    session.wait_for_command_count(&fixture, count);
     session.wait_for_screen("READ-ONLY PREVIEW • Confirm action");
     session.wait_for_screen("PR metadata preview");
     journal(&mut session, &fixture, count);
@@ -564,23 +834,16 @@ fn first_source_receipt(mouse: bool) {
         session.inspect_command_journal(&fixture).lines().count(),
         count
     );
-    if mouse {
-        session.click_visible_action("[Confirm action]");
-    } else {
-        session.focus_visible_form_action("[Confirm action]");
-        session.send_key(b"\r");
-    }
-    count += 8;
-    publication_commands(&mut session, &fixture, count, &body);
+    confirm_description_v51(&mut session, mouse);
+    count += 21;
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     // The gh journal records invocation/readback, not completion of the worker's
     // durable receipt transaction. This unique prepared-result prefix proves
     // the confirmed worker and local persistence finished before inspecting SQL.
-    session.wait_for_screen("Published • private pages hidden • do not resend");
+    session.wait_for_screen("Confirmed; visibility unavailable; no resend");
     let attempt = confirmed_attempt(&fixture);
     assert_eq!(scoped_body_bindings(&sql), 0);
-    session.wait_for_screen("Edit PR description");
-    session.wait_for_screen("refresh failed");
-    session.wait_for_screen("private pages hidden");
+    session.wait_for_screen("Original Conversation retired");
     assert!(!session.screen().contains("[Submit]"));
     assert!(!session.screen().contains("[Confirm action]"));
     assert!(!session.screen().contains("example/repo#7"));
@@ -591,24 +854,50 @@ fn first_source_receipt(mouse: bool) {
         .screen()
         .contains("FirstSourceConfirmedPublishedCanary"));
     session.resize(80, 24);
-    session.wait_for_screen("Published • private pages hidden • do not resend");
+    session.wait_for_screen("Confirmed; visibility unavailable; no resend");
     assert!(!session.screen().contains("example/repo#7"));
     assert!(!session.screen().contains("[Submit]"));
     assert!(!session.screen().contains("[Confirm action]"));
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.resize(120, 40);
-    session.wait_for_screen("Published • private pages hidden • do not resend");
+    session.wait_for_screen("Confirmed; visibility unavailable; no resend");
+    let before_search_return = session.completed_cells_end();
     choose(&mut session, mouse, "3 Search", b"3");
-    session.wait_for_screen("Selected local search corpus ready");
+    let until = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if session.completed_cells_end() > before_search_return
+            && session.completed_cells_screen().is_some_and(|frame| {
+                let text = frame.contents();
+                crate::support::main_footer_visible(frame)
+                    && crate::support::overlay_body(frame, "Search • focused view")
+                        .is_some_and(|body| {
+                            [
+                                "[e Exact]", "[x Regex]", "[n Ranked]", "[h GitHub]", "[Enter Search]",
+                                "[w Working files]", "[c Corpus]", "[b Blend GitHub: on]",
+                                "2 results • Ranked • searched source snapshot",
+                                "COMPLETE within selected scope • 1 documents across 1 repositories",
+                                "GitHub PRs • COMPLETE • 1 admitted", "[o Open result]",
+                            ].iter().all(|label| body.contains(label))
+                                && body.contains(&format!("[/ Query] {NEEDLE}"))
+                                && body.contains(&format!("> {NEEDLE} remote parent 7"))
+                        })
+                    && text.contains("Search • focused view")
+            })
+        {
+            break;
+        }
+        assert!(Instant::now() < until, "NEW completed original ranked Search source/query/selected remote parent after confirmed privacy retirement\n{}", session.screen());
+    }
     choose(&mut session, mouse, "[h GitHub]", b"h");
     count += 4;
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("GitHub scope verified");
     choose(&mut session, mouse, "[n Ranked]", b"n");
     session.wait_for_screen("Ranked mode");
     query(&mut session, mouse, NEEDLE);
     count += 8;
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("Search failed • prior results hidden");
     assert!(!session.screen().contains("stale indexed fragment"));
     assert!(!session.screen().contains("2 results • Ranked"));
@@ -618,7 +907,7 @@ fn first_source_receipt(mouse: bool) {
         .unwrap();
     query(&mut session, mouse, NEEDLE);
     count += 11;
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("1 results • Ranked");
     assert!(!session.screen().contains("stale indexed fragment"));
     assert_eq!(confirmed_attempt(&fixture), attempt);
@@ -642,7 +931,7 @@ fn first_source_receipt(mouse: bool) {
     session.send_key(b"\r");
     choose(&mut session, mouse, "[l Load source]", b"l");
     count += 29;
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("Loaded 1 cached discussion records");
     close(
         &mut session,
@@ -653,7 +942,7 @@ fn first_source_receipt(mouse: bool) {
     assert_eq!(confirmed_attempt(&fixture), attempt);
     query(&mut session, mouse, NEEDLE);
     count += 12;
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("2 results • Ranked");
     session.wait_for_screen("FirstSourceConfirmedPublishedCanary");
     assert!(!session.screen().contains("stale indexed fragment"));
@@ -661,7 +950,7 @@ fn first_source_receipt(mouse: bool) {
     session.resize(80, 24);
     choose(&mut session, mouse, "[o Open result]", b"o");
     count += 6;
-    publication_commands(&mut session, &fixture, count, &body);
+    publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("Exact search source • read-only");
     session.wait_for_screen("FirstSourceConfirmedPublishedCanary");
     session.wait_for_screen(gh_fixture::PR_NODE);

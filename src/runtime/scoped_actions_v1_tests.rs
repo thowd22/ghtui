@@ -5,6 +5,8 @@ use crate::{
     scoped_actions_test_support_v1 as f, scoped_actions_v1::ScopedActionsRequestKindV1 as K,
 };
 use std::{sync::mpsc, time::Duration};
+#[path = "scoped_actions_physical_slot_v65_tests.rs"]
+mod physical_slot_v65;
 fn queued(
     tail: Vec<crate::test_support::GhStep>,
     fault: Option<fn()>,

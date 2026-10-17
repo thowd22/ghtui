@@ -1,6 +1,8 @@
 //! SOURCE-ONLY actual Source7/PR13/Checks10/bridge18, same Actions continuation.
 use super::*;
 use crate::{scoped_actions_native_v1 as native, scoped_actions_v1 as actions};
+#[path = "scoped_actions_workflow_pr_graph_v9_tests.rs"]
+mod task54_workflow_graph_v9;
 fn artifact() -> Value {
     json!({"id":701,"node_id":"ART_701","name":"GENUINE_PR_ARTIFACT","expired":false,"workflow_run":{"id":123,"repository_id":410,"head_sha":"a".repeat(40)}})
 }

@@ -23,8 +23,65 @@ impl std::fmt::Debug for RemoteMappingCandidateV1 {
     }
 }
 impl RemoteMappingCandidateV1 {
+    pub(crate) fn prepare_cleanup_v9(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        heap: &crate::providers::gh::WorkflowJsonLedgerV9,
+    ) -> Result<super::workflow_cleanup_v9::WorkflowRawRowsV9> {
+        let _scratch = heap.reserve_model_v9(256 * 1024 + 8 * 1024)?;
+        let payload = read(tx, &self.scope, &self.key)?.context("Original mapping absent")?;
+        let metadata = std::fs::symlink_metadata(&self.issuer)?;
+        if metadata.dev() != self.device
+            || metadata.ino() != self.inode
+            || payload.len() != self.bytes
+            || <[u8; 32]>::from(Sha256::digest(payload.as_bytes())) != self.digest
+        {
+            bail!("Original mapping changed before cleanup");
+        }
+        super::workflow_cleanup_v9::WorkflowRawRowsV9::mapping(tx, &self.scope, &self.key, heap)
+    }
     pub(crate) fn mapping(&self) -> &CorpusRepository {
         &self.mapping
+    }
+    /// Presentation/accounting only: actual retained capacities, no serialized
+    /// body clone, mapping/source factory or permission reconstruction.
+    pub(crate) fn retained_bytes_v9(&self) -> usize {
+        use crate::search::{
+            corpus::LocalSource,
+            managed::{CloneSource, CorpusOwnership},
+        };
+        std::mem::size_of::<Self>()
+            + self.scope.host.capacity()
+            + self.scope.login.capacity()
+            + self.key.capacity()
+            + self.issuer.capacity()
+            + self.mapping.scope.host.capacity()
+            + self.mapping.scope.login.capacity()
+            + self.mapping.repository.capacity()
+            + self.mapping.directory.0.capacity()
+            + match &self.mapping.source {
+                LocalSource::Worktree => 0,
+                LocalSource::Revision(value) => value.capacity(),
+            }
+            + match &self.mapping.ownership {
+                CorpusOwnership::Existing => 0,
+                CorpusOwnership::Managed { marker } => marker.capacity(),
+            }
+            + self
+                .mapping
+                .saved_commit
+                .as_ref()
+                .map_or(0, String::capacity)
+            + match &self.mapping.clone_source {
+                None => 0,
+                Some(CloneSource::LocalBare(value)) => value.0.capacity(),
+                Some(CloneSource::GitHub(value)) => {
+                    value.host.capacity()
+                        + value.full_name.capacity()
+                        + value.description.capacity()
+                        + value.default_branch.capacity()
+                }
+            }
     }
 }
 impl Cache {

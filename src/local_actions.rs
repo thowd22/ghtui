@@ -310,7 +310,199 @@ fn append_selected_patch_preview_v2(preview: &mut Vec<String>, mutation: &Mutati
         );
     }
 }
+/// Closed in-memory continuity of an ACTUAL staged patch already read for
+/// this LocalPlan. No constructor, Clone, serde, bytes or digest getter.
+pub(crate) struct WorkflowReviewedPatchV9 {
+    digest: [u8; 32],
+    raw_len: usize,
+    base: String,
+    observed: crate::git::WorkspaceFingerprint,
+}
+impl std::fmt::Debug for WorkflowReviewedPatchV9 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WorkflowReviewedPatchV9(<actual staged canonical bytes; no permission>)")
+    }
+}
+impl WorkflowReviewedPatchV9 {
+    // The inline value/header is already charged in its containing Preview.
+    pub(crate) fn retained_heap_bytes_v9(&self) -> usize {
+        self.base.capacity()
+    }
+    pub(crate) fn binds_plan_v9(&self, plan: &LocalPlan, base: &str) -> bool {
+        self.base == base
+            && self.observed == plan.mutation.observed
+            && matches!(
+                &plan.mutation.operation,
+                Operation::Commit { amend: false, .. }
+            )
+    }
+    pub(crate) fn matches_post_v9(&self, actual: &ComparisonResult) -> bool {
+        use sha2::{Digest, Sha256};
+        matches!(&actual.comparison, Comparison::Snapshots { base, head }
+            if base == &self.base && actual.base.as_deref() == Some(base.as_str())
+                && actual.head.as_deref() == Some(head.as_str()))
+            && actual.patch.len() == self.raw_len
+            && <[u8; 32]>::from(Sha256::digest(&actual.patch)) == self.digest
+    }
+}
 impl LocalPlan {
+    /// SAME local planner/preview, accepting only an actual matching original
+    /// workflow and a captured absent private child. No fallback construction
+    /// from a destination pathname, saved mapping or generic Form fields.
+    pub(crate) fn prepare_workflow_worktree_v9(
+        repo: &GitRepository,
+        purpose: &crate::git::workflow_edit_v9::WorkflowWorktreePurposeV9,
+    ) -> Result<Self, String> {
+        let safe = || "Original workflow/worktree target changed; no write or fallback".to_owned();
+        purpose.validate(repo).map_err(|_| safe())?;
+        let status = repo.status().map_err(|_| safe())?;
+        purpose.validate_status(&status).map_err(|_| safe())?;
+        let mutation = repo
+            .plan_workflow_worktree_v9(purpose)
+            .map_err(|_| safe())?;
+        let target = purpose.target();
+        let mut preview = preview_header_v2(LocalCommand::AddWorktree, &mutation);
+        preview.extend([
+            format!("New isolated worktree: {}", crate::git::display_bytes(target.path().as_os_str().as_encoded_bytes())),
+            format!("NEW branch (must not already exist): {}", target.values().branch()),
+            format!("Exact original workflow commit C: {}", target.opened().intent().definition().commit_sha),
+            "Explicit Confirm runs only worktree add -b NEW -- ABSENT_PATH C.".into(),
+            "Creates the directory, linked-worktree metadata and new shared local branch. No remote write, existing-file Save, stash, reset, force or automatic cleanup.".into(),
+            "Git hooks/signing remain enabled. External filesystem/configuration races cannot be claimed atomically excluded; ambiguity requires Inspect, not retry/delete.".into(),
+        ]);
+        let context = LocalContext {
+            directory: repo.root.clone(),
+            revision: status.head.clone().ok_or_else(safe)?,
+            status,
+            selected_path: None,
+            comparison: None,
+            selected_anchor: None,
+            selected_lines: Vec::new(),
+        };
+        purpose.validate(repo).map_err(|_| safe())?;
+        Ok(Self {
+            command: LocalCommand::AddWorktree,
+            context,
+            mutation,
+            preview,
+        })
+    }
+    /// W9 borrows the SAME actual repository and planner inside its one
+    /// measured original worker; never rediscover through legacy defaults.
+    pub(crate) fn prepare_workflow_edit_v9(
+        repo: &GitRepository,
+        purpose: &crate::git::workflow_edit_v9::WorkflowPlanPurposeV9,
+    ) -> Result<Self, String> {
+        Self::prepare_workflow_edit_with_review_v9(repo, purpose).map(|(plan, _)| plan)
+    }
+    pub(crate) fn prepare_workflow_edit_with_review_v9(
+        repo: &GitRepository,
+        purpose: &crate::git::workflow_edit_v9::WorkflowPlanPurposeV9,
+    ) -> Result<(Self, Option<WorkflowReviewedPatchV9>), String> {
+        use crate::git::workflow_edit_v9::WorkflowLocalStepV9;
+        let safe = || {
+            "Original workflow file/index/plan changed; no local write or private diagnostics"
+                .to_owned()
+        };
+        purpose.validate(repo).map_err(|_| safe())?;
+        let status = repo.status().map_err(|_| safe())?;
+        purpose.validate_status(&status).map_err(|_| safe())?;
+        let staged = if purpose.step() == WorkflowLocalStepV9::Commit {
+            let staged = repo
+                .compare_with_capture_limit_v1(&Comparison::Staged, 256 * 1024)
+                .map_err(|_| safe())?;
+            let path = purpose.path();
+            if staged.diff.files.is_empty()
+                || staged.diff.files.iter().any(|file| {
+                    file.new_path.as_deref() != Some(path.0.as_slice())
+                        || file
+                            .old_path
+                            .as_deref()
+                            .is_some_and(|old| old != path.0.as_slice())
+                })
+            {
+                return Err(safe());
+            }
+            Some(staged)
+        } else {
+            None
+        };
+        let mutation = repo.plan_workflow_edit_v9(purpose).map_err(|_| safe())?;
+        if staged
+            .as_ref()
+            .is_some_and(|comparison| comparison.observed != Some(mutation.observed))
+        {
+            return Err(safe());
+        }
+        let reviewed = if let Some(staged) = &staged {
+            use sha2::{Digest, Sha256};
+            let base = staged
+                .base
+                .as_deref()
+                .filter(|base| {
+                    *base == purpose.original_base_v9()
+                        && crate::git::original_actor_saved_sha(base)
+                })
+                .ok_or_else(safe)?;
+            // Borrowed hash of the SAME actual canonical patch; not a new
+            // child/body clone or a serialized input/source authorization.
+            Some(WorkflowReviewedPatchV9 {
+                digest: Sha256::digest(&staged.patch).into(),
+                raw_len: staged.patch.len(),
+                base: base.to_owned(),
+                observed: mutation.observed,
+            })
+        } else {
+            None
+        };
+        let body = if let Some(staged) = &staged {
+            std::str::from_utf8(&staged.patch).map_err(|_| safe())?
+        } else {
+            purpose.saved_content()
+        };
+        let rows = body.split('\n').count();
+        let bound = body
+            .len()
+            .checked_mul(4)
+            .and_then(|n| n.checked_add((rows + 8) * (std::mem::size_of::<String>() + 8)))
+            .ok_or_else(safe)?;
+        if rows > 65_500 || bound > 4 * 1024 * 1024 {
+            return Err(safe());
+        }
+        let mut preview = preview_header_v2(purpose.command(), &mutation);
+        preview.reserve(rows + 4);
+        preview.push(format!(
+            "Exact original workflow file: {}",
+            purpose.path().display()
+        ));
+        preview.push(if staged.is_some() {
+            "Complete actual staged canonical patch; this Commit does not include other paths:"
+                .into()
+        } else {
+            "Stages the whole actual saved file below, not display-row coordinates or other paths:"
+                .into()
+        });
+        preview.extend(body.split('\n').map(sanitize_terminal));
+        let context = LocalContext {
+            directory: repo.root.clone(),
+            revision: status.head.clone().ok_or_else(safe)?,
+            status,
+            selected_path: Some(purpose.path()),
+            comparison: None,
+            selected_anchor: None,
+            selected_lines: Vec::new(),
+        };
+        purpose.validate(repo).map_err(|_| safe())?;
+        Ok((
+            Self {
+                command: purpose.command(),
+                context,
+                mutation,
+                preview,
+            },
+            reviewed,
+        ))
+    }
     /// Native-only borrowed canonical selection. No Workspace/context body is
     /// cloned, and the existing installed-Git selected-patch planner is reused.
     pub(crate) fn prepare_native_selection_v2(
@@ -632,7 +824,7 @@ impl LocalPlan {
                 let resolved = repo.stashes().map_err(|error| error.to_string())?.into_iter().find(|stash| stash.id == *id || stash.selector == *id).ok_or("Selected stash is no longer available.")?;
                 preview.push(format!("Exact stash commit: {} — list positions are not stable identities", resolved.id));
             }
-            Operation::RemoveWorktree(path) | Operation::AddWorktree { path, .. } => {
+            Operation::RemoveWorktree(path) | Operation::AddWorktree { path, .. } | Operation::AddWorktreeBranchAtV9 { path, .. } => {
                 use std::os::unix::ffi::OsStrExt;
                 preview.push(format!("Exact worktree directory: {}", RawPath::new(path.as_os_str().as_bytes().to_vec()).display()));
             }

@@ -5,7 +5,12 @@ pub(super) fn only_reviews(p: &PreparedView) -> bool {
     if p.scoped_actions_v1.is_some() {
         return false;
     }
+    if p.notifications_v63.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_pr_collaboration_v17,
+        notifications_v63: _,
         scoped_actions_v1: _,
         scoped_threads_v1,
         scoped_reviews_v2,
@@ -60,6 +65,7 @@ pub(super) fn only_reviews(p: &PreparedView) -> bool {
     scoped_reviews_v2.is_some()
         && scoped_threads_v1.is_none()
         && scoped_inline_v1.is_none()
+        && scoped_pr_collaboration_v17.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
         && original_diff_result_v1.is_none()
@@ -188,21 +194,38 @@ impl Background {
         if owner.expired() {
             return false;
         }
-        let (scope, source, navigation) = owner.remote_owners();
-        if crate::remote_scope_gate_v1::stop_before_fallback(Some(&scope)).is_some() {
+        if owner.work().origin().active().is_some_and(|scope| {
+            crate::remote_scope_gate_v1::stop_before_fallback(Some(scope)).is_some()
+        }) {
             return false;
         }
+        let original = if let Some(summary) = owner
+            .work()
+            .origin()
+            .summary()
+            .and_then(|intent| intent.personal_summary_v15())
+        {
+            ScopedRemoteOriginalV13::PersonalSummary(summary.clone())
+        } else if let Some((scope, source, navigation)) = owner.remote_owners() {
+            ScopedRemoteOriginalV13::Read {
+                scope,
+                source,
+                navigation,
+            }
+        } else {
+            return false;
+        };
         self.cancel(View::Inbox);
         self.generation += 1;
         let generation = self.generation;
         app.scoped_reviews_owner_v2 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: None,
             pr_native_diff_v1: None,
             threads_v1: None,
-            scope,
-            source,
-            navigation: Some(navigation),
+            original,
             check_origin: None,
             continuation_v2: None,
             reviews_v2: Some(owner.clone()),

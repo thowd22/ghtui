@@ -128,9 +128,31 @@ pub(crate) fn provider(f: &Fixture) -> GithubProvider {
         .with_program(f.root.join("bin/gh"))
         .with_env("GH_FIXTURE_DIR", f.root.join("gh-fixture"))
 }
-pub(crate) fn setup(mut tail: Vec<GhStep>) -> (Fixture, GithubProvider, App, Vec<GhStep>) {
+pub(crate) fn setup(tail: Vec<GhStep>) -> (Fixture, GithubProvider, App, Vec<GhStep>) {
+    setup_catalogue_v124(tail, false)
+}
+pub(crate) fn setup_empty_runs_v124() -> (Fixture, GithubProvider, App, Vec<GhStep>) {
+    setup_catalogue_v124(vec![], true)
+}
+fn setup_catalogue_v124(
+    mut tail: Vec<GhStep>,
+    empty: bool,
+) -> (Fixture, GithubProvider, App, Vec<GhStep>) {
     let f = Fixture::new();
     let mut all = initial_steps();
+    if empty {
+        let actual = all
+            .iter_mut()
+            .find(|step| {
+                step.args
+                    .iter()
+                    .any(|arg| arg == &format!("repos/{REPO}/actions/runs?per_page=100&page=1"))
+            })
+            .unwrap();
+        actual.stdout = json!({"total_count":0,"workflow_runs":[]})
+            .to_string()
+            .into_bytes();
+    }
     all.append(&mut tail);
     f.scripted_gh(&all);
     git(&f, &["init", "-b", "main"]);

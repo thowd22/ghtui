@@ -8,12 +8,36 @@ mod measured_reads_v1;
 pub use measured_reads_v1::MeasuredExternalReadWindowV1;
 #[path = "postwrite_capture_v2.rs"]
 mod postwrite_capture_v2;
+pub(super) use postwrite_capture_v2::notifications_http_v63;
+pub(in crate::providers::gh) use postwrite_capture_v2::{
+    workflow_branch_response_v9, workflow_history_response_v9, MembersMetadataClosingInputV62,
+    MembersMetadataContextInputV62, MembersMetadataRoleV62,
+};
 pub use postwrite_capture_v2::{PostWriteCaptureAccountingV2, PostWriteCaptureAllowanceV2};
 pub(crate) use postwrite_capture_v2::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
+pub(crate) use postwrite_capture_v2::{
+    WorkflowCleanupSealV9, WorkflowEditPhaseV9, WorkflowGitRoleV9, WorkflowPostCaptureV9,
+};
 
 #[path = "original_repository_access_core_v13.rs"]
 mod original_repository_access_core_v13;
 use original_repository_access_core_v13::OriginalRepositoryAccessCoreV13;
+#[path = "notification_access_v63.rs"]
+mod notification_access_v63;
+pub(crate) use notification_access_v63::{
+    ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationInspectionV63,
+    NotificationPrFollowIntentV63, NotificationPrSourceV63, NotificationPublicationStateV63,
+    NotificationPublicationV63, NotificationSelectionV63, NotificationWriteReceiptV63,
+};
+#[path = "personal_access_v13.rs"]
+mod personal_access_v13;
+pub use personal_access_v13::{
+    ClosedPersonalPrAccessV13, PersonalPrAccessSessionV13, PersonalRepositoryOriginalV13,
+};
+#[path = "original_pr_access_v13.rs"]
+mod original_pr_access_v13;
+pub(crate) use original_pr_access_v13::OriginalPrClosedAccessV13;
+pub(crate) use original_pr_access_v13::{OriginalPrAccessSessionV13, OriginalPrMembershipRefV13};
 
 const FINAL_PRINCIPAL_CAP: usize = 4096 + 64 * 1024;
 const MAX_REFERENCES: usize = 4096;
@@ -220,6 +244,25 @@ impl GithubProvider {
         limits: &RepositoryCatalogueAccessLimits,
         cancel: &CancellationToken,
     ) -> GithubResult<RepositoryCatalogueAccessSession<'a>> {
+        self.begin_catalogue_inner_v9(original, limits, cancel, None)
+    }
+    pub(crate) fn begin_workflow_edit_access_v9<'a>(
+        &'a self,
+        original: &'a RepositoryCatalogueRead,
+        limits: &RepositoryCatalogueAccessLimits,
+        policy: &Arc<WorkflowCoreJsonV9>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<RepositoryCatalogueAccessSession<'a>> {
+        policy.enter(self, original, limits, cancel)?;
+        self.begin_catalogue_inner_v9(original, limits, cancel, Some(policy.clone()))
+    }
+    fn begin_catalogue_inner_v9<'a>(
+        &'a self,
+        original: &'a RepositoryCatalogueRead,
+        limits: &RepositoryCatalogueAccessLimits,
+        cancel: &CancellationToken,
+        workflow_v9: Option<Arc<WorkflowCoreJsonV9>>,
+    ) -> GithubResult<RepositoryCatalogueAccessSession<'a>> {
         limits.validate()?;
         validate_original(&self.host, original.identity())?;
         if original.repositories().len() > 100000 {
@@ -229,6 +272,7 @@ impl GithubProvider {
             ));
         }
         let mut budget = CatalogueBudget::new(&limits.transport)?;
+        budget.workflow_v9 = workflow_v9;
         // The original operation's cancellation also governs closing SQL and
         // principal reads, even if a caller later supplies a fresh token.
         budget.original_cancellation = Some(cancel.clone());

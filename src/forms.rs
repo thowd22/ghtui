@@ -1,10 +1,12 @@
 //! Shared native input dialogs. Editing, previewing and closing never publish.
+mod pr_state_v68;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::ui_v1 as inline_ui;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::avatars_v7 as review_avatars;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3 as review_operation_ui_v3;
 use crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::ui_v2 as review_ui;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui as comment_ui_v2;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::reactions_v3::form as reaction_ui_v3;
+use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::file_comments_v75::form as file_comment_ui_v75;
 use crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use crate::{
     app::{safe_text, Action, App, HitRegion},
@@ -93,9 +95,17 @@ pub struct PrActionIntent {
 }
 #[derive(Clone, Debug)]
 pub enum FormPurpose {
+    PrCollaborationV17(Box<crate::scoped_pr_collaboration_ui_v17::ConversationComposerStateV17>),
+    ScopedActionsV3(Box<crate::scoped_actions_publication_ui_v3::ScopedActionsComposerStateV3>),
+    ScopedActionsWorkflowV6(Box<crate::scoped_actions_workflow_ui_v6::WorkflowComposerStateV6>),
+    ScopedActionsDispatchV7(Box<crate::scoped_actions_dispatch_ui_v7::DispatchComposerStateV7>),
+    ScopedWorkflowEditV9(
+        Box<crate::scoped_actions_workflow_edit_ui_v9::WorkflowEditComposerStateV9>,
+    ),
     PrThread(Box<thread_ui::ThreadComposerStateV1>),
     PrThreadCommentV2(Box<comment_ui_v2::CommentComposerStateV2>),
     PrThreadReactionV3(Box<reaction_ui_v3::ReactionComposerStateV3>),
+    PrFileCommentV75(Box<file_comment_ui_v75::FileCommentComposerV75>),
     PrInline(Box<inline_ui::ScopedInlineComposerStateV1>),
     PrReviewV2(Box<review_ui::ReviewComposerStateV2>),
     PrReviewOperationV3(Box<review_operation_ui_v3::ReviewOperationComposerStateV3>),
@@ -114,6 +124,9 @@ pub struct Field {
     pub editor: TextBuffer,
     pub multiline: bool,
     pub secret: bool,
+    /// Debug-only privacy. Unlike `secret`, this never masks native editing or
+    /// changes input/validation/persistence/permission semantics.
+    pub(crate) debug_redacted: bool,
     pub choices: Vec<String>,
     /// Display labels never replace the stable values submitted by indexed actions.
     pub choice_labels: Vec<String>,
@@ -126,7 +139,7 @@ impl std::fmt::Debug for Field {
             .field("label", &self.label)
             .field(
                 "text",
-                &if self.secret {
+                &if self.secret || self.debug_redacted {
                     "[REDACTED]"
                 } else {
                     self.editor.text.as_str()
@@ -144,6 +157,7 @@ impl Field {
             editor: TextBuffer::new(value)?,
             multiline,
             secret: false,
+            debug_redacted: false,
             choices: vec![],
             choice_labels: vec![],
         })
@@ -194,6 +208,11 @@ pub struct Form {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormAction {
+    RefreshConversationV19,
+    OpenDispatchRunV7,
+    InspectConversationV17,
+    AcknowledgeActionsV3,
+    AcknowledgeActionsAcceptanceV5,
     RemoveLocalReviewCommentV10,
     InlineAnchor,
     InlineAnchorScroll(i32),
@@ -401,9 +420,18 @@ impl Form {
         let resource = workspace
             .resource_key(command)
             .map_err(|error| error.to_string())?;
-        let fields = workspace
+        let inputs = workspace
             .fields(command)
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        Self::actions_inputs_v4(workspace, command, resource, inputs)
+    }
+    fn actions_inputs_v4(
+        workspace: crate::actions_workspace::ActionsWorkspace,
+        command: crate::actions_workspace::ActionsCommand,
+        resource: String,
+        inputs: Vec<crate::actions_workspace::ActionsField>,
+    ) -> Result<Self, String> {
+        let fields = inputs
             .into_iter()
             .map(|input| {
                 let mut field =
@@ -413,7 +441,46 @@ impl Form {
                 Ok(field)
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(Self {
+        Ok(Self::actions_fields_v3(
+            workspace, command, resource, fields,
+        ))
+    }
+    /// Presentation seed only; no Plan, eligibility or approval.
+    /// Completed protected originals remain inspectable without fake run state.
+    pub(crate) fn actions_original_shell_v3(
+        workspace: crate::actions_workspace::ActionsWorkspace,
+    ) -> Result<Self, String> {
+        Self::actions_original_shell_v4(
+            workspace,
+            crate::actions_workspace::ActionsCommand::Cancel,
+            false,
+        )
+    }
+    pub(crate) fn actions_original_shell_v4(
+        workspace: crate::actions_workspace::ActionsWorkspace,
+        command: crate::actions_workspace::ActionsCommand,
+        history: bool,
+    ) -> Result<Self, String> {
+        crate::storage::Scope::github(&workspace.identity.host, workspace.identity.account_id)
+            .map_err(|error| error.to_string())?;
+        let resource = workspace
+            .resource_key(command)
+            .map_err(|error| error.to_string())?;
+        let inputs = if history {
+            vec![]
+        } else {
+            crate::actions_workspace::ActionsWorkspace::original_run_fields_v4(command)
+                .ok_or("Unsupported closed original run Form")?
+        };
+        Self::actions_inputs_v4(workspace, command, resource, inputs)
+    }
+    pub(crate) fn actions_fields_v3(
+        workspace: crate::actions_workspace::ActionsWorkspace,
+        command: crate::actions_workspace::ActionsCommand,
+        resource: String,
+        fields: Vec<Field>,
+    ) -> Self {
+        Self {
             presentation_v4: std::sync::Arc::new(()),
             presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             title: command.label().into(),
@@ -451,7 +518,48 @@ impl Form {
             metadata_picker_hits: vec![],
             base_selection: None,
             metadata_original_lines: vec![],
-        })
+        }
+    }
+    /// Worker-only unpublished W9 seed. No invented run/workspace is needed
+    /// to use the SAME Form renderer, editor, focus, errors and actions.
+    pub(crate) fn workflow_edit_seed_v9(
+        state: Box<crate::scoped_actions_workflow_edit_ui_v9::WorkflowEditComposerStateV9>,
+        fields: Vec<Field>,
+    ) -> Self {
+        Self {
+            presentation_v4: std::sync::Arc::new(()),
+            presentation_input_epoch_v4: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            title: "Edit workflow locally • Preview each exact step".into(),
+            purpose: FormPurpose::ScopedWorkflowEditV9(state),
+            fields,
+            focus: 0,
+            active_field: 0,
+            preview: false,
+            dirty: false,
+            submit_requested: false,
+            editor_requested: false,
+            error: String::new(),
+            submitting: false,
+            field_rects: vec![],
+            submitted: false,
+            preview_requested: false,
+            preview_scroll: 0,
+            preview_display_v1: Default::default(),
+            error_scroll: 0,
+            error_rect: Rect::default(),
+            field_top: 0,
+            picker: None,
+            picker_requested: None,
+            publication: None,
+            actions_publication: None,
+            actions_original_lines: vec![],
+            restored_draft: false,
+            metadata_preview: None,
+            metadata_picker: None,
+            metadata_picker_hits: vec![],
+            base_selection: None,
+            metadata_original_lines: vec![],
+        }
     }
     pub fn compare(intent: crate::comparison::CompareIntent) -> Result<Self, String> {
         let mut mode = Field::text(
@@ -608,7 +716,9 @@ impl Form {
     }
     pub fn view(&self) -> crate::app::View {
         match self.purpose {
+            FormPurpose::PrCollaborationV17(_) => crate::app::View::Inbox,
             FormPurpose::PrThread(_)
+            | FormPurpose::PrFileCommentV75(_)
             | FormPurpose::PrThreadCommentV2(_)
             | FormPurpose::PrThreadReactionV3(_)
             | FormPurpose::PrInline(_)
@@ -618,7 +728,11 @@ impl Form {
                 crate::app::View::Inbox
             }
             FormPurpose::Local(_) | FormPurpose::Compare(_) => crate::app::View::Repository,
-            FormPurpose::Actions(_) => crate::app::View::Actions,
+            FormPurpose::Actions(_)
+            | FormPurpose::ScopedActionsV3(_)
+            | FormPurpose::ScopedActionsWorkflowV6(_)
+            | FormPurpose::ScopedActionsDispatchV7(_)
+            | FormPurpose::ScopedWorkflowEditV9(_) => crate::app::View::Actions,
             FormPurpose::Corpus(_) => crate::app::View::Search,
         }
     }
@@ -637,6 +751,27 @@ impl Form {
             && (matches!(&self.purpose,FormPurpose::Pr(intent) if intent.kind==PrFormKind::Base)
                 || matches!(self.purpose, FormPurpose::PrMetadata(_)))
     }
+    /// Prepare an ordinary local save. Only an exact newly accepted Members
+    /// Preview may register its initial key without invalidating that Preview.
+    pub fn prepare_draft_autosave_v77(&mut self) {
+        if !crate::scoped_pr_collaboration_ui_v17::metadata_members_v48::pending_initial_save_v77(
+            self,
+        ) && !crate::scoped_pr_collaboration_ui_v17::issue_link_v87::pending_initial_save(self)
+        {
+            self.invalidate_plan();
+        }
+    }
+    /// Queue acceptance is NOT a durable ACK or permission to publish. The
+    /// original DraftPublicationFence still waits for the exact writer result.
+    pub fn settle_draft_autosave_v77(&mut self, accepted: bool) {
+        crate::scoped_pr_collaboration_ui_v17::metadata_members_v48::settle_initial_save_v77(
+            self, accepted,
+        );
+        crate::scoped_pr_collaboration_ui_v17::issue_link_v87::settle_initial_save(self, accepted);
+        if accepted {
+            self.dirty = false;
+        }
+    }
     pub fn invalidate_plan(&mut self) {
         self.observe_presentation_input_v4();
         self.preview_display_v1 = Default::default();
@@ -644,6 +779,7 @@ impl Form {
         if matches!(
             self.purpose,
             FormPurpose::Pr(_)
+                | FormPurpose::PrCollaborationV17(_)
                 | FormPurpose::PrMetadata(_)
                 | FormPurpose::PrInline(_)
                 | FormPurpose::PrThread(_)
@@ -651,6 +787,11 @@ impl Form {
                 | FormPurpose::PrReviewOperationV3(_)
                 | FormPurpose::PrThreadCommentV2(_)
                 | FormPurpose::PrThreadReactionV3(_)
+                | FormPurpose::ScopedActionsV3(_)
+                | FormPurpose::PrFileCommentV75(_)
+                | FormPurpose::ScopedActionsWorkflowV6(_)
+                | FormPurpose::ScopedActionsDispatchV7(_)
+                | FormPurpose::ScopedWorkflowEditV9(_)
         ) && self.uses_prepared_preview()
         {
             self.preview = false;
@@ -659,9 +800,15 @@ impl Form {
             self.submit_requested = false;
         }
         match &mut self.purpose {
+            FormPurpose::PrCollaborationV17(state) => state.invalidate(),
+            FormPurpose::ScopedActionsV3(state) => state.invalidate(),
+            FormPurpose::ScopedActionsWorkflowV6(state) => state.invalidate(),
+            FormPurpose::ScopedActionsDispatchV7(state) => state.invalidate(),
+            FormPurpose::ScopedWorkflowEditV9(state) => state.invalidate(),
             FormPurpose::PrThread(state) => state.invalidate(),
             FormPurpose::PrThreadCommentV2(state) => state.invalidate(),
             FormPurpose::PrThreadReactionV3(state) => state.invalidate(),
+            FormPurpose::PrFileCommentV75(state) => state.invalidate(),
             FormPurpose::PrInline(state) => state.invalidate(),
             FormPurpose::PrReviewV2(state) => state.invalidate(),
             FormPurpose::PrReviewOperationV3(state) => state.invalidate(),
@@ -676,12 +823,20 @@ impl Form {
             FormPurpose::Corpus(intent) => intent.plan = None,
             FormPurpose::Pr(_) => {}
         }
+        crate::scoped_actions_dispatch_ui_v7::restore_editable_summary_v152(self);
+        crate::scoped_actions_workflow_edit_ui_v9::restore_summary(self);
     }
     pub fn plan_ready(&self) -> bool {
         match &self.purpose {
+            FormPurpose::PrCollaborationV17(state) => state.ready(),
+            FormPurpose::ScopedActionsV3(state) => state.ready(),
+            FormPurpose::ScopedActionsWorkflowV6(state) => state.ready(),
+            FormPurpose::ScopedActionsDispatchV7(state) => state.ready(),
+            FormPurpose::ScopedWorkflowEditV9(state) => state.ready(),
             FormPurpose::PrThread(state) => state.ready(),
             FormPurpose::PrThreadCommentV2(state) => state.ready(),
             FormPurpose::PrThreadReactionV3(state) => state.ready(),
+            FormPurpose::PrFileCommentV75(state) => state.ready(),
             FormPurpose::PrInline(state) => state.ready(),
             FormPurpose::PrReviewV2(state) => state.ready(),
             FormPurpose::PrReviewOperationV3(state) => state.ready(),
@@ -701,6 +856,15 @@ impl Form {
         }
     }
     pub fn plan_lines(&self) -> &[String] {
+        if let FormPurpose::ScopedActionsDispatchV7(state) = &self.purpose {
+            return state.plan_lines();
+        }
+        if let FormPurpose::ScopedActionsWorkflowV6(state) = &self.purpose {
+            return state.plan_lines();
+        }
+        if let FormPurpose::ScopedActionsV3(state) = &self.purpose {
+            return state.plan_lines();
+        }
         if self.metadata_original() {
             return &self.metadata_original_lines;
         }
@@ -708,9 +872,15 @@ impl Form {
             return &self.actions_original_lines;
         }
         match &self.purpose {
+            FormPurpose::PrCollaborationV17(state) => state.plan_lines(),
+            FormPurpose::ScopedActionsV3(state) => state.plan_lines(),
+            FormPurpose::ScopedActionsWorkflowV6(state) => state.plan_lines(),
+            FormPurpose::ScopedActionsDispatchV7(state) => state.plan_lines(),
+            FormPurpose::ScopedWorkflowEditV9(state) => state.plan_lines(),
             FormPurpose::PrThread(state) => state.plan_lines(),
             FormPurpose::PrThreadCommentV2(state) => state.plan_lines(),
             FormPurpose::PrThreadReactionV3(state) => state.plan_lines(),
+            FormPurpose::PrFileCommentV75(state) => state.plan_lines(),
             FormPurpose::PrInline(state) => state.plan_lines(),
             FormPurpose::PrReviewV2(state) => state.plan_lines(),
             FormPurpose::PrReviewOperationV3(state) => state.plan_lines(),
@@ -768,6 +938,19 @@ impl Form {
         // INPUT-time resize rejection; retain exact desired display anchor and
         // source/Preview. This marker can only restrict, never grant a write.
         self.preview_display_v1.geometry_rejected = true;
+        crate::scoped_pr_collaboration_ui_v17::painted_preview(self, false);
+        if let FormPurpose::ScopedActionsV3(state) = &mut self.purpose {
+            state.resize();
+        }
+        if let FormPurpose::ScopedActionsWorkflowV6(state) = &mut self.purpose {
+            state.resize();
+        }
+        if let FormPurpose::ScopedActionsDispatchV7(state) = &mut self.purpose {
+            state.resize();
+        }
+        if let FormPurpose::ScopedWorkflowEditV9(state) = &mut self.purpose {
+            state.resize();
+        }
     }
     /// Worker-only exact-input recheck, before any remote request or journal claim.
     pub fn validate_metadata_preview(&self) -> Result<(), String> {
@@ -782,6 +965,13 @@ impl Form {
         Ok(())
     }
     fn confirmation_blocked_reason(&self) -> Option<&str> {
+        if matches!(self.purpose, FormPurpose::PrFileCommentV75(_)) && self.publication.is_some() {
+            return Some("Protected FILE publication is inspect only • no resend");
+        }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_)) && self.publication.is_some()
+        {
+            return Some("Protected original Conversation reference is inspect only • no resend");
+        }
         if self.preview && self.uses_prepared_preview() && self.preview_display_v1.geometry_rejected
         {
             return Some(self.preview_display_v1.failure.map_or(
@@ -808,6 +998,15 @@ impl Form {
         if matches!(self.purpose, FormPurpose::PrInline(_)) && self.publication.is_some() {
             return Some("Original inline publication is history, never permission to resend");
         }
+        if matches!(
+            self.purpose,
+            FormPurpose::ScopedActionsV3(_)
+                | FormPurpose::ScopedActionsWorkflowV6(_)
+                | FormPurpose::ScopedActionsDispatchV7(_)
+        ) && self.actions_publication.is_some()
+        {
+            return None; // SAME Submit now explicitly Views original, never POST.
+        }
         if self.requires_preview() && !self.plan_ready() {
             Some(
                 self.metadata_preview
@@ -820,12 +1019,44 @@ impl Form {
         }
     }
     fn footer_actions(&self) -> Vec<FormAction> {
+        if let Some(controls) = crate::scoped_actions_workflow_edit_ui_v9::footer(self) {
+            let mut actions: Vec<_> = controls.into_iter().map(|(_, action)| action).collect();
+            if !self.error.is_empty() {
+                actions.extend([FormAction::ErrorScroll(-3), FormAction::ErrorScroll(3)]);
+            }
+            if self.fields.len() > 1 && !self.preview {
+                actions.extend([FormAction::FieldScroll(-1), FormAction::FieldScroll(1)]);
+            }
+            return actions;
+        }
+        if let Some(controls) = crate::scoped_pr_collaboration_ui_v17::footer(self) {
+            let mut actions: Vec<_> = controls.into_iter().map(|(_, a)| a).collect();
+            if !self.error.is_empty() {
+                actions.extend([FormAction::ErrorScroll(-3), FormAction::ErrorScroll(3)]);
+            }
+            return actions;
+        }
+        if let Some(controls) = crate::scoped_actions_publication_ui_v3::footer(self) {
+            let mut actions: Vec<_> = controls.into_iter().map(|(_, action)| action).collect();
+            if !self.error.is_empty() {
+                actions.extend([FormAction::ErrorScroll(-3), FormAction::ErrorScroll(3)]);
+            }
+            return actions;
+        }
         let mut actions = vec![
             FormAction::Preview,
             FormAction::Editor,
             FormAction::Submit,
             FormAction::Close,
         ];
+        if matches!(self.purpose, FormPurpose::PrFileCommentV75(_)) && self.publication.is_some() {
+            actions.retain(|a| *a != FormAction::Editor);
+        }
+        if matches!(&self.purpose, FormPurpose::PrCollaborationV17(state)
+            if !state.editable_body())
+        {
+            actions.retain(|action| *action != FormAction::Editor);
+        }
         if review_ui::local_batch_v10::removal_candidate(self) {
             actions.push(FormAction::RemoveLocalReviewCommentV10);
         }
@@ -864,9 +1095,15 @@ impl Form {
     }
     pub fn resource(&self) -> String {
         match &self.purpose {
+            FormPurpose::PrCollaborationV17(state) => state.draft_key().into(),
+            FormPurpose::ScopedActionsV3(state) => state.opened().intent().key().into(),
+            FormPurpose::ScopedActionsWorkflowV6(state) => state.opened().intent().key().into(),
+            FormPurpose::ScopedActionsDispatchV7(state) => state.opened().intent().key().into(),
+            FormPurpose::ScopedWorkflowEditV9(state) => state.intent().key().into(),
             FormPurpose::PrThread(state) => state.draft_key().into(),
             FormPurpose::PrThreadCommentV2(state) => state.draft_key().into(),
             FormPurpose::PrThreadReactionV3(state) => state.draft_key().into(),
+            FormPurpose::PrFileCommentV75(state) => state.draft_key().into(),
             FormPurpose::PrInline(state) => state.draft_key().into(),
             FormPurpose::PrReviewV2(state) => state.draft_key().into(),
             FormPurpose::PrReviewOperationV3(state) => state.draft_key().into(),
@@ -913,9 +1150,23 @@ impl Form {
     }
     pub fn scope(&self) -> crate::storage::Scope {
         match &self.purpose {
+            FormPurpose::PrCollaborationV17(state) => state.original().scope().clone(),
+            FormPurpose::ScopedActionsV3(state) => {
+                state.opened().intent().source().original().scope().clone()
+            }
+            FormPurpose::ScopedActionsWorkflowV6(state) => {
+                state.opened().intent().source().original().scope().clone()
+            }
+            FormPurpose::ScopedActionsDispatchV7(state) => {
+                state.opened().intent().source().original().scope().clone()
+            }
+            FormPurpose::ScopedWorkflowEditV9(state) => {
+                state.intent().source().original().scope().clone()
+            }
             FormPurpose::PrThread(state) => state.intent().scope().clone(),
             FormPurpose::PrThreadCommentV2(state) => state.intent().scope().clone(),
             FormPurpose::PrThreadReactionV3(state) => state.intent().scope().clone(),
+            FormPurpose::PrFileCommentV75(state) => state.intent().scope().clone(),
             FormPurpose::PrInline(state) => state.intent().scope().clone(),
             FormPurpose::PrReviewV2(state) => state.intent().scope().clone(),
             FormPurpose::PrReviewOperationV3(state) => state.intent().scope().clone(),
@@ -1057,6 +1308,34 @@ impl Form {
         Ok(())
     }
     pub fn draft(&self) -> String {
+        if matches!(self.purpose, FormPurpose::ScopedWorkflowEditV9(_)) {
+            return crate::scoped_actions_workflow_edit_ui_v9::encoded_draft(self)
+                .unwrap_or_default();
+        }
+        if matches!(self.purpose, FormPurpose::ScopedActionsDispatchV7(_)) {
+            return serde_json::to_string(&serde_json::json!({"version":7,"purpose":"scoped-actions-dispatch-v7","actions_publication":self.actions_publication})).unwrap_or_default();
+        }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_)) {
+            return crate::scoped_pr_collaboration_ui_v17::encoded_draft(self).unwrap_or_default();
+        }
+        if matches!(self.purpose, FormPurpose::ScopedActionsWorkflowV6(_)) {
+            return serde_json::to_string(&serde_json::json!({"version":6,"purpose":"scoped-actions-workflow-v6","actions_publication":self.actions_publication})).unwrap_or_default();
+        }
+        if matches!(
+            self.purpose,
+            FormPurpose::ScopedActionsV3(_)
+                | FormPurpose::ScopedActionsWorkflowV6(_)
+                | FormPurpose::ScopedActionsDispatchV7(_)
+        ) {
+            return serde_json::to_string(&serde_json::json!({
+                "version":3,"purpose":"scoped-actions-v3","values":self.values(),
+                "actions_publication":self.actions_publication,
+            }))
+            .unwrap_or_default();
+        }
+        if matches!(self.purpose, FormPurpose::PrFileCommentV75(_)) {
+            return file_comment_ui_v75::encoded_draft(self).unwrap_or_default();
+        }
         if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
             return review_operation_ui_v3::encoded_draft(self).unwrap_or_default();
         }
@@ -1114,7 +1393,39 @@ impl Form {
             serde_json::to_string(&values).unwrap_or_default()
         }
     }
+    /// Actual W9 form only; callers receive a failure rather than silently
+    /// replacing a recoverable draft with an empty encoding.
+    pub fn workflow_edit_draft_v9(&self) -> Result<String, String> {
+        crate::scoped_actions_workflow_edit_ui_v9::encoded_draft(self)
+    }
+    /// Only the actual owning DraftWriter ACK calls this presentation helper.
+    /// Raw database/trigger diagnostics are not a private YAML/message channel.
+    /// No dirty flag, request, source, save retry or approval is changed.
+    pub fn workflow_edit_draft_error_v9(&mut self) -> bool {
+        if !matches!(self.purpose, FormPurpose::ScopedWorkflowEditV9(_)) {
+            return false;
+        }
+        self.error="Local workflow draft save failed; exact editable text is retained. Inspect local storage, then edit explicitly to retry. Nothing was replayed or published.".into();
+        true
+    }
     pub fn restore_draft(&mut self, body: &str) -> Result<(), String> {
+        if matches!(self.purpose, FormPurpose::ScopedWorkflowEditV9(_)) {
+            return Err("Workflow local-edit text requires its actual bounded fresh opener; generic restoration grants no receipt/source/approval".into());
+        }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_)) {
+            return Err("Original Conversation requires its fresh bounded opener; generic restore cannot grant body/approval".into());
+        }
+        if matches!(
+            self.purpose,
+            FormPurpose::ScopedActionsV3(_)
+                | FormPurpose::ScopedActionsWorkflowV6(_)
+                | FormPurpose::ScopedActionsDispatchV7(_)
+        ) {
+            return Err("Original Actions protected references require fresh source inspection; generic draft restoration grants no approval".into());
+        }
+        if matches!(self.purpose, FormPurpose::PrFileCommentV75(_)) {
+            return Err("FILE drafts require fresh original member/source opener • protected history cannot restore writer approval".into());
+        }
         if matches!(self.purpose, FormPurpose::PrReviewOperationV3(_)) {
             return Err("Original pending operation text requires its fresh source opener; protected history cannot become a writer".into());
         }
@@ -1385,6 +1696,32 @@ impl Form {
         if self.submitting && !matches!(action, FormAction::Close) {
             return;
         }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_))
+            && self.publication.is_some()
+            && matches!(action, FormAction::Editor | FormAction::Choice(..))
+        {
+            self.error =
+                "Protected original Conversation body/choices are read only • inspect history"
+                    .into();
+            return;
+        }
+        if crate::scoped_actions_workflow_edit_ui_v9::dispatch(self, action) {
+            return;
+        }
+        if crate::scoped_actions_publication_ui_v3::dispatch(self, action) {
+            return;
+        }
+        if crate::scoped_pr_collaboration_ui_v17::dispatch(self, action) {
+            return;
+        }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_))
+            && *action == FormAction::Submit
+            && crate::scoped_pr_collaboration_ui_v17::confirmed_preview(self).is_err()
+        {
+            self.error =
+                "Fresh exact usefully painted Conversation Preview required before Confirm".into();
+            return;
+        }
         if let FormPurpose::PrReviewOperationV3(state) = &self.purpose {
             let return_to_fields_v1 =
                 self.preview && *action == FormAction::Preview && self.publication.is_none();
@@ -1425,6 +1762,7 @@ impl Form {
             }
         }
         match action {
+            FormAction::AcknowledgeActionsV3 | FormAction::AcknowledgeActionsAcceptanceV5 => {}
             FormAction::RemoveLocalReviewCommentV10 => {
                 if let Err(reason) = review_ui::local_batch_v10::remove_selected(self) {
                     self.error = reason;
@@ -1474,6 +1812,12 @@ impl Form {
             }
             FormAction::Editor if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) => {
                 self.error="Reactions have no editable body or external editor. Fresh Preview/Confirm selects the exact typed content/owned ID.".into();
+            }
+            FormAction::Editor if matches!(self.purpose, FormPurpose::PrFileCommentV75(_)) => {
+                match file_comment_ui_v75::validate_input(self, "") {
+                    Ok(()) => self.editor_requested = true,
+                    Err(reason) => self.error = reason,
+                }
             }
             FormAction::Editor if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_)) => {
                 match comment_ui_v2::validate_input(self, "") {
@@ -1652,7 +1996,12 @@ impl Form {
                 self.error = "New local draft only • original durable protection remains; Preview and confirm a new intent explicitly. Nothing sent.".into();
             }
             FormAction::NewIntent => {}
-            FormAction::Submit | FormAction::Close | FormAction::OpenPicker(_) => {}
+            FormAction::Submit
+            | FormAction::Close
+            | FormAction::OpenPicker(_)
+            | FormAction::InspectConversationV17 => {}
+            FormAction::RefreshConversationV19 => {}
+            FormAction::OpenDispatchRunV7 => {}
         }
     }
     pub fn key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Option<FormAction> {
@@ -1677,6 +2026,13 @@ impl Form {
         if self.submitting {
             return None;
         }
+        if code == KeyCode::Char('r')
+            && !control
+            && !modifiers.contains(KeyModifiers::ALT)
+            && crate::scoped_pr_collaboration_ui_v17::return_descriptor_v19(self).is_some()
+        {
+            return Some(FormAction::RefreshConversationV19);
+        }
         if code == KeyCode::F(12) && review_ui::local_batch_v10::removal_candidate(self) {
             return Some(FormAction::RemoveLocalReviewCommentV10);
         }
@@ -1687,6 +2043,12 @@ impl Form {
         }
         if code == KeyCode::F(2) && matches!(self.purpose, FormPurpose::PrInline(_)) {
             return Some(FormAction::InlineAnchor);
+        }
+        if code == KeyCode::F(2)
+            && (crate::scoped_pr_collaboration_ui_v17::metadata_base_v32::state(self).is_some()
+                || crate::scoped_pr_collaboration_ui_v17::issue_link_v87::state(self).is_some())
+        {
+            return Some(FormAction::OpenPicker(0));
         }
         if matches!(self.purpose, FormPurpose::PrInline(_)) {
             let mut encoded = [0; 4];
@@ -1718,6 +2080,45 @@ impl Form {
         }
         if matches!(self.purpose, FormPurpose::PrThreadReactionV3(_)) && !self.fields.is_empty() {
             return None;
+        }
+        if matches!(self.purpose, FormPurpose::PrFileCommentV75(_))
+            && self.focus < self.fields.len()
+        {
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter => "\n",
+                _ => "",
+            };
+            if let Err(reason) = file_comment_ui_v75::validate_input(self, incoming) {
+                self.error = reason;
+                return None;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_))
+            && self.focus < self.fields.len()
+            && !self.preview
+        {
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch) if !control && !modifiers.contains(KeyModifiers::ALT) => {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter if self.fields[self.focus].multiline => "\n",
+                _ => "",
+            };
+            if (!incoming.is_empty() || matches!(code, KeyCode::Backspace | KeyCode::Delete))
+                && self.fields[self.focus].choices.is_empty()
+            {
+                if let Err(reason) =
+                    crate::scoped_pr_collaboration_ui_v17::validate_input(self, incoming)
+                {
+                    self.error = reason;
+                    return None;
+                }
+            }
         }
         if matches!(self.purpose, FormPurpose::PrThreadCommentV2(_))
             && self.focus < self.fields.len()
@@ -1785,14 +2186,81 @@ impl Form {
                 return None;
             }
         }
+        if matches!(
+            self.purpose,
+            FormPurpose::ScopedActionsDispatchV7(_) | FormPurpose::ScopedWorkflowEditV9(_)
+        ) && self.focus < self.fields.len()
+            && !self.preview
+        {
+            let mut encoded = [0; 4];
+            let incoming = match code {
+                KeyCode::Char(ch)
+                    if !control
+                        && !modifiers.contains(KeyModifiers::ALT)
+                        && self.fields[self.focus].choices.is_empty() =>
+                {
+                    ch.encode_utf8(&mut encoded)
+                }
+                KeyCode::Enter if self.fields[self.focus].multiline => "\n",
+                _ => "",
+            };
+            if !incoming.is_empty() {
+                if let Err(reason) = crate::scoped_actions_dispatch_ui_v7::validate_input(
+                    self, incoming,
+                )
+                .and_then(|()| {
+                    crate::scoped_actions_workflow_edit_ui_v9::validate_input(self, incoming)
+                }) {
+                    self.error = reason;
+                    return None;
+                }
+            }
+        }
+        if code == KeyCode::F(11) && matches!(self.purpose, FormPurpose::ScopedActionsDispatchV7(_))
+        {
+            return Some(FormAction::OpenDispatchRunV7);
+        }
         if code == KeyCode::F(2) && self.full_input_available(self.active_field) {
             return Some(FormAction::FullInput(self.active_field));
         }
         if code == KeyCode::F(4) && self.field_has_picker(self.active_field) {
             return Some(FormAction::OpenPicker(self.active_field));
         }
+        if code == KeyCode::F(4)
+            && matches!(
+                self.purpose,
+                FormPurpose::ScopedActionsV3(_)
+                    | FormPurpose::ScopedActionsWorkflowV6(_)
+                    | FormPurpose::ScopedWorkflowEditV9(_)
+            )
+        {
+            return Some(FormAction::AcknowledgeActionsV3);
+        }
+        if code == KeyCode::F(6)
+            && (matches!(
+                self.purpose,
+                FormPurpose::ScopedActionsV3(_) | FormPurpose::ScopedActionsWorkflowV6(_)
+            ) || crate::scoped_actions_workflow_edit_ui_v9::history_ack_key_v9(self)
+                || matches!(self.purpose, FormPurpose::ScopedActionsDispatchV7(_))
+                    && self.actions_publication.is_some())
+        {
+            return Some(FormAction::AcknowledgeActionsAcceptanceV5);
+        }
         if code == KeyCode::F(9) && matches!(self.purpose, FormPurpose::Compare(_)) {
             return Some(FormAction::Swap);
+        }
+        if code == KeyCode::Char('n')
+            && !control
+            && !modifiers.contains(KeyModifiers::ALT)
+            && matches!(&self.purpose,FormPurpose::PrCollaborationV17(s) if s.needs_new_v18())
+        {
+            return Some(FormAction::NewIntent);
+        }
+        if code == KeyCode::F(9)
+            && matches!(self.purpose, FormPurpose::PrCollaborationV17(_))
+            && self.publication.is_some()
+        {
+            return Some(FormAction::InspectConversationV17);
         }
         if code == KeyCode::F(9) && (self.actions_publication.is_some() || self.metadata_original())
         {
@@ -1819,7 +2287,13 @@ impl Form {
         if control && code == KeyCode::Enter {
             return Some(FormAction::Submit);
         }
-        if self.preview && self.uses_prepared_preview() {
+        if (self.preview
+            || matches!(
+                self.purpose,
+                FormPurpose::ScopedActionsV3(_) | FormPurpose::ScopedActionsWorkflowV6(_)
+            ))
+            && self.uses_prepared_preview()
+        {
             match code {
                 KeyCode::Down => self.preview_scroll += 1,
                 KeyCode::Up => self.preview_scroll = self.preview_scroll.saturating_sub(1),
@@ -1829,8 +2303,49 @@ impl Form {
             }
         }
         if matches!(code, KeyCode::Tab | KeyCode::BackTab) {
+            // FILE Preview hides the body editor. Keyboard traversal must
+            // stay on the same visible footer actions as pointer navigation.
+            if (self.preview
+                || matches!(&self.purpose,FormPurpose::ScopedWorkflowEditV9(state)if state.remote_history_only_v9()))
+                && matches!(
+                    self.purpose,
+                    FormPurpose::PrCollaborationV17(_)
+                        | FormPurpose::ScopedActionsV3(_)
+                        | FormPurpose::ScopedActionsWorkflowV6(_)
+                        | FormPurpose::ScopedActionsDispatchV7(_)
+                        | FormPurpose::ScopedWorkflowEditV9(_)
+                )
+            {
+                let count = self.footer_actions().len();
+                if count == 0 {
+                    return None;
+                }
+                let current = self
+                    .focus
+                    .checked_sub(self.fields.len())
+                    .filter(|n| *n < count);
+                let index = match (code, current) {
+                    (KeyCode::Tab, Some(n)) => (n + 1) % count,
+                    (KeyCode::BackTab, Some(n)) => (n + count - 1) % count,
+                    (KeyCode::BackTab, None) => count - 1,
+                    _ => 0,
+                };
+                self.focus = self.fields.len() + index;
+                return None;
+            }
             let count = self.fields.len() + self.footer_actions().len();
-            self.focus = if code == KeyCode::Tab {
+            self.focus = if self.preview && matches!(self.purpose, FormPurpose::PrFileCommentV75(_))
+            {
+                let first = self.fields.len();
+                let count = count - first;
+                let current = self.focus.saturating_sub(first).min(count - 1);
+                first
+                    + if code == KeyCode::Tab {
+                        (current + 1) % count
+                    } else {
+                        (current + count - 1) % count
+                    }
+            } else if code == KeyCode::Tab {
                 (self.focus + 1) % count
             } else {
                 (self.focus + count - 1) % count
@@ -1838,6 +2353,11 @@ impl Form {
             if self.focus < self.fields.len() {
                 self.active_field = self.focus;
             }
+            return None;
+        }
+        if crate::scoped_actions_workflow_edit_ui_v9::protect_committed_input_v9(
+            self, code, modifiers,
+        ) {
             return None;
         }
         let Some(field) = self.fields.get_mut(self.focus) else {
@@ -1910,6 +2430,28 @@ impl Form {
         // An in-flight Preview is not yet `preview == true`.
         if self.submitting || self.preview {
             return;
+        }
+        if let Err(reason) = crate::scoped_actions_workflow_edit_ui_v9::validate_input(self, text) {
+            self.error = reason;
+            return;
+        }
+        if matches!(self.purpose, FormPurpose::ScopedActionsDispatchV7(_)) {
+            if let Err(reason) = crate::scoped_actions_dispatch_ui_v7::validate_input(self, text) {
+                self.error = reason;
+                return;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrFileCommentV75(_)) {
+            if let Err(reason) = file_comment_ui_v75::validate_input(self, text) {
+                self.error = reason;
+                return;
+            }
+        }
+        if matches!(self.purpose, FormPurpose::PrCollaborationV17(_)) {
+            if let Err(reason) = crate::scoped_pr_collaboration_ui_v17::validate_input(self, text) {
+                self.error = reason;
+                return;
+            }
         }
         self.observe_presentation_input_v4();
         if inline_ui::anchor_open(self) {
@@ -2034,6 +2576,14 @@ fn draw_prepared_resize_v1(
     hits: &mut Vec<HitRegion>,
     theme: crate::theme::Theme,
 ) {
+    let dispatch_fields_v7 = (matches!(form.purpose, FormPurpose::ScopedActionsDispatchV7(_))
+        && !form.preview
+        && form.actions_publication.is_none())
+        || crate::scoped_actions_workflow_edit_ui_v9::editable_summary(form);
+    if dispatch_fields_v7 {
+        crate::scoped_actions_dispatch_ui_v7::begin_draw(form, false);
+        crate::scoped_actions_workflow_edit_ui_v9::begin_draw(form, false);
+    }
     form.preview_display_v1.geometry_rejected = true;
     form.field_rects.clear();
     form.error_rect = Rect::default();
@@ -2048,7 +2598,11 @@ fn draw_prepared_resize_v1(
     );
     let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
     let body_height = inner.height.saturating_sub(3);
-    let explanation = if form.error.is_empty() {
+    let explanation = if matches!(form.purpose, FormPurpose::ScopedWorkflowEditV9(_)) {
+        "Resize to inspect the workflow summary and one complete local input. Fields, Preview and Confirm are disabled; Close keeps private text."
+    } else if dispatch_fields_v7 {
+        "Resize to inspect the Dispatch summary and one complete input. Fields, Preview and Confirm are disabled; Close preserves protection."
+    } else if form.error.is_empty() {
         "Resize to inspect64 text cells. Preview is unchanged; Confirm cannot use hidden content. Edit fields or Close remain available."
     } else {
         "Confirm refused • resize to inspect Preview. No hidden confirmation; Edit fields or Close remain available."
@@ -2065,6 +2619,9 @@ fn draw_prepared_resize_v1(
         ("[Esc Close]", FormAction::Close),
     ];
     for (index, (label, action)) in controls.into_iter().enumerate() {
+        if dispatch_fields_v7 && action != FormAction::Close {
+            continue;
+        }
         if inner.height < 3 && action != FormAction::Close {
             continue;
         }
@@ -2099,6 +2656,18 @@ fn draw_prepared_resize_v1(
     }
 }
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    if crate::scoped_pr_collaboration_ui_v17::retire_invalid_form(app) {
+        return;
+    }
+    if crate::scoped_actions_publication_ui_v3::retire_invalid_form(app) {
+        return;
+    }
+    if crate::scoped_actions_workflow_edit_ui_v9::retire_invalid_form(app) {
+        return;
+    }
+    if file_comment_ui_v75::retire_invalid_form(app) {
+        return;
+    }
     if inline_ui::retire_invalid_form(app) {
         return;
     }
@@ -2114,13 +2683,29 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     if matches!(
         form.purpose,
-        FormPurpose::PrReviewV2(_) | FormPurpose::PrReviewOperationV3(_)
+        FormPurpose::PrReviewV2(_)
+            | FormPurpose::PrReviewOperationV3(_)
+            | FormPurpose::ScopedActionsV3(_)
+            | FormPurpose::ScopedActionsWorkflowV6(_)
+            | FormPurpose::ScopedActionsDispatchV7(_)
+            | FormPurpose::ScopedWorkflowEditV9(_)
     ) {
         let usable = area.width >= 80 && area.height >= 20;
         review_ui::begin_draw(form, usable);
         review_operation_ui_v3::begin_draw(form, usable);
+        crate::scoped_actions_publication_ui_v3::begin_draw(form, usable);
+        crate::scoped_actions_workflow_edit_ui_v9::begin_draw(form, usable);
         if !usable {
-            if form.preview && form.uses_prepared_preview() {
+            if form.preview
+                && form.uses_prepared_preview()
+                && !matches!(
+                    form.purpose,
+                    FormPurpose::ScopedActionsV3(_)
+                        | FormPurpose::ScopedActionsWorkflowV6(_)
+                        | FormPurpose::ScopedActionsDispatchV7(_)
+                        | FormPurpose::ScopedWorkflowEditV9(_)
+                )
+            {
                 draw_prepared_resize_v1(frame, form, area, &mut app.hits, theme);
                 return;
             }
@@ -2131,14 +2716,39 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(" Original review • resize required ")
+                    .title(
+                        if matches!(
+                            form.purpose,
+                            FormPurpose::ScopedActionsV3(_)
+                                | FormPurpose::ScopedActionsWorkflowV6(_)
+                                | FormPurpose::ScopedActionsDispatchV7(_)
+                                | FormPurpose::ScopedWorkflowEditV9(_)
+                        ) {
+                            " Original Actions • resize required "
+                        } else {
+                            " Original review • resize required "
+                        },
+                    )
                     .style(theme.base()),
                 area,
             );
             let inner = area.inner(ratatui::layout::Margin::new(1, 1));
             frame.render_widget(
-                Paragraph::new("Resize to80×20 to inspect exact review; actions disabled")
-                    .style(theme.style(SemanticToken::Pending)),
+                Paragraph::new(
+                    if matches!(
+                        form.purpose,
+                        FormPurpose::ScopedActionsV3(_)
+                            | FormPurpose::ScopedActionsWorkflowV6(_)
+                            | FormPurpose::ScopedActionsDispatchV7(_)
+                            | FormPurpose::ScopedWorkflowEditV9(_)
+                    ) {
+                        "Resize to 80×20\nActions disabled until resized"
+                    } else {
+                        "Resize to80×20 to inspect exact review; actions disabled"
+                    },
+                )
+                .style(theme.style(SemanticToken::Pending))
+                .wrap(ratatui::widgets::Wrap { trim: false }),
                 inner,
             );
             if inner.height > 3 && !form.error.is_empty() {
@@ -2174,6 +2784,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
     frame.render_widget(Clear, rect);
+    if crate::scoped_pr_collaboration_ui_v17::issue_link_v87::draw_picker(frame, form, rect, theme)
+        || crate::scoped_pr_collaboration_ui_v17::metadata_base_v32::draw_picker(
+            frame, form, rect, theme,
+        )
+    {
+        app.hits
+            .extend(form.metadata_picker_hits.iter().map(|hit| HitRegion {
+                rect: hit.rect,
+                action: Action::Form(FormAction::MetadataPicker(hit.action.clone())),
+            }));
+        return;
+    }
     if let Some(picker) = &mut form.metadata_picker {
         form.metadata_picker_hits = picker.draw(frame, rect, theme);
         app.hits
@@ -2212,9 +2834,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         if form.error.is_empty() { 3 } else { 6 } + if form.fields.len() > 1 { 1 } else { 0 };
     let mut y = inner.y;
     let context = match &form.purpose {
+        FormPurpose::PrCollaborationV17(state) => state.context(),
+        FormPurpose::ScopedActionsV3(state) => state.context(),
+        FormPurpose::ScopedActionsWorkflowV6(state) => state.context(),
+        FormPurpose::ScopedActionsDispatchV7(state) => state.context(),
+        FormPurpose::ScopedWorkflowEditV9(state) => state.context().to_owned(),
         FormPurpose::PrThread(state) => state.context(),
         FormPurpose::PrThreadCommentV2(state) => state.context(),
         FormPurpose::PrThreadReactionV3(state) => state.context(),
+        FormPurpose::PrFileCommentV75(state) => state.context(),
         FormPurpose::PrInline(state) => state.context(),
         FormPurpose::PrReviewV2(state) => state.context(),
         FormPurpose::PrReviewOperationV3(state) => state.context(),
@@ -2262,6 +2890,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if !matches!(
         form.purpose,
         FormPurpose::PrInline(_)
+            | FormPurpose::PrFileCommentV75(_)
             | FormPurpose::PrThread(_)
             | FormPurpose::PrThreadCommentV2(_)
             | FormPurpose::PrThreadReactionV3(_)
@@ -2272,9 +2901,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     let identity = match &form.purpose {
+        FormPurpose::PrCollaborationV17(state) => Some(state.identity()),
+        FormPurpose::ScopedActionsV3(state) => Some(state.identity()),
+        FormPurpose::ScopedActionsWorkflowV6(state) => Some(state.identity()),
+        FormPurpose::ScopedActionsDispatchV7(state) => Some(state.identity()),
+        FormPurpose::ScopedWorkflowEditV9(state) => Some(state.identity()),
         FormPurpose::PrThread(state) => Some(state.identity()),
         FormPurpose::PrThreadCommentV2(state) => Some(state.identity()),
         FormPurpose::PrThreadReactionV3(state) => Some(state.identity()),
+        FormPurpose::PrFileCommentV75(state) => Some(state.identity()),
         FormPurpose::PrInline(state) => Some(state.identity()),
         FormPurpose::PrReviewV2(state) => Some(state.identity()),
         FormPurpose::PrReviewOperationV3(state) => Some(state.identity()),
@@ -2322,6 +2957,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     y += 1;
+    y += crate::scoped_pr_collaboration_ui_v17::draw_author(
+        frame,
+        Rect::new(
+            inner.x,
+            y,
+            inner.width,
+            inner.bottom().saturating_sub(y + footer_height),
+        ),
+        form,
+        &app.avatar_states,
+        theme,
+    );
     y += review_avatars::draw_form_author(
         frame,
         Rect::new(
@@ -2349,6 +2996,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 "ORIGINAL BASE RECORD • Viewing or editing never resends it"
             }
+        } else if let FormPurpose::PrCollaborationV17(state) = &form.purpose {
+            if state.is_terminal_read_v19(){"CONFIRMED RECORD • explicit fresh read only • no publication or local ACK"}
+            else if state.is_history() {
+                "PROTECTED HISTORY • Inspect current; ACK is local only; never resend"
+            } else if form.publication.is_some() {
+                "PROTECTED ORIGINAL • Inspect history; never resend or restore approval"
+            } else if form.preview {
+                "READ-ONLY PREVIEW • Confirm action publishes this exact PR intent"
+            } else {
+                "PR INTENT • Preview first, then explicitly confirm"
+            }
         } else if matches!(
             form.purpose,
             FormPurpose::PrAction(_)
@@ -2359,6 +3017,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 | FormPurpose::PrReviewOperationV3(_)
                 | FormPurpose::PrThreadCommentV2(_)
                 | FormPurpose::PrThreadReactionV3(_)
+                | FormPurpose::PrFileCommentV75(_)
         ) || (matches!(form.purpose, FormPurpose::Pr(_)) && form.uses_prepared_preview())
         {
             if form.preview {
@@ -2379,6 +3038,34 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 "REPOSITORY PREVIEW • Confirm applies only this exact path and effect"
             } else {
                 "REPOSITORY INTENT • No automatic clone; preview, then confirm"
+            }
+        } else if let FormPurpose::ScopedWorkflowEditV9(state)=&form.purpose {
+            if state.remote_history_only_v9(){"ORIGINAL WORKFLOW REMOTE HISTORY • READ/ACK only • effect UNVERIFIED • never resend"}
+            else if form.actions_publication.is_some(){"ORIGINAL WORKFLOW LOCAL/PR RESULT • inspect; never resend"}
+            else if form.preview{"EXACT LOCAL STEP • one explicit Confirm • no automatic retry/rollback"}
+            else{"WORKFLOW LOCAL INTENT • Preview each exact step • no effect from editing"}
+        } else if let FormPurpose::ScopedActionsDispatchV7(_)=&form.purpose {
+            if form.actions_publication.is_some(){crate::scoped_actions_dispatch_ui_v7::result_heading_v42(form)}
+            else if form.preview{"DISPATCH PREVIEW • exact ref/protocol/inputs; one explicit Confirm"}
+            else{"DISPATCH INTENT • inspect exact schema, then Preview; no POST sent"}
+        } else if let FormPurpose::ScopedActionsWorkflowV6(_)=&form.purpose {
+            if form.actions_publication.is_some(){crate::scoped_actions_workflow_ui_v6::result_heading_v42(form)}
+            else if form.preview{"WHOLE WORKFLOW PREVIEW • explicit Confirm attempts once across all refs"}
+            else{"ORIGINAL WORKFLOW INTENT • Preview first; no PUT sent"}
+        } else if let FormPurpose::ScopedActionsV3(state)=&form.purpose {
+            if form.actions_publication.is_some() {
+                "ORIGINAL PROTECTED RESULT • inspect only; never resend"
+            } else if matches!(state.opened().intent().command(), crate::actions_workspace::ActionsCommand::ForceCancel
+                | crate::actions_workspace::ActionsCommand::DeleteRun | crate::actions_workspace::ActionsCommand::DeleteLogs) {
+                if form.preview {"DESTRUCTIVE RUN PREVIEW • exact whole-run effect; explicit Confirm attempts once"}
+                else{"ORIGINAL RUN INTENT • Preview before explicit Confirm; no automatic retry"}
+            } else if state.opened().intent().command()!=crate::actions_workspace::ActionsCommand::Cancel {
+                if form.preview {"RERUN PREVIEW • acceptance is not workflow completion; explicit Confirm attempts once"}
+                else{"ORIGINAL RERUN INTENT • exact debug choice; Preview before Confirm"}
+            } else if form.preview {
+                "CANCEL PREVIEW • nothing sent; explicit Confirm attempts once"
+            } else {
+                "ORIGINAL CANCEL INTENT • read only; Preview before Confirm"
             }
         } else if form.preview {
             "PREVIEW • Nothing published"
@@ -2432,6 +3119,29 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             y += 1;
         }
     }
+    if let FormPurpose::PrCollaborationV17(state) = &form.purpose {
+        if let Some(snapshot) = state.current_subscription() {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "Current subscription: {} • observed at Open",
+                    snapshot.state_label()
+                ))
+                .style(theme.style(SemanticToken::Normal)),
+                Rect::new(inner.x, y, inner.width, 1),
+            );
+            y += 1;
+        }
+        if form.preview {
+            if let Some(requested) = state.requested_subscription_preview() {
+                frame.render_widget(
+                    Paragraph::new(format!("Requested subscription state: {requested}"))
+                        .style(theme.style(SemanticToken::Normal)),
+                    Rect::new(inner.x, y, inner.width, 1),
+                );
+                y += 1;
+            }
+        }
+    }
     let focus_was_visible = form
         .field_rects
         .get(form.focus)
@@ -2453,35 +3163,95 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if form.focus < form.fields.len() && !focus_was_visible {
         form.field_top = form.focus;
     }
-    form.field_rects = vec![Rect::default(); form.fields.len()];
-    if form.uses_prepared_preview() && form.preview {
-        let visible = inner.bottom().saturating_sub(y + footer_height) as usize;
+    if matches!(form.purpose, FormPurpose::ScopedWorkflowEditV9(_)) {
+        // W9's genuine worker reserves all nine fields BEFORE final UID.
+        // Drawing must not discard that storage before Commit moves its seed.
+        form.field_rects.resize(form.fields.len(), Rect::default());
+        form.field_rects.fill(Rect::default());
+    } else {
+        form.field_rects = vec![Rect::default(); form.fields.len()];
+    }
+    // Dispatch has multiple paged fields, unlike the Run debug singleton.
+    // Its editable summary is one bounded window above those SAME fields;
+    // no field may overwrite its summary or create partial Preview authority.
+    let dispatch_fields_v7 = (matches!(form.purpose, FormPurpose::ScopedActionsDispatchV7(_))
+        && !form.preview
+        && form.actions_publication.is_none())
+        || crate::scoped_actions_workflow_edit_ui_v9::editable_summary(form);
+    if dispatch_fields_v7 && !form.submitting && form.focus < form.fields.len() {
+        // Last frame's rectangles cannot prove visibility after a shrink or
+        // an added error footer. Reserve the current editable field first;
+        // footer focus deliberately retains the user's existing field page.
+        form.field_top = form.focus;
+    }
+    let dispatch_field_rows_v155 = if dispatch_fields_v7
+        && !form.submitting
+        && form
+            .fields
+            .get(form.focus)
+            .is_some_and(|field| !field.choices.is_empty())
+    {
+        3 // Label, value and the SAME real indexed-choice mouse actions.
+    } else {
+        2
+    };
+    let dispatch_available_v7 = inner.bottom().saturating_sub(y + footer_height);
+    if dispatch_fields_v7 && dispatch_available_v7 < dispatch_field_rows_v155 + 1 {
+        draw_prepared_resize_v1(frame, form, rect, &mut app.hits, theme);
+        return;
+    }
+    let dispatch_summary_rows_v7 = if dispatch_fields_v7 {
+        dispatch_available_v7
+            .saturating_sub(dispatch_field_rows_v155)
+            .min(4)
+    } else {
+        0
+    };
+    if form.uses_prepared_preview()
+        && (form.preview
+            || crate::scoped_actions_publication_ui_v3::is_original(form)
+            || matches!(form.purpose, FormPurpose::ScopedWorkflowEditV9(_)))
+    {
+        let body_y_v4 =
+            y.saturating_add(crate::scoped_actions_publication_ui_v3::input_rows_v4(form));
+        let visible = if dispatch_fields_v7 {
+            dispatch_summary_rows_v7
+        } else {
+            inner.bottom().saturating_sub(body_y_v4 + footer_height)
+        } as usize;
         form.preview_display_v1.geometry_rejected = true;
         if !review_avatars::draw_form_preview(
             frame,
-            Rect::new(
-                inner.x,
-                y,
-                inner.width,
-                inner.bottom().saturating_sub(y + footer_height),
-            ),
+            Rect::new(inner.x, body_y_v4, inner.width, visible as u16),
             form,
             &app.avatar_states,
             theme,
         ) {
-            let body = Rect::new(inner.x, y, inner.width, visible as u16);
+            let body = Rect::new(inner.x, body_y_v4, inner.width, visible as u16);
             let document = form.preview_display_v1.document.clone();
+            let mut summary_viewport_v7 =
+                crate::prepared_form_text_v1::FormPreviewViewportV1::default();
             let window = document.as_ref().map(|document| {
                 document.window(
-                    &mut form.preview_display_v1.viewport,
+                    if dispatch_fields_v7 {
+                        &mut summary_viewport_v7
+                    } else {
+                        &mut form.preview_display_v1.viewport
+                    },
                     body.width,
                     body.height,
-                    form.preview_scroll,
+                    if dispatch_fields_v7 {
+                        0
+                    } else {
+                        form.preview_scroll
+                    },
                 )
             });
             match window {
                 Some(Ok(window)) if window.total_rows()>0 => {
-                    form.preview_scroll=window.top();
+                    if !dispatch_fields_v7 {
+                        form.preview_scroll=window.top();
+                    }
                     form.preview_display_v1.geometry_rejected=false;
                     for (offset,row) in window.rows().enumerate() {
                         frame.render_widget(Paragraph::new(row.text()).style(theme.base()),
@@ -2493,10 +3263,21 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 )).style(theme.style(SemanticToken::Pending)),body),
             }
         }
-        let useful_preview_v1 =
-            !form.preview_display_v1.geometry_rejected && visible > 0 && inner.width >= 68;
+        let useful_preview_v1 = !dispatch_fields_v7
+            && !form.preview_display_v1.geometry_rejected
+            && visible > 0
+            && inner.width >= 68;
+        if dispatch_fields_v7 {
+            // A partial summary is display only, never a usefully read full
+            // Preview or a reused approval marker after returning to fields.
+            form.preview_display_v1.geometry_rejected = true;
+            y = y.saturating_add(dispatch_summary_rows_v7);
+        }
         review_ui::painted_preview(form, useful_preview_v1);
         review_operation_ui_v3::painted_preview(form, useful_preview_v1);
+        crate::scoped_pr_collaboration_ui_v17::painted_preview(form, useful_preview_v1);
+        crate::scoped_actions_publication_ui_v3::painted_preview(form, useful_preview_v1);
+        crate::scoped_actions_workflow_edit_ui_v9::painted_preview(form, useful_preview_v1);
     }
     let full_inputs = (0..form.fields.len())
         .map(|index| form.full_input_available(index))
@@ -2706,9 +3487,21 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     form.error_rect = error_area;
     let failed_stash_available =
         matches!(&form.purpose, FormPurpose::Local(intent) if intent.failed_stash_v1.is_some());
+    let outcome_feedback_v33 = crate::scoped_actions_workflow_ui_v6::feedback_v25(form)
+        .map(|feedback| (feedback.token(), feedback.label()))
+        .or_else(|| {
+            crate::scoped_actions_dispatch_ui_v7::feedback_v33(form)
+                .map(|feedback| (feedback.token(), feedback.label()))
+        });
+    let feedback_token_v25 =
+        outcome_feedback_v33.map_or(SemanticToken::Failure, |(token, _)| token);
+    let feedback_text_v25 = outcome_feedback_v33.map_or_else(
+        || safe_text(&form.error),
+        |(_, label)| format!("{} • {}", label, safe_text(&form.error)),
+    );
     frame.render_widget(
-        Paragraph::new(safe_text(&form.error))
-            .style(theme.style(SemanticToken::Failure))
+        Paragraph::new(feedback_text_v25)
+            .style(theme.style(feedback_token_v25))
             .wrap(ratatui::widgets::Wrap { trim: false })
             .scroll((form.error_scroll.min(u16::MAX as usize) as u16, 0)),
         error_area,
@@ -2716,6 +3509,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         Paragraph::new(if failed_stash_available {
             "[F3 Inspect stash result] • read-only; not retry/drop approval"
+        } else if form.actions_publication.is_some()
+            && matches!(
+                form.purpose,
+                FormPurpose::ScopedActionsWorkflowV6(_) | FormPurpose::ScopedActionsDispatchV7(_)
+            )
+        {
+            "Tab: buttons • Esc: close"
         } else if form.error.is_empty() {
             "Tab: controls • Ctrl-A: select all • Ctrl-P: preview • Esc: keep draft"
         } else {
@@ -2736,7 +3536,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let mut x = inner.x;
     let y = inner.bottom().saturating_sub(1);
-    for (offset, (label, action)) in [
+    let default_controls = vec![
         ("[Preview]", FormAction::Preview),
         ("[External editor]", FormAction::Editor),
         (
@@ -2759,20 +3559,34 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             },
             FormAction::Close,
         ),
-    ]
+    ];
+    let controls = crate::scoped_pr_collaboration_ui_v17::footer(form)
+        .or_else(|| crate::scoped_actions_workflow_edit_ui_v9::footer(form))
+        .or_else(|| crate::scoped_actions_publication_ui_v3::footer(form))
+        .unwrap_or(default_controls);
+    for (offset, (label, action)) in controls
     .into_iter()
     .filter(|(_, action)| {
         *action != FormAction::Editor
-            || !matches!(&form.purpose, FormPurpose::PrThread(state) if form.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
+            || !matches!(&form.purpose,FormPurpose::PrCollaborationV17(state)
+                if !state.editable_body())
+                &&
+                !matches!(&form.purpose, FormPurpose::PrThread(state) if form.publication.is_some() || state.intent().action() != crate::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ThreadPublicationActionV1::Reply)
                 &&!matches!(&form.purpose,FormPurpose::PrThreadCommentV2(state)if form.publication.is_some()||state.intent().action!=crate::pr_write_journal::thread_comment_history_v2::CommentActionV2::Edit)
                 &&!matches!(&form.purpose,FormPurpose::PrReviewOperationV3(state)if form.publication.is_some()||!state.operation_intent().action().needs_body())
                 &&!matches!(form.purpose,FormPurpose::PrThreadReactionV3(_))
+                &&!matches!(form.purpose,FormPurpose::PrFileCommentV75(_) if form.publication.is_some())
     })
     .enumerate()
     {
         let width = (label.len() as u16).min(inner.right().saturating_sub(x));
         let area = Rect::new(x, y, width, 1);
         let disabled = (form.submitting && action != FormAction::Close)
+            ||(action==FormAction::RefreshConversationV19&&!crate::scoped_pr_collaboration_ui_v17::return_ready_v19(form))
+            ||(action==FormAction::NewIntent&&matches!(&form.purpose,FormPurpose::PrCollaborationV17(state) if state.needs_new_v18())&&!crate::scoped_pr_collaboration_ui_v17::new_action_ready_v18(form))
+            ||(action==FormAction::AcknowledgeActionsV3&&!crate::scoped_actions_publication_ui_v3::acknowledgement_ready(form))
+            ||(action==FormAction::AcknowledgeActionsAcceptanceV5&&!crate::scoped_actions_publication_ui_v3::acceptance_ready_v5(form))
+            ||(action==FormAction::OpenDispatchRunV7&&!crate::scoped_actions_dispatch_ui_v7::run_display_ready_v42(form))
             || (action == FormAction::Submit && form.confirmation_blocked_reason().is_some());
         let token = if disabled {
             SemanticToken::Muted
@@ -2800,9 +3614,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         x += width + 1;
     }
     if !form.error.is_empty() {
+        let (up, down) = if outcome_feedback_v33.is_some() {
+            ("[F7 Info↑]", "[F8 Info↓]")
+        } else {
+            ("[F7 Error↑]", "[F8 Error↓]")
+        };
         for (offset, label, action) in [
-            (0, "[F7 Error↑]", FormAction::ErrorScroll(-3)),
-            (13, "[F8 Error↓]", FormAction::ErrorScroll(3)),
+            (0, up, FormAction::ErrorScroll(-3)),
+            (13, down, FormAction::ErrorScroll(3)),
         ] {
             let area = Rect::new(
                 inner.x + 36.min(inner.width) + offset.min(inner.width.saturating_sub(36)),
@@ -2811,7 +3630,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 1,
             );
             frame.render_widget(
-                Paragraph::new(label).style(theme.style(SemanticToken::Failure)),
+                Paragraph::new(label).style(
+                    if form
+                        .footer_actions()
+                        .iter()
+                        .position(|candidate| candidate == &action)
+                        .is_some_and(|offset| form.focus == form.fields.len() + offset)
+                    {
+                        theme.selected(feedback_token_v25)
+                    } else {
+                        theme.style(feedback_token_v25)
+                    },
+                ),
                 area,
             );
             if area.width > 0 {
@@ -2822,7 +3652,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         }
     }
-    if form.fields.len() > 1 {
+    if form.fields.len() > 1
+        && !(matches!(form.purpose, FormPurpose::ScopedActionsDispatchV7(_))
+            && form.actions_publication.is_some())
+    {
         for (offset, label, action) in [
             (0, "[F5 Fields↑]", FormAction::FieldScroll(-1)),
             (15, "[F6 Fields↓]", FormAction::FieldScroll(1)),
@@ -2895,7 +3728,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             });
         }
     }
-    if form.actions_publication.is_some() || form.metadata_original() {
+    if !matches!(
+        form.purpose,
+        FormPurpose::ScopedActionsV3(_)
+            | FormPurpose::ScopedActionsWorkflowV6(_)
+            | FormPurpose::ScopedActionsDispatchV7(_)
+    ) && (form.actions_publication.is_some() || form.metadata_original())
+    {
         let rect = Rect::new(
             inner.x,
             inner.bottom().saturating_sub(3),

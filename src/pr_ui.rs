@@ -134,6 +134,20 @@ pub fn load(
     cancel: &CancellationToken,
 ) -> Result<PreparedView, String> {
     match action {
+        PrUiAction::StateV68(_) | PrUiAction::StateHistoryV74(_) => Err(
+            "Original State actions require their closed actual source queue; no legacy fallback"
+                .into(),
+        ),
+        PrUiAction::MetadataTextV25(_)
+        | PrUiAction::MetadataMembersV48(_)
+        | PrUiAction::MetadataMembersHistoryV48
+        | PrUiAction::MetadataHistoryV25(_)
+        | PrUiAction::MetadataBaseV32
+        | PrUiAction::MetadataBaseHistoryV32
+        | PrUiAction::IssueLinksV87(_)
+        | PrUiAction::IssueLinkHistoryV87(_) => Err(
+            "Original metadata must use the closed current source queue; no legacy fallback".into(),
+        ),
         PrUiAction::Metadata(command) => {
             crate::pr_metadata_native::open(command, context, provider, database, cancel)
         }

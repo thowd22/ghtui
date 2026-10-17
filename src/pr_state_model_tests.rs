@@ -66,7 +66,7 @@ fn pr_state_model_all_closed_operations_are_local_snapshots_with_mandatory_unkno
         let plan = plan(command);
         assert!(keys.insert(plan.command().key()));
         assert_eq!(plan.command(), command);
-        assert_eq!(plan.target().repository(), "example/repo");
+        assert_eq!(plan.target().repository(), "Example/Repo");
         assert_eq!(plan.target().scope().login, "user-id:42");
         assert_eq!(plan.digest().len(), 64);
         assert_eq!(plan.actor().login.as_deref(), Some("requester"));
@@ -215,10 +215,10 @@ fn pr_state_model_impossible_nochange_and_remote_delete_snapshots_have_readable_
     assert!(delete
         .source_requirements()
         .contains(&PrStateSourceRequirement::RemoteOnlyDeletionTransportDecision));
-    assert!(delete
-        .preview()
-        .join(" ")
-        .contains("not atomic compare-and-delete"));
+    assert!(delete.preview().windows(2).any(|rows| {
+        rows[0] == "e-branch, which also changes a local branch. API read checks are not"
+            && rows[1] == " atomic compare-and-delete."
+    }));
 }
 
 #[test]
@@ -287,7 +287,10 @@ fn pr_state_model_revert_keeps_exact_private_payload_and_safely_escaped_readable
     assert!(!display.contains('\u{202e}'));
     assert!(display.contains("\\u{1b}"));
     assert!(display.contains("\\u{202e}"));
-    assert!(display.contains("original remains merged"));
+    assert!(plan.preview().windows(2).any(|rows| {
+        rows[0] == "Effect: create a new traceable reverting PR; the original remains me"
+            && rows[1] == "rged and the new PR is not automatically merged."
+    }));
     assert!(!format!("{plan:?} {fields:?}").contains("PRIVATE_REVERT_SECRET"));
     let changed = PrStateFields::Revert {
         title: "Revert 雪".into(),
@@ -466,13 +469,14 @@ fn pr_state_model_record_decoder_binds_closed_original_scope_command_comparison_
         &plan,
         json!({"kind":"confirmed","effect":{"kind":"state-set","state":"closed"}}),
     );
+    assert_eq!(initial["repository"], json!("Example/Repo"));
     decode(initial.clone(), &plan).unwrap();
     for (key, value) in [
         ("version", json!(2)),
         ("command", json!("reopen")),
         ("principal", json!(43)),
         ("host", json!("other.invalid")),
-        ("repository", json!("Example/Repo")),
+        ("repository", json!("example/repo")),
         ("pr_node", json!("PR_other")),
         ("pr_number", json!(8)),
         ("original_head", json!("c".repeat(40))),

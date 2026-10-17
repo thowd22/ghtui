@@ -195,7 +195,7 @@ fn verify(
         Err(error) => Err(Box::new(hidden(error))),
     }
 }
-fn preview(plan: &PrMetadataPlan) -> Result<Vec<String>, String> {
+pub(crate) fn preview(plan: &PrMetadataPlan) -> Result<Vec<String>, String> {
     let raw = plan
         .before()
         .iter()

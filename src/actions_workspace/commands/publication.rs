@@ -10,6 +10,10 @@ use crate::actions_write_journal::{
 use serde::Serialize;
 use std::io::{self, Write};
 
+#[cfg(test)]
+#[path = "scoped_publication_v3_tests.rs"]
+mod scoped_publication_v3_tests;
+
 /// Secret/body bindings remain in the redacted, non-serializable intent only.
 #[derive(Clone, Debug)]
 pub struct ActionsPublicationDescriptor {
@@ -71,6 +75,258 @@ impl PreparedDescriptor {
 }
 
 impl ActionsPlan {
+    pub(crate) fn scoped_workflow_owned_bytes_v6(&self) -> GithubResult<usize> {
+        let ActionsOperation::WorkflowState { workflow, .. } = &self.operation else {
+            return Err(plain_error("Not an actual workflow state Plan"));
+        };
+        let workspace = crate::actions_workspace::scoped_read_v1::retained_bytes(&self.workspace)
+            .map_err(|_| plain_error("Workflow Plan model exceeds original bound"))?;
+        let lines = self.preview.capacity() * std::mem::size_of::<String>()
+            + self.preview.iter().map(String::capacity).sum::<usize>();
+        let target = match &self.target {
+            Some(ActionsTarget::Workflow { repository, .. }) => repository.capacity(),
+            _ => 0,
+        };
+        let bytes = std::mem::size_of::<Self>()
+            + workspace
+            + lines
+            + target
+            + workflow.name.capacity()
+            + workflow.path.capacity()
+            + workflow.state.capacity()
+            + self.identity.host.capacity()
+            + self.identity.login.capacity()
+            + self.identity.gh_version.capacity();
+        if bytes > 8 * 1024 * 1024 {
+            return Err(plain_error("Workflow Plan exceeds8MiB"));
+        }
+        Ok(bytes)
+    }
+    pub(crate) fn scoped_workflow_state_descriptor_v6(
+        &self,
+        provider: &GithubProvider,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &std::sync::Arc<crate::providers::gh::ScopedActionsWorkflowV2>,
+        enabled: bool,
+    ) -> GithubResult<ActionsPublicationDescriptor> {
+        use crate::actions_write_journal::{
+            ActionsOriginalRepositoryContextV3, ActionsOriginalWorkflowContextV6,
+        };
+        let ActionsOperation::WorkflowState {
+            workflow,
+            enabled: actual,
+        } = &self.operation
+        else {
+            return Err(plain_error("No actual workflow state operation"));
+        };
+        let reference = source.reference();
+        if *actual != enabled
+            || !original.original_writer_v6(provider)
+            || workflow.id != original.model().id
+            || workflow.path != original.model().path
+            || workflow.state != original.model().state
+            || original.repository().id() != reference.id
+            || original.repository().node() != reference.node_id.as_deref()
+            || self.workspace.repository()? != original.repository().name()
+            || crate::storage::Scope::github(&self.identity.host, self.identity.account_id)
+                .ok()
+                .as_ref()
+                != Some(source.original().scope())
+            || !state_eligible_v6(original.model(), enabled)
+        {
+            return Err(plain_error(
+                "Original workflow source/identity/state/choice differs",
+            ));
+        }
+        let mut descriptor = self
+            .publication_descriptor(provider)?
+            .ok_or_else(|| plain_error("Workflow state has no descriptor"))?;
+        descriptor.intent.context.original_repository_v3 =
+            Some(ActionsOriginalRepositoryContextV3 {
+                repository_id: reference.id,
+                repository_node: original
+                    .repository()
+                    .node()
+                    .ok_or_else(|| plain_error("Original workflow repository node missing"))?
+                    .into(),
+                original_name: reference.last_name.clone(),
+            });
+        descriptor.intent.context.original_workflow_v6 = Some(ActionsOriginalWorkflowContextV6 {
+            workflow_id: workflow.id,
+            node: original
+                .node_v6()
+                .ok_or_else(|| plain_error("Original workflow node missing"))?
+                .into(),
+            path: workflow.path.clone(),
+        });
+        descriptor.intent.context.original_pr_v3 =
+            source.pr_origin_v2().map(|pr| pr.durable_pr_context_v3());
+        descriptor.target = ActionsWriteTarget::from_original_context_v3(
+            source.original().scope(),
+            descriptor.target.target(),
+            &descriptor.intent.context,
+        )
+        .map_err(|_| plain_error("Original workflow aliases invalid"))?;
+        descriptor
+            .intent
+            .fingerprint(&descriptor.target)
+            .map_err(|_| plain_error("Original workflow metadata differs"))?;
+        Ok(descriptor)
+    }
+    pub(crate) fn scoped_retained_bytes_v3(&self) -> GithubResult<usize> {
+        let ActionsOperation::Run { run, action } = &self.operation else {
+            return Err(plain_error(
+                "No bounded original-source presentation for this operation",
+            ));
+        };
+        if !matches!(
+            action,
+            RunMutation::Cancel
+                | RunMutation::ForceCancel
+                | RunMutation::DeleteRun
+                | RunMutation::DeleteLogs
+                | RunMutation::RerunAll { .. }
+                | RunMutation::RerunFailed { .. }
+                | RunMutation::RerunJob { .. }
+        ) {
+            return Err(plain_error(
+                "No bounded original run presentation for this operation",
+            ));
+        }
+        let workspace = crate::actions_workspace::scoped_read_v1::retained_bytes(&self.workspace)
+            .map_err(plain_error)?;
+        let preview = self.preview.iter().try_fold(
+            self.preview
+                .capacity()
+                .saturating_mul(std::mem::size_of::<String>()),
+            |sum, line| {
+                sum.checked_add(line.capacity())
+                    .ok_or_else(|| plain_error("Original Actions presentation allocation overflow"))
+            },
+        )?;
+        let target = match &self.target {
+            Some(ActionsTarget::Run { repository, .. }) => repository.capacity(),
+            _ => 0,
+        };
+        let bytes = std::mem::size_of::<Self>()
+            .saturating_add(workspace)
+            .saturating_add(crate::actions_workspace::scoped_read_v1::run_owned_bytes(
+                run,
+            ))
+            .saturating_add(preview)
+            .saturating_add(target)
+            .saturating_add(self.identity.host.capacity())
+            .saturating_add(self.identity.login.capacity())
+            .saturating_add(self.identity.gh_version.capacity());
+        if bytes > crate::scoped_actions_v1::PREPARED_LIMIT_V1 {
+            return Err(plain_error(
+                "Original Actions Plan exceeds8MiB newly prepared allocation",
+            ));
+        }
+        Ok(bytes)
+    }
+    /// Actual current source facts are mandatory for the scoped adapter. Public
+    /// preview/target labels or restored metadata cannot create this descriptor.
+    pub(crate) fn scoped_cancel_descriptor_v3(
+        &self,
+        provider: &GithubProvider,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &std::sync::Arc<crate::providers::gh::ScopedActionsRunTargetV1>,
+    ) -> GithubResult<ActionsPublicationDescriptor> {
+        self.scoped_run_descriptor_v4(provider, source, original, None, RunMutation::Cancel)
+    }
+    pub(crate) fn scoped_run_descriptor_v4(
+        &self,
+        provider: &GithubProvider,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &std::sync::Arc<crate::providers::gh::ScopedActionsRunTargetV1>,
+        selected_job: Option<&std::sync::Arc<crate::providers::gh::ScopedActionsJobTargetV1>>,
+        requested: RunMutation,
+    ) -> GithubResult<ActionsPublicationDescriptor> {
+        use crate::actions_write_journal::{
+            ActionsOriginalRepositoryContextV3, ActionsOriginalRunContextV3,
+        };
+        let ActionsOperation::Run { run, action } = &self.operation else {
+            return Err(plain_error(
+                "No reviewed original-source adapter for this Actions operation",
+            ));
+        };
+        let supported = match requested {
+            RunMutation::Cancel
+            | RunMutation::ForceCancel
+            | RunMutation::DeleteRun
+            | RunMutation::DeleteLogs
+            | RunMutation::RerunAll { .. }
+            | RunMutation::RerunFailed { .. } => selected_job.is_none(),
+            RunMutation::RerunJob { job_id, .. } => selected_job.is_some_and(|job| {
+                job.id() == job_id
+                    && job.run().original_writer_v3(provider)
+                    && job.run().same_watch_pin_v2(original)
+            }),
+            _ => false,
+        };
+        if !supported || *action != requested {
+            return Err(plain_error(
+                "Private original run command/options/member differ",
+            ));
+        }
+        let reference = source.reference();
+        let node = original
+            .node_v2()
+            .ok_or_else(|| plain_error("Actual original run node unavailable"))?;
+        let repository_node = original
+            .repository_node()
+            .ok_or_else(|| plain_error("Actual original repository node unavailable"))?;
+        if !original.original_writer_v3(provider)
+            || original.repository_id() != reference.id
+            || reference.node_id.as_deref() != Some(repository_node)
+            || source.original().scope().host != self.identity.host
+            || crate::storage::Scope::github(&self.identity.host, self.identity.account_id)
+                .ok()
+                .as_ref()
+                != Some(source.original().scope())
+            || self.workspace.repository()? != original.repository()
+            || run.id != original.run().id
+            || run.workflow_id != original.run().workflow_id
+            || run.attempt != original.run().attempt
+            || run.head_sha != original.run().head_sha
+            || run.event != original.run().event
+            || run.status != original.run().status
+            || run.conclusion != original.run().conclusion
+        {
+            return Err(plain_error(
+                "Original source and private Cancel run/attempt/head/target differ",
+            ));
+        }
+        let mut descriptor = self
+            .publication_descriptor(provider)?
+            .ok_or_else(|| plain_error("Original Cancel has no remote descriptor"))?;
+        descriptor.intent.context.original_repository_v3 =
+            Some(ActionsOriginalRepositoryContextV3 {
+                repository_id: reference.id,
+                repository_node: repository_node.into(),
+                original_name: reference.last_name.clone(),
+            });
+        descriptor.intent.context.original_run_v3 = Some(ActionsOriginalRunContextV3 {
+            run_node: node.into(),
+            workflow_id: run.workflow_id,
+            check_suite_id: original.suite_v3(),
+        });
+        descriptor.intent.context.original_pr_v3 = source
+            .pr_origin_v2()
+            .map(|origin| origin.durable_pr_context_v3());
+        descriptor.target = ActionsWriteTarget::from_original_context_v3(
+            source.original().scope(),
+            descriptor.target.target(),
+            &descriptor.intent.context,
+        )
+        .map_err(|_| plain_error("Exact original/current/numeric Actions aliases are invalid"))?;
+        descriptor
+            .intent
+            .fingerprint(&descriptor.target)
+            .map_err(|_| plain_error("Original Cancel descriptor is inconsistent"))?;
+        Ok(descriptor)
+    }
     /// Pure: no subprocess, publication, persistence, or secret-value diagnostics.
     pub fn publication_descriptor(
         &self,
@@ -445,6 +701,17 @@ pub enum RunTransitionObservation {
 /// These are transient presentation facts, not correlated completion claims.
 #[derive(Clone, Debug)]
 pub enum ActionsAcceptedObservation {
+    WorkflowState {
+        workflow_id: u64,
+        desired_enabled: bool,
+        observed_state: String,
+    },
+    RunDeletionAcceptance {
+        run_id: u64,
+        requested_attempt: u64,
+        head_sha: String,
+        availability: ScopedDeletedRunAvailabilityV5,
+    },
     Run {
         run_id: u64,
         requested_attempt: u64,
@@ -506,6 +773,8 @@ impl ActionsPlan {
                     resource_id: Some(run.id),
                     observed_attempt: None,
                     observed_run_id: None,
+                    original_dispatch_run_v7: None,
+                    workflow_remote_v9: None,
                 },
             });
         }
@@ -548,6 +817,8 @@ impl ActionsPlan {
             resource_id: Some(run.id),
             observed_attempt: Some(observed.attempt),
             observed_run_id: None,
+            original_dispatch_run_v7: None,
+            workflow_remote_v9: None,
         };
         let cancelling = matches!(action, RunMutation::Cancel | RunMutation::ForceCancel);
         if cancelling && observed.status == "completed" && observed.conclusion == "cancelled" {
@@ -610,6 +881,8 @@ impl ActionsPlan {
                 resource_id: Some(definition.workflow.id),
                 observed_attempt: outcome.run.as_ref().map(|run| run.attempt),
                 observed_run_id: outcome.run.as_ref().map(|run| run.id),
+                original_dispatch_run_v7: None,
+                workflow_remote_v9: None,
             },
             observation: ActionsAcceptedObservation::Dispatch {
                 workflow_id: definition.workflow.id,
@@ -663,6 +936,8 @@ impl ActionsPlan {
                 resource_id: Some(run.id),
                 observed_attempt: Some(run.attempt),
                 observed_run_id: None,
+                original_dispatch_run_v7: None,
+                workflow_remote_v9: None,
             },
             observation: ActionsAcceptedObservation::Deployment {
                 run_id: run.id,

@@ -307,8 +307,9 @@ impl ScopedReviewPreviewV2 {
             })
             .ok_or_else(|| refused("Review read count exceeds original bounded pool"))?;
         let provider = provider.clone().with_catalogue_read_deadline(deadline);
-        let mut session = provider
-            .begin_repository_catalogue_access(intent.source.source(), access, cancel)
+        let mut session = intent
+            .source
+            .begin_access(&provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         original_scope(intent, &identity, cancel, deadline)?;
@@ -334,9 +335,13 @@ impl ScopedReviewPreviewV2 {
         let parent = measured
             .pr_inline_original_parent_v1(current, &intent.files.observed, resources, cancel)
             .map_err(source_failure)?;
-        let local =
-            ResourceLocalGuard::capture(database, &intent.source, &identity, parent.summary())
-                .map_err(source_failure)?;
+        let local = ResourceLocalGuard::capture_boundary_v13(
+            database,
+            intent.source.local_boundary(),
+            &identity,
+            parent.summary(),
+        )
+        .map_err(source_failure)?;
         let comments = rehydrate(
             &request, &originals, &measured, current, &identity, &local, database, images, cancel,
             deadline,
@@ -480,7 +485,7 @@ impl ScopedReviewPreviewV2 {
         let closed = session
             .close_with_guard(cancel, || {
                 private_clock(cancel, deadline)?;
-                local.validate(database, &intent.source)?;
+                local.validate_boundary_v13(database, intent.source.local_boundary())?;
                 request.validate_lineage_v12(database)?;
                 private_clock(cancel, deadline)
             })
@@ -651,7 +656,7 @@ pub(super) fn rehydrate_values_v3(
         let observed = provider
             .pr_immutable_file_images_v1(current, identity, original, limits, cancel, |_| {
                 private_clock(cancel, deadline)?;
-                local.validate(database, &intent.source)?;
+                local.validate_boundary_v13(database, intent.source.local_boundary())?;
                 private_clock(cancel, deadline)
             })
             .map_err(source_failure)?;

@@ -438,7 +438,7 @@ impl ScopedReviewOperationSourceV3 {
     /// publication permission. Real Confirm must reissue the entire phase.
     pub fn validate_local(&self, database: &Path) -> Result<(), ScopedReviewFailureV2> {
         self.local
-            .validate(database, &self.intent.original.source)
+            .validate_boundary_v13(database, self.intent.original.source.local_boundary())
             .map_err(source_failure)
     }
     pub fn disabled_reason(&self) -> Option<&'static str> {
@@ -569,8 +569,10 @@ impl ScopedReviewOperationSourceV3 {
             )
             .ok_or_else(|| refused("Original operation read count exceeds bounds"))?;
         let issuer = provider.clone().with_catalogue_read_deadline(deadline);
-        let mut session = issuer
-            .begin_repository_catalogue_access(intent.original.source.source(), access, cancel)
+        let mut session = intent
+            .original
+            .source
+            .begin_access(&issuer, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         original_scope(&intent.original, &identity, cancel, deadline)?;
@@ -595,9 +597,9 @@ impl ScopedReviewOperationSourceV3 {
                 cancel,
             )
             .map_err(source_failure)?;
-        let local = ResourceLocalGuard::capture(
+        let local = ResourceLocalGuard::capture_boundary_v13(
             database,
-            &intent.original.source,
+            intent.original.source.local_boundary(),
             &identity,
             parent.summary(),
         )
@@ -837,9 +839,10 @@ impl ScopedReviewOperationSourceV3 {
         let closed = session
             .close_with_guard(cancel, || {
                 private_clock(cancel, deadline)?;
-                result
-                    .local
-                    .validate(database, &result.intent.original.source)?;
+                result.local.validate_boundary_v13(
+                    database,
+                    result.intent.original.source.local_boundary(),
+                )?;
                 if let Some(revision) = &result.lineage_v12 {
                     revision
                         .validate(database, &base_v12)

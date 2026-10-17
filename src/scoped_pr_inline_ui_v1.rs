@@ -113,6 +113,17 @@ impl InlineComposerRequestV1 {
     pub fn preview(&self) -> Option<&Arc<ScopedInlinePreviewV1>> {
         self.preview.as_ref()
     }
+    /// Exact original Form allocation + input epoch; a stale owner cannot drop
+    /// a newer edit/Preview or another Form merely sharing this source.
+    pub(crate) fn owns_presentation_v14(&self, form: &Form) -> bool {
+        let FormPurpose::PrInline(state) = &form.purpose else {
+            return false;
+        };
+        Arc::ptr_eq(&self.ticket, &state.ticket)
+            && state.revision == Some(self.revision)
+            && Arc::ptr_eq(&self.intent, &state.intent)
+            && same_preview(self.preview.as_ref(), state.preview.as_ref())
+    }
     pub fn matches_form(&self, form: &Form) -> bool {
         let FormPurpose::PrInline(state) = &form.purpose else {
             return false;

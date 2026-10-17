@@ -366,6 +366,8 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         KeyCode::Enter => workspace.selected_action(),
         KeyCode::Esc | KeyCode::Char('b') => Some(ActionsAction::Back),
         KeyCode::Char('r') => Some(ActionsAction::Refresh),
+        KeyCode::Char('P') => Some(ActionsAction::PublicationList),
+        KeyCode::Char('E') => Some(ActionsAction::EditWorkflowLocalV9),
         KeyCode::Char('w') => Some(ActionsAction::Watch),
         KeyCode::Char('R') => Some(ActionsAction::View(ActionsView::Runs)),
         KeyCode::Char(key @ ('(' | ')' | 'A' | 'F' | 'I')) => {
@@ -401,6 +403,17 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
             crate::actions_workspace::ActionsCommand::SearchLogs,
         )),
         KeyCode::Char('c') => Some(ActionsAction::View(ActionsView::Caches)),
+        KeyCode::Char('C')
+            if workspace.controls.iter().any(|control| {
+                control.action
+                    == ActionsAction::Compose(crate::actions_workspace::ActionsCommand::Cancel)
+                    && control.disabled_reason.is_none()
+            }) =>
+        {
+            Some(ActionsAction::Compose(
+                crate::actions_workspace::ActionsCommand::Cancel,
+            ))
+        }
         KeyCode::Char('S') => Some(ActionsAction::View(ActionsView::Secrets)),
         KeyCode::Char('v') => Some(ActionsAction::View(ActionsView::Variables)),
         KeyCode::Char('e') => Some(ActionsAction::View(ActionsView::Environments)),

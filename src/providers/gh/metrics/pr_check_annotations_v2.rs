@@ -112,6 +112,37 @@ impl fmt::Debug for PrCheckAnnotationsReadV2 {
     }
 }
 impl PrCheckAnnotationsReadV2 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        let mut n = b::sum([
+            b::owner::<Self>(),
+            self.origin.workflow_owned_bytes_v9()?,
+            b::identity(&self.identity)?,
+            self.check_node.as_ref().map_or(0, String::capacity),
+            match &self.target {
+                Some(target) => target.workflow_owned_bytes_v9()?,
+                None => 0,
+            },
+            b::vector(&self.rows)?,
+            b::lines(&self.coverage.reasons)?,
+        ])?;
+        for row in &self.rows {
+            n = n
+                .checked_add(b::strings(
+                    [
+                        row.path.as_ref(),
+                        row.level.as_ref(),
+                        row.title.as_ref(),
+                        row.message.as_ref(),
+                        row.details.as_ref(),
+                    ]
+                    .into_iter()
+                    .flatten(),
+                )?)?
+                .checked_add(b::lines(&row.display)?)?;
+        }
+        Some(n)
+    }
     pub fn origin(&self) -> &Arc<PrCheckRunObservation> {
         &self.origin
     }

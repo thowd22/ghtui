@@ -1,6 +1,12 @@
 //! Required publication verification and optional refresh are distinct worker phases.
 use super::{publication::ActionsDisposition, *};
 use crate::actions_write_journal::{ActionsReceipt, ActionsReceiptKind};
+use crate::providers::gh::{
+    ActionsInvocationFailureV3, ScopedActionsRunTargetV1, ScopedRunInvocationRefV3,
+};
+use std::{sync::Arc, time::Instant};
+mod native_dispatch_v7;
+mod native_workflow_remote_v9;
 
 /// The durable caller records this typed disposition before optional follow-up reads.
 #[derive(Clone, Debug)]
@@ -35,10 +41,326 @@ fn verified_receipt(kind: ActionsReceiptKind, resource_id: Option<u64>) -> Actio
             resource_id,
             observed_attempt: None,
             observed_run_id: None,
+            original_dispatch_run_v7: None,
+            workflow_remote_v9: None,
         },
     }
 }
+fn adopt_run_result_v3(
+    workspace: &mut ActionsWorkspace,
+    repository: &str,
+    run_id: u64,
+    updated: Option<WorkflowRun>,
+) {
+    if let Some(updated) = updated {
+        for item in &mut workspace.runs {
+            if item.repository == repository && item.run.id == updated.id {
+                item.run = updated.clone();
+            }
+        }
+        if let Some(page) = &mut workspace.run {
+            if page.attempt.run.attempt != updated.attempt {
+                page.attempt.jobs.clear();
+                page.selected_job = None;
+                page.logs = None;
+                page.annotations.clear();
+            }
+            page.attempt.run = updated;
+        }
+    } else {
+        workspace
+            .runs
+            .retain(|item| item.repository != repository || item.run.id != run_id);
+        workspace.run = None;
+        workspace.view = ActionsView::Runs;
+    }
+}
+fn finish_publication_v3(
+    mut workspace: ActionsWorkspace,
+    message: String,
+    disposition: ActionsDisposition,
+    refresh: PostPublicationRefresh,
+) -> ActionsPublication {
+    workspace.reconciliation_target = None;
+    workspace.observation = None;
+    workspace.fetched_at = Some(now());
+    workspace.prepare_rows();
+    ActionsPublication {
+        message,
+        workspace,
+        disposition,
+        refresh,
+    }
+}
 impl ActionsPlan {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn publish_workflow_guarded_v6<F>(
+        &self,
+        original_provider: &GithubProvider,
+        measured: &GithubProvider,
+        captures: &mut crate::providers::gh::PostWriteCaptureAllowanceV2,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &Arc<crate::providers::gh::ScopedActionsWorkflowV2>,
+        attempt_id: i64,
+        enabled: bool,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        before_write: F,
+    ) -> Result<ActionsPublication, ActionsInvocationFailureV3>
+    where
+        F: FnOnce(crate::providers::gh::ScopedWorkflowInvocationV6<'_>) -> GithubResult<()>,
+    {
+        if attempt_id <= 0 {
+            return Err(ActionsInvocationFailureV3::NotStarted(plain_error(
+                "Actual workflow journal attempt required",
+            )));
+        }
+        self.scoped_workflow_state_descriptor_v6(original_provider, source, original, enabled)
+            .map_err(ActionsInvocationFailureV3::NotStarted)?;
+        let outcome = original_provider.mutate_workflow_enabled_guarded_v6(
+            measured,
+            captures,
+            &self.identity,
+            original,
+            enabled,
+            cancel,
+            deadline,
+            before_write,
+        )?;
+        if !Arc::ptr_eq(outcome.original(), original) || outcome.enabled() != enabled {
+            return Err(ActionsInvocationFailureV3::WriteMayHaveStarted(
+                plain_error("Original workflow receipt context changed"),
+            ));
+        }
+        let receipt = ActionsReceipt {
+            kind: ActionsReceiptKind::WorkflowState,
+            resource_id: Some(original.model().id),
+            observed_attempt: None,
+            observed_run_id: None,
+            original_dispatch_run_v7: None,
+            workflow_remote_v9: None,
+        };
+        let disposition = if outcome.state_observed() {
+            ActionsDisposition::VerifiedEffect { receipt }
+        } else {
+            ActionsDisposition::Accepted {
+                receipt,
+                observation: crate::actions_workspace::ActionsAcceptedObservation::WorkflowState {
+                    workflow_id: original.model().id,
+                    desired_enabled: enabled,
+                    observed_state: outcome.observed().model().state.clone(),
+                },
+            }
+        };
+        let updated = outcome.observed().model();
+        // The actual scoped Form owns the original immutable Definition.
+        // This return workspace is metadata only: never clone its YAML/jobs or
+        // expand every YAML/matrix row merely to discard them in native publish.
+        // Legacy None keeps its existing full-workspace publication path.
+        let mut workspace = ActionsWorkspace::new(
+            self.identity.clone(),
+            vec![original.repository().name().into()],
+        );
+        workspace.view = ActionsView::PublicationInspection;
+        workspace.publication_inspection = Some(ActionsPublicationInspectionPage {
+            attempt_id,
+            heading: format!("Original workflow publication #{attempt_id} • actual state observation"),
+            lines: vec![format!("Workflow {} • path {} • state {}", updated.id, updated.path, updated.state),
+                "HTTP204 is acceptance; current observed state is not completion or causation. No YAML rows or new command authority in this result.".into()],
+            acknowledgement: None,
+        });
+        Ok(finish_publication_v3(
+            workspace,
+            if outcome.state_observed() {
+                "GitHub accepted workflow state request; exact same workflow state observed • causation not claimed".into()
+            } else {
+                "HTTP204 accepted • requested workflow state not yet observed • no retry".into()
+            },
+            disposition,
+            PostPublicationRefresh::None,
+        ))
+    }
+    /// New whole-run controls reuse the SAME actual invocation and disposition
+    /// body. Only actual private HTTP204 + exact run lookup + repository close
+    /// can construct deletion acceptance; no bounded catalogue absence proof.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn publish_run_guarded_v5<F>(
+        &self,
+        original_provider: &GithubProvider,
+        measured: &GithubProvider,
+        captures: &mut crate::providers::gh::PostWriteCaptureAllowanceV2,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &Arc<ScopedActionsRunTargetV1>,
+        action: RunMutation,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        before_write: F,
+    ) -> Result<ActionsPublication, ActionsInvocationFailureV3>
+    where
+        F: FnOnce(ScopedRunInvocationRefV3<'_>) -> GithubResult<()>,
+    {
+        if !matches!(
+            action,
+            RunMutation::ForceCancel | RunMutation::DeleteRun | RunMutation::DeleteLogs
+        ) {
+            return Err(ActionsInvocationFailureV3::NotStarted(plain_error(
+                "No scoped whole-run control adapter",
+            )));
+        }
+        self.scoped_run_descriptor_v4(original_provider, source, original, None, action)
+            .map_err(ActionsInvocationFailureV3::NotStarted)?;
+        let repository = self
+            .workspace
+            .repository()
+            .map_err(ActionsInvocationFailureV3::NotStarted)?;
+        let closed = original_provider.mutate_run_guarded_v5(
+            measured,
+            captures,
+            &self.identity,
+            original,
+            repository,
+            action,
+            source.original().source(),
+            cancel,
+            deadline,
+            before_write,
+        )?;
+        let disposition = if action == RunMutation::DeleteRun {
+            if !closed.deletion_accepted() {
+                return Err(ActionsInvocationFailureV3::WriteMayHaveStarted(
+                    plain_error("Actual fixed original HTTP204 acceptance unavailable"),
+                ));
+            }
+            ActionsDisposition::Accepted {
+                receipt: ActionsReceipt {
+                    kind: ActionsReceiptKind::RunDeletionAccepted,
+                    resource_id: Some(original.run().id),
+                    observed_attempt: Some(original.run().attempt),
+                    observed_run_id: None,
+                    original_dispatch_run_v7: None,
+                    workflow_remote_v9: None,
+                },
+                observation:
+                    crate::actions_workspace::ActionsAcceptedObservation::RunDeletionAcceptance {
+                        run_id: original.run().id,
+                        requested_attempt: original.run().attempt,
+                        head_sha: original.run().head_sha.clone(),
+                        availability: closed.deletion_availability().ok_or_else(|| {
+                            ActionsInvocationFailureV3::WriteMayHaveStarted(plain_error(
+                                "Actual original lookup/repository closure unavailable",
+                            ))
+                        })?,
+                    },
+            }
+        } else {
+            self.run_disposition(closed.outcome())
+                .map_err(ActionsInvocationFailureV3::WriteMayHaveStarted)?
+        };
+        let outcome = closed.into_outcome();
+        let mut workspace = self.workspace.clone();
+        // Retaining the exact original presentation for deletion does NOT claim
+        // it still exists; the acceptance message/typed availability is explicit.
+        if action != RunMutation::DeleteRun {
+            adopt_run_result_v3(&mut workspace, repository, original.run().id, outcome.run);
+        }
+        Ok(finish_publication_v3(
+            workspace,
+            outcome.explanation,
+            disposition,
+            PostPublicationRefresh::None,
+        ))
+    }
+    /// Same private Plan/disposition/update model and same provider mutation
+    /// body; this adapter grants no authority to public target/preview labels.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn publish_run_guarded_v3<F>(
+        &self,
+        original_provider: &GithubProvider,
+        measured: &GithubProvider,
+        captures: &mut crate::providers::gh::PostWriteCaptureAllowanceV2,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &Arc<ScopedActionsRunTargetV1>,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        before_write: F,
+    ) -> Result<ActionsPublication, ActionsInvocationFailureV3>
+    where
+        F: FnOnce(ScopedRunInvocationRefV3<'_>) -> GithubResult<()>,
+    {
+        self.publish_run_guarded_v4(
+            original_provider,
+            measured,
+            captures,
+            source,
+            original,
+            None,
+            RunMutation::Cancel,
+            cancel,
+            deadline,
+            before_write,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn publish_run_guarded_v4<F>(
+        &self,
+        original_provider: &GithubProvider,
+        measured: &GithubProvider,
+        captures: &mut crate::providers::gh::PostWriteCaptureAllowanceV2,
+        source: &crate::scoped_actions_v1::ScopedActionsSourceV1,
+        original: &Arc<ScopedActionsRunTargetV1>,
+        selected_job: Option<&Arc<ScopedActionsJobTargetV1>>,
+        action: RunMutation,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        before_write: F,
+    ) -> Result<ActionsPublication, ActionsInvocationFailureV3>
+    where
+        F: FnOnce(ScopedRunInvocationRefV3<'_>) -> GithubResult<()>,
+    {
+        self.scoped_run_descriptor_v4(original_provider, source, original, selected_job, action)
+            .map_err(ActionsInvocationFailureV3::NotStarted)?;
+        let repository = self
+            .workspace
+            .repository()
+            .map_err(ActionsInvocationFailureV3::NotStarted)?;
+        let outcome = if action == RunMutation::Cancel {
+            original_provider.mutate_run_guarded_v3(
+                measured,
+                captures,
+                &self.identity,
+                original,
+                repository,
+                action,
+                cancel,
+                deadline,
+                before_write,
+            )
+        } else {
+            original_provider.mutate_run_guarded_v4(
+                measured,
+                captures,
+                &self.identity,
+                original,
+                selected_job,
+                repository,
+                action,
+                cancel,
+                deadline,
+                before_write,
+            )
+        }?;
+        let disposition = self
+            .run_disposition(&outcome)
+            .map_err(ActionsInvocationFailureV3::WriteMayHaveStarted)?;
+        let mut workspace = self.workspace.clone();
+        adopt_run_result_v3(&mut workspace, repository, original.run().id, outcome.run);
+        Ok(finish_publication_v3(
+            workspace,
+            outcome.explanation,
+            disposition,
+            PostPublicationRefresh::None,
+        ))
+    }
     /// Caller must first persist and claim the matching descriptor's single-use permit.
     /// Local browsing/export bypasses that remote journal, not its normal confirmations.
     pub fn publish(
@@ -67,28 +389,7 @@ impl ActionsPlan {
             ActionsOperation::Run { run, action } => {
                 let outcome = gh.mutate_run(identity, &repository, run, *action, cancel)?;
                 let disposition = self.run_disposition(&outcome)?;
-                if let Some(updated) = outcome.run {
-                    for item in &mut workspace.runs {
-                        if item.repository == repository && item.run.id == updated.id {
-                            item.run = updated.clone();
-                        }
-                    }
-                    if let Some(page) = &mut workspace.run {
-                        if page.attempt.run.attempt != updated.attempt {
-                            page.attempt.jobs.clear();
-                            page.selected_job = None;
-                            page.logs = None;
-                            page.annotations.clear();
-                        }
-                        page.attempt.run = updated;
-                    }
-                } else {
-                    workspace
-                        .runs
-                        .retain(|item| item.repository != repository || item.run.id != run.id);
-                    workspace.run = None;
-                    workspace.view = ActionsView::Runs;
-                }
+                adopt_run_result_v3(&mut workspace, &repository, run.id, outcome.run);
                 (
                     outcome.explanation,
                     disposition,
@@ -209,16 +510,12 @@ impl ActionsPlan {
                 (outcome.message, disposition, PostPublicationRefresh::None)
             }
         };
-        workspace.reconciliation_target = None;
-        workspace.observation = None;
-        workspace.fetched_at = Some(now());
-        workspace.prepare_rows();
-        Ok(ActionsPublication {
-            message,
+        Ok(finish_publication_v3(
             workspace,
+            message,
             disposition,
             refresh,
-        })
+        ))
     }
 }
 impl ActionsPublication {

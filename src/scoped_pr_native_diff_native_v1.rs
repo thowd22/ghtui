@@ -4,6 +4,7 @@ use crate::{
     active_remote_scope_v1::ActiveRemoteScopeV1,
     app::{App, Overlay, View},
     native_diff_operation_v3::NativeDiffCheckV3,
+    pr_read_origin_v13::PrReadOriginV13,
     providers::{
         gh::{GithubProvider, PrImmutableFileLimitsV1, RepositoryCatalogueAccessLimits},
         runner::CancellationToken,
@@ -20,7 +21,6 @@ use crate::{
             native::PrResourceCompletionV1,
         },
     },
-    storage::CatalogueIntentSource,
 };
 use std::{
     path::Path,
@@ -35,12 +35,17 @@ enum WorkKind {
     #[cfg(test)]
     ActualWorkerPanic(Arc<PrNativeWorkV1>),
     Images(Box<Mutex<Option<PrImmutableImageInputV1>>>),
+    PersonalImages {
+        input: Arc<immutable_images::personal_v13::PersonalImageInputV13>,
+        open_native: bool,
+    },
+    PersonalLoaded(Arc<immutable_images::personal_v13::PersonalLoadedInputV13>),
     Retained(Arc<ClosedPrFileImagesV1>),
     Projection(Arc<NativeDiffRequestV1<ScopedPrNativeSourceV1>>),
 }
 pub struct PrNativeWorkV1 {
     kind: WorkKind,
-    source: Arc<CatalogueIntentSource>,
+    source: PrReadOriginV13,
     active: Arc<ActiveRemoteScopeV1>,
     navigation: Arc<scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>,
     selected_pr: Option<crate::github_workspace::PrKey>,
@@ -61,12 +66,12 @@ pub fn width(app: &App) -> u16 {
 fn owners(
     app: &App,
 ) -> Option<(
-    Arc<CatalogueIntentSource>,
+    PrReadOriginV13,
     Arc<ActiveRemoteScopeV1>,
     Arc<scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>,
 )> {
     Some((
-        app.remote_scope_source.clone()?,
+        PrReadOriginV13::capture(app).ok()?,
         app.remote_scope.clone()?,
         app.github.as_ref()?.scoped_pr_navigation.clone()?,
     ))
@@ -99,6 +104,10 @@ pub fn open_files(app: &mut App) {
     {
         return;
     }
+    if app.personal_pr_source_v13.is_some() || app.notification_pr_source_v63.is_some() {
+        open_personal_images(app, true);
+        return;
+    }
     let selected = app.selected;
     let input = app
         .github
@@ -112,6 +121,25 @@ pub fn open_files(app: &mut App) {
                 "Choose one loaded PR file/patch row for exact native review; no request sent"
                     .into()
         }
+    }
+}
+pub(crate) fn open_personal_images(app: &mut App, open_native: bool) {
+    match immutable_images::personal_v13::PersonalImageInputV13::capture(
+        app,
+        app.selected,
+        open_native.then_some(width(app)),
+    ) {
+        Ok(input) => capture(app, WorkKind::PersonalImages { input, open_native }),
+        Err(reason) => app.status = reason,
+    }
+}
+pub(crate) fn prepare_personal_loaded(
+    app: &mut App,
+    action: scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1,
+) {
+    match immutable_images::personal_v13::PersonalLoadedInputV13::capture(app, action) {
+        Ok(input) => capture(app, WorkKind::PersonalLoaded(input)),
+        Err(reason) => app.status = reason,
     }
 }
 pub fn open_images(app: &mut App) {
@@ -173,12 +201,17 @@ pub fn submission_failed(app: &mut App, work: &Arc<PrNativeWorkV1>) {
     app.hits.clear();
 }
 impl PrNativeWorkV1 {
+    /// Transport routing from this actual captured closed origin, never from a
+    /// different current surface or a catalogue-only fallback.
+    pub fn host(&self) -> &str {
+        &self.source.scope().host
+    }
+    pub(crate) fn bounded_origin_v63(&self) -> bool {
+        self.source.requires_original_bounds_v63()
+    }
     fn original_pair(&self, app: &App) -> bool {
         app.view == View::Inbox
-            && app
-                .remote_scope_source
-                .as_ref()
-                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+            && self.source.matches_source(app)
             && app
                 .remote_scope
                 .as_ref()
@@ -197,6 +230,9 @@ impl PrNativeWorkV1 {
             || self.selected != app.selected
             || self.width != width(app)
             || app.overlay.is_some()
+            || (self.source.is_personal() && crate::personal_pr_entry_v13::newer_intent(app))
+            || (self.source.is_notification_v63()
+                && crate::notifications_native_v63::newer_intent(app))
         {
             return false;
         }
@@ -210,6 +246,8 @@ impl PrNativeWorkV1 {
                         .as_ref()
                         .is_some_and(|github| github.pr.is_none())
             }
+            WorkKind::PersonalImages { input, .. } => input.matches(app),
+            WorkKind::PersonalLoaded(input) => input.matches(app),
             WorkKind::Retained(proof) => {
                 proof.owns(app)
                     && app
@@ -250,17 +288,55 @@ impl std::fmt::Debug for PrNativeOwnerV1 {
     }
 }
 impl PrNativeOwnerV1 {
+    #[cfg(test)]
     pub(crate) fn new(work: Arc<PrNativeWorkV1>) -> Result<Arc<Self>, String> {
+        Self::new_bound(work, None)
+    }
+    pub(crate) fn new_for_provider(
+        work: Arc<PrNativeWorkV1>,
+        provider: &GithubProvider,
+    ) -> Result<Arc<Self>, String> {
+        Self::new_bound(work, provider.original_pr_read_deadline_v13())
+    }
+    fn new_bound(
+        work: Arc<PrNativeWorkV1>,
+        issuer_deadline: Option<Instant>,
+    ) -> Result<Arc<Self>, String> {
+        let (cancel, deadline) = match &work.kind {
+            WorkKind::PersonalImages { input, .. } => {
+                input.check()?;
+                (input.cancellation().clone(), input.deadline())
+            }
+            WorkKind::PersonalLoaded(input) => {
+                input.check()?;
+                (input.cancellation().clone(), input.deadline())
+            }
+            _ => (
+                CancellationToken::default(),
+                Instant::now()
+                    .checked_add(Duration::from_secs(30))
+                    .ok_or("Original PR native deadline unavailable")?,
+            ),
+        };
+        let deadline = if work.source.requires_original_bounds_v63() {
+            issuer_deadline.map_or(deadline, |issuer| issuer.min(deadline))
+        } else {
+            deadline
+        };
+        if cancel.is_cancelled() || Instant::now() >= deadline {
+            return Err("Original PR native queued operation expired before submission".into());
+        }
         Ok(Arc::new(Self {
             work,
-            cancel: Default::default(),
-            deadline: Instant::now()
-                .checked_add(Duration::from_secs(30))
-                .ok_or("Original PR native deadline unavailable")?,
+            cancel,
+            deadline,
         }))
     }
     pub fn cancellation(&self) -> &CancellationToken {
         &self.cancel
+    }
+    pub(crate) fn work_is_bounded_v63(&self) -> bool {
+        self.work.source.requires_original_bounds_v63()
     }
     pub fn expired(&self) -> bool {
         self.cancel.is_cancelled() || Instant::now() >= self.deadline
@@ -276,7 +352,7 @@ impl PrNativeOwnerV1 {
         &self,
     ) -> (
         Arc<ActiveRemoteScopeV1>,
-        Arc<CatalogueIntentSource>,
+        PrReadOriginV13,
         Arc<scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>,
     ) {
         (
@@ -287,11 +363,22 @@ impl PrNativeOwnerV1 {
     }
 }
 enum PreparedKind {
+    PersonalLoaded(immutable_images::personal_v13::PersonalLoadedResultV13),
+    Personal {
+        images: Result<
+            Box<immutable_images::personal_v13::PersonalImageResultV13>,
+            PersonalImageFailureV13,
+        >,
+        state: Option<Box<PrNativeStateV1>>,
+    },
     Opened {
         images: Option<Box<PrImmutableImageResultV1>>,
         state: Box<PrNativeStateV1>,
     },
     Projected(Box<PreparedNativeDiffV1<ScopedPrNativeSourceV1>>),
+}
+struct PersonalImageFailureV13 {
+    hide_private: bool,
 }
 pub struct PreparedPrNativeV1 {
     owner: Arc<PrNativeOwnerV1>,
@@ -306,6 +393,28 @@ impl PreparedPrNativeV1 {
     pub(crate) fn matches(&self, owner: &Arc<PrNativeOwnerV1>) -> bool {
         Arc::ptr_eq(&self.owner, owner)
             && match (&owner.work.kind, &self.kind) {
+                (WorkKind::PersonalLoaded(input), PreparedKind::PersonalLoaded(result)) => {
+                    result.matches(input)
+                }
+                (
+                    WorkKind::PersonalImages { input, open_native },
+                    PreparedKind::Personal { images, state },
+                ) => match images {
+                    Err(_) => state.is_none(),
+                    Ok(images) => {
+                        Arc::ptr_eq(input, &images.input)
+                            && images.proof.same_origin_v13(&owner.work.source)
+                            && images.accounting.sealed()
+                            && images.accounting.in_flight_requests() == 0
+                            && *open_native == state.is_some()
+                            && state.as_ref().is_none_or(|state| {
+                                state.width == owner.work.width
+                                    && state.source().is_some_and(|source| {
+                                        Arc::ptr_eq(source.proof(), &images.proof)
+                                    })
+                            })
+                    }
+                },
                 (
                     WorkKind::Images(_),
                     PreparedKind::Opened {
@@ -378,7 +487,12 @@ pub(crate) fn execute(
             access.transport.max_duration =
                 owner.deadline.saturating_duration_since(Instant::now());
             let images = immutable_images::read_images(
-                owner.work.source.clone(),
+                owner
+                    .work
+                    .source
+                    .catalogue_source()
+                    .ok_or("Actual Catalogue input cannot fall back from Personal")?
+                    .clone(),
                 owner.work.active.clone(),
                 input,
                 &bounded,
@@ -396,6 +510,49 @@ pub(crate) fn execute(
                 state: Box::new(state),
             }
         }
+        WorkKind::PersonalImages { input, open_native } => {
+            let bounded = provider
+                .clone()
+                .with_original_pr_read_bounds_v13(owner.deadline, 1024 * 1024)
+                .map_err(|_| "Original Personal bounds unavailable")?;
+            let mut access = RepositoryCatalogueAccessLimits::default();
+            access.transport.max_duration =
+                owner.deadline.saturating_duration_since(Instant::now());
+            match immutable_images::personal_v13::read(
+                input.clone(),
+                &bounded,
+                database,
+                &PrImmutableFileLimitsV1::default(),
+                &access,
+                &owner.cancel,
+            ) {
+                Ok(mut images) => {
+                    let state = images.native.take();
+                    if *open_native != state.is_some() {
+                        return Err("Original Personal native display mode changed".into());
+                    }
+                    PreparedKind::Personal {
+                        images: Ok(Box::new(images)),
+                        state,
+                    }
+                }
+                Err(error) => PreparedKind::Personal {
+                    images: Err(PersonalImageFailureV13 {
+                        hide_private: matches!(
+                            error.0,
+                            crate::providers::gh::GithubErrorKind::Authentication
+                                | crate::providers::gh::GithubErrorKind::IdentityChanged
+                                | crate::providers::gh::GithubErrorKind::Permission
+                                | crate::providers::gh::GithubErrorKind::NotFound
+                        ),
+                    }),
+                    state: None,
+                },
+            }
+        }
+        WorkKind::PersonalLoaded(input) => PreparedKind::PersonalLoaded(
+            immutable_images::personal_v13::prepare_loaded(input.clone(), &owner.cancel)?,
+        ),
         WorkKind::Retained(proof) => PreparedKind::Opened {
             images: None,
             state: Box::new(prepare_open(proof.clone(), owner.work.width, &operation)?),
@@ -406,7 +563,7 @@ pub(crate) fn execute(
     operation.seal()?;
     Ok(result)
 }
-fn prepare_open(
+pub(crate) fn prepare_open(
     proof: Arc<ClosedPrFileImagesV1>,
     width: u16,
     operation: &PrNativePreparationV1,
@@ -422,7 +579,61 @@ fn prepare_open(
     Ok(state)
 }
 pub(crate) fn publish(app: &mut App, result: PreparedPrNativeV1) -> bool {
+    let owner = result.owner.clone();
     match result.kind {
+        PreparedKind::PersonalLoaded(result) => {
+            return immutable_images::personal_v13::install_loaded(app, result)
+        }
+        PreparedKind::Personal { images, state } => match images {
+            Err(error) => {
+                if error.hide_private {
+                    if owner.work.source.is_notification_v63() {
+                        crate::notification_pr_v63::retire_source(
+                            app,
+                            &owner.work.source,
+                            &owner.work.navigation,
+                        );
+                    } else {
+                        crate::personal_pr_entry_v13::retire_source(
+                            app,
+                            &owner.work.source,
+                            &owner.work.navigation,
+                        );
+                    }
+                }
+                app.status=if owner.work.source.is_notification_v63() {
+                    if error.hide_private {"Original notification PR access unavailable • private page hidden • refresh explicitly"}
+                    else {"Original notification PR image preparation unavailable • Files retained • no fallback or mutation"}
+                } else if error.hide_private {"Original Personal image access unavailable • private page hidden • refresh explicitly"}
+                    else {"Original Personal image preparation unavailable • original Files retained • no fallback or mutation"}.into();
+            }
+            Ok(images) => {
+                let Ok(viewer) = immutable_images::personal_v13::install(app, *images) else {
+                    return false;
+                };
+                app.pr_file_images = viewer;
+                if let Some(state) = state {
+                    if !state.owns(app) {
+                        return false;
+                    }
+                    app.pr_native_diff_v1 = Some(*state);
+                    app.pr_native_diff_layout_v1 = Default::default();
+                    app.overlay = None;
+                    app.status = ScopedPrNativeSourceV1::ready_status().into();
+                } else {
+                    app.overlay = app.pr_file_images.as_ref().map(|_| Overlay::PrFileImages);
+                    app.status = if owner.work.source.is_notification_v63() {
+                        if app.pr_file_images.is_some() { "Immutable notification PR images • current original source • read-only ranges" }
+                        else { "Notification PR image display bound • original Files retained" }
+                    } else if app.pr_file_images.is_some() {
+                        "Immutable Personal images • current original source • read-only ranges"
+                    } else {
+                        "Personal image display bound • original Files retained"
+                    }
+                    .into();
+                }
+            }
+        },
         PreparedKind::Opened { images, state } => {
             if let Some(images) = images {
                 let Ok((viewer, _limited)) = immutable_images::install_images(app, *images) else {
@@ -478,6 +689,8 @@ pub(crate) fn failure(
         WorkKind::Images(_) => {
             immutable_images::inline_v1::native_v1::retire_private(app, background);
         }
+        WorkKind::PersonalImages { .. } => {}
+        WorkKind::PersonalLoaded(_) => {}
     }
     app.status = if matches!(&owner.work.kind, WorkKind::Images(_)) {
         "Original repository scope is fenced • native verification refused • private pages hidden • explicitly refresh original source"
@@ -552,6 +765,28 @@ impl crate::repository_native_diff_native_v1::NativeAppV2 for ScopedPrNativeSour
             crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open(app);
         } else {
             app.status="Threads require the current original PR patch; close other controls and wait/cancel pending work first. Full-file rows grant no thread/range authority.".into();
+        }
+    }
+    fn file_comment_v75(app: &mut App) {
+        let ready = app.overlay.is_none()
+            && app.form.as_ref().is_none_or(|_| app.form_dismissed)
+            && !app.loading[View::Inbox.index()]
+            && !crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::newer_intent(
+                app,
+            )
+            && app.pr_native_diff_v1.as_ref().is_some_and(|state| {
+                state.external_v4.is_none()
+                    && state.current_frame().is_some()
+                    && state
+                        .source()
+                        .is_some_and(|source| source.proof().owns(app))
+            });
+        if ready {
+            // Actual same Files/source/Nav capture. No range/image/line is
+            // manufactured and no retained Native state is moved or restored.
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open_file_comment_v75(app);
+        } else {
+            app.status = "Whole FILE comment needs the current original PR patch/member. Close controls or return from full-file/external context first; no line/range is inferred.".into();
         }
     }
     fn comment(app: &mut App) {

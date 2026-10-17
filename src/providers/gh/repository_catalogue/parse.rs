@@ -121,6 +121,13 @@ pub(super) struct RepositoryParseContextV13<'a> {
     public_user: bool,
 }
 impl<'a> RepositoryParseContextV13<'a> {
+    /// Actual single-repository owner observation, NOT a public-user inventory.
+    pub(super) fn personal_observed_owner_v13(owner: &'a RepositoryCatalogueOwner) -> Self {
+        Self {
+            expected_owner: Some(owner),
+            public_user: false,
+        }
+    }
     fn catalogue(context: &'a RepositoryCatalogueContext) -> Self {
         Self {
             expected_owner: context.owner.as_ref(),
@@ -136,6 +143,41 @@ impl<'a> RepositoryParseContextV13<'a> {
             public_user: matches!(original.source, RepositoryCatalogueSource::PublicUser(_)),
         }
     }
+}
+/// SAME raw owner parser for original/current single-repository observations.
+/// The source enum here selects the observed raw namespace parser only; no
+/// catalogue context/read/coverage/source proof is constructed.
+pub(super) fn repository_owner_v13(value: &Value) -> GithubResult<RepositoryCatalogueOwner> {
+    let raw_owner = value
+        .get("owner")
+        .filter(|owner| owner.is_object())
+        .ok_or_else(|| {
+            error(
+                GithubErrorKind::IdentityChanged,
+                "Current owner namespace is unavailable, not guessed from a repository name",
+            )
+        })?;
+    let login = raw_owner
+        .get("login")
+        .and_then(Value::as_str)
+        .filter(|login| !login.is_empty() && login.len() <= 100)
+        .ok_or_else(|| {
+            error(
+                GithubErrorKind::IdentityChanged,
+                "Current owner canonical name is unavailable",
+            )
+        })?;
+    let source = match raw_owner.get("type").and_then(Value::as_str) {
+        Some("Organization") => RepositoryCatalogueSource::Organization(login.into()),
+        Some("User") => RepositoryCatalogueSource::PublicUser(login.into()),
+        _ => {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Current owner resource kind is unverified; no node/number namespace inferred",
+            ))
+        }
+    };
+    owner(raw_owner, &source, login)
 }
 pub(super) fn repository(
     value: &Value,

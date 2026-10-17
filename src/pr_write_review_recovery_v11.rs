@@ -8,13 +8,13 @@ use std::{
 };
 
 #[derive(Debug, PartialEq, Eq)]
-struct DatabaseV11 {
+pub(super) struct DatabaseV11 {
     path: Vec<u8>,
     device: u64,
     inode: u64,
 }
 impl DatabaseV11 {
-    fn capture(path: &Path) -> Result<Self> {
+    pub(super) fn capture(path: &Path) -> Result<Self> {
         let before = std::fs::symlink_metadata(path)?;
         if !before.is_file()
             || before.uid() != unsafe { libc::geteuid() }
@@ -49,6 +49,7 @@ impl DatabaseV11 {
 /// a publication permit. Only this journal can issue it after bounded reads.
 #[derive(Debug)]
 pub(crate) struct ReviewRecoveryJournalWitnessV11 {
+    exact_v17: Option<super::exact_ack_v17::ExactAckRowV17>,
     database: DatabaseV11,
     issuer: PathBuf,
     target: PrWriteTarget,
@@ -56,6 +57,9 @@ pub(crate) struct ReviewRecoveryJournalWitnessV11 {
     marker: PrWriteMarker,
 }
 impl ReviewRecoveryJournalWitnessV11 {
+    pub(super) fn generation_v17(&self) -> i64 {
+        self.generation
+    }
     pub(crate) fn marker(&self) -> &PrWriteMarker {
         &self.marker
     }
@@ -94,13 +98,19 @@ impl PrWriteJournal {
         {
             bail!("Original blocking Review reference changed during inspection capture");
         }
-        Ok(ReviewRecoveryJournalWitnessV11 {
+        let mut witness = ReviewRecoveryJournalWitnessV11 {
+            exact_v17: None,
             database,
             issuer: self.path.clone(),
             target: target.clone(),
             generation,
             marker,
-        })
+        };
+        witness.exact_v17 = Some(super::exact_ack_v17::ExactAckRowV17::review(
+            self, &witness,
+        )?);
+        self.validate_review_inspection_v11(&witness)?;
+        Ok(witness)
     }
     pub(crate) fn validate_review_inspection_v11(
         &self,
@@ -127,6 +137,9 @@ impl PrWriteJournal {
         {
             bail!("Exact original Review reference/purpose/state changed; no blocker released");
         }
+        if let Some(row) = &witness.exact_v17 {
+            row.validate_current(self)?;
+        }
         Ok(())
     }
     /// Explicit local acknowledgement only. Provider failure changes no SQL.
@@ -135,7 +148,7 @@ impl PrWriteJournal {
     pub(crate) fn acknowledge_review_inspection_v11(
         &mut self,
         provider: &GithubProvider,
-        witness: ReviewRecoveryJournalWitnessV11,
+        mut witness: ReviewRecoveryJournalWitnessV11,
         observation: ReviewRecoveryCurrentV11,
         current: &HostIdentity,
         cancel: &CancellationToken,
@@ -144,7 +157,11 @@ impl PrWriteJournal {
         if cancel.is_cancelled() || Instant::now() >= deadline {
             bail!("Original Review acknowledgement phase ended");
         }
-        self.validate_review_inspection_v11(&witness)?;
+        let exact = witness
+            .exact_v17
+            .take()
+            .context("Original exact Review ACK row was not captured before final UID")?;
+        exact.validate_current(self)?;
         if Scope::github(&current.host, current.account_id)? != *witness.target.scope()
             || current.host != observation.identity().host
             || current.account_id != observation.identity().account_id
@@ -159,32 +176,6 @@ impl PrWriteJournal {
         if cancel.is_cancelled() || Instant::now() >= deadline {
             bail!("Acknowledgement ended after runner reconciliation; durable blocker retained");
         }
-        self.validate_review_inspection_v11(&witness)?;
-        self.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_secs(2)),
-        )?;
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if generation(&transaction, &witness.target)? != witness.generation {
-            bail!("A newer Review write retired this inspection");
-        }
-        let changed=transaction.execute("UPDATE pr_write_attempts SET state='acknowledged' WHERE attempt_id=?1 AND host=?2 AND principal=?3 AND pr_node=?4 AND command=?5 AND selected_resource=?6 AND observed_head=?7 AND payload_sha256=?8 AND state=?9 AND confirmed_json IS NULL",
-            params![witness.marker.attempt_id,witness.target.scope.host,witness.target.scope.login,witness.target.pr_node_id,
-                witness.marker.command,witness.marker.selected_resource,witness.marker.observed_head,witness.marker.payload_sha256,state_name(witness.marker.state)])?;
-        if changed != 1 {
-            bail!("Exact blocking Review attempt changed; no newer record acknowledged");
-        }
-        if cancel.is_cancelled()
-            || Instant::now() >= deadline
-            || DatabaseV11::capture(&self.path)? != witness.database
-        {
-            bail!("Original acknowledgement clock/database ended; SQL transaction rolled back");
-        }
-        advance(&transaction, &witness.target)?;
-        transaction.commit()?;
-        Ok(changed)
+        self.commit_exact_ack_v17(exact, cancel, deadline)
     }
 }

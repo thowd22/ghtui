@@ -3,7 +3,7 @@ id: doc-2
 title: ghtui product and architecture specification
 type: specification
 created_date: '2026-10-12 22:59'
-updated_date: '2026-10-14 16:36'
+updated_date: '2026-10-16 20:08'
 ---
 # ghtui product and architecture specification
 
@@ -128,3 +128,9 @@ GitHub CI/CD for ghtui itself is a dedicated final delivery task. The code/provi
 The user chose one curl-to-Bash bootstrap script shared by macOS and Linux instead of native package installers. TASK-68 supplies verified versioned Intel/ARM release binaries plus a Bash 3.2-compatible, per-user, no-sudo script with target detection, SHA-256 verification before extraction/execution, safe atomic updates, explicit version pinning/rollback and non-destructive uninstall. gh and git remain external dependencies; installation does not implement authentication or auto-install dependencies. No Windows, .dmg/.pkg/.deb/.rpm, package-manager repository, background updater or new required service is in the delivery scope.
 
 Follow [the curl bootstrap release contract](<doc-12 - macOS-and-Linux-curl-bootstrap-release-contract.md>) for research, trust boundaries, supported-target verification and task-specific code/provider plus actual script-installed binary keyboard/mouse PTY tests. TASK-69 remains near the end and publishes the script, exact tested binaries, checksums and supported build-provenance evidence only after release gates pass and a remote has been configured. Planning this change is not implementation, native macOS evidence, or a published install URL.
+
+## Search coverage research clarification (2026-10-16)
+
+The full host-wide and selected-repository requirements above remain unchanged and uncompleted. The [REST search contract](https://docs.github.com/en/rest/search/search#search-scope-limits) documents a 4,000-matching-repository scope ceiling, 1,000-result limit and authenticated search rate of 30 requests/minute; a multi-resource query can omit inaccessible resources. Thus `incomplete_results=false` alone is not proof of whole-host or configured 4,096-repository absence. Distinguish a server-search observation from a completely corroborated finite configured scope; never present a searched subset or expired-phase union as complete.
+
+TASK-12 and TASK-25 must retain visible partial/Unknown coverage on unproved scope, identity/access loss, pagination, rate, deadline or memory limits. Finite selected/org recovery needs an independently reviewed closed shard or [GraphQL connection](https://docs.github.com/en/graphql/guides/using-pagination-in-the-graphql-api) profile, exact current numeric identity and opening/closing repository corroboration under one captured phase. A GraphQL permission label is not action permission. No larger window, new transport, implementation or completion is approved by this research note; native and full resource proofs remain required.

@@ -1,10 +1,14 @@
 //! Actual binary/keys/mouse. Genuine Git-built M/H trees/blobs; exact offline
 //! gh protocol, independent full Git/SQL/config and real terminal restoration.
 use super::*;
+#[path = "file_comments_native_return_v75.rs"]
+mod file_comments_v75;
 #[path = "scoped_pr_native_inline_v1.rs"]
 mod inline_entry;
 #[path = "native_external_pr_diff_v4.rs"]
 mod native_external_pr_diff_v4;
+#[path = "scoped_pr_native_physical_slot_v65.rs"]
+mod physical_slot_v65;
 #[path = "scoped_pr_native_threads_v3.rs"]
 mod threads_v3;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};

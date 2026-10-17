@@ -347,6 +347,7 @@ impl GithubProvider {
                 checks: None,
                 rows: Vec::new(),
                 context: None,
+                metadata_display_v51: None,
                 review_progress: None,
             };
             page.prepare_rows().map_err(|_| related_boundary())?;

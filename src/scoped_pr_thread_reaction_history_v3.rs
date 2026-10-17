@@ -30,42 +30,11 @@ pub fn load(
         return Err(ThreadBrowseFailureV1::Source);
     }
     let provider = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = provider
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), cancel)
-        .map_err(source_error)?;
-    let identity = session.identity().clone();
-    let RemoteScopeConsumerV1::Explicit(members) = intent.active.consumer(&identity) else {
-        return Err(ThreadBrowseFailureV1::Source);
-    };
-    if Scope::github(&identity.host, identity.account_id)
-        .ok()
-        .as_ref()
-        != Some(intent.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == intent.navigation.original())
-    {
-        return Err(ThreadBrowseFailureV1::Source);
-    }
-    let window = session
-        .reserve_measured_external_reads(2, 128 * 1024, 1024 * 1024, 2, cancel)
-        .map_err(source_error)?;
-    let bounded = provider
-        .clone()
-        .with_measured_read_window(window)
-        .map_err(source_error)?;
-    let current = session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_error)?;
-    let parent = bounded
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_error)?;
+    let phase =
+        phase_v75::HistoryReadPhaseV75::begin(&intent, &provider, database, cancel, deadline)?;
+    let identity = phase.identity().clone();
+    let parent = phase.parent().clone();
     original_check(cancel, deadline).map_err(source_error)?;
-    Cache::open(database)
-        .map_err(source_error)?
-        .validate_repository_catalogue_intent_source(&intent.source)
-        .map_err(source_error)?;
     let journal = PrWriteJournal::open(database).map_err(source_error)?;
     let target = PrWriteTarget::new(&identity, parent.summary()).map_err(source_error)?;
     if let Some((old, _)) = previous {
@@ -230,7 +199,7 @@ pub fn load(
         })
         .collect::<Vec<_>>();
     let header=vec![escape(&format!("Fresh current {}#{} • repo #{} / PR #{}",parent.repository(),parent.number(),parent.repository_id(),parent.database_id())),
-        escape(&format!("Current H {} • current base {}",intent.expected.head(),intent.expected.base())),
+        escape(&format!("Current H {} • current base {}",parent.head_sha(),parent.base_tip_sha())),
         escape(&format!("Latest {} selected-comment/reaction attempts • {} • current numeric inspector {:?}",snapshot.rows.len(),snapshot.total.map_or_else(||"further rows unknown".into(),|count|format!("complete bounded enumeration {count}")),identity.account_id)),
         "Inspect only • historical targets/actors differ from current source; no write controls or current-placement inference".into()];
     let detail = detail
@@ -248,50 +217,31 @@ pub fn load(
     {
         return Err(ThreadBrowseFailureV1::Display);
     }
-    let current = session
-        .observation_v1(parent.repository_id())
-        .ok_or(ThreadBrowseFailureV1::Source)?;
-    let last = bounded
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_error)?;
-    if !GithubProvider::same_thread_history_parent_v1(&parent, &last) {
-        return Err(ThreadBrowseFailureV1::Source);
-    }
-    session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_error)?;
-    let closed = session
-        .close_with_guard(cancel, || {
-            original_check(cancel, deadline)?;
-            let cache = Cache::open(database).map_err(|_| safe_local())?;
-            cache
-                .validate_repository_catalogue_intent_source(&intent.source)
-                .map_err(|_| safe_local())?;
-            PrWriteJournal::open(database)
+    let identity = phase.finish(|| {
+        original_check(cancel, deadline)?;
+        let cache = Cache::open(database).map_err(|_| safe_local())?;
+        PrWriteJournal::open(database)
+            .map_err(|_| safe_local())?
+            .validate_thread_reaction_history_v3(
+                &target,
+                parent.repository_id(),
+                parent.repository_node(),
+                parent.database_id(),
+                &snapshot,
+            )
+            .map_err(|_| safe_local())?;
+        if let Some((key, expected)) = &body_witness {
+            if cache
+                .bounded_draft(intent.scope(), key, 128 * 1024)
                 .map_err(|_| safe_local())?
-                .validate_thread_reaction_history_v3(
-                    &target,
-                    parent.repository_id(),
-                    parent.repository_node(),
-                    parent.database_id(),
-                    &snapshot,
-                )
-                .map_err(|_| safe_local())?;
-            if let Some((key, expected)) = &body_witness {
-                if cache
-                    .bounded_draft(intent.scope(), key, 128 * 1024)
-                    .map_err(|_| safe_local())?
-                    .as_ref()
-                    != expected.as_ref()
-                {
-                    return Err(safe_local());
-                }
+                .as_ref()
+                != expected.as_ref()
+            {
+                return Err(safe_local());
             }
-            original_check(cancel, deadline)
-        })
-        .map_err(source_error)?;
-    original_check(cancel, deadline).map_err(source_error)?;
-    let identity = closed.identity().clone();
+        }
+        original_check(cancel, deadline)
+    })?;
     let actor = recorded_actor.unwrap_or_else(|| {
         ActorIdentity::github(
             &identity.host,

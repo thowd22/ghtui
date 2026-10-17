@@ -75,7 +75,7 @@ pub(super) fn parent_identity(
     let base_repo = repository(&provider.host, &repo.full_name, &raw["base"]["repo"])?;
     require_same_repo(repo, &base_repo)
 }
-pub(super) fn issue_identity(
+pub(in crate::providers::gh) fn issue_identity(
     provider: &GithubProvider,
     original: &PrSummary,
     raw: &Value,
@@ -134,7 +134,11 @@ fn valid_html_url(host: &str, repo: &str, number: u64, value: &Value) -> bool {
         url.eq_ignore_ascii_case(&format!("https://{host}/{repo}/pull/{number}"))
     })
 }
-pub(super) fn require_same_context(first: &Value, last: &Value, issue: &Value) -> GithubResult<()> {
+pub(in crate::providers::gh) fn require_same_context(
+    first: &Value,
+    last: &Value,
+    issue: &Value,
+) -> GithubResult<()> {
     for field in [
         "id",
         "node_id",
@@ -178,7 +182,7 @@ pub(super) fn require_same_context(first: &Value, last: &Value, issue: &Value) -
     }
     Ok(())
 }
-pub(super) fn observed_context(
+pub(in crate::providers::gh) fn observed_context(
     provider: &GithubProvider,
     original: &PrSummary,
     repo_raw: &Value,

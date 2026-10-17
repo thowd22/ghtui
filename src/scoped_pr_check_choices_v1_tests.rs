@@ -766,7 +766,8 @@ fn check_choice_opaque_actual_observation_not_same_numeric_run_or_index_authorit
     exact(&second, &second_steps);
 }
 #[test]
-fn check_choice_job_and_mutation_controls_remain_typed_disabled_without_draft_or_ack() {
+fn scoped_actions_rerun_v4_check_choice_selected_row_preserves_supported_and_disabled_controls_without_io(
+) {
     let mut op = initial_choice(true, false);
     op.extend(fresh_choice(123, jobs(123), 2));
     let (fixture, steps) = scripted(op);
@@ -777,29 +778,128 @@ fn check_choice_job_and_mutation_controls_remain_typed_disabled_without_draft_or
     let prepared = finish_choice(&mut app, &fixture, &provider, 0, &Default::default());
     install(&mut app, prepared);
     app.dispatch(Action::Actions(ActionsAction::Select(1)));
+    let mut supported = 0;
+    assert!(
+        app.scoped_actions_v1.is_none(),
+        "Choice presentation remains the genuine initial PR route, not a fabricated Actions source"
+    );
+    assert!(
+        app.actions
+            .as_ref()
+            .unwrap()
+            .run
+            .as_ref()
+            .unwrap()
+            .selected_job
+            .is_none(),
+        "Moving the row cursor does not open a job"
+    );
+    let actual_commands = app
+        .actions
+        .as_ref()
+        .unwrap()
+        .controls
+        .iter()
+        .filter_map(|control| match control.action {
+            ActionsAction::Compose(command) => Some(command),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_commands,
+        vec![
+            ActionsCommand::ChooseScope,
+            ActionsCommand::RerunAll,
+            ActionsCommand::RerunFailed,
+            ActionsCommand::RerunJob,
+            ActionsCommand::Cancel,
+            ActionsCommand::ForceCancel,
+            ActionsCommand::DeleteRun,
+            ActionsCommand::DeleteLogs,
+            ActionsCommand::ApproveFork,
+        ],
+        "Independent complete initial-run Compose inventory after actual row selection"
+    );
+    let mut refused = 0;
     for control in &app.actions.as_ref().unwrap().controls {
-        if matches!(control.action, ActionsAction::Compose(_)) {
-            assert!(
-                control
-                    .disabled_reason
-                    .as_deref()
-                    .is_some_and(|reason| reason.contains("original access/draft/publication")),
-                "Selecting a row cannot erase the scoped disabled-control policy"
-            );
+        if let ActionsAction::Compose(command) = &control.action {
+            if matches!(
+                command,
+                ActionsCommand::RerunAll
+                    | ActionsCommand::RerunFailed
+                    | ActionsCommand::DeleteRun
+                    | ActionsCommand::DeleteLogs
+            ) {
+                assert!(
+                    control.disabled_reason.is_none(),
+                    "Original completed run keeps its actual supported publisher"
+                );
+                supported += 1;
+                continue;
+            }
+            assert!(matches!(
+                command,
+                ActionsCommand::ChooseScope
+                    | ActionsCommand::RerunJob
+                    | ActionsCommand::Cancel
+                    | ActionsCommand::ForceCancel
+                    | ActionsCommand::ApproveFork
+            ));
+            assert_eq!(control.disabled_reason.as_deref(),
+                Some("Additional scoped PR-check action needs its own original access/draft/publication admission; nothing sent."),
+                "Selecting a row cannot erase the exact scoped disabled-control policy");
+            refused += 1;
         }
     }
+    assert_eq!(supported, 4);
+    assert_eq!(refused, 5);
     for action in [
-        ActionsAction::Compose(ActionsCommand::RerunAll),
+        ActionsAction::Compose(ActionsCommand::ApproveFork),
         ActionsAction::Compose(ActionsCommand::SearchLogs),
         ActionsAction::PublicationList,
         ActionsAction::Reconcile,
     ] {
-        app.dispatch(Action::Close);
         app.dispatch(Action::Actions(action));
         assert!(app.actions_action.is_none());
         assert!(app.form.is_none());
         assert!(!app.actions.as_ref().unwrap().watching);
+        assert_eq!(app.overlay, Some(crate::app::Overlay::Notice));
+        app.dispatch(Action::Close);
+        assert!(app.overlay.is_none());
     }
+    // loaded() used the actual Close action. The real main loop consumes its
+    // empty continuation-cancel signal before a later command. Prove it has
+    // no worker/request/watch to cancel; do not reset a live owner or token.
+    assert!(app.pr_check_continuation_cancel_v2);
+    assert!(app.pr_check_continuation_request_v2.is_none());
+    assert!(app.pr_check_continuation_owner_v2.is_none());
+    assert!(app.pr_check_watch_v2.is_none());
+    assert!(app.pr_check_choice_request.is_none());
+    assert!(!app.pr_checks_request);
+    assert!(!app.pr_checks_cancel_actions);
+    assert!(!app.actions_load_requested);
+    app.pr_check_continuation_cancel_v2 = false;
+    let original_observation = app.pr_checks_route.as_ref().unwrap().observation().clone();
+    app.dispatch(Action::Actions(ActionsAction::Compose(
+        ActionsCommand::RerunAll,
+    )));
+    let queued = app
+        .scoped_actions_work_v1
+        .as_ref()
+        .expect("Supported rerun captures original bounded work, not legacy foreground action");
+    assert!(Arc::ptr_eq(
+        queued.source.pr_origin_v2().unwrap().observation(),
+        &original_observation,
+    ));
+    assert_eq!(queued.page.run().unwrap().run().id, 123);
+    assert_eq!(queued.page.run().unwrap().run().attempt, 2);
+    assert_eq!(
+        queued.kind,
+        crate::scoped_actions_v1::ScopedActionsRequestKindV1::Publication
+    );
+    assert!(app.actions_action.is_none());
+    assert!(app.form.is_none());
+    assert!(app.overlay.is_none());
     read_only(&fixture, &before, &git, &steps);
 }
 #[test]

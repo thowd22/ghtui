@@ -21,10 +21,14 @@ pub(super) trait PickerRowView {
         &[]
     }
 }
+pub(super) enum PickerKindV87 {
+    Metadata(MetadataChoices),
+    IssueLinks,
+}
 pub(super) trait PickerChoicesView {
     type Row: PickerRowView;
     fn choices(&self) -> &[Self::Row];
-    fn kind(&self) -> MetadataChoices;
+    fn kind(&self) -> PickerKindV87;
     fn complete(&self) -> bool;
     fn unavailable_reason(&self) -> Option<&str>;
     fn coverage_notice(&self) -> Option<&str>;
@@ -54,8 +58,8 @@ impl PickerChoicesView for PrMetadataChoices {
     fn choices(&self) -> &[Self::Row] {
         PrMetadataChoices::choices(self)
     }
-    fn kind(&self) -> MetadataChoices {
-        PrMetadataChoices::kind(self)
+    fn kind(&self) -> PickerKindV87 {
+        PickerKindV87::Metadata(PrMetadataChoices::kind(self))
     }
     fn complete(&self) -> bool {
         PrMetadataChoices::complete(self)
@@ -272,8 +276,8 @@ impl PickerChoicesView for CurrentMemberRows {
     fn choices(&self) -> &[Self::Row] {
         &self.rows
     }
-    fn kind(&self) -> MetadataChoices {
-        self.command.catalogue()
+    fn kind(&self) -> PickerKindV87 {
+        PickerKindV87::Metadata(self.command.catalogue())
     }
     fn complete(&self) -> bool {
         false
@@ -297,10 +301,13 @@ impl PrMetadataPicker {
         command: PrMetadataCommand,
     ) -> Result<Self, String> {
         let members = current_members(source.source(), command)?;
-        let unavailable = if source.prepared().permission()
-            == PrMetadataPermission::MutationPermissionUnverified
-            || source.source().repository_raw()["archived"].as_bool() != Some(false)
-        {
+        let observed_available = source
+            .observed_original_members_available_v48()
+            .unwrap_or_else(|| {
+                source.prepared().permission() != PrMetadataPermission::MutationPermissionUnverified
+                    && source.source().repository_raw()["archived"].as_bool() == Some(false)
+            });
+        let unavailable = if !observed_available {
             Some("Current requester mutation permission/archive state is unverified; reload the genuine source")
         } else {
             None

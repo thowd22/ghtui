@@ -25,8 +25,9 @@ pub fn read(
     limits.validate().map_err(source_failure)?;
     resources.validate().map_err(source_failure)?;
     let issuer = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = issuer
-        .begin_repository_catalogue_access(original.source.source(), access, cancel)
+    let mut session = original
+        .source
+        .begin_access(&issuer, access, cancel)
         .map_err(source_failure)?;
     let identity = session.identity().clone();
     original_scope(&original, &identity, cancel, deadline)?;
@@ -53,9 +54,13 @@ pub fn read(
     let parent = measured
         .pr_inline_original_parent_v1(current, &original.files.observed, resources, cancel)
         .map_err(source_failure)?;
-    let local =
-        ResourceLocalGuard::capture(database, &original.source, &identity, parent.summary())
-            .map_err(source_failure)?;
+    let local = ResourceLocalGuard::capture_boundary_v13(
+        database,
+        original.source.local_boundary(),
+        &identity,
+        parent.summary(),
+    )
+    .map_err(source_failure)?;
     let roster = measured
         .review_request_teams_original_v3(&identity, &parent, limits, cancel, deadline)
         .map_err(source_failure)?;
@@ -94,7 +99,7 @@ pub fn read(
     session
         .close_with_guard(cancel, || {
             private_clock(cancel, deadline)?;
-            local.validate(database, &original.source)?;
+            local.validate_boundary_v13(database, original.source.local_boundary())?;
             private_clock(cancel, deadline)
         })
         .map_err(source_failure)?;

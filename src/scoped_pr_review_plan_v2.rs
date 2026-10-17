@@ -2,7 +2,6 @@
 //! a publication permit; private results leave ONLY after actual source close.
 use super::*;
 use crate::{
-    active_remote_scope_v1::RemoteScopeConsumerV1,
     pr_write_journal::{PrPublicationReference, PrWriteJournal},
     providers::{
         gh::{
@@ -82,20 +81,13 @@ fn original_scope(
     {
         return Err(source_failure(safe_local()));
     }
-    let RemoteScopeConsumerV1::Explicit(references) = intent.active.consumer(identity) else {
-        return Err(source_failure(safe_local()));
-    };
-    let mut found = false;
-    for reference in references.references() {
-        clock(cancel, deadline)?;
-        if reference.original() == intent.navigation.original() {
-            found = true;
-            break;
-        }
-    }
-    if !found {
+    if !intent
+        .source
+        .admits_review_navigation_v14(&intent.active, identity, &intent.navigation)
+    {
         return Err(source_failure(safe_local()));
     }
+    clock(cancel, deadline)?;
     Ok(())
 }
 
@@ -266,8 +258,9 @@ impl ScopedReviewDraftV2 {
         reviews.validate().map_err(source_failure)?;
         resources.validate().map_err(source_failure)?;
         let provider = provider.clone().with_catalogue_read_deadline(deadline);
-        let mut session = provider
-            .begin_repository_catalogue_access(intent.source.source(), access, cancel)
+        let mut session = intent
+            .source
+            .begin_access(&provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         original_scope(&intent, &identity, cancel, deadline)?;
@@ -297,9 +290,13 @@ impl ScopedReviewDraftV2 {
                 cancel,
             )
             .map_err(source_failure)?;
-        let local =
-            ResourceLocalGuard::capture(database, &intent.source, &identity, parent.summary())
-                .map_err(source_failure)?;
+        let local = ResourceLocalGuard::capture_boundary_v13(
+            database,
+            intent.source.local_boundary(),
+            &identity,
+            parent.summary(),
+        )
+        .map_err(source_failure)?;
         let base = crate::pr_write_journal::review_action_lineage_v12::ReviewActionBaseV12::review(
             &intent,
             selected.map(|(selection, _)| selection),
@@ -439,7 +436,7 @@ impl ScopedReviewDraftV2 {
         let closed = session
             .close_with_guard(cancel, || {
                 private_clock(cancel, deadline)?;
-                local.validate(database, &intent.source)?;
+                local.validate_boundary_v13(database, intent.source.local_boundary())?;
                 if let Some(revision) = &choice.revision {
                     revision
                         .validate(database, &base)
@@ -522,8 +519,9 @@ impl ScopedReviewSelectionV2 {
             .ok_or_else(|| refused("Select an actual loaded review, not a restored ID"))?;
         let intent = &draft.intent;
         let provider = provider.clone().with_catalogue_read_deadline(deadline);
-        let mut session = provider
-            .begin_repository_catalogue_access(intent.source.source(), access, cancel)
+        let mut session = intent
+            .source
+            .begin_access(&provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         original_scope(intent, &identity, cancel, deadline)?;
@@ -553,9 +551,13 @@ impl ScopedReviewSelectionV2 {
                 cancel,
             )
             .map_err(source_failure)?;
-        let local =
-            ResourceLocalGuard::capture(database, &intent.source, &identity, parent.summary())
-                .map_err(source_failure)?;
+        let local = ResourceLocalGuard::capture_boundary_v13(
+            database,
+            intent.source.local_boundary(),
+            &identity,
+            parent.summary(),
+        )
+        .map_err(source_failure)?;
         let snapshot = measured
             .review_snapshot_v2(&identity, &parent, selected, reviews, cancel, deadline)
             .map_err(source_failure)?;
@@ -575,7 +577,7 @@ impl ScopedReviewSelectionV2 {
         let closed = session
             .close_with_guard(cancel, || {
                 private_clock(cancel, deadline)?;
-                local.validate(database, &intent.source)?;
+                local.validate_boundary_v13(database, intent.source.local_boundary())?;
                 private_clock(cancel, deadline)
             })
             .map_err(source_failure)?;

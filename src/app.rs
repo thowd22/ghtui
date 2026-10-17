@@ -39,6 +39,7 @@ impl View {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    NotificationsV63(crate::notifications_ui_v63::NotificationActionV63),
     ScopedReviewsV2(crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::browser_v2::ReviewBrowserActionV2),
     OpenScopedReviewsV2,
     StashRecoveryV1(crate::repository_stash_recovery_v1::StashRecoveryActionV1),
@@ -107,6 +108,16 @@ pub enum Action {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrUiAction {
     Command(crate::pr_actions::PrCommand),
+    StateV68(crate::pr_state_model::PrStateCommand),
+    StateHistoryV74(crate::pr_state_model::PrStateCommand),
+    MetadataTextV25(crate::providers::gh::PrMetadataTextFieldV25),
+    MetadataHistoryV25(crate::providers::gh::PrMetadataTextFieldV25),
+    MetadataBaseV32,
+    MetadataMembersV48(crate::pr_metadata_actions::PrMetadataCommand),
+    MetadataMembersHistoryV48,
+    MetadataBaseHistoryV32,
+    IssueLinksV87(crate::pr_issue_links_v87::IssueLinkCommandV87),
+    IssueLinkHistoryV87(crate::pr_issue_links_v87::IssueLinkCommandV87),
     Metadata(crate::pr_metadata_actions::PrMetadataCommand),
     Inspect,
     Acknowledge,
@@ -117,6 +128,7 @@ pub type SharedPrInspection =
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
+    NotificationsV63,
     Help,
     Palette,
     Capabilities,
@@ -171,6 +183,11 @@ impl DiffSelection {
 
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
+    pub notifications_v63: Option<crate::notifications_ui_v63::NotificationBrowserV63>,
+    pub notification_pr_source_v63: Option<crate::notification_pr_v63::NotificationPrStateV63>,
+    pub notifications_work_v63: Option<Arc<crate::notifications_v63::NotificationWorkV63>>,
+    pub notifications_owner_v63: Option<Arc<crate::notifications_v63::NotificationWorkV63>>,
+    pub notifications_cancel_v63: bool,
     pub scoped_actions_v1: Option<crate::scoped_actions_native_v1::ScopedActionsStateV1>,
     pub scoped_actions_work_v1: Option<Arc<crate::scoped_actions_v1::ScopedActionsWorkV1>>,
     pub scoped_actions_owner_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
@@ -191,6 +208,11 @@ pub struct App {
     pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
     pub scoped_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     pub scoped_inline_cancel_v1: bool,
+    pub scoped_pr_collaboration_work_v17: Option<Arc<crate::scoped_pr_collaboration_native_v17::ScopedPrCollaborationWorkV17>>,
+    pub scoped_pr_collaboration_return_v19: Option<crate::scoped_pr_collaboration_refresh_v19::ConversationReturnStateV19>,
+    pub scoped_pr_collaboration_owner_v17: Option<Arc<crate::scoped_pr_collaboration_native_v17::ScopedPrCollaborationOwnerV17>>,
+    pub scoped_pr_collaboration_cancel_v17: bool,
+    pub(crate) closed_conversation_draft_v20: Option<crate::scoped_pr_collaboration_ui_v17::pure_close_v20::ClosedConversationDraftV20>,
     pub scoped_reviews_work_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsWorkV2>>,
     pub scoped_reviews_owner_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsOwnerV2>>,
     pub scoped_reviews_cancel_v2: bool,
@@ -321,6 +343,12 @@ pub struct App {
     pub catalogue_cancel_requested: bool,
     pub remote_scope: Option<std::sync::Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>>,
     pub remote_scope_source: Option<std::sync::Arc<crate::storage::CatalogueIntentSource>>,
+    pub personal_pr_entry_work_v13:
+        Option<std::sync::Arc<crate::personal_pr_entry_v13::PersonalPrEntryWorkV13>>,
+    pub personal_pr_entry_owner_v13:
+        Option<std::sync::Arc<crate::personal_pr_entry_v13::PersonalPrEntryOwnerV13>>,
+    pub personal_pr_entry_cancel_v13: bool,
+    pub personal_pr_source_v13: Option<crate::personal_pr_entry_v13::PersonalPrEntryStateV13>,
     pub avatar_states: crate::actor_avatar_states_v1::ActorAvatarStatesV1,
     pub form: Option<crate::forms::Form>,
     pub pr_action_index: usize,
@@ -384,6 +412,11 @@ impl Default for App {
             pr_native_diff_work_v1: None,
             pr_native_diff_owner_v1: None,
             pr_native_diff_cancel_v1: false,
+            notifications_v63: None,
+            notification_pr_source_v63: None,
+            notifications_work_v63: None,
+            notifications_owner_v63: None,
+            notifications_cancel_v63: false,
             scoped_threads_work_v1: None,
             scoped_threads_owner_v1: None,
             scoped_threads_cancel_v1: false,
@@ -393,6 +426,11 @@ impl Default for App {
             scoped_inline_work_v1: None,
             scoped_inline_owner_v1: None,
             scoped_inline_cancel_v1: false,
+            scoped_pr_collaboration_work_v17: None,
+            scoped_pr_collaboration_return_v19: None,
+            scoped_pr_collaboration_owner_v17: None,
+            scoped_pr_collaboration_cancel_v17: false,
+            closed_conversation_draft_v20: None,
             scoped_reviews_work_v2: None,
             scoped_reviews_owner_v2: None,
             scoped_reviews_cancel_v2: false,
@@ -521,6 +559,10 @@ impl Default for App {
             catalogue_cancel_requested: false,
             remote_scope: None,
             remote_scope_source: None,
+            personal_pr_entry_work_v13: None,
+            personal_pr_entry_owner_v13: None,
+            personal_pr_entry_cancel_v13: false,
+            personal_pr_source_v13: None,
             avatar_states: Default::default(),
             form: None,
             pr_action_index: 0,
@@ -572,6 +614,12 @@ impl Default for App {
 }
 
 impl App {
+    /// Start with the library-owned empty lifecycle, including private draft
+    /// protection. Callers may then configure the ordinary public UI fields.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Public inventory and already prepared diagnostics only. Nothing here
     /// probes a host, extracts credentials or authorizes any operation.
     pub fn palette_controls(&self) -> Vec<(String, Action)> {
@@ -642,7 +690,18 @@ impl App {
                 let action = if let Some(reason) = &unavailable {
                     Action::Explain(reason.clone())
                 } else if self.pr_pending_message.is_empty() {
-                    Action::Github(crate::github_workspace::GithubAction::Compose(*kind))
+                    match kind {
+                        crate::forms::PrFormKind::Title => Action::Pr(PrUiAction::MetadataTextV25(
+                            crate::providers::gh::PrMetadataTextFieldV25::Title,
+                        )),
+                        crate::forms::PrFormKind::Description => {
+                            Action::Pr(PrUiAction::MetadataTextV25(
+                                crate::providers::gh::PrMetadataTextFieldV25::Description,
+                            ))
+                        }
+                        crate::forms::PrFormKind::Base => Action::Pr(PrUiAction::MetadataBaseV32),
+                        _ => Action::Github(crate::github_workspace::GithubAction::Compose(*kind)),
+                    }
                 } else {
                     Action::Explain(self.pr_pending_message.clone())
                 };
@@ -650,13 +709,101 @@ impl App {
             })
             .collect::<Vec<_>>();
         let page = self.github.as_ref().and_then(|github| github.pr.as_ref());
+        let original_conversation = page.is_some_and(|p| {
+            matches!(
+                p.tab,
+                crate::github_workspace::PrTab::Summary
+                    | crate::github_workspace::PrTab::Conversation
+            )
+        }) && self.github.as_ref().is_some_and(|g| {
+            g.scoped_pr_navigation.is_some() || g.personal_pr_page_ticket_v13.is_some()
+        })
+            && !crate::scoped_pr_collaboration_native_v17::retired_presentation(self);
+        let original_metadata_text_v51 = original_conversation
+            || page.is_some_and(|p| p.tab == crate::github_workspace::PrTab::Metadata)
+                && self.github.as_ref().is_some_and(|g| {
+                    g.scoped_pr_navigation.is_some() || g.personal_pr_page_ticket_v13.is_some()
+                })
+                && !crate::scoped_pr_collaboration_native_v17::retired_presentation(self);
+        for command in [
+            crate::pr_state_model::PrStateCommand::Close,
+            crate::pr_state_model::PrStateCommand::Reopen,
+        ] {
+            let action = if unavailable.is_none() && original_conversation {
+                // Cached state/permissions never authorize this effect. The
+                // SAME new original Core checks exact capability/old state;
+                // a known protected original routes to readonly History.
+                Action::Pr(PrUiAction::StateV68(command))
+            } else {
+                Action::Explain(unavailable.clone().unwrap_or_else(||
+                    "Open the actual Summary or Conversation before a State action; no source fallback".into()))
+            };
+            controls.push((command.label().into(), action));
+            controls.push((
+                format!("Inspect {} history", command.label()),
+                if unavailable.is_none() && original_conversation {
+                    Action::Pr(PrUiAction::StateHistoryV74(command))
+                } else {
+                    Action::Explain(unavailable.clone().unwrap_or_else(|| {
+                        "Original Summary or Conversation required to inspect State history".into()
+                    }))
+                },
+            ));
+        }
+        for field in [
+            crate::providers::gh::PrMetadataTextFieldV25::Title,
+            crate::providers::gh::PrMetadataTextFieldV25::Description,
+        ] {
+            controls.push((format!("Inspect {} history", field.label()),
+                if unavailable.is_none() && original_metadata_text_v51 { Action::Pr(PrUiAction::MetadataHistoryV25(field)) }
+                else { Action::Explain(unavailable.clone().unwrap_or_else(|| "Open the actual original Summary, Conversation or Metadata to inspect protected metadata history".into())) }));
+        }
+        controls.push(("Inspect Base history".into(),if unavailable.is_none()&&original_metadata_text_v51 {Action::Pr(PrUiAction::MetadataBaseHistoryV32)}else{Action::Explain(unavailable.clone().unwrap_or_else(||"Open the actual original Summary, Conversation or Metadata to inspect protected Base history".into()))}));
+        let original_members_v62 = original_conversation
+            || page.is_some_and(|p| p.tab == crate::github_workspace::PrTab::Metadata)
+                && self.github.as_ref().is_some_and(|g| {
+                    g.scoped_pr_navigation.is_some() || g.personal_pr_page_ticket_v13.is_some()
+                })
+                && !crate::scoped_pr_collaboration_native_v17::retired_presentation(self);
+        controls.push(("Inspect member metadata history".into(),if unavailable.is_none()&&original_members_v62 {Action::Pr(PrUiAction::MetadataMembersHistoryV48)}else{Action::Explain(unavailable.clone().unwrap_or_else(||"Open the actual original Summary, Conversation or Metadata to inspect protected member history".into()))}));
         for command in crate::pr_metadata_actions::PrMetadataCommand::ALL {
             controls.push((
                 command.label().into(),
-                unavailable
-                    .clone()
-                    .map_or(Action::Pr(PrUiAction::Metadata(command)), Action::Explain),
+                if let Some(reason)=&unavailable {Action::Explain(reason.clone())}
+                else if original_members_v62 {Action::Pr(PrUiAction::MetadataMembersV48(command))}
+                else {Action::Explain("Open the actual original Summary, Conversation or Metadata before selecting a member action".into())},
             ));
+        }
+        // These entries start a closed original READ, never grant mutation
+        // capability. The worker freshly probes the exact host contract and
+        // selected pair before it can prepare one useful confirmation.
+        let original_issue_links =
+            original_members_v62 && self.view == View::Inbox && !self.loading[View::Inbox.index()];
+        for command in [
+            crate::pr_issue_links_v87::IssueLinkCommandV87::LinkIssue,
+            crate::pr_issue_links_v87::IssueLinkCommandV87::UnlinkManualIssue,
+        ] {
+            for (label, action) in [
+                (
+                    command.label().to_string(),
+                    PrUiAction::IssueLinksV87(command),
+                ),
+                (
+                    format!("Inspect {} history", command.label()),
+                    PrUiAction::IssueLinkHistoryV87(command),
+                ),
+            ] {
+                let action = if let Some(reason) = &unavailable {
+                    Action::Explain(reason.clone())
+                } else if !self.pr_pending_message.is_empty() {
+                    Action::Explain(self.pr_pending_message.clone())
+                } else if original_issue_links {
+                    Action::Pr(action)
+                } else {
+                    Action::Explain("Open the idle actual original Summary, Conversation or Metadata before manual Issue links; no source fallback".into())
+                };
+                controls.push((label, action));
+            }
         }
         let comment = page
             .and_then(|page| page.rows.get(self.selected))
@@ -690,7 +837,15 @@ impl App {
                     "Select an exact comment header or body first, using arrows or a mouse click."
                         .into(),
                 )
+            } else if original_conversation
+                && comment.is_some_and(|comment| {
+                    comment.kind != crate::providers::gh::CommentKind::Conversation
+                })
+                && !matches!(command, PrCommand::NewComment | PrCommand::Subscription)
+            {
+                Some("Selected review comment belongs to the original Threads workflow, not the Conversation issue-comment endpoint.".into())
             } else if matches!(command, PrCommand::EditComment | PrCommand::DeleteComment)
+                && !original_conversation
                 && comment.is_some_and(|comment| {
                     self.github.as_ref().is_none_or(|github| {
                         !comment
@@ -712,7 +867,14 @@ impl App {
                 None
             };
             let action = reason.map_or(Action::Pr(PrUiAction::Command(*command)), Action::Explain);
-            controls.push((label.to_string(), action));
+            controls.push((
+                if original_conversation && *command == PrCommand::NewComment {
+                    "New comment • eligibility UNKNOWN/server-enforced".into()
+                } else {
+                    label.to_string()
+                },
+                action,
+            ));
         }
         controls.push((
             "Inspect pending result".into(),
@@ -732,8 +894,47 @@ impl App {
         controls
     }
     pub fn dispatch(&mut self, action: Action) {
+        if let Action::NotificationsV63(input) = &action {
+            crate::notifications_ui_v63::dispatch(self, *input);
+            return;
+        }
+        if self.overlay == Some(Overlay::NotificationsV63) {
+            if matches!(action, Action::Close | Action::Cancel | Action::Quit) {
+                crate::notifications_native_v63::close(self);
+                if action == Action::Quit {
+                    self.quit = true;
+                }
+            }
+            return;
+        }
+        if crate::personal_pr_entry_v13::intercept_action(self, &action) {
+            return;
+        }
+        if crate::notification_pr_v63::intercept_action(self, &action) {
+            return;
+        }
+        if action == Action::Github(crate::github_workspace::GithubAction::FileCommentV75) {
+            crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open_file_comment_v75(self);
+            return;
+        }
+        if action == Action::Github(crate::github_workspace::GithubAction::ActionsHistoryV5) {
+            crate::scoped_actions_native_v1::journal_v5::open_summary(self);
+            return;
+        }
         if action == Action::Github(crate::github_workspace::GithubAction::ReviewOperationHistoryV3)
         {
+            if self.github.as_ref().is_some_and(|github| {
+                self.remote_scope.as_ref().is_none_or(|scope| {
+                    matches!(
+                        scope.consumer(&github.identity),
+                        crate::active_remote_scope_v1::RemoteScopeConsumerV1::DefaultPersonal
+                    )
+                })
+            }) {
+                self.github_action =
+                    Some(crate::github_workspace::GithubAction::ReviewOperationHistoryV3);
+                return;
+            }
             crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::open_history_v3(self);
             return;
         }
@@ -744,6 +945,16 @@ impl App {
             return;
         }
         if action == Action::Github(crate::github_workspace::GithubAction::ThreadHistoryV1) {
+            if self
+                .github
+                .as_ref()
+                .is_some_and(|github| github.scoped_pr_navigation.is_none())
+            {
+                // Main captures the genuine cached Summary + actual DB before
+                // the SAME Inbox queue. This is not a legacy fallback action.
+                self.github_action = Some(crate::github_workspace::GithubAction::ThreadHistoryV1);
+                return;
+            }
             crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::open_history(self);
             return;
         }
@@ -853,6 +1064,11 @@ impl App {
             return;
         }
         self.observe_navigation();
+        if action == Action::Refresh
+            && crate::scoped_pr_collaboration_refresh_v19::return_v19::forward_refresh(self)
+        {
+            return;
+        }
         crate::pr_checks_native::before_action(self, &action);
         // Global/footer/palette/custom Refresh uses the SAME admitted typed
         // scoped action before any generic actor/context/navigation effects.
@@ -967,6 +1183,7 @@ impl App {
             crate::repository_native_diff_native_v1::retire(self);
         }
         match action {
+            Action::NotificationsV63(_) => {}
             Action::StashRecoveryV1(_) => {}
             Action::OpenScopedReviewsV2=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::open(self,false),
             Action::ScopedReviewsV2(action)=>crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::browser_action(self,action),
@@ -1141,6 +1358,7 @@ impl App {
             }
             Action::PrFileImage(_) => unreachable!("Immutable image action dispatched above"),
             Action::View(view) => {
+                if view != View::Inbox { self.closed_conversation_draft_v20 = None; }
                 self.clear_capability_inspector();
                 self.repository_selection = None;
                 self.user_navigated = true;
@@ -1496,6 +1714,14 @@ impl App {
                 self.form_dismissed = false;
             }
             Action::Github(action) => {
+                if crate::scoped_pr_collaboration_native_v17::retired_presentation(self)
+                    && !matches!(action, crate::github_workspace::GithubAction::Back) {
+                    self.status = "Original Conversation hidden • use Back/Refresh; no new action from retired page".into();
+                    return;
+                }
+                if action == crate::github_workspace::GithubAction::Back && crate::notification_pr_v63::back(self) {
+                    return;
+                }
                 if action == GithubAction::Resource(crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::NativeDiff) && self.remote_scope.is_some() {
                     crate::scoped_pr_native_diff_native_v1::open_files(self);
                     return;
@@ -1522,7 +1748,9 @@ impl App {
                     && self
                         .github
                         .as_ref()
-                        .is_some_and(|github| github.scoped_pr_navigation.is_some())
+                        .is_some_and(|github| github.scoped_pr_navigation.is_some()
+                            && github.pr.as_ref().is_none_or(|p| !(matches!(p.tab, crate::github_workspace::PrTab::Summary | crate::github_workspace::PrTab::Conversation)
+                                ||p.tab==crate::github_workspace::PrTab::Metadata&&p.metadata_display_v51.is_some())))
                 {
                     self.status =
                         "Observed sections only • PR actions require their own fresh scoped read"
@@ -1549,10 +1777,22 @@ impl App {
                 if let Some(github) = &mut self.github {
                     let preserve_scoped_view =
                         matches!(&action, GithubAction::PrTab(_) | GithubAction::Resource(_))
-                            && github.scoped_pr_navigation.is_some();
+                            && github.scoped_pr_navigation.is_some()
+                            ||matches!(&action,GithubAction::PrTab(crate::github_workspace::PrTab::Metadata))
+                                &&github.pr.as_ref().is_some_and(|p|matches!(p.tab,crate::github_workspace::PrTab::Summary|crate::github_workspace::PrTab::Conversation));
                     match &action {
                         GithubAction::Filter(filter) => github.set_filter(*filter),
                         GithubAction::Back => {
+                            // State changed queue membership/counts. Closing
+                            // this actual direct PR retires ONLY its stale
+                            // page tickets, never a Source/owner/Return or the
+                            // negative freshness flag. Existing early return
+                            // routes and ordinary Back keep their semantics.
+                            if github.pr.is_some() && github.state_membership_unavailable_v68() {
+                                github.personal_pr_page_ticket_v13 = None;
+                                github.notification_pr_page_ticket_v63 = None;
+                                self.status="State queue membership unavailable • Refresh explicitly • no reads or resend".into();
+                            }
                             github.pr = None;
                             github.scoped_pr_navigation = None;
                             github.scoped_pr_resource = None;
@@ -1574,13 +1814,21 @@ impl App {
                 }
             }
             Action::Form(action) => {
+                if action == crate::forms::FormAction::Close
+                    && crate::scoped_pr_collaboration_native_v17::intercept_close(self) {
+                    return;
+                }
+                if action == crate::forms::FormAction::Close && self.form.as_ref().is_some_and(|form|matches!(form.purpose,crate::forms::FormPurpose::ScopedActionsV3(_) | crate::forms::FormPurpose::ScopedActionsWorkflowV6(_) | crate::forms::FormPurpose::ScopedActionsDispatchV7(_) | crate::forms::FormPurpose::ScopedWorkflowEditV9(_)) && form.submitting) {
+                    crate::scoped_actions_native_v1::cancel_publication_v3(self);
+                    return;
+                }
                 if action == crate::forms::FormAction::Close && self.form.as_ref().is_some_and(|form|matches!(form.purpose,crate::forms::FormPurpose::PrReviewV2(_)|crate::forms::FormPurpose::PrReviewOperationV3(_)) && form.submitting) {
                     self.scoped_reviews_cancel_v2=true;
                     self.status="Canceling original review operation • awaiting owned cleanup; effects may exist".into();return;
                 }
                 if action == crate::forms::FormAction::Close
                     && self.form.as_ref().is_some_and(|form| {
-                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_) | crate::forms::FormPurpose::PrThreadCommentV2(_) | crate::forms::FormPurpose::PrThreadReactionV3(_))
+                        matches!(form.purpose, crate::forms::FormPurpose::PrThread(_) | crate::forms::FormPurpose::PrThreadCommentV2(_) | crate::forms::FormPurpose::PrThreadReactionV3(_) | crate::forms::FormPurpose::PrFileCommentV75(_))
                             && form.submitting
                     })
                 {
@@ -1607,6 +1855,13 @@ impl App {
                             .into();
                     return;
                 }
+                let retain_closed_conversation_v20 = action == crate::forms::FormAction::Close
+                    && crate::scoped_pr_collaboration_ui_v17::pure_close_v20::can_close(self);
+                let closed_history_v296 = if action == crate::forms::FormAction::Close {
+                    crate::scoped_pr_collaboration_ui_v17::history_close_v296::capture(self)
+                } else {
+                    None
+                };
                 if let Some(form) = &mut self.form {
                     form.dispatch(&action);
                 }
@@ -1625,6 +1880,12 @@ impl App {
                     self.overlay = None;
                     self.status = "Composer closed • draft kept locally".into();
                     crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::form_closed(self);
+                    if retain_closed_conversation_v20 {
+                        crate::scoped_pr_collaboration_ui_v17::pure_close_v20::form_closed(self);
+                    }
+                    if let Some(proof) = closed_history_v296 {
+                        crate::scoped_pr_collaboration_ui_v17::history_close_v296::form_closed(self, proof);
+                    }
                 }
             }
             Action::LocalMenu => {
@@ -1752,6 +2013,15 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        let old_notification_pr = self.notification_pr_source_v63.is_some();
+        crate::notification_pr_v63::retire_invalid(self);
+        if old_notification_pr && self.notification_pr_source_v63.is_none() && self.github.is_none()
+        {
+            return;
+        }
+        if crate::notifications_ui_v63::event(self, &event) {
+            return;
+        }
         // Only this already-owned modal captures here. Reject oversized Paste
         // and invalidate Resize geometry BEFORE any unrelated handler clones
         // the event; no source/work/provider lifetime is created or renewed.
@@ -1965,6 +2235,82 @@ impl App {
             return;
         }
         if self.overlay == Some(Overlay::Form) {
+            if self.form.as_ref().is_some_and(|form| {
+                crate::scoped_pr_collaboration_ui_v17::issue_link_v87::picker(form).is_some()
+            }) {
+                let form = self.form.as_mut().unwrap();
+                let picker =
+                    crate::scoped_pr_collaboration_ui_v17::issue_link_v87::picker(form).unwrap();
+                let action = match &event {
+                    Event::Key(key) if key.kind != KeyEventKind::Release => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            && key.code == KeyCode::Char('c')
+                        {
+                            self.dispatch(Action::Quit);
+                            return;
+                        }
+                        picker.key(key.code, key.modifiers)
+                    }
+                    Event::Paste(text) => Some(
+                        crate::pr_metadata_picker::PrMetadataPickerAction::Paste(text.clone()),
+                    ),
+                    Event::Mouse(mouse) => picker.mouse(
+                        mouse.kind,
+                        mouse.column,
+                        mouse.row,
+                        &form.metadata_picker_hits,
+                    ),
+                    Event::Resize(_, _) => {
+                        form.metadata_picker_hits.clear();
+                        None
+                    }
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    self.dispatch(Action::Form(crate::forms::FormAction::MetadataPicker(
+                        action,
+                    )));
+                }
+                return;
+            }
+            if self.form.as_ref().is_some_and(|form| {
+                crate::scoped_pr_collaboration_ui_v17::metadata_base_v32::picker(form).is_some()
+            }) {
+                let form = self.form.as_mut().unwrap();
+                let picker =
+                    crate::scoped_pr_collaboration_ui_v17::metadata_base_v32::picker(form).unwrap();
+                let action = match &event {
+                    Event::Key(key) if key.kind != KeyEventKind::Release => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            && key.code == KeyCode::Char('c')
+                        {
+                            self.dispatch(Action::Quit);
+                            return;
+                        }
+                        picker.key(key.code, key.modifiers)
+                    }
+                    Event::Paste(text) => Some(
+                        crate::pr_metadata_picker::PrMetadataPickerAction::Paste(text.clone()),
+                    ),
+                    Event::Mouse(mouse) => picker.mouse(
+                        mouse.kind,
+                        mouse.column,
+                        mouse.row,
+                        &form.metadata_picker_hits,
+                    ),
+                    Event::Resize(_, _) => {
+                        form.metadata_picker_hits.clear();
+                        None
+                    }
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    self.dispatch(Action::Form(crate::forms::FormAction::MetadataPicker(
+                        action,
+                    )));
+                }
+                return;
+            }
             if self
                 .form
                 .as_ref()
@@ -2135,7 +2481,15 @@ impl App {
                             ));
                             return;
                         }
-                        if form.preview && form.uses_prepared_preview() {
+                        if (form.preview
+                            || matches!(
+                                form.purpose,
+                                crate::forms::FormPurpose::ScopedActionsV3(_)
+                                    | crate::forms::FormPurpose::ScopedActionsWorkflowV6(_)
+                                    | crate::forms::FormPurpose::ScopedActionsDispatchV7(_)
+                            ))
+                            && form.uses_prepared_preview()
+                        {
                             form.preview_scroll = form.preview_scroll.saturating_add_signed(
                                 if mouse.kind == MouseEventKind::ScrollDown {
                                     3
@@ -2592,6 +2946,16 @@ impl App {
                         .as_ref()
                         .is_some_and(|github| github.pr.is_some());
                     if let KeyCode::Char(character) = key.code {
+                        if character == 'K'
+                            && self.github.as_ref().is_some_and(|g| {
+                                g.scoped_pr_navigation.is_some()
+                                    && g.scoped_pr_resource.is_some()
+                                    && g.pr.as_ref().is_some_and(|p| p.tab == PrTab::Files)
+                            })
+                        {
+                            self.dispatch(Action::Github(GithubAction::FileCommentV75));
+                            return;
+                        }
                         if character == 'T'
                             && self.github.as_ref().is_some_and(|github| {
                                 github.scoped_pr_navigation.is_some()
@@ -2605,11 +2969,10 @@ impl App {
                         }
                         if character == 'J'
                             && self.github.as_ref().is_some_and(|github| {
-                                github.scoped_pr_navigation.is_some()
-                                    && github
-                                        .pr
-                                        .as_ref()
-                                        .is_some_and(|page| page.tab == PrTab::Summary)
+                                github
+                                    .pr
+                                    .as_ref()
+                                    .is_some_and(|page| page.tab == PrTab::Summary)
                             })
                         {
                             self.dispatch(Action::Github(GithubAction::ThreadHistoryV1));
@@ -2719,8 +3082,31 @@ impl App {
                 }
                 match key.code {
                     KeyCode::F(1) => self.dispatch(Action::Help),
+                    KeyCode::F(8)
+                        if self.view == View::Inbox
+                            && self.github.as_ref().is_some_and(|github| {
+                                github.pr.is_none() && github.scoped_pr_navigation.is_none()
+                            }) =>
+                    {
+                        self.dispatch(Action::NotificationsV63(
+                            crate::notifications_ui_v63::NotificationActionV63::Open,
+                        ))
+                    }
                     KeyCode::F(10) if self.view == View::Inbox => {
                         self.dispatch(Action::OpenScopedReviewsV2)
+                    }
+                    KeyCode::F(8)
+                        if self.view == View::Inbox
+                            && self.github.as_ref().is_some_and(|github| {
+                                github.scoped_pr_navigation.is_some()
+                                    && github.pr.as_ref().is_some_and(|page| {
+                                        page.tab == crate::github_workspace::PrTab::Summary
+                                    })
+                            }) =>
+                    {
+                        self.dispatch(Action::Github(
+                            crate::github_workspace::GithubAction::ActionsHistoryV5,
+                        ))
                     }
                     KeyCode::F(9) if self.view == View::Inbox => self.dispatch(Action::Github(
                         crate::github_workspace::GithubAction::ReviewOperationHistoryV3,
@@ -3228,6 +3614,28 @@ pub fn safe_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn app_constructor_v142_preserves_empty_private_lifecycle_and_normal_help_navigation() {
+        let mut app = App::new();
+        assert_eq!(app.view, View::Inbox);
+        assert_eq!(app.color_mode, crate::theme::ColorMode::TrueColor);
+        assert!(app.closed_conversation_draft_v20.is_none());
+        assert!(app.form.is_none() && app.overlay.is_none());
+        assert!(app.pr_native_diff_work_v1.is_none());
+        assert!(app.scoped_actions_work_v1.is_none());
+        assert!(app.personal_pr_entry_work_v13.is_none());
+        assert!(app.loading.iter().all(|loading| !loading));
+        app.color_mode = crate::theme::ColorMode::NoColor;
+        app.dispatch(Action::Help);
+        assert_eq!(app.overlay, Some(Overlay::Help));
+        assert!(app.context_help.is_some());
+        app.dispatch(Action::Close);
+        assert!(app.overlay.is_none());
+        assert_eq!(app.color_mode, crate::theme::ColorMode::NoColor);
+        assert!(app.closed_conversation_draft_v20.is_none());
+        assert!(app.form.is_none());
+    }
+
     #[test]
     fn metrics_unavailable_content_enter_cannot_activate_an_obsolete_toolbar_target() {
         let mut app = App {

@@ -683,7 +683,16 @@ fn preserve_scoped_controls_v1(
     observation: &PrCheckRunObservation,
 ) {
     let matched = observation.link().map(|link| link.selected_job());
-    for control in &mut workspace.controls {
+    // Enable ONLY the original read-only Open/Preview intents whose exact
+    // current run/member is already carried by this real PR observation.
+    let run_entries: Vec<bool> = workspace
+        .controls
+        .iter()
+        .map(|control| {
+            actions_origin_v2::run_command_visible_v4(workspace, observation, &control.action)
+        })
+        .collect();
+    for (control, run_entry) in workspace.controls.iter_mut().zip(run_entries) {
         let allowed = matches!(
             control.action,
             ActionsAction::Back
@@ -695,9 +704,12 @@ fn preserve_scoped_controls_v1(
             control.label = "[b Back to PR checks]".into();
         }
         let allowed = allowed
+            || run_entry
             || actions_origin_v2::resource_entry_action(&control.action)
             || matches!(control.action, ActionsAction::Logs(job) if job.is_some_and(|id| observation.selected_run_v1().is_some_and(|run| run.members().iter().any(|member| member.id()==id))));
-        if !allowed {
+        if run_entry {
+            control.disabled_reason = None;
+        } else if !allowed {
             control.disabled_reason = Some("Additional scoped PR-check action needs its own original access/draft/publication admission; nothing sent.".into());
         }
     }

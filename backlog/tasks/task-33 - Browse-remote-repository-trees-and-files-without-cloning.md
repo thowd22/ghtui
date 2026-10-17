@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-14 21:55'
+updated_date: '2026-10-17 03:14'
 labels:
   - repository
   - e2e
@@ -91,4 +91,6 @@ Root FULL-read and MAIN admitted frozen remote immutable-content followup patch4
 Root MAIN counted current remote immutable-content followup gate genuinely GREEN: currenttaskenv node scripts/test-task.mjs remote_tree_v1_followup PASS9meaningfulcode=3actualfactorylib+6strictprovider,18actualPTY0failed/ignored, native1.71s98007exit0, root-remote-private-followup-checked-first.log. Actualcompletedbothinput ODquvI/journeys.jsonl. All cases actual31initialcapturedprivatebody before error/UID/repoepoch/cancel; exact freshchildcounts/privatecanaryerase and SQL/Git/config/TTY effects preserved. Rootfinalalltargets/fmt/strictClippy running afterTree/Meta/cache/failed-step additions; no whole/project/TaskDone/nativeMac or newlyimplementedRelatedPRclaim. RelatedPR actual newprovider/UI agentlane remains separate and stillUNVERIFIED.
 
 Current coherent MAIN whole checkpoint is independentlyGREEN: taskenv cargo test --offline --locked --all-targets33198exit0 PASS1779meaningfulcode/provider=1236lib+295strictGH+248other,564realbinaryPTY0failed/ignored84.54s (root-metadata-cache-tree-remote-actions-whole-first.log). Wholefmt21407exit0; strictalltargetClippy48634exit0(1m40s), correspondinglogs. FocusedMeta3/2MjiRau,cache26/8sSGrYU,Tree29/10zT2keB,remote9/18ODquvI,failedstep5/6PN0hA7 allcountedPASSactualbothinputs. Backlogaudit73valid0errors/doctor0cycles/dependency86sources10300files108patches117registrypackagesPASS/remotesEMPTY. README advanced afterterminalgreen. No task/dep/AC/DoD completion: macOS cache lock-neutral replacement, SQLiteupstreamTASK73, Task2fixturepublicationrace, performance/UX/live/release/CI and actual unadmittedDiff/RelatedPR work remainOPEN; no liveGitHubwrite or remotecreated.
+
+TASK-79 stabilization found a real remote-browser regression in the first integrated full gate: the newer distinct GithubErrorKind::OutputLimit was absent from the original no-proof immediate-stop match. After over-cap raw stdout/stderr, reader attempted an extra closing repository request (29 actual vs28 expected) before failing. Root added that kind to the original stop branch and strengthened the existing strict provider test to require exact OutputLimit. No caps/deadlines/permissions changed. Existing paired raw_capture_exhaustion_no_hidden_probe journeys retain exact35calls, hidden old body, saved/SQL/Git/config/TTY proof. Checked remote_tree_v1 is running under Task79; all TASK33 acceptance/dependencies remain open, no complete/platform claim.
 <!-- SECTION:NOTES:END -->

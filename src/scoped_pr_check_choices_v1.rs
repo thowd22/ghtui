@@ -28,6 +28,23 @@ pub(crate) struct PreparedPrCheckChoiceRowsV1 {
     rows: Vec<Row>,
     header: String,
 }
+impl PreparedPrCheckChoiceRowsV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        let mut n = b::sum([
+            b::owner::<Self>(),
+            b::vector(&self.rows)?,
+            self.header.capacity(),
+        ])?;
+        for row in &self.rows {
+            n = n.checked_add(row.label.capacity())?;
+            if let Some(actor) = &row.actor {
+                n = n.checked_add(b::actor_identity(actor)?)?;
+            }
+        }
+        Some(n)
+    }
+}
 pub(super) fn prepare_rows(
     observation: &Arc<PrCheckRunObservation>,
 ) -> Option<Arc<PreparedPrCheckChoiceRowsV1>> {

@@ -7,6 +7,13 @@ pub struct PrCheckRunCandidateV1 {
     node: String,
 }
 impl PrCheckRunCandidateV1 {
+    pub(super) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        self.node
+            .capacity()
+            .checked_add(crate::actions_workspace::scoped_read_v1::run_owned_bytes(
+                &self.run,
+            ))
+    }
     pub fn run(&self) -> &WorkflowRun {
         &self.run
     }
@@ -61,6 +68,17 @@ pub struct PrCheckSelectedRunV1 {
     pub(super) selection: PrCheckSelectionOriginV1,
 }
 impl PrCheckSelectedRunV1 {
+    pub(super) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        b::sum([
+            b::owner::<Self>(),
+            self.run_node.capacity(),
+            b::vector(&self.members)?,
+            b::sum(self.members.iter().map(|member| member.node.capacity()))?,
+            crate::actions_workspace::scoped_read_v1::attempt_owned_bytes(&self.attempt),
+            2 * std::mem::size_of::<usize>(),
+        ])
+    }
     pub fn attempt(&self) -> &Arc<RunAttempt> {
         &self.attempt
     }

@@ -101,6 +101,61 @@ fn scoped_actions_native_key_and_actual_hit_open_identical_observed_target() {
     f::exact(&fixture, &all);
 }
 #[test]
+fn scoped_actions_native_genuine_initial_empty_runs_keeps_publications_key_and_whole_hit_enabled() {
+    for mouse in [false, true] {
+        let (fixture, _, mut app, all) = f::setup_empty_runs_v124();
+        let sql = f::sql_state(&fixture);
+        let git = f::git_state(&fixture);
+        let workspace = app.actions.as_ref().unwrap();
+        assert!(workspace.runs.is_empty());
+        let control = workspace
+            .controls
+            .iter()
+            .find(|control| control.action == ActionsAction::PublicationList)
+            .unwrap();
+        assert_eq!(control.label, "[P Publications]");
+        assert!(control.disabled_reason.is_none());
+        let keyboard = crate::actions_ui::keyboard_action(
+            KeyEvent::new(KeyCode::Char('P'), KeyModifiers::NONE),
+            workspace,
+        )
+        .unwrap();
+        assert_eq!(keyboard, ActionsAction::PublicationList);
+        let mut pointer = None;
+        for _ in 0..30 {
+            let rendered = render(&mut app, 80, 24);
+            if let Some(hit) = rendered
+                .hits
+                .iter()
+                .find(|hit| hit.action == ActionsAction::PublicationList)
+            {
+                assert!(!hit.rect.is_empty() && hit.rect.right() <= 80 && hit.rect.bottom() <= 24);
+                pointer = Some(hit.action.clone());
+                break;
+            }
+            app.actions.as_mut().unwrap().controls_page += 1;
+        }
+        assert_eq!(
+            pointer,
+            Some(keyboard.clone()),
+            "Actual whole enabled control is reachable"
+        );
+        assert!(intercept(
+            &mut app,
+            if mouse {
+                pointer.as_ref().unwrap()
+            } else {
+                &keyboard
+            }
+        ));
+        assert!(app.scoped_actions_work_v1.is_some());
+        assert!(app.form.is_none());
+        assert_eq!(f::sql_state(&fixture), sql);
+        assert_eq!(f::git_state(&fixture), git);
+        f::exact(&fixture, &all);
+    }
+}
+#[test]
 fn scoped_actions_native_disabled_keys_and_hits_cannot_open_forms_or_write_drafts() {
     for mouse in [false, true] {
         let (fixture, _, mut app, all) = f::setup(vec![]);

@@ -7,20 +7,29 @@ use crate::{
     pr_write_journal::{
         review_operation_history_v3::ReviewOperationHistorySnapshotV3, PrWriteState, PrWriteTarget,
     },
-    providers::gh::{Actor, ThreadHistoryParentObservationV1},
+    providers::gh::{Actor, GithubResult, ThreadHistoryParentObservationV1},
 };
+#[path = "scoped_pr_review_history_phase_v15.rs"]
+mod phase_v15;
 #[path = "scoped_pr_review_recovery_v11.rs"]
 pub mod recovery_v11;
 #[path = "scoped_pr_review_operation_history_ui_v3.rs"]
 pub mod ui;
+use phase_v15::ReviewHistoryReadPhaseV15;
 
 /// Closed Summary-vs-Files boundary: this does not manufacture a review intent
 /// to bypass the original Files/pending-journal gate.
+enum ReviewSummaryOriginV15 {
+    Catalogue {
+        source: Arc<CatalogueIntentSource>,
+        active: Arc<ActiveRemoteScopeV1>,
+        navigation: Arc<ScopedPrNavigationV1>,
+        expected: Box<ThreadHistoryParentObservationV1>,
+    },
+    Personal(Arc<crate::personal_pr_entry_v13::summary_v14::PersonalPrSummaryPresentationV14>),
+}
 pub struct ReviewOperationHistoryIntentV3 {
-    pub(super) source: Arc<CatalogueIntentSource>,
-    pub(super) active: Arc<ActiveRemoteScopeV1>,
-    pub(super) navigation: Arc<ScopedPrNavigationV1>,
-    expected: ThreadHistoryParentObservationV1,
+    origin: ReviewSummaryOriginV15,
     selected: usize,
     scroll: usize,
 }
@@ -41,23 +50,27 @@ impl ReviewOperationHistoryIntentV3 {
             .filter(|page| page.tab == crate::github_workspace::PrTab::Summary)
             .ok_or("Protected review operation history opens from Summary, not blocked Files")?;
         let original = Arc::new(Self {
-            source: app
-                .remote_scope_source
-                .as_ref()
-                .ok_or("Original Summary source unavailable")?
-                .clone(),
-            active: app
-                .remote_scope
-                .as_ref()
-                .ok_or("Original active Summary scope unavailable")?
-                .clone(),
-            navigation: github
-                .scoped_pr_navigation
-                .as_ref()
-                .ok_or("Original Summary navigation unavailable")?
-                .clone(),
-            expected: ThreadHistoryParentObservationV1::capture(&page.details.summary)
-                .map_err(|_| "Actual bounded Summary observation unavailable")?,
+            origin: ReviewSummaryOriginV15::Catalogue {
+                source: app
+                    .remote_scope_source
+                    .as_ref()
+                    .ok_or("Original Summary source unavailable")?
+                    .clone(),
+                active: app
+                    .remote_scope
+                    .as_ref()
+                    .ok_or("Original active Summary scope unavailable")?
+                    .clone(),
+                navigation: github
+                    .scoped_pr_navigation
+                    .as_ref()
+                    .ok_or("Original Summary navigation unavailable")?
+                    .clone(),
+                expected: Box::new(
+                    ThreadHistoryParentObservationV1::capture(&page.details.summary)
+                        .map_err(|_| "Actual bounded Summary observation unavailable")?,
+                ),
+            },
             selected: app.selected,
             scroll: app.scroll,
         });
@@ -67,39 +80,133 @@ impl ReviewOperationHistoryIntentV3 {
         Ok(original)
     }
     pub fn scope(&self) -> &Scope {
-        self.source.scope()
+        match &self.origin {
+            ReviewSummaryOriginV15::Catalogue { source, .. } => source.scope(),
+            ReviewSummaryOriginV15::Personal(original) => original.scope(),
+        }
     }
-    pub(crate) fn source(&self) -> &Arc<CatalogueIntentSource> {
-        &self.source
+    pub(crate) fn capture_personal_v15(app: &App, database: &Path) -> Result<Arc<Self>, String> {
+        let original =
+            crate::personal_pr_entry_v13::summary_v14::PersonalPrSummaryPresentationV14::capture(
+                app, database,
+            )?;
+        Ok(Arc::new(Self {
+            origin: ReviewSummaryOriginV15::Personal(original),
+            selected: app.selected,
+            scroll: app.scroll,
+        }))
     }
-    pub(crate) fn active(&self) -> &Arc<ActiveRemoteScopeV1> {
-        &self.active
+    pub(crate) fn personal_summary_v15(
+        &self,
+    ) -> Option<&Arc<crate::personal_pr_entry_v13::summary_v14::PersonalPrSummaryPresentationV14>>
+    {
+        match &self.origin {
+            ReviewSummaryOriginV15::Personal(original) => Some(original),
+            _ => None,
+        }
     }
-    pub(crate) fn navigation(&self) -> &Arc<ScopedPrNavigationV1> {
-        &self.navigation
+    pub(crate) fn catalogue_parts_v15(
+        &self,
+    ) -> Option<(
+        &Arc<CatalogueIntentSource>,
+        &Arc<ActiveRemoteScopeV1>,
+        &Arc<ScopedPrNavigationV1>,
+    )> {
+        match &self.origin {
+            ReviewSummaryOriginV15::Catalogue {
+                source,
+                active,
+                navigation,
+                ..
+            } => Some((source, active, navigation)),
+            _ => None,
+        }
+    }
+    pub(crate) fn retire_account_mismatch_v15(&self, app: &mut App) -> bool {
+        match &self.origin {
+            ReviewSummaryOriginV15::Catalogue { source, active, .. } => {
+                crate::remote_scope_gate_v1::retire_original_account_mismatch(app, source, active)
+            }
+            ReviewSummaryOriginV15::Personal(original) => original.retire_account_mismatch(app),
+        }
+    }
+    fn source_identity_v15(&self, identity: &HostIdentity) -> Result<(), ScopedReviewFailureV2> {
+        if Scope::github(&identity.host, identity.account_id)
+            .ok()
+            .as_ref()
+            != Some(self.scope())
+        {
+            return Err(source_failure(safe_local()));
+        }
+        match &self.origin {
+            ReviewSummaryOriginV15::Catalogue {
+                active, navigation, ..
+            } => {
+                let RemoteScopeConsumerV1::Explicit(members) = active.consumer(identity) else {
+                    return Err(source_failure(safe_local()));
+                };
+                if !members
+                    .references()
+                    .iter()
+                    .any(|m| m.original() == navigation.original())
+                {
+                    return Err(source_failure(safe_local()));
+                }
+            }
+            ReviewSummaryOriginV15::Personal(_) => {}
+        }
+        Ok(())
+    }
+    fn validate_local_source_v15(&self, database: &Path) -> GithubResult<()> {
+        let cache = Cache::open(database).map_err(|_| safe_local())?;
+        match &self.origin {
+            ReviewSummaryOriginV15::Catalogue { source, .. } => cache
+                .validate_repository_catalogue_intent_source(source)
+                .map_err(|_| safe_local()),
+            // The shared phase proves canonical path/dev/inode before/after
+            // this callback. This exact captured path cannot retarget to a
+            // different database or imply a Files/publication source.
+            ReviewSummaryOriginV15::Personal(original) if database == original.database() => Ok(()),
+            _ => Err(safe_local()),
+        }
     }
     pub fn owns(&self, app: &App) -> bool {
+        if let ReviewSummaryOriginV15::Personal(original) = &self.origin {
+            return app.view == View::Inbox
+                && app.selected == self.selected
+                && app.scroll == self.scroll
+                && original.owns_presentation(app);
+        }
+        let ReviewSummaryOriginV15::Catalogue {
+            source,
+            active,
+            navigation,
+            expected,
+        } = &self.origin
+        else {
+            return false;
+        };
         app.view == View::Inbox
             && app.selected == self.selected
             && app.scroll == self.scroll
             && app
                 .remote_scope_source
                 .as_ref()
-                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+                .is_some_and(|current| Arc::ptr_eq(current, source))
             && app
                 .remote_scope
                 .as_ref()
-                .is_some_and(|active| Arc::ptr_eq(active, &self.active))
+                .is_some_and(|current| Arc::ptr_eq(current, active))
             && app.github.as_ref().is_some_and(|github| {
                 github.scope().ok().as_ref() == Some(self.scope())
                     && github
                         .scoped_pr_navigation
                         .as_ref()
-                        .is_some_and(|navigation| Arc::ptr_eq(navigation, &self.navigation))
+                        .is_some_and(|current| Arc::ptr_eq(current, navigation))
                     && github.pr.as_ref().is_some_and(|page| {
                         page.tab == crate::github_workspace::PrTab::Summary
-                            && self.expected.matches(&page.details.summary)
-                            && super::super::super::matches_page(&self.navigation, page)
+                            && expected.matches(&page.details.summary)
+                            && super::super::super::matches_page(navigation, page)
                     })
             })
     }
@@ -146,44 +253,14 @@ pub fn load(
             "Choose an actual original review-operation history row",
         ));
     }
-    let issuer = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = issuer
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), cancel)
-        .map_err(source_failure)?;
-    let identity = session.identity().clone();
-    let RemoteScopeConsumerV1::Explicit(members) = intent.active.consumer(&identity) else {
-        return Err(source_failure(safe_local()));
-    };
-    if Scope::github(&identity.host, identity.account_id)
-        .ok()
-        .as_ref()
-        != Some(intent.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == intent.navigation.original())
-    {
-        return Err(source_failure(safe_local()));
-    }
-    // Exactly the opening/closing raw parents share ONE original measured
-    // allocation; repo/principal closing capacity stays with the same session.
-    let window = session
-        .reserve_measured_external_reads(2, 128 * 1024, 1024 * 1024, 2, cancel)
-        .map_err(source_failure)?;
-    let measured = issuer
+    let issuer = provider
         .clone()
-        .with_measured_read_window(window)
+        .with_original_pr_read_bounds_v13(deadline, 1024 * 1024)
         .map_err(source_failure)?;
-    let current = session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_failure)?;
-    let parent = measured
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_failure)?;
-    Cache::open(database)
-        .map_err(|_| source_failure(safe_local()))?
-        .validate_repository_catalogue_intent_source(&intent.source)
-        .map_err(|_| source_failure(safe_local()))?;
+    let phase =
+        ReviewHistoryReadPhaseV15::begin(&intent, &issuer, database, cancel, deadline, None)?;
+    let identity = phase.identity().clone();
+    let parent = phase.parent().clone();
     let journal = PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;
     let target = PrWriteTarget::new(&identity, parent.summary())
         .map_err(|_| source_failure(safe_local()))?;
@@ -305,54 +382,37 @@ pub fn load(
             .map_err(|_| {
                 refused("Original history display cannot be prepared within its original phase")
             })?;
-    let current = session
-        .observation_v1(parent.repository_id())
-        .ok_or_else(|| source_failure(safe_local()))?;
-    let last = measured
-        .pr_thread_history_parent_v1(current, &intent.expected, cancel)
-        .map_err(source_failure)?;
-    if !GithubProvider::same_thread_history_parent_v1(&parent, &last) {
-        return Err(source_failure(safe_local()));
-    }
-    session
-        .verify(intent.navigation.original(), cancel)
-        .map_err(source_failure)?;
-    let closed = session
-        .close_with_guard(cancel, || {
-            private_clock(cancel, deadline)?;
-            let cache = Cache::open(database).map_err(|_| safe_local())?;
-            cache
-                .validate_repository_catalogue_intent_source(&intent.source)
-                .map_err(|_| safe_local())?;
-            PrWriteJournal::open(database)
+    let identity = phase.finish(|| {
+        private_clock(cancel, deadline)?;
+        let cache = Cache::open(database).map_err(|_| safe_local())?;
+        intent.validate_local_source_v15(database)?;
+        PrWriteJournal::open(database)
+            .map_err(|_| safe_local())?
+            .validate_review_operation_history_v3(
+                &target,
+                parent.repository_id(),
+                parent.repository_node(),
+                parent.database_id(),
+                &snapshot,
+            )
+            .map_err(|_| safe_local())?;
+        if let Some((key, expected)) = &body_witness {
+            if cache
+                .bounded_draft(intent.scope(), key, REVIEW_DRAFT_BYTES_V2)
                 .map_err(|_| safe_local())?
-                .validate_review_operation_history_v3(
-                    &target,
-                    parent.repository_id(),
-                    parent.repository_node(),
-                    parent.database_id(),
-                    &snapshot,
-                )
-                .map_err(|_| safe_local())?;
-            if let Some((key, expected)) = &body_witness {
-                if cache
-                    .bounded_draft(intent.scope(), key, REVIEW_DRAFT_BYTES_V2)
-                    .map_err(|_| safe_local())?
-                    .as_ref()
-                    != expected.as_ref()
-                {
-                    return Err(safe_local());
-                }
+                .as_ref()
+                != expected.as_ref()
+            {
+                return Err(safe_local());
             }
-            private_clock(cancel, deadline)
-        })
-        .map_err(source_failure)?;
-    if closed.identity().login.len() > 4096 {
+        }
+        private_clock(cancel, deadline)
+    })?;
+    if identity.login.len() > 4096 {
         return Err(refused(
             "Actual closing history requester metadata exceeds bounded display",
         ));
     }
-    let identity = closed.identity().clone();
     let actor = crate::identity::ActorIdentity::github(
         &identity.host,
         &Actor {

@@ -11,6 +11,13 @@ use crate::{
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use std::{fmt, os::unix::fs::MetadataExt, path::PathBuf, sync::Arc, time::Instant};
+#[path = "repository_catalogue_intents_v1/conversation_continuation_v19.rs"]
+pub(super) mod conversation_continuation_v19;
+
+#[path = "repository_catalogue_intents_v1/local_clear_v5.rs"]
+mod local_clear_v5;
+#[path = "repository_catalogue_intents_v1/state_source_v80.rs"]
+pub(super) mod state_source_v80;
 
 /// Safe, closed diagnostics. SQL/JSON/provider payloads are never interpolated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,10 +45,30 @@ impl std::error::Error for CatalogueIntentBoundaryError {}
 type BoundaryResult<T> = std::result::Result<T, CatalogueIntentBoundaryError>;
 
 #[derive(Clone, PartialEq, Eq)]
-struct Issuer {
+pub(super) struct Issuer {
     path: PathBuf,
     device: u64,
     inode: u64,
+}
+impl Issuer {
+    pub(super) fn retained_bytes_v80(&self) -> Option<usize> {
+        std::mem::size_of::<Self>().checked_add(self.path.capacity())
+    }
+    pub(super) fn fingerprint_v63(&self) -> String {
+        use std::os::unix::ffi::OsStrExt;
+        let mut digest = Sha256::new();
+        let path = self.path.as_os_str().as_bytes();
+        digest.update((path.len() as u64).to_be_bytes());
+        digest.update(path);
+        digest.update(self.device.to_be_bytes());
+        digest.update(self.inode.to_be_bytes());
+        format!("{:x}", digest.finalize())
+    }
+    /// Reuse exact existing path/device/inode/regular-single-link policy while
+    /// another cache child holds the connection transaction borrow.
+    pub(super) fn file_still_matches_v63(&self) -> bool {
+        file_issuer(&self.path).is_ok_and(|current| current == *self)
+    }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct PayloadEpoch {
@@ -118,6 +145,38 @@ impl fmt::Debug for CatalogueIntentSource {
     }
 }
 impl CatalogueIntentSource {
+    pub(in crate::storage) fn validate_cleanup_issuer_v9(
+        &self,
+        cache: &Cache,
+    ) -> BoundaryResult<()> {
+        if issuer(cache)? != self.reservation.issuer {
+            return Err(CatalogueIntentBoundaryError::OriginalSource);
+        }
+        Ok(())
+    }
+    pub(in crate::storage) fn validate_cleanup_snapshot_v9(
+        &self,
+        tx: &Transaction<'_>,
+    ) -> BoundaryResult<()> {
+        if !self.reservation.issuer.file_still_matches_v63() {
+            return Err(CatalogueIntentBoundaryError::OriginalSource);
+        }
+        validate_epoch(tx, &self.reservation)?;
+        validate_payload(tx, &self.reservation)
+    }
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        std::mem::size_of::<Self>()
+            .checked_add(2 * std::mem::size_of::<usize>())?
+            .checked_add(self.reservation.issuer.path.capacity())?
+            .checked_add(self.reservation.scope.host.capacity())?
+            .checked_add(self.reservation.scope.login.capacity())?
+            .checked_add(self.reservation.sync_source.capacity())?
+            .checked_add(self.reservation.view_key.capacity())?
+            // The reservation keeps an independent original source and intent.
+            .checked_add(self.reservation.intent.workflow_owned_bytes_v9()?)?
+            .checked_add(self.source.workflow_owned_bytes_v9()?)?
+            .checked_add(self.reservation.original.workflow_owned_bytes_v9()?)
+    }
     pub fn source(&self) -> &Arc<RepositoryCatalogueRead> {
         &self.source
     }
@@ -434,7 +493,7 @@ fn payload_epoch(value: &str) -> PayloadEpoch {
         hash: Sha256::digest(value.as_bytes()).into(),
     }
 }
-fn issuer(cache: &Cache) -> BoundaryResult<Issuer> {
+pub(super) fn issuer(cache: &Cache) -> BoundaryResult<Issuer> {
     let path = cache
         .connection
         .path()

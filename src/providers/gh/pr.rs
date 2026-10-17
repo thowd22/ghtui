@@ -2,8 +2,16 @@
 use super::*;
 mod inspect;
 pub use inspect::*;
+#[path = "pr_metadata_capability_v25.rs"]
+mod metadata_capability_v25;
+#[cfg(test)]
+pub(in crate::providers::gh) use metadata_capability_v25::METADATA_TEXT_CAPABILITY_QUERY_V25;
+#[path = "pr_conversation_original_v17.rs"]
+mod conversation_original_v17;
+pub(crate) use conversation_original_v17::*;
 #[path = "pr_inline_v1.rs"]
 mod inline_v1;
+pub(crate) use inline_v1::FreshInlineCommentObservationV14;
 pub use inline_v1::{InlineCommentReceiptV1, InlinePublicationFailureV1};
 #[path = "pr_thread_publication_v1.rs"]
 mod thread_publication_v1;
@@ -11,6 +19,14 @@ pub use thread_publication_v1::*;
 #[path = "pr_pending_review_v2.rs"]
 mod pending_review_v2;
 pub use pending_review_v2::*;
+
+const STATE_CAPABILITY_QUERY_V68: &str = "query($id:ID!){node(id:$id){__typename ... on PullRequest{id fullDatabaseId number headRefOid baseRefOid headRefName baseRefName state isDraft merged viewerCanClose viewerCanReopen repository{id nameWithOwner}}}}";
+
+/// Pure data parser shared with the closed State response validators. This
+/// delegates the existing canonical integer rules without exposing transport.
+pub(in crate::providers::gh) fn canonical_database_id_v87(value: &Value) -> Option<u64> {
+    thread_publication_v1::canonical_bigint(value)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestedTeam {
@@ -202,6 +218,32 @@ pub struct CreatePr {
     pub draft: bool,
     pub expected_head_sha: String,
     pub expected_base_sha: String,
+}
+
+// SAME legacy validation/payload grammar. W9's closed provider only adds its
+// own borrowed resource bounds/provenance before calling these pure helpers.
+pub(in crate::providers::gh) fn validate_create_pr_request_v9(
+    request: &CreatePr,
+) -> GithubResult<()> {
+    validate_repo(&request.repository)?;
+    validate_repo(&request.head_repository)?;
+    validate_sha(&request.expected_head_sha)?;
+    validate_sha(&request.expected_base_sha)?;
+    if request.title.trim().is_empty()
+        || request.head.is_empty()
+        || request.base.is_empty()
+        || request.head.contains('\0')
+        || request.base.contains('\0')
+    {
+        return Err(error(
+            GithubErrorKind::InvalidTarget,
+            "PR publication needs an explicit remote head/base and nonempty title",
+        ));
+    }
+    Ok(())
+}
+pub(in crate::providers::gh) fn create_pr_payload_v9(request: &CreatePr, head_name: &str) -> Value {
+    json!({"head":head_name,"head_repo":request.head_repository.split('/').nth(1),"base":request.base,"title":request.title,"body":request.body,"draft":request.draft})
 }
 
 impl GithubProvider {
@@ -1544,6 +1586,22 @@ impl GithubProvider {
         }
         Ok(review)
     }
+    /// One fixed read role from the actual original State producer. Neither a
+    /// caller-selected query nor an unvalidated raw response leaves this seam.
+    pub(in crate::providers::gh) fn original_state_capability_v87(
+        &self,
+        observed: &PrStateReadV68,
+        cancel: &CancellationToken,
+    ) -> GithubResult<StateCapabilityV68> {
+        observed.validate_capability_source_v87(self, cancel)?;
+        let raw = self.graphql(
+            STATE_CAPABILITY_QUERY_V68,
+            json!({"id":observed.parent().node_id()}),
+            None,
+            cancel,
+        )?;
+        observed.validate_capability_raw_v87(&raw)
+    }
     fn graphql(
         &self,
         query: &str,
@@ -1933,21 +1991,7 @@ impl GithubProvider {
         request: &CreatePr,
         cancel: &CancellationToken,
     ) -> GithubResult<PrSummary> {
-        validate_repo(&request.repository)?;
-        validate_repo(&request.head_repository)?;
-        validate_sha(&request.expected_head_sha)?;
-        validate_sha(&request.expected_base_sha)?;
-        if request.title.trim().is_empty()
-            || request.head.is_empty()
-            || request.base.is_empty()
-            || request.head.contains('\0')
-            || request.base.contains('\0')
-        {
-            return Err(error(
-                GithubErrorKind::InvalidTarget,
-                "PR publication needs an explicit remote head/base and nonempty title",
-            ));
-        }
+        validate_create_pr_request_v9(request)?;
         let current = self.identity(cancel)?;
         if !current.same_account(identity) {
             return Err(error(
@@ -2013,7 +2057,14 @@ impl GithubProvider {
             "{}/{}/create/{head_name}/{}",
             self.host, request.repository, request.base
         ));
-        let value=self.api(&format!("repos/{}/pulls",request.repository),"POST",Some(json!({"head":head_name,"head_repo":request.head_repository.split('/').nth(1),"base":request.base,"title":request.title,"body":request.body,"draft":request.draft})),Some(resource.clone()),false,cancel)?;
+        let value = self.api(
+            &format!("repos/{}/pulls", request.repository),
+            "POST",
+            Some(create_pr_payload_v9(request, &head_name)),
+            Some(resource.clone()),
+            false,
+            cancel,
+        )?;
         let n = number(&value, "number");
         if n == 0 {
             self.runner.mark_ambiguous(&resource);

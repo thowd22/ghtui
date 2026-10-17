@@ -94,18 +94,36 @@ impl std::fmt::Debug for ScopedReviewsWorkV2 {
     }
 }
 impl ScopedReviewsWorkV2 {
+    #[cfg(test)]
+    pub(crate) fn cancellation_v15(&self) -> &CancellationToken {
+        &self.cancel
+    }
+    #[cfg(test)]
+    pub(crate) fn original_deadline_v15(&self) -> Instant {
+        self.deadline
+    }
     fn new(kind: Kind) -> Result<Arc<Self>, String> {
+        let initial_summary = match &kind {
+            Kind::HistoryList {
+                intent,
+                ticket: None,
+            } => intent.personal_summary_v15(),
+            _ => None,
+        };
         let deadline = Instant::now()
             .checked_add(Duration::from_secs(30))
             .ok_or("Original review clock unavailable")?;
         let deadline = match &kind {
             Kind::NewActionV12 { notice, .. } => deadline.min(notice.deadline),
             Kind::RecoveryAcknowledgeV11 { prepared, .. } => deadline.min(prepared.deadline()),
-            _ => deadline,
+            _ => initial_summary.map_or(deadline, |original| deadline.min(original.deadline())),
         };
+        let cancel = initial_summary.map_or_else(CancellationToken::default, |original| {
+            original.cancellation().clone()
+        });
         Ok(Arc::new(Self {
             kind,
-            cancel: CancellationToken::default(),
+            cancel,
             deadline,
         }))
     }
@@ -442,21 +460,23 @@ impl ScopedReviewsOwnerV2 {
     }
     pub(crate) fn remote_owners(
         &self,
-    ) -> (
+    ) -> Option<(
         Arc<ActiveRemoteScopeV1>,
-        Arc<CatalogueIntentSource>,
+        crate::pr_read_origin_v13::PrReadOriginV13,
         Arc<ScopedPrNavigationV1>,
-    ) {
+    )> {
         let original = self.work.origin();
-        (
-            original.active().clone(),
-            original.source().clone(),
-            original.navigation().clone(),
-        )
+        Some((
+            original.active()?.clone(),
+            original.source()?,
+            original.navigation()?.clone(),
+        ))
     }
 }
 pub fn newer_intent(app: &App) -> bool {
-    if app.scoped_threads_work_v1.is_some()
+    if app.notifications_work_v63.is_some()
+        || app.notifications_cancel_v63
+        || app.scoped_threads_work_v1.is_some()
         || app.scoped_threads_cancel_v1
         || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
@@ -1268,7 +1288,14 @@ pub(crate) fn retire_orphaned_confirm_presentation(app: &mut App, owner: &Scoped
     let active_old_form = old_form && !app.form_dismissed && app.overlay == Some(Overlay::Form);
     let exact_original = intent.owns(app)
         && (active_old_form || old_browser && app.overlay == Some(Overlay::ScopedReviewsV2));
-    if exact_original {
+    let can_retire = exact_original
+        && (!intent.source.is_personal()
+            || crate::personal_pr_entry_v13::retain_orphan_source_skeleton_v14(
+                app,
+                &intent.source,
+                &intent.navigation,
+            ));
+    if can_retire {
         let old_images = app
             .pr_file_images
             .as_ref()
@@ -1278,7 +1305,7 @@ pub(crate) fn retire_orphaned_confirm_presentation(app: &mut App, owner: &Scoped
             .as_ref()
             .and_then(|origin| origin.scoped_owner_v1())
             .is_some_and(|(source, scope, nav)| {
-                Arc::ptr_eq(source, &intent.source)
+                intent.source.same_catalogue_source(source)
                     && Arc::ptr_eq(scope, &intent.active)
                     && Arc::ptr_eq(nav, &intent.navigation)
             });
@@ -1779,6 +1806,29 @@ pub fn open_history_v3(app: &mut App) {
         Err(reason) => app.status = reason,
     }
 }
+/// SAME actual F9 action forwarded once to Main's known database boundary.
+/// Only cached bounded capture happens here; no source/Files/SQL grant.
+pub fn capture_requested_history_v15(app: &mut App, database: &Path) -> bool {
+    if app.github_action != Some(crate::github_workspace::GithubAction::ReviewOperationHistoryV3) {
+        return false;
+    }
+    app.github_action = None;
+    if app.scoped_review_history_v3.is_some() || app.scoped_reviews_v2.is_some() {
+        app.status = "Close the current review presentation before opening Summary history".into();
+        return true;
+    }
+    match ReviewOperationHistoryIntentV3::capture_personal_v15(app, database) {
+        Ok(intent) => queue(
+            app,
+            Kind::HistoryList {
+                intent,
+                ticket: None,
+            },
+        ),
+        Err(reason) => app.status = reason,
+    }
+    true
+}
 fn history_action_v3(app: &mut App, action: history_v3::ui::HistoryActionV3) {
     use history_v3::ui::HistoryActionV3 as A;
     if app.scoped_reviews_v2.is_some() {
@@ -1874,22 +1924,22 @@ pub fn retire_invalid(app: &mut App) -> bool {
                 .and_then(|owner| owner.work.origin().summary().cloned())
         });
     if let Some(original) = summary {
-        if crate::remote_scope_gate_v1::retire_original_account_mismatch(
-            app,
-            original.source(),
-            original.active(),
-        ) {
+        if original.retire_account_mismatch_v15(app) {
             if app.scoped_reviews_work_v2.as_ref().is_some_and(|work| {
-                Arc::ptr_eq(work.origin().source(), original.source())
-                    && Arc::ptr_eq(work.origin().active(), original.active())
+                work.origin()
+                    .summary()
+                    .is_some_and(|intent| Arc::ptr_eq(intent, &original))
             }) {
                 if let Some(work) = app.scoped_reviews_work_v2.take() {
                     work.cancel.cancel();
                 }
             }
             if let Some(owner) = app.scoped_reviews_owner_v2.as_ref().filter(|owner| {
-                Arc::ptr_eq(owner.work.origin().source(), original.source())
-                    && Arc::ptr_eq(owner.work.origin().active(), original.active())
+                owner
+                    .work
+                    .origin()
+                    .summary()
+                    .is_some_and(|intent| Arc::ptr_eq(intent, &original))
             }) {
                 owner.cancellation().cancel();
                 app.scoped_reviews_cancel_v2 = true;
@@ -1963,13 +2013,26 @@ pub fn retire_invalid(app: &mut App) -> bool {
                 .and_then(|owner| owner.work.origin().files().cloned())
         });
     if let Some(original) = original {
-        if crate::remote_scope_gate_v1::retire_original_account_mismatch(
-            app,
-            &original.source,
-            &original.active,
-        ) {
+        let original_form = app.form.as_ref().is_some_and(|form| {
+            let intent = match &form.purpose {
+                crate::forms::FormPurpose::PrReviewV2(state) => state.intent(),
+                crate::forms::FormPurpose::PrReviewOperationV3(state) => state.intent(),
+                _ => return false,
+            };
+            intent.source.same_allocation(&original.source)
+                && Arc::ptr_eq(&intent.active, &original.active)
+                && Arc::ptr_eq(&intent.navigation, &original.navigation)
+        });
+        if original
+            .source
+            .retire_account_mismatch_v14(app, &original.active, &original.navigation)
+        {
+            if original_form {
+                app.form = None;
+                app.form_dismissed = true;
+            }
             let same_original = |intent: &Arc<ScopedReviewIntentV2>| {
-                Arc::ptr_eq(&intent.source, &original.source)
+                intent.source.same_allocation(&original.source)
                     && Arc::ptr_eq(&intent.active, &original.active)
             };
             if app

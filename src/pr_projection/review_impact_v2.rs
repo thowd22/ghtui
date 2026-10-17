@@ -95,6 +95,13 @@ pub(super) fn matches_source(
     kind: SyncBindingKind,
     actual: &[SyncBindingKind],
 ) -> Result<bool, String> {
+    if let Some(expected) = super::metadata_base_impact_v32::categories(marker, confirmed)? {
+        return Ok(expected.as_slice() == actual
+            && matches!(
+                kind,
+                SyncBindingKind::Review | SyncBindingKind::InlineComment
+            ));
+    }
     Ok(match categories(marker, confirmed)? {
         Some(expected) if expected.as_slice() == actual => match expected.as_slice() {
             [SyncBindingKind::Review, SyncBindingKind::InlineComment] => matches!(

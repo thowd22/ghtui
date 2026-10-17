@@ -105,6 +105,9 @@ pub fn after_current_identity<'a>(
     };
     match active.consumer(current) {
         RemoteScopeConsumerV1::DefaultPersonal => CurrentNavigationV1::DefaultPersonalIntent,
+        RemoteScopeConsumerV1::NotificationPr(_) => {
+            CurrentNavigationV1::Stopped(ScopeEntryStopV1::ScopedRouteRequired)
+        }
         RemoteScopeConsumerV1::Explicit(repositories) => {
             CurrentNavigationV1::ExplicitRequiresCurrentAccess(repositories)
         }

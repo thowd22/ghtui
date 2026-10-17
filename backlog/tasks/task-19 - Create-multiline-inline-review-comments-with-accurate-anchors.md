@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 12:32'
+updated_date: '2026-10-16 23:20'
 labels:
   - review
   - e2e
@@ -94,6 +94,8 @@ Root current53 admission and actual verification scheduled jointly under Task31 
 Correct the strict-Clippy eight-argument native-inline test witness helper with a narrow documented expectation, retaining every exact gh, Git, raw-command, draft and configuration assertion; rerun strict all-target Clippy and the checked native-inline key/mouse journey before recording success.
 
 Root V9 full-run correction: use real owned Preview scrolling at80x24 via mouse wheel and keyboard on corresponding journeys, require a NEW complete frame with same owner/title/full controls and exact original body visible; preserve held original PID ownership/reaping, rejected pending paste, unchanged persisted BODY/no publication/no attempts and exact83 read commands0writes/Git/config/TTY. Diagnose before applying; no terminal enlargement, hidden-body acceptance or weakened body assertion. Run checked inline_comments code+PTY count and full gates on new freeze.
+
+Root diagnosed actual V304 seventh libfailure inline_comments_runtime_dismissed_confirm_retires_only_same_original_source_after_actual_post at src/scoped_pr_inline_runtime_tests_v1.rs437: strict process_identity returned Linux InvalidData invalid stat ownership fields DURING post-cancellation disappearance polling; same genuine child identity had been positively checked alive before cancel. Shared parser correctly rejects retired/invalid ownership fields. Existing conversation runtime V105 already treats Linux InvalidData as Unknown, NEVER absence/signalpermission, and requires later actualNone. Plan ONE TEST-only InlineRuntime path in NEW exactRootV3061508 descendant: private analogous three-way probe preserving PID/UID/birth/SID equality on Some and zombieStillOwned, LinuxInvalidDataUnknown retries ONLY within original5s deadline, allforeign/IOpermissionerrorsfail; ONLY explicitNonepasses. Use in both exact existing disappearance loops193/437; keep actualBackground cancellation, onePOST/fullSQL pending→uncertain/currentreplacement/Git/journal checks. Add one genuine-current-process exhaustive probe contract (None,live,zombie,eachforeignfield,Unknown,EACCES), no sharedparser/production/reap/signal/cap/tasklimit/deadline changes. Rootsole verification later focused oldruntime+newprobe/code and actualinline_comments mouse/key gate/fullsuite; this is prepared coverage not Task19Done.
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes

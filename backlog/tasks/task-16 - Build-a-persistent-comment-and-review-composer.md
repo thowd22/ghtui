@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 08:06'
+updated_date: '2026-10-16 14:54'
 labels:
   - review
   - e2e
@@ -128,4 +128,8 @@ Root-approved SOURCE-ONLY wholeOPEN14 budget handoff FROZEN: target/build/provid
 Root integration follow-up under Task21 exposed shared Form read-only paste defect: historical dirty=true caused ignored Preview paste to invalidate plan despite no text change. Main early paste guard now returns for submitting OR preview, preserving editor normalization/autosave and genuine approval ticket. Actual raw-editor source-produced causal regression passed1/0failed/0ignored (41.70s lib compile,.59s execution), log root-thread-v3-composer-causal-code-sixth.log; broader thread44lib and3provider now pass but actual26PTY/impacted composer/full/fmt/strict remain unverified. Existing ACs were previously checked; this note is not new completion evidence. Root requires whole/impacted regression before accepting shared change.
 
 2026-10-15 Root shared read-only Preview paste fix verified: genuine thread code regression first exposed historical dirty=true invalidating approval despite ignored paste. Form::paste now returns immediately while submitting OR in Preview, matching keyboard read-only semantics. Existing composer checked19code/10actualPTY and thread47code/26PTY pass, including both-input poison paste at genuine Preview followed by exact approved body/SQL/command effects. Full2355code/provider+754PTY0failed/ignored plus fmt/strict/audits passed; manifest target/build/root-thread-v3-whole-gates-v1-20261015.json. No wider composer/Task16/Mac completion claim.
+
+REQUIRED local requested-value Conversation validation follow-up approved by Root: NEW exact V3 private source-only cohort uses one borrowed pure payload parser for prequeue restrictions and existing worker-owned payload construction; no new permission/source/runner/queue. Invalid empty/whitespace or over65536-byte body, unsupported reaction/subscription, missing exact positive-owned loaded reaction and selected comment remain same actual current Form/error before work/fence/slot/GH/SQL; real provider identity/auth privacy is unchanged. Genuine all-six factories +actual Background corrected Preview and paired Catalogue/Personal real-binary invalid-input→explicit-correction→freshPreview declarations are being frozen, all UNRUN. Native uses actually supported Ctrl-U/typed choice values, not forged selection actions. Oversized paste must remain unadopted; exact Unicode bytes retained. Tree pureClose accepted-autosave cutoff and Graph repeated Personal Refresh V20 remain separate required dependencies, not waived.
+
+Root post-UID review found existing publication cleanup API limitation to retain for final workflow audit: after a Remove is accepted into the real ordered queue, DraftPublicationError::AcknowledgementUnknown does not prove body retention; completion may still own/delete exact body. Current Outcome draft_retained=true for cleanup-unconfirmed is protected/no-page semantics, not an independent SQL-retention observation. V229 delay until same typed finalUID+minI corrects a distinct real early-delete bug but does NOT resolve this late-ACK presentation uncertainty. Before Done, expose truthful cleanup-unconfirmed versus actually retained/deleted state and test accepted late ACK/timeout/restart via explicit fresh inspection; no expired-phase reload/resend/autoACK/false retained claim.
 <!-- SECTION:NOTES:END -->

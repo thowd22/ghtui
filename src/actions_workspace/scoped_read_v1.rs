@@ -360,6 +360,8 @@ pub(crate) fn retained_bytes(w: &ActionsWorkspace) -> Result<usize, String> {
             | ActionsView::Environments
             | ActionsView::Runners
             | ActionsView::Caches
+            | ActionsView::Publications
+            | ActionsView::PublicationInspection
     ) {
         return Err("Unsupported scoped Actions prepared page".into());
     }
@@ -406,6 +408,24 @@ pub(crate) fn retained_bytes(w: &ActionsWorkspace) -> Result<usize, String> {
     add(w.coverage.reasons.capacity() * size_of::<String>());
     for reason in &w.coverage.reasons {
         add(reason.capacity());
+    }
+    // These are the existing closed READ/ACK and metadata-only result pages,
+    // not run targets or permission. Charge their actual retained allocations
+    // as well as the separately prepared visible rows counted above.
+    add(w.publication_rows.capacity() * size_of::<ActionsPublicationRow>());
+    for publication in &w.publication_rows {
+        add(publication.heading.capacity());
+        add(publication.details.capacity() * size_of::<String>());
+        for line in &publication.details {
+            add(line.capacity());
+        }
+    }
+    if let Some(publication) = &w.publication_inspection {
+        add(publication.heading.capacity());
+        add(publication.lines.capacity() * size_of::<String>());
+        for line in &publication.lines {
+            add(line.capacity());
+        }
     }
     if let Some(page) = &w.run {
         add(page.repository.capacity() + page.attempt.definition_note.capacity());
@@ -457,5 +477,82 @@ pub(crate) fn retained_bytes(w: &ActionsWorkspace) -> Result<usize, String> {
         Err("Scoped Actions prepared content exceeds8MiB; no incomplete page admitted".into())
     } else {
         Ok(bytes)
+    }
+}
+
+#[cfg(test)]
+mod publication_capacity_v110_tests {
+    use super::*;
+    use crate::scoped_actions_test_support_v1 as f;
+
+    #[test]
+    fn scoped_actions_control_v5_publication_list_charges_actual_headers_vectors_and_spare_string_capacity(
+    ) {
+        let (fixture, _provider, mut app, steps) = f::setup(vec![]);
+        let sql = f::sql_state(&fixture);
+        let git = f::git_state(&fixture);
+        let workspace = app.actions.as_mut().unwrap();
+        workspace.view = ActionsView::Publications;
+        let before = retained_bytes(workspace).unwrap();
+        let mut heading = String::with_capacity(32 * 1024);
+        heading.push_str("Observed publication metadata");
+        let mut detail = String::with_capacity(64 * 1024);
+        detail.push_str("READ/ACK only; no current target or permission");
+        let mut details = Vec::with_capacity(7);
+        details.push(detail);
+        let mut rows = Vec::with_capacity(3);
+        rows.push(ActionsPublicationRow {
+            attempt_id: 7,
+            heading,
+            details,
+            role: SemanticToken::Pending,
+        });
+        let expected = rows.capacity() * size_of::<ActionsPublicationRow>()
+            + rows[0].heading.capacity()
+            + rows[0].details.capacity() * size_of::<String>()
+            + rows[0].details[0].capacity();
+        workspace.publication_rows = rows;
+        assert_eq!(retained_bytes(workspace).unwrap() - before, expected);
+        workspace.publication_rows[0]
+            .heading
+            .reserve(PREPARED_LIMIT_V1);
+        assert!(
+            retained_bytes(workspace).is_err(),
+            "Spare capacity cannot bypass8MiB"
+        );
+        assert_eq!(f::sql_state(&fixture), sql);
+        assert_eq!(f::git_state(&fixture), git);
+        f::exact(&fixture, &steps);
+    }
+
+    #[test]
+    fn scoped_actions_workflow_v6_metadata_inspection_charges_actual_line_capacity_without_yaml() {
+        let (fixture, _provider, mut app, steps) = f::setup(vec![]);
+        let sql = f::sql_state(&fixture);
+        let git = f::git_state(&fixture);
+        let workspace = app.actions.as_mut().unwrap();
+        workspace.view = ActionsView::PublicationInspection;
+        let before = retained_bytes(workspace).unwrap();
+        let mut heading = String::with_capacity(16 * 1024);
+        heading.push_str("Actual workflow result");
+        let mut line = String::with_capacity(64 * 1024);
+        line.push_str("Acceptance/observed state only, not workflow completion");
+        let mut lines = Vec::with_capacity(5);
+        lines.push(line);
+        let expected =
+            heading.capacity() + lines.capacity() * size_of::<String>() + lines[0].capacity();
+        workspace.publication_inspection = Some(ActionsPublicationInspectionPage {
+            attempt_id: 7,
+            heading,
+            lines,
+            acknowledgement: None,
+        });
+        assert_eq!(retained_bytes(workspace).unwrap() - before, expected);
+        assert!(workspace.definition.is_none());
+        workspace.publication_inspection.as_mut().unwrap().lines[0].reserve(PREPARED_LIMIT_V1);
+        assert!(retained_bytes(workspace).is_err());
+        assert_eq!(f::sql_state(&fixture), sql);
+        assert_eq!(f::git_state(&fixture), git);
+        f::exact(&fixture, &steps);
     }
 }

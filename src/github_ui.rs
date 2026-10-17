@@ -76,6 +76,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     "[F9 Review history]".into(),
                     GithubAction::ReviewOperationHistoryV3,
                 ));
+                controls.push((
+                    "[F8 Actions history]".into(),
+                    GithubAction::ActionsHistoryV5,
+                ));
             }
             controls.extend(
                 PrTab::ALL
@@ -83,17 +87,33 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     .filter(|(tab, _, _)| {
                         crate::scoped_pr_observed_tabs_v1::ObservedPrTabV1::from_tab(*tab).is_some()
                             || matches!(tab, PrTab::Files | PrTab::Checks)
+                            || *tab == PrTab::Metadata
+                                && github.pr.as_ref().is_some_and(|p| {
+                                    matches!(
+                                        p.tab,
+                                        PrTab::Summary | PrTab::Conversation | PrTab::Metadata
+                                    )
+                                })
                     })
                     .map(|(tab, label, key)| {
                         (format!("[{key} {label}]"), GithubAction::PrTab(*tab))
                     }),
             );
+            // Match the existing scoped keyboard gate. Opening this menu is
+            // not publication authority; its chosen operation proves that fresh.
+            if github.pr.as_ref().is_some_and(|page| {
+                matches!(page.tab, PrTab::Summary | PrTab::Conversation)
+                    || page.tab == PrTab::Metadata && page.metadata_display_v51.is_some()
+            }) {
+                controls.push(("[p PR actions]".into(), GithubAction::Actions));
+            }
             if github.scoped_pr_resource.is_some()
                 && github
                     .pr
                     .as_ref()
                     .is_some_and(|page| page.tab == PrTab::Files)
             {
+                controls.push(("[K FILE comment]".into(), GithubAction::FileCommentV75));
                 controls.extend(
                     crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::CONTROLS
                         .iter()
@@ -105,21 +125,57 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         controls
     } else if github.pr.is_some() {
-        PrTab::ALL
+        let mut controls: Vec<_> = PrTab::ALL
             .iter()
             .map(|(tab, label, key)| (format!("[{key} {label}]"), GithubAction::PrTab(*tab)))
             .chain([
                 (String::from("[p PR actions]"), GithubAction::Actions),
                 (String::from("[b Back]"), GithubAction::Back),
             ])
-            .collect()
+            .chain(
+                github
+                    .pr
+                    .as_ref()
+                    .filter(|page| page.tab == PrTab::Summary)
+                    .map(|_| {
+                        (
+                            String::from("[F9 Review history]"),
+                            GithubAction::ReviewOperationHistoryV3,
+                        )
+                    }),
+            )
+            .collect();
+        if github
+            .pr
+            .as_ref()
+            .is_some_and(|page| page.tab == PrTab::Summary)
+        {
+            controls.push(("[J Thread history]".into(), GithubAction::ThreadHistoryV1));
+        }
+        controls
     } else {
         InboxFilter::ALL
             .iter()
             .map(|(filter, label, key)| (format!("[{key} {label}]"), GithubAction::Filter(*filter)))
             .collect()
     };
+    let notifications_available = github.pr.is_none() && !scoped;
     let mut y = area.y + buttons(frame, app, area, tabs);
+    if notifications_available && y < area.bottom() {
+        let label = "[F8 Notifications]";
+        let rect = Rect::new(area.x, y, (label.len() as u16).min(area.width), 1);
+        frame.render_widget(
+            Paragraph::new(label).style(theme.style(SemanticToken::Focus)),
+            rect,
+        );
+        app.hits.push(HitRegion {
+            rect,
+            action: Action::NotificationsV63(
+                crate::notifications_ui_v63::NotificationActionV63::Open,
+            ),
+        });
+        y += 1;
+    }
     if pending_observed {
         let message = if app.loading[crate::app::View::Inbox.index()] {
             "Preparing observed PR section • Back cancels • permission/counts not inferred"
@@ -277,7 +333,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let visible = github.visible();
     if visible.is_empty() {
         frame.render_widget(
-            Paragraph::new("No pull requests in this queue / scope."),
+            Paragraph::new(if github.state_membership_unavailable_v68() {
+                "Queue membership unavailable • use a genuine fresh scope read."
+            } else {
+                "No pull requests in this queue / scope."
+            }),
             Rect::new(area.x, y, area.width, 1),
         );
     }

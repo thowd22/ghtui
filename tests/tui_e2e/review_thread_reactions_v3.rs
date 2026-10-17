@@ -2,6 +2,8 @@
 //! fresh no-body Form -> one guarded reaction write. Original source/Git/SQL,
 //! command/stdin, exact owned live child and TTY are independently witnessed.
 use super::*;
+#[path = "file_reaction_controls_v75.rs"]
+mod file_controls_v75;
 #[path = "review_thread_timeline_reactions_v5.rs"]
 mod timeline_reactions_v5;
 const REACTIONS: &str = "Selected comment reactions";

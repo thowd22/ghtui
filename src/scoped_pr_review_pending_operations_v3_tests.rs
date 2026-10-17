@@ -79,7 +79,7 @@ fn original_v3(
     let deadline = Instant::now() + Duration::from_secs(30);
     let path = s.fixture.root.join("cache.sqlite3");
     let mut session = provider.begin_repository_catalogue_access(
-        proof.source.source(),
+        proof.source.catalogue_source().unwrap().source(),
         &Default::default(),
         &cancel,
     )?;
@@ -95,8 +95,12 @@ fn original_v3(
         &Default::default(),
         &cancel,
     )?;
-    let local =
-        ResourceLocalGuard::capture(&path, &proof.source, session.identity(), parent.summary())?;
+    let local = ResourceLocalGuard::capture(
+        &path,
+        proof.source.catalogue_source().unwrap(),
+        session.identity(),
+        parent.summary(),
+    )?;
     let source = measured.pending_review_original_v3(
         session.identity(),
         &parent,
@@ -121,7 +125,9 @@ fn original_v3(
         &cancel,
     )?;
     session.verify(proof.navigation.original(), &cancel)?;
-    session.close_with_guard(&cancel, || local.validate(&path, &proof.source))?;
+    session.close_with_guard(&cancel, || {
+        local.validate(&path, proof.source.catalogue_source().unwrap())
+    })?;
     Ok((source, member))
 }
 
@@ -372,7 +378,11 @@ fn publish_comment_v3(
     let deadline = Instant::now() + Duration::from_secs(30);
     let path = s.fixture.root.join("cache.sqlite3");
     let mut session = provider
-        .begin_repository_catalogue_access(proof.source.source(), &Default::default(), &cancel)
+        .begin_repository_catalogue_access(
+            proof.source.catalogue_source().unwrap().source(),
+            &Default::default(),
+            &cancel,
+        )
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let limits = ReviewReadLimitsV2::default();
     let caps = vec![1024 * 1024; limits.max_pages + 4];
@@ -400,8 +410,13 @@ fn publish_comment_v3(
         )
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let identity = session.identity().clone();
-    let local = ResourceLocalGuard::capture(&path, &proof.source, &identity, parent.summary())
-        .map_err(ReviewPublicationFailureV2::NotStarted)?;
+    let local = ResourceLocalGuard::capture(
+        &path,
+        proof.source.catalogue_source().unwrap(),
+        &identity,
+        parent.summary(),
+    )
+    .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let review = measured
         .pending_review_original_v3(&identity, &parent, selected, &limits, &cancel, deadline)
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
@@ -455,7 +470,9 @@ fn publish_comment_v3(
                 &cancel,
             )?;
             session.verify(proof.navigation.original(), &cancel)?;
-            session.close_with_guard(&cancel, || local.validate(&path, &proof.source))?;
+            session.close_with_guard(&cancel, || {
+                local.validate(&path, proof.source.catalogue_source().unwrap())
+            })?;
             Ok(())
         },
     )
@@ -864,7 +881,11 @@ fn publish_rerequest_v3(
     let deadline = Instant::now() + Duration::from_secs(30);
     let path = s.fixture.root.join("cache.sqlite3");
     let mut session = provider
-        .begin_repository_catalogue_access(proof.source.source(), &Default::default(), &cancel)
+        .begin_repository_catalogue_access(
+            proof.source.catalogue_source().unwrap().source(),
+            &Default::default(),
+            &cancel,
+        )
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let mut captures = session
         .reserve_postwrite_capture_v2(&[1024 * 1024; 2], 2, &cancel)
@@ -890,8 +911,13 @@ fn publish_rerequest_v3(
         )
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let identity = session.identity().clone();
-    let local = ResourceLocalGuard::capture(&path, &proof.source, &identity, parent.summary())
-        .map_err(ReviewPublicationFailureV2::NotStarted)?;
+    let local = ResourceLocalGuard::capture(
+        &path,
+        proof.source.catalogue_source().unwrap(),
+        &identity,
+        parent.summary(),
+    )
+    .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let source = measured
         .rerequest_review_author_original_v3(
             &identity,
@@ -932,7 +958,9 @@ fn publish_rerequest_v3(
             .verify(proof.navigation.original(), &cancel)
             .map_err(ReviewPublicationFailureV2::NotStarted)?;
         session
-            .close_with_guard(&cancel, || local.validate(&path, &proof.source))
+            .close_with_guard(&cancel, || {
+                local.validate(&path, proof.source.catalogue_source().unwrap())
+            })
             .map_err(ReviewPublicationFailureV2::NotStarted)?;
         return result;
     }
@@ -957,7 +985,9 @@ fn publish_rerequest_v3(
                 &cancel,
             )?;
             session.verify(proof.navigation.original(), &cancel)?;
-            session.close_with_guard(&cancel, || local.validate(&path, &proof.source))?;
+            session.close_with_guard(&cancel, || {
+                local.validate(&path, proof.source.catalogue_source().unwrap())
+            })?;
             Ok(())
         },
     )

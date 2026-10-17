@@ -9,8 +9,22 @@ mod inbox_exact_v1;
 pub(crate) use inbox_exact_v1::ExactInboxRepositoryMetadataV1;
 use inbox_exact_v1::{ExactInboxState, InboxReadPolicy};
 mod pr;
+pub(crate) use pr::FreshInlineCommentObservationV14;
+#[cfg(test)]
+pub(crate) use pr::CONVERSATION_COMMENT_QUERY_V17;
 pub use pr::*;
+pub(crate) use pr::{
+    conversation_post_caps_v17, conversation_post_caps_v19, ClosedConversationRefreshV19,
+    ConversationDetailListV19, ConversationDetailSnapshotV19, ConversationHttpAckV17,
+    ConversationHttpRequestV17, ConversationPageSupplementV61, ConversationPublicationFailureV17,
+    ConversationRawSummaryV19, ConversationReceiptV17, ConversationRecoveryCurrentV17,
+    ConversationRefreshCloseSealV19, ConversationRefreshPreparationV19,
+    FreshConversationPublicationV17, IssueLinkRefreshV87, MembersRefreshV48,
+    OriginalConversationCommentV17, OriginalConversationReactionsV17,
+    OriginalConversationSubscriptionV17, StateRefreshV68,
+};
 mod actions;
+pub(crate) mod workflow_capacity_v9;
 pub use actions::*;
 mod search;
 pub use search::*;
@@ -18,15 +32,78 @@ mod discussions;
 pub use discussions::*;
 mod metrics;
 pub use metrics::*;
+pub(crate) use metrics::{
+    ActualMembersPageContextV61, MembersMetadataHistoryReadV62, MembersWriteV48,
+    MetadataMembersObservationV48, MetadataMembersReadPurposeV48,
+    MetadataMembersRecoveryCurrentV48, OriginalMetadataMembersV48, PrMetadataMembersFailureV48,
+    PrMetadataMembersReceiptV48, METADATA_MEMBERS_POST_CAPS_V48, METADATA_MEMBERS_REFRESH_CAPS_V48,
+    METADATA_MEMBERS_TAB_POST_CAPS_V62, METADATA_MEMBERS_TAB_REFRESH_CAPS_V62,
+};
+use metrics::{MembersVisibilityV48, MetadataMembersContextV48, PreparedMembersRequestV48};
 mod cli_requirements_v1;
 pub use cli_requirements_v1::*;
+mod thread_phase_issuer_v16;
+pub(crate) use thread_phase_issuer_v16::ThreadPhaseIssuerV16;
 mod repository_catalogue;
+pub(crate) use repository_catalogue::notifications_v63;
+pub(crate) use repository_catalogue::OriginalPrClosedAccessV13;
 pub use repository_catalogue::*;
+pub(crate) use repository_catalogue::{
+    ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationInspectionV63,
+    NotificationPrFollowIntentV63, NotificationPrSourceV63, NotificationPublicationStateV63,
+    NotificationPublicationV63, NotificationSelectionV63, NotificationWriteReceiptV63,
+    WorkflowCleanupSealV9,
+};
+pub(crate) use repository_catalogue::{
+    ClosedStateSourceV80, StateSourcePreparedBindingV80, StateSourceReadV80,
+};
+use repository_catalogue::{
+    MembersMetadataClosingInputV62, MembersMetadataContextInputV62, MembersMetadataRoleV62,
+};
+pub(crate) use repository_catalogue::{OriginalPrAccessSessionV13, OriginalPrMembershipRefV13};
+pub(crate) use repository_catalogue::{StateSourceCaptureV80, StateSourceChargeV80};
 pub(crate) use repository_catalogue::{ThreadReactionHttpAckV3, ThreadReactionHttpRequestV3};
+pub(crate) use repository_catalogue::{
+    WorkflowEditPhaseV9, WorkflowGitRoleV9, WorkflowPostCaptureV9,
+};
 mod remote_repository_v1;
 pub use remote_repository_v1::*;
+pub(in crate::providers) mod pr_issue_links_v87;
 mod pr_resources_v1;
+pub(crate) use pr_issue_links_v87::read::{
+    IssueLinksInspectionReadV87, IssueLinksOpenReadV87, IssueLinksSelectedReadV87,
+};
+pub(crate) use pr_issue_links_v87::refresh::{
+    ActualIssueLinkPageContextV87, IssueLinkContextBindingV87,
+};
+pub(crate) use pr_issue_links_v87::{
+    IssueCatalogueResultV102, IssueHostUnsupportedV102, IssueLinkCatalogueV87, IssueLinkChoiceV87,
+    IssueLinkManualReadV94, IssueLinkPlanV87, IssueLinkPublicationFailureV87,
+    IssueLinkReadPurposeV87, IssueLinkReceiptV87, IssueLinkRecoveryCurrentV87,
+    IssueLinkRepositoryChoiceV87, IssueLinkWriteV87, IssueNoChangeV102, IssueRequestedV102,
+    OriginalIssueLinksV87,
+};
+pub(crate) use pr_issue_links_v87::{
+    ISSUE_LINK_METADATA_POST_CAPS_V87, ISSUE_LINK_METADATA_REFRESH_CAPS_V87,
+    ISSUE_LINK_POST_CAPS_V87, ISSUE_LINK_REFRESH_CAPS_V87,
+};
+use pr_resources_v1::MetadataMembersPostDataV48;
+#[cfg(test)]
+pub(crate) use pr_resources_v1::METADATA_TEXT_CAPABILITY_QUERY_V25;
 pub use pr_resources_v1::*;
+pub(crate) use pr_resources_v1::{
+    ActualMetadataTabContextV51, BaseCatalogueLimitsV32, BaseCatalogueV32, BaseCoverageStatusV32,
+    BaseRecoveryCurrentV32, BaseSelectionV32, BaseTransitionV32, FileCommentBodyV75,
+    MetadataRecoveryCurrentV25, OriginalMetadataBaseV32, OriginalMetadataTextV25,
+    OriginalPrFileCommentV75, OriginalPrStateV68, PrMetadataBaseFailureV32, PrMetadataBaseReadV32,
+    PrMetadataBaseReceiptV32, PrMetadataTextFailureV25, PrMetadataTextReadV25,
+    PrMetadataTextReceiptV25, PrStateReadV68, StateCapabilityV68, StatePublicationFailureV68,
+    StatePublishInputV68, StateReceiptV68, StateRecoveryCurrentV68, StateTransitionV68,
+    FILE_COMMENT_POSTWRITE_CAPS_V75, METADATA_BASE_POST_CAPS_V32, METADATA_TAB_TEXT_POST_CAPS_V51,
+    METADATA_TEXT_POST_CAPS_V25, STATE_POST_CAPS_V68,
+};
+#[cfg(test)]
+pub(crate) use pr_resources_v1::{FileCommentReceiptV75, FILE_COMMENT_NODE_QUERY_V75};
 #[cfg(test)]
 #[path = "gh/identity_before_tests.rs"]
 mod identity_before_tests;
@@ -294,6 +371,8 @@ pub enum GithubErrorKind {
     RateLimited,
     Unsupported,
     Transport,
+    /// The runner rejected actual captured bytes, not an inaccessible target.
+    OutputLimit,
     Json,
     AmbiguousWrite,
 }
@@ -367,6 +446,8 @@ impl From<CommandFailure> for GithubError {
                 || stderr.to_ascii_lowercase().contains("abuse detection"));
         let kind = if e.outcome_unknown {
             GithubErrorKind::AmbiguousWrite
+        } else if e.kind == FailureKind::OutputLimit {
+            GithubErrorKind::OutputLimit
         } else if e.kind == FailureKind::MissingProgram {
             GithubErrorKind::MissingGh
         } else if status == Some(401)
@@ -384,7 +465,7 @@ impl From<CommandFailure> for GithubError {
         } else {
             GithubErrorKind::Transport
         };
-        let message=match kind {GithubErrorKind::MissingGh=>"GitHub CLI is missing. Install gh and run gh auth login; local Git remains available.".into(),GithubErrorKind::Authentication=>format!("GitHub authentication failed. Run gh auth login --hostname for the selected host. {}",e.message),_=>e.message};
+        let message=match kind {GithubErrorKind::MissingGh=>"GitHub CLI is missing. Install gh and run gh auth login; local Git remains available.".into(),GithubErrorKind::Authentication=>format!("GitHub authentication failed. Run gh auth login --hostname for the selected host. {}",e.message),GithubErrorKind::OutputLimit=>"GitHub response exceeded its bounded capture; no response body admitted".into(),_=>e.message};
         Self { kind, message }
     }
 }
@@ -399,6 +480,7 @@ pub struct GithubProvider {
     timeout: Duration,
     scoped_read_window: Option<(std::time::Instant, usize)>,
     scoped_read_budget: Option<std::sync::Arc<super::runner::ScopedReadBudgetV1>>,
+    workflow_environment_v9: Option<std::sync::Arc<super::runner::WorkflowProcessEnvironmentV9>>,
 }
 impl GithubProvider {
     pub fn new(host: impl Into<String>) -> GithubResult<Self> {
@@ -411,6 +493,7 @@ impl GithubProvider {
             timeout: Duration::from_secs(30),
             scoped_read_window: None,
             scoped_read_budget: None,
+            workflow_environment_v9: super::runner::WorkflowProcessEnvironmentV9::current_v9(),
         })
     }
     pub fn with_program(mut self, path: impl Into<OsString>) -> Self {
@@ -593,6 +676,11 @@ impl GithubProvider {
             args.extend(["--paginate".into(), "--slurp".into()]);
         }
         let data = self.execute(args, input, write.clone(), cancel)?;
+        self.parse_api_response_v48(data, write)
+    }
+    /// SAME JSON/error/ambiguity parser for the original Value API and the
+    /// closed preencoded Members request. No transport or authority is issued.
+    fn parse_api_response_v48(&self, data: Vec<u8>, write: Option<String>) -> GithubResult<Value> {
         if data.is_empty() {
             return Ok(Value::Null);
         }
@@ -637,23 +725,28 @@ impl GithubProvider {
         cancel: &CancellationToken,
     ) -> GithubResult<Vec<Value>> {
         let pages = self.api(endpoint, "GET", None, None, true, cancel)?;
+        Self::api_list_pages_v19(pages, key)
+    }
+    /// SAME page-envelope conversion, now moving owned list values rather than
+    /// cloning them. No endpoint, runner, read window or source is exposed.
+    fn api_list_pages_v19(pages: Value, key: Option<&str>) -> GithubResult<Vec<Value>> {
         let mut all = Vec::new();
-        for page in pages
-            .as_array()
-            .ok_or_else(|| error(GithubErrorKind::Json, "Expected paginated JSON pages"))?
-        {
+        let Value::Array(pages) = pages else {
+            return Err(error(
+                GithubErrorKind::Json,
+                "Expected paginated JSON pages",
+            ));
+        };
+        for mut page in pages {
             let items = if let Some(key) = key {
-                page.get(key)
+                page.get_mut(key).map(Value::take)
             } else {
                 Some(page)
             };
-            all.extend(
-                items
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| error(GithubErrorKind::Json, "Expected list in gh API page"))?
-                    .iter()
-                    .cloned(),
-            );
+            let Some(Value::Array(items)) = items else {
+                return Err(error(GithubErrorKind::Json, "Expected list in gh API page"));
+            };
+            all.extend(items);
         }
         Ok(all)
     }
@@ -708,7 +801,12 @@ impl GithubProvider {
                 }
                 e
             })?;
-        let login = text(&user, "login").to_ascii_lowercase();
+        self.identity_from_user_v3(&user, version)
+    }
+    /// ONE scalar user parser shared by the unchanged legacy identity bracket
+    /// and an already-prepaid final user observation. Not an auth fallback.
+    fn identity_from_user_v3(&self, user: &Value, version: String) -> GithubResult<HostIdentity> {
+        let login = text(user, "login").to_ascii_lowercase();
         if login.is_empty() {
             return Err(error(
                 GithubErrorKind::Authentication,
@@ -1011,7 +1109,13 @@ impl GithubProvider {
             false,
             cancel,
         )?;
-        if number(&v, "number") != n || text(&v, "node_id").is_empty() {
+        self.pr_summary_from_raw_v19(repo, n, &v)
+    }
+    /// Existing summary display conversion only. The V19 caller first verifies
+    /// the SAME raw response with the genuine current-parent parser and its
+    /// preclone bounds; this conversion never manufactures source authority.
+    fn pr_summary_from_raw_v19(&self, repo: &str, n: u64, v: &Value) -> GithubResult<PrSummary> {
+        if number(v, "number") != n || text(v, "node_id").is_empty() {
             return Err(error(
                 GithubErrorKind::Json,
                 "PR response does not identify the requested canonical PR number/node",
@@ -1039,22 +1143,22 @@ impl GithubProvider {
             return Err(error(GithubErrorKind::Unsupported,"The selected host returned a PR without valid base/head commit identities. Refresh or check host API compatibility."));
         }
         Ok(PrSummary {
-            pr: self.pr_from_json(&v, Some(repo))?,
+            pr: self.pr_from_json(v, Some(repo))?,
             head_sha: text(&v["head"], "sha"),
             base_sha: text(&v["base"], "sha"),
             head_ref: text(&v["head"], "ref"),
             base_ref: text(&v["base"], "ref"),
-            merged: boolean(&v, "merged"),
+            merged: boolean(v, "merged"),
             auto_merge: !v.get("auto_merge").unwrap_or(&Value::Null).is_null(),
             merge_commit_sha: v
                 .get("merge_commit_sha")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             mergeable: v.get("mergeable").and_then(Value::as_bool),
-            mergeable_state: text(&v, "mergeable_state"),
-            additions: number(&v, "additions"),
-            deletions: number(&v, "deletions"),
-            changed_files: number(&v, "changed_files"),
+            mergeable_state: text(v, "mergeable_state"),
+            additions: number(v, "additions"),
+            deletions: number(v, "deletions"),
+            changed_files: number(v, "changed_files"),
         })
     }
     pub fn pr_details(

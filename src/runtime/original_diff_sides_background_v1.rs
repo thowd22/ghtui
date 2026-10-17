@@ -194,6 +194,7 @@ pub(super) fn original_diff_prepared_only_v1(prepared: &PreparedView) -> bool {
     }
     prepared.original_diff_result_v1.is_some()
         && prepared.scoped_inline_v1.is_none()
+        && prepared.notifications_v63.is_none()
         && prepared.scoped_threads_v1.is_none()
         && prepared.scoped_reviews_v2.is_none()
         && prepared.original_stash_recovery_v1.is_none()
@@ -247,7 +248,9 @@ pub(super) fn publish_original_diff_sides_v1(
     owner: &Arc<OriginalDiffWorkerOwnerV1>,
     result: Result<PreparedView, String>,
 ) -> bool {
-    if app.repository_load_requested
+    if app.notifications_work_v63.is_some()
+        || app.notifications_cancel_v63
+        || app.repository_load_requested
         || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
         || app.scoped_inline_work_v1.is_some()

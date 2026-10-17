@@ -58,8 +58,10 @@ impl ReactionLocalV3 {
         summary: &crate::providers::gh::PrSummary,
     ) -> Result<Self, GithubError> {
         let cache = Cache::open(path).map_err(|_| safe_local())?;
-        cache
-            .validate_repository_catalogue_intent_source(&intent.original().source)
+        intent
+            .original()
+            .source
+            .validate_cache(&cache)
             .map_err(|_| safe_local())?;
         let journal = PrWriteJournal::open(path).map_err(|_| safe_local())?;
         let target = PrWriteTarget::new(identity, summary).map_err(|_| safe_local())?;
@@ -84,9 +86,10 @@ impl ReactionLocalV3 {
         {
             return Err(safe_local());
         }
-        Cache::open(path)
-            .map_err(|_| safe_local())?
-            .validate_repository_catalogue_intent_source(&intent.original().source)
+        intent
+            .original()
+            .source
+            .validate_cache(&Cache::open(path).map_err(|_| safe_local())?)
             .map_err(|_| safe_local())
     }
     fn validate(&self, path: &Path, intent: &ThreadReactionIntentV3) -> Result<(), GithubError> {
@@ -215,21 +218,16 @@ fn fresh(
     phase(cancel, deadline)?;
     let provider = provider.clone().with_catalogue_read_deadline(deadline);
     let old = intent.original();
-    let mut session = provider
-        .begin_repository_catalogue_access(old.source.source(), &Default::default(), cancel)
+    let mut session = old
+        .source
+        .begin_access(&provider, &Default::default(), cancel)
         .map_err(source)?;
     let identity = session.identity().clone();
-    let RemoteScopeConsumerV1::Explicit(members) = old.active.consumer(&identity) else {
-        return Err(source(()));
-    };
     if Scope::github(&identity.host, identity.account_id)
         .ok()
         .as_ref()
         != Some(intent.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == old.navigation.original())
+        || !old.admits_identity_v75(&identity)
     {
         return Err(source(()));
     }
@@ -671,23 +669,18 @@ impl ReactionPreviewV3 {
             .map_err(source)?;
         let provider = provider.clone().with_catalogue_read_deadline(deadline);
         let old = self.intent.original();
-        let mut session = provider
-            .begin_repository_catalogue_access(old.source.source(), &Default::default(), cancel)
+        let mut session = old
+            .source
+            .begin_access(&provider, &Default::default(), cancel)
             .map_err(source)?;
         let identity = session.identity().clone();
-        let RemoteScopeConsumerV1::Explicit(members) = old.active.consumer(&identity) else {
-            return Err(source(()));
-        };
         if identity.host != self.identity.host
             || identity.account_id != self.identity.account_id
             || Scope::github(&identity.host, identity.account_id)
                 .ok()
                 .as_ref()
                 != Some(self.intent.scope())
-            || !members
-                .references()
-                .iter()
-                .any(|member| member.original() == old.navigation.original())
+            || !old.admits_identity_v75(&identity)
         {
             return Err(source(()));
         }
@@ -945,7 +938,9 @@ impl ReactionPreviewV3 {
             && closed
                 .as_ref()
                 .and_then(|closed| {
-                    closed.observation(actual.comment().original().parent().repository_id())
+                    closed.verified().iter().find(|row| {
+                        row.repository().id == actual.comment().original().parent().repository_id()
+                    })
                 })
                 .is_some_and(|current| {
                     provider

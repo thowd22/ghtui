@@ -33,6 +33,9 @@ struct Real {
     encoded: String,
 }
 fn real(selected: bool, inspect: bool, ack: bool) -> Real {
+    real_with_ack_delay_v17(selected, inspect, ack, 0)
+}
+fn real_with_ack_delay_v17(selected: bool, inspect: bool, ack: bool, delay_ms: u64) -> Real {
     let mut s = inline_setup(|h, steps| {
         steps.extend(summary_steps(h));
         steps.extend(summary_steps(h));
@@ -40,7 +43,14 @@ fn real(selected: bool, inspect: bool, ack: bool) -> Real {
             steps.extend(current_steps(h, selected));
         }
         if ack {
-            steps.extend(summary_steps(h));
+            let mut actual_ack = summary_steps(h);
+            let last = actual_ack.last_mut().unwrap();
+            assert_eq!(
+                last.args,
+                ["api", "user", "--hostname", HOST, "--method", "GET"]
+            );
+            last.delay_ms = delay_ms;
+            steps.extend(actual_ack);
         }
     });
     let (mut app, _) = owner(&mut s);
@@ -110,6 +120,8 @@ fn real(selected: bool, inspect: bool, ack: bool) -> Real {
         encoded,
     }
 }
+#[path = "scoped_pr_review_exact_ack_v17_tests.rs"]
+mod exact_ack_v17;
 fn request(real: &Real) -> Arc<recovery::ReviewRecoveryRequestV11> {
     let intent = review_history::ReviewOperationHistoryIntentV3::capture(&real.app).unwrap();
     let list = review_history::load(

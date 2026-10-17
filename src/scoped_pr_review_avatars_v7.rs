@@ -239,7 +239,7 @@ impl TicketV7 {
 /// is a clone of the ONE existing allocation, never another dispatcher/client.
 pub struct ReviewAvatarLeaseV7 {
     intent: Weak<ScopedReviewIntentV2>,
-    source: Weak<CatalogueIntentSource>,
+    source: crate::pr_read_origin_v13::WeakPrReadOriginV14,
     active: Weak<ActiveRemoteScopeV1>,
     navigation: Weak<ScopedPrNavigationV1>,
     ticket: TicketV7,
@@ -255,9 +255,7 @@ impl ReviewAvatarLeaseV7 {
         })
     }
     fn original_navigation(&self, app: &App) -> bool {
-        app.remote_scope_source
-            .as_ref()
-            .is_some_and(|source| Weak::ptr_eq(&self.source, &Arc::downgrade(source)))
+        self.source.matches_source(app)
             && app
                 .remote_scope
                 .as_ref()
@@ -631,7 +629,7 @@ pub fn poll_review(
         return true;
     };
     let intent = Arc::downgrade(surface.intent);
-    let source = Arc::downgrade(&surface.intent.source);
+    let source = surface.intent.source.downgrade_v14();
     let active = Arc::downgrade(&surface.intent.active);
     let navigation = Arc::downgrade(&surface.intent.navigation);
     let ticket = surface.ticket;

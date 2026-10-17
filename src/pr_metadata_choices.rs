@@ -187,6 +187,99 @@ pub struct PrMetadataChoices {
     raw_bytes: usize,
 }
 impl PrMetadataChoices {
+    pub(crate) fn prepare_original_members_v48(
+        actual: &crate::providers::gh::OriginalMetadataMembersV48,
+        limits: PrMetadataLimits,
+    ) -> Result<Self, String> {
+        let read = actual.read();
+        let coverage = read.coverage();
+        let reason = coverage.reasons.join("; ");
+        let mapped = if matches!(
+            coverage.status,
+            crate::providers::gh::MetricsReadStatus::Unavailable(_)
+        ) && read.rows().is_empty()
+        {
+            PrMetadataCoverage::Unavailable { reason: &reason }
+        } else if coverage.enumeration_complete && coverage.excluded_rows == 0 {
+            PrMetadataCoverage::Complete {
+                fetched_pages: coverage.fetched_pages,
+            }
+        } else {
+            PrMetadataCoverage::Partial {
+                fetched_pages: coverage.fetched_pages,
+                reason: &reason,
+            }
+        };
+        let mut prepared = Self::prepare(
+            PrMetadataOriginal {
+                identity: read.identity(),
+                target: read.target(),
+                context: read.context(),
+            },
+            read.kind(),
+            PrMetadataCatalogue {
+                rows: read.rows(),
+                coverage: mapped,
+            },
+            limits,
+        )?;
+        if actual.command() == crate::pr_metadata_actions::PrMetadataCommand::AddLabel {
+            const ARCHIVE_UNKNOWN: &str =
+                "Label archived or archive evidence unavailable; Add is disabled";
+            let extra = read
+                .rows()
+                .iter()
+                .filter(|row| {
+                    row.get("archived_at") != Some(&Value::Null)
+                        || row.get("archived_by") != Some(&Value::Null)
+                })
+                .count()
+                .checked_mul(ARCHIVE_UNKNOWN.len())
+                .ok_or("Prepared archive reason size overflow")?;
+            // Generic preparation is bounded before this additive typed caption;
+            // charge the unchanged existing cap, never enlarge it for the tag.
+            let retained = prepared
+                .choices
+                .iter()
+                .map(|choice| {
+                    choice.label.capacity()
+                        + choice.disabled_reason.as_ref().map_or(0, String::capacity)
+                        + choice.value.as_ref().map_or(0, value_capacity_v48)
+                        + choice.actor.as_ref().map_or(0, |actor| {
+                            actor.name.capacity()
+                                + actor.login.as_ref().map_or(0, String::capacity)
+                                + actor.avatar_url.as_ref().map_or(0, String::capacity)
+                                + actor.host.as_ref().map_or(0, String::capacity)
+                        })
+                })
+                .sum::<usize>()
+                + prepared
+                    .coverage_notice
+                    .as_ref()
+                    .map_or(0, String::capacity)
+                + prepared
+                    .unavailable_reason
+                    .as_ref()
+                    .map_or(0, String::capacity);
+            if retained
+                .checked_add(extra)
+                .is_none_or(|bytes| bytes > limits.max_prepared_bytes)
+            {
+                return Err(
+                    "Prepared archive evidence captions exceed unchanged picker cap".into(),
+                );
+            }
+            for (choice, row) in prepared.choices.iter_mut().zip(read.rows()) {
+                if row.get("archived_at") != Some(&Value::Null)
+                    || row.get("archived_by") != Some(&Value::Null)
+                {
+                    choice.disabled_reason = Some(ARCHIVE_UNKNOWN.into());
+                    choice.eligibility = PrMetadataEligibility::Unverified;
+                }
+            }
+        }
+        Ok(prepared)
+    }
     pub fn prepare(
         original: PrMetadataOriginal<'_>,
         kind: MetadataChoices,
@@ -700,6 +793,124 @@ fn value_bytes(value: &PrMetadataValue) -> usize {
         PrMetadataValue::ReviewTeam { slug, .. } => slug.len(),
         PrMetadataValue::Milestone { .. } => 0,
     }
+}
+fn value_capacity_v48(value: &PrMetadataValue) -> usize {
+    match value {
+        PrMetadataValue::BaseBranch { name, commit_sha } => {
+            name.capacity().saturating_add(commit_sha.capacity())
+        }
+        PrMetadataValue::Label { name, .. } => name.capacity(),
+        PrMetadataValue::Assignee { login, .. } | PrMetadataValue::Reviewer { login, .. } => {
+            login.capacity()
+        }
+        PrMetadataValue::ReviewTeam { slug, .. } => slug.capacity(),
+        PrMetadataValue::Milestone { .. } => 0,
+    }
+}
+/// Capacity-only borrowed traversal; accepts no source/permission and performs
+/// no I/O/parse/clone. New member context must fit BEFORE further retained
+/// copies/row encodings and is charged to the existing presentation cap.
+pub(crate) fn members_context_capacity_v48(context: &PrContext) -> Option<usize> {
+    struct Encoded(usize);
+    impl io::Write for Encoded {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .filter(|n| *n <= 512 * 1024)
+                .ok_or_else(|| io::Error::other("Member context encoded cap exceeded"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    // No second JSON tree or body string is allocated by this preflight.
+    serde_json::to_writer(&mut Encoded(0), context).ok()?;
+    fn repo(repo: &crate::providers::gh::Repository) -> Option<usize> {
+        [
+            &repo.host,
+            &repo.full_name,
+            &repo.description,
+            &repo.default_branch,
+        ]
+        .into_iter()
+        .try_fold(std::mem::size_of_val(repo), |n, s| {
+            n.checked_add(s.capacity())
+        })
+    }
+    fn actor(actor: &Actor) -> Option<usize> {
+        actor
+            .login
+            .capacity()
+            .checked_add(actor.actor_type.capacity())?
+            .checked_add(actor.display_name.as_ref().map_or(0, String::capacity))?
+            .checked_add(actor.avatar_url.as_ref().map_or(0, String::capacity))
+    }
+    fn json(value: &Value, depth: usize) -> Option<usize> {
+        if depth > 64 {
+            return None;
+        }
+        let size = match value {
+            Value::String(value) => value.capacity(),
+            Value::Array(rows) => rows.iter().try_fold(
+                rows.capacity().checked_mul(std::mem::size_of::<Value>())?,
+                |n, value| n.checked_add(json(value, depth + 1)?),
+            )?,
+            // Conservative BTreeMap entry/node overhead; no hash-table capacity
+            // or serialized-length shortcut substitutes for retained strings.
+            Value::Object(map) => map.iter().try_fold(
+                map.len().checked_mul(
+                    2 * (std::mem::size_of::<String>()
+                        + std::mem::size_of::<Value>()
+                        + 6 * std::mem::size_of::<usize>()),
+                )?,
+                |n, (key, value)| {
+                    n.checked_add(key.capacity())?
+                        .checked_add(json(value, depth + 1)?)
+                },
+            )?,
+            _ => 0,
+        };
+        (size <= 2 * 1024 * 1024).then_some(size)
+    }
+    let mut bytes = std::mem::size_of_val(context)
+        .checked_add(repo(&context.repository)?)?
+        .checked_add(repo(&context.base_repository)?)?
+        .checked_add(context.head_repository.as_ref().map_or(Some(0), repo)?)?
+        .checked_add(json(&context.issue_metadata, 0)?)?
+        .checked_add(
+            context
+                .requested_reviewers
+                .capacity()
+                .checked_mul(std::mem::size_of::<Actor>())?,
+        )?
+        .checked_add(
+            context
+                .requested_teams
+                .capacity()
+                .checked_mul(std::mem::size_of::<crate::providers::gh::RequestedTeam>())?,
+        )?
+        .checked_add(
+            context
+                .source_urls
+                .capacity()
+                .checked_mul(std::mem::size_of::<String>())?,
+        )?
+        .checked_add(context.head_sha.capacity())?
+        .checked_add(context.base_sha.capacity())?;
+    for value in &context.requested_reviewers {
+        bytes = bytes.checked_add(actor(value)?)?;
+    }
+    for value in &context.requested_teams {
+        bytes = bytes
+            .checked_add(value.slug.capacity())?
+            .checked_add(value.name.capacity())?;
+    }
+    for value in &context.source_urls {
+        bytes = bytes.checked_add(value.capacity())?;
+    }
+    (bytes <= 2 * 1024 * 1024).then_some(bytes)
 }
 fn keys(value: &PrMetadataValue) -> (String, String) {
     match value {

@@ -14,6 +14,8 @@ use crate::{
     scoped_pr_native_diff_source_v1::{PrNativePreparationV1, ScopedPrNativeSourceV1},
 };
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+#[path = "scoped_pr_native_physical_slot_v65_tests.rs"]
+mod physical_slot_v65;
 
 struct Case {
     fixture: Fixture,
@@ -721,7 +723,19 @@ fn scoped_pr_native_diff_genuine_options_all_mouse_actions_and_keyboard_focus_40
         assert!(screen.contains("[F Full Old]"));
         assert!(screen.contains("[T Threads]"));
         let layout = &mut case.app.pr_native_diff_layout_v1;
-        assert_eq!(layout.hits().len(), 30);
+        assert_eq!(layout.hits().len(), 31);
+        assert_eq!(
+            layout
+                .hits()
+                .iter()
+                .filter(|hit| hit.action == A::FileCommentV75)
+                .count(),
+            1
+        );
+        assert_eq!(
+            layout.key(KeyCode::Char('K'), KeyModifiers::NONE),
+            Some(A::FileCommentV75)
+        );
         assert_eq!(
             layout
                 .hits()

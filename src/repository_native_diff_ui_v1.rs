@@ -27,6 +27,7 @@ pub enum NativeDiffActionV1<S: NativeDiffPurposeV2 = OriginalComparisonSourceV1>
     External,
     Comment,
     Threads,
+    FileCommentV75,
     ThreadBackV4,
     CancelInline,
     FocusQuery,
@@ -91,6 +92,7 @@ impl<S: NativeDiffPurposeV2> Clone for NativeDiffActionV1<S> {
             Self::External => Self::External,
             Self::Comment => Self::Comment,
             Self::Threads => Self::Threads,
+            Self::FileCommentV75 => Self::FileCommentV75,
             Self::ThreadBackV4 => Self::ThreadBackV4,
             Self::CancelInline => Self::CancelInline,
             Self::FocusQuery => Self::FocusQuery,
@@ -157,6 +159,7 @@ impl<S: NativeDiffPurposeV2> PartialEq for NativeDiffActionV1<S> {
             (Self::External, Self::External) => true,
             (Self::Comment, Self::Comment) | (Self::CancelInline, Self::CancelInline) => true,
             (Self::Threads, Self::Threads) => true,
+            (Self::FileCommentV75, Self::FileCommentV75) => true,
             (Self::ThreadBackV4, Self::ThreadBackV4) => true,
             (Self::FocusQuery, Self::FocusQuery) => true,
             (Self::FocusBody, Self::FocusBody) => true,
@@ -407,6 +410,7 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             KeyCode::Char('E') => Some(A::External),
             KeyCode::Char('P') if S::supports_inline_comment() => Some(A::Comment),
             KeyCode::Char('T') if S::supports_review_threads() => Some(A::Threads),
+            KeyCode::Char('K') if S::supports_file_comments_v75() => Some(A::FileCommentV75),
             KeyCode::Char('b') if self.thread_return_v4 && S::supports_review_threads() => {
                 Some(A::ThreadBackV4)
             }
@@ -523,7 +527,8 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
             } else {
                 theme.style(
                     if (action == NativeDiffActionV1::Comment
-                        || action == NativeDiffActionV1::Threads)
+                        || action == NativeDiffActionV1::Threads
+                        || action == NativeDiffActionV1::FileCommentV75)
                         && label.contains("disabled")
                     {
                         SemanticToken::Muted
@@ -748,6 +753,14 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
                     "[T Threads disabled]"
                 },
                 NativeDiffActionV1::Threads,
+            )))
+            .chain(S::supports_file_comments_v75().then_some((
+                if state.current_frame().is_some() {
+                    "[K FILE comment]"
+                } else {
+                    "[K FILE comment disabled]"
+                },
+                NativeDiffActionV1::FileCommentV75,
             )))
             .chain(
                 self.thread_return_v4
@@ -990,6 +1003,14 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
                     "[T Threads disabled]"
                 },
                 A::Threads,
+            )))
+            .chain(S::supports_file_comments_v75().then_some((
+                if state.current_frame().is_some() {
+                    "[K FILE comment]"
+                } else {
+                    "[K FILE comment disabled]"
+                },
+                A::FileCommentV75,
             )))
             .chain(
                 self.thread_return_v4

@@ -37,7 +37,7 @@ pub const REVIEW_FILES_V2: usize = 8;
 /// O(1) retained allocations from actual selected resource publication. This
 /// remains navigation intent: every worker freshly proves the original source.
 pub struct ScopedReviewIntentV2 {
-    pub(super) source: Arc<CatalogueIntentSource>,
+    pub(super) source: crate::pr_read_origin_v13::PrReadOriginV13,
     pub(super) active: Arc<ActiveRemoteScopeV1>,
     pub(super) navigation: Arc<ScopedPrNavigationV1>,
     pub(super) files: Arc<ScopedPrResourceViewV1>,
@@ -52,10 +52,7 @@ impl ScopedReviewIntentV2 {
         if app.view != View::Inbox {
             return Err("Open an actual scoped PR Files source first".into());
         }
-        let source = app
-            .remote_scope_source
-            .as_ref()
-            .ok_or("Original catalogue source unavailable")?;
+        let source = crate::pr_read_origin_v13::PrReadOriginV13::capture(app)?;
         let active = app
             .remote_scope
             .as_ref()
@@ -86,7 +83,7 @@ impl ScopedReviewIntentV2 {
             );
         }
         Ok(Arc::new(Self {
-            source: source.clone(),
+            source,
             active: active.clone(),
             navigation: navigation.clone(),
             files: files.clone(),
@@ -94,10 +91,7 @@ impl ScopedReviewIntentV2 {
     }
     pub fn owns(&self, app: &App) -> bool {
         app.view == View::Inbox
-            && app
-                .remote_scope_source
-                .as_ref()
-                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+            && self.source.matches_source(app)
             && app
                 .remote_scope
                 .as_ref()
@@ -224,7 +218,7 @@ impl ScopedReviewAnchorIntentV2 {
         check()?;
         let parent = self.proof.observed().parent();
         let source = intent.parent();
-        if !Arc::ptr_eq(&self.proof.source, &intent.source)
+        if !self.proof.source.same_allocation(&intent.source)
             || !Arc::ptr_eq(&self.proof.active, &intent.active)
             || parent.repository_id() != source.repository_id()
             || parent.database_id() != source.database_id()

@@ -61,6 +61,10 @@ pub(crate) fn validate_original(
     journal: &PrWriteJournal,
     target: &PrWriteTarget,
 ) -> Result<(), String> {
+    super::issue_link_impact_v87::validate_original(marker, journal, target)?;
+    super::metadata_text_impact_v25::validate_original(marker, journal, target)?;
+    super::metadata_members_impact_v48::validate_original(marker, journal, target)?;
+    super::metadata_base_impact_v32::validate_original(marker, journal, target)?;
     let confirmed = marker.state == PrWriteState::Confirmed;
     if categories(marker, confirmed)?.is_none() {
         return Ok(());

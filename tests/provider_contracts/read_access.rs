@@ -81,6 +81,7 @@ fn collaboration_index_read_access_cancel_timeout_and_uncertain_write_are_not_re
         FailureKind::OutputLimit,
         FailureKind::Spawn,
     ] {
+        let output_limited = kind == FailureKind::OutputLimit;
         let error = GithubError::from(CommandFailure {
             kind,
             message: "failed while reading a request".into(),
@@ -89,7 +90,11 @@ fn collaboration_index_read_access_cancel_timeout_and_uncertain_write_are_not_re
             stderr: b"gh: Not Found (HTTP 404)".to_vec(),
             outcome_unknown: false,
         });
-        assert!(matches!(error.kind, GithubErrorKind::Transport));
+        assert!(if output_limited {
+            matches!(error.kind, GithubErrorKind::OutputLimit)
+        } else {
+            matches!(error.kind, GithubErrorKind::Transport)
+        });
         assert!(!error.repository_access_lost());
     }
     let error = GithubError::from(CommandFailure {
@@ -107,4 +112,43 @@ fn collaboration_index_read_access_cancel_timeout_and_uncertain_write_are_not_re
         message: "Typed capability denied".into(),
     };
     assert!(explicit.repository_access_lost());
+}
+
+#[test]
+fn collaboration_index_read_access_actual_output_limit_is_private_and_unknown_write_takes_precedence(
+) {
+    for uncertain in [false, true] {
+        let error = GithubError::from(CommandFailure {
+            kind: FailureKind::OutputLimit,
+            message: "PRIVATE_CAPTURE_MESSAGE".into(),
+            exit_code: Some(1),
+            stdout: b"PRIVATE_CAPTURE_STDOUT".to_vec(),
+            stderr: b"gh: PRIVATE_CAPTURE_STDERR (HTTP 403)".to_vec(),
+            outcome_unknown: uncertain,
+        });
+        if uncertain {
+            assert!(matches!(error.kind, GithubErrorKind::AmbiguousWrite));
+            // Unknown writes keep the established message policy. The new
+            // read classification must never downgrade that actual outcome.
+            assert_eq!(error.message, "PRIVATE_CAPTURE_MESSAGE");
+        } else {
+            assert!(matches!(error.kind, GithubErrorKind::OutputLimit));
+            assert_eq!(
+                error.message,
+                "GitHub response exceeded its bounded capture; no response body admitted"
+            );
+            assert!(!format!("{error:?} {error}").contains("PRIVATE_CAPTURE"));
+        }
+        assert!(!error.repository_access_lost());
+    }
+    let diagnostic_only = GithubError::from(CommandFailure {
+        kind: FailureKind::Spawn,
+        message: "Command exceeded its output limit".into(),
+        exit_code: Some(1),
+        stdout: vec![],
+        stderr: vec![],
+        outcome_unknown: false,
+    });
+    assert!(matches!(diagnostic_only.kind, GithubErrorKind::Transport));
+    assert!(!diagnostic_only.repository_access_lost());
 }

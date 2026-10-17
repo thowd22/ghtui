@@ -189,21 +189,16 @@ pub fn load(
         return Err(ThreadBrowseFailureV1::Display);
     }
     let provider = provider.clone().with_catalogue_read_deadline(deadline);
-    let mut session = provider
-        .begin_repository_catalogue_access(old.source.source(), &Default::default(), cancel)
+    let mut session = old
+        .source
+        .begin_access(&provider, &Default::default(), cancel)
         .map_err(source)?;
     let identity = session.identity().clone();
-    let RemoteScopeConsumerV1::Explicit(members) = old.active.consumer(&identity) else {
-        return Err(ThreadBrowseFailureV1::Source);
-    };
     if Scope::github(&identity.host, identity.account_id)
         .ok()
         .as_ref()
         != Some(old.scope())
-        || !members
-            .references()
-            .iter()
-            .any(|member| member.original() == old.navigation.original())
+        || !old.admits_identity_v75(&identity)
     {
         return Err(ThreadBrowseFailureV1::Source);
     }
@@ -223,8 +218,13 @@ pub fn load(
     let parent = old
         .read_parent_v4(&measured, current, cancel)
         .map_err(source)?;
-    let local = ResourceLocalGuard::capture(database, &old.source, &identity, parent.summary())
-        .map_err(source)?;
+    let local = ResourceLocalGuard::capture_boundary_v13(
+        database,
+        old.source.local_boundary(),
+        &identity,
+        parent.summary(),
+    )
+    .map_err(source)?;
     let thread = Arc::new(
         measured
             .original_thread_publication_v1(
@@ -272,7 +272,9 @@ pub fn load(
         observer();
     }
     original_check(cancel, deadline).map_err(source)?;
-    local.validate(database, &old.source).map_err(source)?;
+    local
+        .validate_boundary_v13(database, old.source.local_boundary())
+        .map_err(source)?;
     old.read_parent_v4(&measured, current, cancel)
         .map_err(source)?;
     session
@@ -281,7 +283,7 @@ pub fn load(
     let closed = session
         .close_with_guard(cancel, || {
             original_check(cancel, deadline)?;
-            local.validate(database, &old.source)?;
+            local.validate_boundary_v13(database, old.source.local_boundary())?;
             original_check(cancel, deadline)
         })
         .map_err(source)?;

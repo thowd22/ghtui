@@ -89,6 +89,7 @@ pub struct ActionsObservation {
     state: Value,
     resources: Vec<String>,
     generations: Vec<u64>,
+    original_resource_v3: Option<String>,
 }
 /// A later state observation is not a correlated receipt for the requested decision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,9 +160,14 @@ impl ActionsObservation {
         &self.state
     }
     fn require_current_proof(&self, expected_resource: String) -> GithubResult<()> {
+        let expected_resource = self
+            .original_resource_v3
+            .as_ref()
+            .unwrap_or(&expected_resource);
         if self.identity.account_id.is_none_or(|id| id == 0)
             || !self.identity.host.eq_ignore_ascii_case(&self.host)
-            || self.resources != vec![expected_resource]
+            || self.resources.len() != 1
+            || self.resources.first() != Some(expected_resource)
             || self.generations.len() != 1
         {
             return Err(error(GithubErrorKind::IdentityChanged,
@@ -727,6 +733,102 @@ impl GithubProvider {
             state,
             resources,
             generations,
+            original_resource_v3: None,
+        })
+    }
+    /// No HTTP or DTO promotion: this borrows a genuine bounded raw-run factory
+    /// outcome from this SAME runner. The caller still must close original
+    /// repository/SQL/UID proof before displaying or consuming the observation.
+    pub(crate) fn scoped_run_observation_v3(
+        &self,
+        identity: &HostIdentity,
+        run: &std::sync::Arc<ScopedActionsRunTargetV1>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<ActionsObservation> {
+        if cancel.is_cancelled()
+            || !run.original_writer_v3(self)
+            || identity.account_id.is_none_or(|id| id == 0)
+            || identity.host != self.host
+        {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Original observation principal unavailable",
+            ));
+        }
+        self.scoped_run_observation_model_v8(
+            identity,
+            run.repository_id(),
+            run.repository(),
+            run.run(),
+        )
+    }
+    pub(crate) fn scoped_historical_run_observation_v8(
+        &self,
+        identity: &HostIdentity,
+        read: &ScopedHistoricalRunReadV5,
+        key: &crate::actions_write_journal::ActionsHistoricalRunKeyV5,
+        current: &CurrentCatalogueRepository,
+        cancel: &CancellationToken,
+    ) -> GithubResult<ActionsObservation> {
+        if identity.account_id.is_none_or(|id| id == 0) || identity.host != self.host {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Original historical principal unavailable",
+            ));
+        }
+        if current.repository().id != key.repository_id()
+            || current.repository().node_id.as_deref() != Some(key.repository_node())
+        {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Original historical repository changed",
+            ));
+        }
+        let run = read.observed_for_v8(self, key, cancel)?;
+        let observation = self.scoped_run_observation_model_v8(
+            identity,
+            key.repository_id(),
+            &current.repository().full_name,
+            run,
+        )?;
+        if !read.matches(self, key, cancel) {
+            return Err(error(
+                GithubErrorKind::StaleHead,
+                "Original historical observation generation changed",
+            ));
+        }
+        Ok(observation)
+    }
+    fn scoped_run_observation_model_v8(
+        &self,
+        identity: &HostIdentity,
+        repository_id: u64,
+        repository: &str,
+        run: &WorkflowRun,
+    ) -> GithubResult<ActionsObservation> {
+        let key = format!(
+            "{}/repository-id/{}/actions/run/{}",
+            self.host, repository_id, run.id
+        );
+        let generation = self.runner.resource_generation(&key);
+        let state = serde_json::to_value(run).map_err(|_| {
+            error(
+                GithubErrorKind::Json,
+                "Original run observation unavailable",
+            )
+        })?;
+        Ok(ActionsObservation {
+            host: self.host.clone(),
+            identity: identity.clone(),
+            producer: self.runner.clone(),
+            target: ActionsTarget::Run {
+                repository: repository.into(),
+                id: run.id,
+            },
+            state,
+            resources: vec![key.clone()],
+            generations: vec![generation],
+            original_resource_v3: Some(key),
         })
     }
     /// Call only after the native UI presented this state and the user acknowledged the effects.

@@ -10,7 +10,7 @@ use crate::{
 };
 use std::{
     path::Path,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -123,6 +123,7 @@ pub struct ScopedInlineOwnerV1 {
     work: Arc<ScopedInlineWorkV1>,
     cancel: CancellationToken,
     deadline: Instant,
+    publication_v14: Mutex<Option<crate::drafts::DraftPublicationFenceV2>>,
 }
 impl std::fmt::Debug for ScopedInlineOwnerV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -130,13 +131,21 @@ impl std::fmt::Debug for ScopedInlineOwnerV1 {
     }
 }
 impl ScopedInlineOwnerV1 {
-    pub(crate) fn new(work: Arc<ScopedInlineWorkV1>) -> Result<Arc<Self>, String> {
+    pub(crate) fn new(
+        work: Arc<ScopedInlineWorkV1>,
+        provider: &GithubProvider,
+    ) -> Result<Arc<Self>, String> {
+        let captured = Instant::now()
+            .checked_add(Duration::from_secs(30))
+            .ok_or("Inline deadline unavailable")?;
+        let deadline = provider
+            .original_pr_read_deadline_v13()
+            .map_or(captured, |original| original.min(captured));
         Ok(Arc::new(Self {
             work,
             cancel: CancellationToken::default(),
-            deadline: Instant::now()
-                .checked_add(Duration::from_secs(30))
-                .ok_or("Inline deadline unavailable")?,
+            publication_v14: Mutex::new(None),
+            deadline,
         }))
     }
     pub fn work(&self) -> &Arc<ScopedInlineWorkV1> {
@@ -151,14 +160,49 @@ impl ScopedInlineOwnerV1 {
     pub fn expired(&self) -> bool {
         self.cancel.is_cancelled() || Instant::now() >= self.deadline
     }
+    /// Tiny exact-client capture before the actual Inbox queue or slot changes.
+    /// The already-prepared key is borrowed, never hashed/serialized here.
+    pub(crate) fn capture_publication_v14(
+        &self,
+        database: &Path,
+        drafts: &crate::drafts::DraftClient,
+    ) -> Result<(), String> {
+        if self.expired() {
+            return Err("Original inline operation expired; nothing queued".into());
+        }
+        if self.work.phase() != ScopedInlinePhaseV1::Confirm {
+            return Ok(());
+        }
+        let preview = self
+            .work
+            .request()
+            .and_then(|request| request.preview())
+            .ok_or("Exact prepared inline Preview required before Confirm")?;
+        let fence = drafts
+            .capture_publication_v2(
+                database,
+                self.work.intent().scope(),
+                preview.draft_key(),
+                &self.cancel,
+                self.deadline,
+            )
+            .map_err(|_| "Original draft revision unavailable; nothing queued".to_owned())?;
+        let mut publication = self
+            .publication_v14
+            .lock()
+            .map_err(|_| "Original publication capture unavailable".to_owned())?;
+        if publication.is_some() {
+            return Err("Original inline publication capture already exists".into());
+        }
+        *publication = Some(fence);
+        Ok(())
+    }
     /// Presentation dismissal cannot make a possibly invoked write safe to
     /// display. This is ONLY the exact original observed source/scope, never a
     /// newer chosen source and never permission to read, reconcile or resend.
     pub(crate) fn original_private_source_is_current(&self, app: &App) -> bool {
         let proof = &self.work.intent().proof;
-        app.remote_scope_source
-            .as_ref()
-            .is_some_and(|source| Arc::ptr_eq(source, &proof.source))
+        proof.source.matches_source(app)
             && app
                 .remote_scope
                 .as_ref()
@@ -175,7 +219,7 @@ impl ScopedInlineOwnerV1 {
         &self,
     ) -> (
         Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
-        Arc<crate::storage::CatalogueIntentSource>,
+        crate::pr_read_origin_v13::PrReadOriginV13,
         Arc<crate::scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>,
     ) {
         let proof = &self.work.intent().proof;
@@ -190,17 +234,55 @@ pub fn newer_intent(app: &App) -> bool {
     newer_intent_allowing_work(app, None)
 }
 pub(crate) fn newer_intent_allowing_work(app: &App, own: Option<&Arc<ScopedInlineWorkV1>>) -> bool {
+    app.form
+        .as_ref()
+        .is_some_and(|form| form.preview_requested || form.submit_requested)
+        || newer_intent_without_form_requests_v82(app, own)
+}
+/// Only the actual currently installed FILE Form may exclude its own request
+/// bits from the foreign-intent check. This is not a generic ignore flag or
+/// permission to consume another Form/source/owner's pending input.
+pub(crate) fn newer_intent_for_original_file_form_v82(
+    app: &App,
+    form: &crate::forms::Form,
+) -> bool {
+    let exact = app.view == View::Inbox
+        && app.overlay == Some(Overlay::Form)
+        && !app.form_dismissed
+        && !app.loading[View::Inbox.index()]
+        && !form.editor_requested
+        && app
+            .form
+            .as_ref()
+            .is_some_and(|current| std::ptr::eq(current, form))
+        && matches!(&form.purpose, crate::forms::FormPurpose::PrFileCommentV75(state) if state.intent().owns(app));
+    !exact
+        || app.scoped_inline_owner_v1.is_some()
+        || app.scoped_reviews_owner_v2.is_some()
+        || app.scoped_threads_owner_v1.is_some()
+        || app.pr_native_diff_owner_v1.is_some()
+        || app.scoped_actions_work_v1.is_some()
+        || app.scoped_actions_owner_v1.is_some()
+        || app.scoped_actions_cancel_v1
+        || app.pr_check_continuation_request_v2.is_some()
+        || app.pr_check_continuation_owner_v2.is_some()
+        || app.pr_check_continuation_cancel_v2
+        || app.personal_pr_entry_work_v13.is_some()
+        || app.personal_pr_entry_owner_v13.is_some()
+        || app.personal_pr_entry_cancel_v13
+        || newer_intent_without_form_requests_v82(app, None)
+}
+fn newer_intent_without_form_requests_v82(
+    app: &App,
+    own: Option<&Arc<ScopedInlineWorkV1>>,
+) -> bool {
+    if app.notifications_work_v63.is_some() || app.notifications_cancel_v63 {
+        return true;
+    }
     if app.scoped_reviews_work_v2.is_some() || app.scoped_reviews_cancel_v2 {
         return true;
     }
     if app.scoped_threads_work_v1.is_some() || app.scoped_threads_cancel_v1 {
-        return true;
-    }
-    if app
-        .form
-        .as_ref()
-        .is_some_and(|form| form.preview_requested || form.submit_requested)
-    {
         return true;
     }
     app.pr_native_diff_work_v1.is_some()
@@ -420,26 +502,26 @@ pub fn execute(
             Ok(preview) => ResultKind::Preview(preview),
             Err(error) => failure(error),
         },
-        Kind::Confirm(request) => match request.preview() {
-            Some(preview) => match preview.execute(
-                provider,
-                database,
-                &Default::default(),
-                &Default::default(),
-                drafts,
-                true,
-                None,
-                &owner.cancel,
-                owner.deadline,
-            ) {
-                Ok(result) => ResultKind::Published(result),
-                Err(error) => failure(error),
-            },
-            None => ResultKind::Failed {
-                hide_private: false,
-                message: "Fresh exact Preview required; nothing invoked".into(),
-            },
-        },
+        Kind::Confirm(request) => {
+            let publication = owner
+                .publication_v14
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take());
+            match (request.preview(), publication) {
+                (Some(preview), Some(publication)) => match preview.execute_with_publication_v14(
+                    provider, database, &Default::default(), &Default::default(), drafts,
+                    publication, true, None, &owner.cancel, owner.deadline,
+                ) {
+                    Ok(result) => ResultKind::Published(result),
+                    Err(error) => failure(error),
+                },
+                _ => ResultKind::Failed {
+                    hide_private: false,
+                    message: "Fresh exact Preview and original prequeue draft capture required; nothing invoked".into(),
+                },
+            }
+        }
     };
     PreparedScopedInlineV1 { owner, kind }
 }
@@ -463,6 +545,105 @@ pub fn retire_private(app: &mut App, background: &mut crate::runtime::Background
     app.scoped_inline_owner_v1 = None;
     app.scoped_inline_work_v1 = None;
     app.scoped_inline_cancel_v1 = false;
+}
+/// A generic Inbox replacement may have retired the old physical owner after
+/// invocation. Drop only exact old private presentation, NEVER the successor
+/// slot/token/generation/loading/status or a newer source/navigation/Form.
+pub(crate) fn retire_orphaned_confirm_presentation_v14(app: &mut App, owner: &ScopedInlineOwnerV1) {
+    if owner.work.phase() != ScopedInlinePhaseV1::Confirm {
+        return;
+    }
+    let Some(request) = owner.work.request() else {
+        return;
+    };
+    let old_form = app
+        .form
+        .as_ref()
+        .is_some_and(|form| request.owns_presentation_v14(form));
+    let old_form_overlay = old_form && app.overlay == Some(Overlay::Form);
+    let proof = &owner.work.intent().proof;
+    // A newer Notice/Commands overlay does not transfer the original private
+    // underlay. Snapshot every exact ownership predicate before any retirement
+    // (including the Personal keepalive marker), preserving that newer overlay.
+    let exact_private = old_form && !app.form_dismissed && proof.owns(app);
+    let old_images = app
+        .pr_file_images
+        .as_ref()
+        .is_some_and(|view| Arc::ptr_eq(view.original_proof_v1(), proof));
+    let old_native = app
+        .pr_native_diff_v1
+        .as_ref()
+        .and_then(|view| view.source())
+        .is_some_and(|source| Arc::ptr_eq(source.proof(), proof));
+    let old_checks = app
+        .pr_checks_origin
+        .as_ref()
+        .and_then(|origin| origin.scoped_owner_v1())
+        .is_some_and(|(source, active, nav)| {
+            proof.source.same_catalogue_source(source)
+                && Arc::ptr_eq(active, &proof.active)
+                && Arc::ptr_eq(nav, &proof.navigation)
+        });
+    let parent = proof.observed().parent();
+    let old_reactions = app.pr_reactions.as_ref().is_some_and(|page| {
+        crate::storage::Scope::github(&page.identity.host, page.identity.account_id)
+            .ok()
+            .as_ref()
+            == Some(proof.source_scope())
+            && page.target.pr.id == parent.node_id()
+            && page.target.pr.number == parent.number()
+            && page
+                .target
+                .pr
+                .repository
+                .eq_ignore_ascii_case(parent.repository())
+    });
+    let can_retire = exact_private
+        && (!proof.source.is_personal()
+            || crate::personal_pr_entry_v13::retain_orphan_source_skeleton_v14(
+                app,
+                &proof.source,
+                &proof.navigation,
+            ));
+    if can_retire {
+        if let Some(github) = &mut app.github {
+            github.pr = None;
+            github.scoped_pr_resource = None;
+        }
+        if old_images {
+            app.pr_file_images = None;
+        }
+        if old_native {
+            app.pr_native_diff_v1 = None;
+            app.pr_native_diff_layout_v1 = Default::default();
+        }
+        if old_checks {
+            app.pr_checks_origin = None;
+            app.pr_checks_route = None;
+            app.actions = None;
+            app.actions_inspection = None;
+            app.pr_check_choice_picker = None;
+            app.pr_check_log_matches_v2 = None;
+            app.pr_check_log_editor_v2 = None;
+            app.pr_check_annotations_detail_v2 = None;
+            app.pr_check_attempt_advance_v2 = None;
+        }
+        if old_reactions {
+            app.pr_reactions = None;
+            app.pr_reaction_display.clear();
+            app.pr_reaction_scroll = 0;
+        }
+        app.pr_pending_message.clear();
+        // No global avatar shutdown/map clear: a newer surface may share it.
+    }
+    if old_form {
+        app.form = None;
+        app.form_dismissed = true;
+        if old_form_overlay {
+            app.overlay = None;
+            app.hits.clear();
+        }
+    }
 }
 pub fn fail(app: &mut App, background: &mut crate::runtime::Background) {
     retire_private(app, background);

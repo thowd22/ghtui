@@ -1,4 +1,5 @@
-//! SOURCE-ONLY, intentionally undeclared until Root admission/verification.
+//! State-command DATA model. Native eligibility requires the purpose-closed
+//! genuine original producer; this model never grants current access.
 //! Local state-intent previews and closed recorded metadata shapes only. No
 //! transport, SQLite, mutation method, acknowledgement, or authority constructor.
 //! A legacy PrSummary is not an opaque current access/capability observation.

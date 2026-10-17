@@ -68,6 +68,14 @@ impl PrImmutableFileOriginalV1 {
     pub fn file_index(&self) -> usize {
         self.file_index
     }
+    /// Borrowed SAME actually parsed selected patch; not a source constructor,
+    /// image proof, mutation anchor or permission on its own.
+    pub(crate) fn canonical_file_v14(&self) -> &crate::diff::FileDiff {
+        &self.selected.file
+    }
+    pub(crate) fn patch_digest_v14(&self) -> &str {
+        &self.selected.digest
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrImmutableImageKindV1 {

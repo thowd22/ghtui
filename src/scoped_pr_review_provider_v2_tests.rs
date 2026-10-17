@@ -129,7 +129,11 @@ fn publish(
     let provider = provider(&s.fixture).with_catalogue_read_deadline(deadline);
     let database = s.fixture.root.join("cache.sqlite3");
     let mut session = provider
-        .begin_repository_catalogue_access(proof.source.source(), &Default::default(), cancel)
+        .begin_repository_catalogue_access(
+            proof.source.catalogue_source().unwrap().source(),
+            &Default::default(),
+            cancel,
+        )
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let caps = vec![limits.max_document_bytes; limits.max_pages + 3];
     let mut captures = session
@@ -157,7 +161,7 @@ fn publish(
         .map_err(ReviewPublicationFailureV2::NotStarted)?;
     let local = ResourceLocalGuard::capture(
         &database,
-        &proof.source,
+        proof.source.catalogue_source().unwrap(),
         session.identity(),
         parent.summary(),
     )
@@ -183,7 +187,9 @@ fn publish(
                 cancel,
             )?;
             session.verify(proof.navigation.original(), cancel)?;
-            session.close_with_guard(cancel, || local.validate(&database, &proof.source))?;
+            session.close_with_guard(cancel, || {
+                local.validate(&database, proof.source.catalogue_source().unwrap())
+            })?;
             Ok(())
         },
     )
@@ -221,7 +227,11 @@ fn select_pending(
     let p = provider(&s.fixture);
     let cancel = CancellationToken::default();
     let mut session = p
-        .begin_repository_catalogue_access(proof.source.source(), &Default::default(), &cancel)
+        .begin_repository_catalogue_access(
+            proof.source.catalogue_source().unwrap().source(),
+            &Default::default(),
+            &cancel,
+        )
         .unwrap();
     let window = session
         .reserve_measured_external_reads(8, 1024 * 1024, 8 * 1024 * 1024, 2, &cancel)
@@ -243,7 +253,7 @@ fn select_pending(
     let identity = session.identity().clone();
     let local = ResourceLocalGuard::capture(
         &s.fixture.root.join("cache.sqlite3"),
-        &proof.source,
+        proof.source.catalogue_source().unwrap(),
         &identity,
         parent.summary(),
     )
@@ -284,7 +294,10 @@ fn select_pending(
         .unwrap();
     session
         .close_with_guard(&cancel, || {
-            local.validate(&s.fixture.root.join("cache.sqlite3"), &proof.source)
+            local.validate(
+                &s.fixture.root.join("cache.sqlite3"),
+                proof.source.catalogue_source().unwrap(),
+            )
         })
         .unwrap();
     selected

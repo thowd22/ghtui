@@ -198,6 +198,8 @@ pub fn sync_active_surface(
             .sync_from_cache(&identity, &context, current, &actors)
         {
             app.avatar_states.retire_owned_cache(cache);
+        } else {
+            crate::notification_pr_v63::record_avatar_projection(app);
         }
     } else {
         app.avatar_states.clear();

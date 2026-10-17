@@ -105,10 +105,11 @@ pub fn retire_invalid(app: &mut App) -> bool {
     else {
         return false;
     };
-    if crate::remote_scope_gate_v1::retire_original_account_mismatch(
+    if crate::scoped_pr_observed_tabs_v1::resources::threads_v1::retire_original_account_v75(
         app,
         &intent.source,
         &intent.active,
+        &intent.navigation,
     ) {
         return true;
     }

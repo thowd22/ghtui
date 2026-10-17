@@ -84,7 +84,47 @@ impl GithubProvider {
         Ok(self)
     }
 }
+enum MeasuredPoolProfileV2 {
+    Ordinary,
+    Archive,
+    Dispatch,
+}
 impl OriginalRepositoryAccessCoreV13<'_> {
+    pub(super) fn reserve_workflow_edit_measured_v9(
+        &mut self,
+        original: &Arc<ScopedActionsWorkflowV2>,
+        phase: postwrite_capture_v2::WorkflowEditPhaseV9,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        if self.limits.transport.max_response_bytes > 2 * 1024 * 1024
+            || !self
+                .verified
+                .iter()
+                .rev()
+                .find(|row| row.original().id == original.repository().id())
+                .is_some_and(|row| original.matches_dispatch_pool_v7(self.provider, row))
+        {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Actual original workflow and bounded source required before workflow-edit pool",
+            ));
+        }
+        let cap = self
+            .provider
+            .scoped_read_window
+            .map_or(256 * 1024, |(_, cap)| cap.min(256 * 1024));
+        // SAME pool construction/accounting. `true` retains the original
+        // issuer cap/deadline, not Dispatch endpoints or write permission.
+        self.reserve_measured_pool_v2(
+            phase.pre_reads(),
+            cap,
+            1024 * 1024,
+            remaining_repository_reads,
+            cancel,
+            MeasuredPoolProfileV2::Dispatch,
+        )
+    }
     /// Preserve actual pre-consumed original bytes, planned remaining parent
     /// GET caps and final principal69,632 bytes, then allocate UP TO requested
     /// shared pool once. No requests*1MiB charge or first-member truncation.
@@ -102,7 +142,7 @@ impl OriginalRepositoryAccessCoreV13<'_> {
             max_pool_bytes,
             remaining_repository_reads,
             cancel,
-            false,
+            MeasuredPoolProfileV2::Ordinary,
         )
     }
     /// SAME original Core and one pool, only after this actual producing
@@ -134,7 +174,44 @@ impl OriginalRepositoryAccessCoreV13<'_> {
             8 * 1024 * 1024,
             remaining_repository_reads,
             cancel,
-            true,
+            MeasuredPoolProfileV2::Archive,
+        )
+    }
+    pub(super) fn reserve_dispatch_reads_v7(
+        &mut self,
+        target: &Arc<crate::providers::gh::ScopedActionsWorkflowV2>,
+        max_requests: usize,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        if !(1..=28).contains(&max_requests)
+            || max_requests
+                .checked_add(6 + 3)
+                .is_none_or(|children| children > crate::providers::gh::DISPATCH_CHILDREN_V7)
+            || self.limits.transport.max_response_bytes > 2 * 1024 * 1024
+            || !self
+                .verified
+                .iter()
+                .rev()
+                .find(|row| row.original().id == target.repository().id())
+                .is_some_and(|current| target.matches_dispatch_pool_v7(self.provider, current))
+        {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Actual original workflow/repository and dedicated Dispatch bounds required",
+            ));
+        }
+        let cap = self
+            .provider
+            .scoped_read_window
+            .map_or(512 * 1024, |(_, cap)| cap.min(512 * 1024));
+        self.reserve_measured_pool_v2(
+            max_requests,
+            cap,
+            1024 * 1024,
+            remaining_repository_reads,
+            cancel,
+            MeasuredPoolProfileV2::Dispatch,
         )
     }
     fn reserve_measured_pool_v2(
@@ -144,8 +221,13 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         max_pool_bytes: usize,
         remaining_repository_reads: usize,
         cancel: &CancellationToken,
-        archive: bool,
+        profile: MeasuredPoolProfileV2,
     ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        let (archive, dispatch) = match profile {
+            MeasuredPoolProfileV2::Ordinary => (false, false),
+            MeasuredPoolProfileV2::Archive => (true, false),
+            MeasuredPoolProfileV2::Dispatch => (false, true),
+        };
         self.budget.check(cancel)?;
         if self.provider.scoped_read_budget.is_some()
             || self.measured_external.is_some()
@@ -187,7 +269,7 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         // Artifact-only immutable pool also retains the already captured
         // issuer's narrower deadline, just as it retains its narrower cap.
         // Generic and post-write paths below are otherwise byte-for-byte.
-        let measured_deadline = if archive {
+        let measured_deadline = if archive || dispatch {
             self.provider
                 .scoped_read_window
                 .map_or(measured_deadline, |(original, _)| {
@@ -199,14 +281,14 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         // New post-write lineage also hard-binds its ORIGINAL issuer's child
         // cap inside the immutable pool, not merely a replaceable clone spec.
         // Existing generic (no post-write reservation) behavior is unchanged.
-        let max_child_bytes = if self.postwrite_reservation_v2.is_some() {
+        let max_child_bytes = if self.postwrite_reservation_v2.is_some() || dispatch {
             self.provider
                 .scoped_read_window
                 .map_or(max_child_bytes, |(_, original_cap)| {
                     max_child_bytes.min(original_cap)
                 })
         } else {
-            max_child_bytes
+            self.clamp_personal_capture_v13(max_child_bytes)
         };
         let constructor = if archive {
             ScopedReadBudgetV1::new_actions_archive_v2
@@ -277,6 +359,20 @@ impl OriginalRepositoryAccessCoreV13<'_> {
 }
 
 impl RepositoryCatalogueAccessSession<'_> {
+    pub(crate) fn reserve_dispatch_reads_v7(
+        &mut self,
+        target: &Arc<crate::providers::gh::ScopedActionsWorkflowV2>,
+        max_requests: usize,
+        remaining_repository_reads: usize,
+        cancel: &CancellationToken,
+    ) -> GithubResult<MeasuredExternalReadWindowV1> {
+        self.core.reserve_dispatch_reads_v7(
+            target,
+            max_requests,
+            remaining_repository_reads,
+            cancel,
+        )
+    }
     /// One wrapper call; Core retains actual rows/pool/cancellation/clock. No
     /// catalogue imitation, foreign issuer or replacement allocation exists.
     pub(crate) fn reserve_actions_archive_v2(

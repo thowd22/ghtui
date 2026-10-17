@@ -1,7 +1,7 @@
 //! Strict native metadata values adapted from
 //! tests/support/metadata_actions.rs. Backend-only probe helpers intentionally
 //! remain in their original module; no lint suppression or default acceptance.
-use super::{model, GhStep, PrMetadataCommand};
+use super::{GhStep, PrMetadataCommand};
 use serde_json::{json, Value};
 
 pub(super) fn repository() -> Value {
@@ -177,35 +177,6 @@ pub(super) fn members(command: PrMetadataCommand, parent: &Value) -> Value {
     result
 }
 
-pub(super) fn member_variables(command: PrMetadataCommand) -> Value {
-    let mut variables = json!({"id":"PR_7"});
-    if field(command) == "teams" {
-        variables["candidate"] = json!(if command == PrMetadataCommand::AddTeam {
-            "T_76"
-        } else {
-            "T_75"
-        });
-        variables["includeCandidate"] = json!(command == PrMetadataCommand::AddTeam);
-    }
-    variables
-}
-
-pub(super) fn preparation_from(command: PrMetadataCommand, original: &Value) -> Vec<GhStep> {
-    let p = original.clone();
-    let mut calls = catalogue(command, &p, vec![candidate(command)]);
-    calls.push(graphql(
-        &model::providers::gh::pr_metadata_members_query(field(command)).unwrap(),
-        member_variables(command),
-        members(command, &p),
-    ));
-    calls.extend([
-        get("repos/example/repo", repository()),
-        get("repos/example/repo/pulls/7", p),
-        get("user", json!({"id":42,"login":"requester"})),
-    ]);
-    calls
-}
-
 pub(super) fn mutation_input(command: PrMetadataCommand) -> Value {
     match command {
         PrMetadataCommand::AddLabel => json!({"pullRequestId":"PR_7","labelIds":["L_80","L_81"]}),
@@ -229,74 +200,4 @@ pub(super) fn mutation_input(command: PrMetadataCommand) -> Value {
         PrMetadataCommand::SetMilestone => json!({"pullRequestId":"PR_7","milestoneId":"M_86"}),
         PrMetadataCommand::ClearMilestone => json!({"pullRequestId":"PR_7","milestoneId":null}),
     }
-}
-
-pub(super) fn publication_from(
-    command: PrMetadataCommand,
-    final_parent: &Value,
-    input: Value,
-) -> Vec<GhStep> {
-    let reviews = matches!(
-        command,
-        PrMetadataCommand::AddReviewer
-            | PrMetadataCommand::AddTeam
-            | PrMetadataCommand::RemoveReviewer
-            | PrMetadataCommand::RemoveTeam
-    );
-    let mutation = if reviews {
-        model::providers::gh::PR_METADATA_REQUEST_REVIEWS_MUTATION
-    } else {
-        model::providers::gh::PR_METADATA_UPDATE_MUTATION
-    };
-    let p = final_parent.clone();
-    vec![
-        graphql(
-            mutation,
-            json!({"input":input}),
-            if reviews {
-                json!({"data":{"requestReviews":{"pullRequest":{"id":"PR_7"}}}})
-            } else {
-                json!({"data":{"updatePullRequest":{"pullRequest":{"id":"PR_7"}}}})
-            },
-        ),
-        graphql(
-            &model::providers::gh::pr_metadata_members_query(field(command)).unwrap(),
-            member_variables(command),
-            members(command, &p),
-        ),
-        get("repos/example/repo", repository()),
-        get("repos/example/repo/pulls/7", p.clone()),
-        get("repos/example/repo/issues/7", issue_from(&p)),
-        get("user", json!({"id":42,"login":"requester"})),
-    ]
-}
-
-pub(super) fn catalogue(
-    command: PrMetadataCommand,
-    parent: &Value,
-    rows: Vec<Value>,
-) -> Vec<GhStep> {
-    let path = match command {
-        PrMetadataCommand::AddLabel | PrMetadataCommand::RemoveLabel => "labels",
-        PrMetadataCommand::AddAssignee | PrMetadataCommand::RemoveAssignee => "assignees",
-        PrMetadataCommand::AddReviewer | PrMetadataCommand::RemoveReviewer => "collaborators",
-        PrMetadataCommand::AddTeam | PrMetadataCommand::RemoveTeam => "teams",
-        _ => "milestones?state=open",
-    };
-    vec![
-        get("user", json!({"id":42,"login":"requester"})),
-        get("repos/example/repo", repository()),
-        get("repos/example/repo/pulls/7", parent.clone()),
-        get("repos/example/repo/issues/7", issue_from(parent)),
-        get(
-            &format!(
-                "repos/example/repo/{path}{}per_page=100&page=1",
-                if path.contains('?') { '&' } else { '?' }
-            ),
-            json!(rows),
-        ),
-        get("repos/example/repo", repository()),
-        get("repos/example/repo/pulls/7", parent.clone()),
-        get("user", json!({"id":42,"login":"requester"})),
-    ]
 }

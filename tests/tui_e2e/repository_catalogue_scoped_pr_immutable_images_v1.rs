@@ -1,8 +1,7 @@
 //! Real-binary journeys. Source7 + MyPR11 + PR13 + Files10
 //! + actual immutable17 =58; viewer/range/layout/Back add ZERO gh/SQL calls.
 use super::*;
-#[path = "../support/immutable_git_v1.rs"]
-pub(super) mod history;
+pub(super) use crate::immutable_git_v1 as history;
 #[path = "scoped_inline_comments_v1.rs"]
 mod inline_comments;
 #[path = "scoped_pending_reviews_v2.rs"]

@@ -2,7 +2,12 @@
 use super::*;
 use crate::scoped_actions_native_v1 as native;
 pub(super) fn only_actions(p: &PreparedView) -> bool {
+    if p.notifications_v63.is_some() {
+        return false;
+    }
     let PreparedView {
+        scoped_pr_collaboration_v17,
+        notifications_v63: _,
         scoped_actions_v1,
         scoped_threads_v1,
         scoped_reviews_v2,
@@ -58,6 +63,7 @@ pub(super) fn only_actions(p: &PreparedView) -> bool {
         && scoped_reviews_v2.is_none()
         && scoped_threads_v1.is_none()
         && scoped_inline_v1.is_none()
+        && scoped_pr_collaboration_v17.is_none()
         && original_stash_recovery_v1.is_none()
         && related_pr_v1.is_none()
         && original_diff_result_v1.is_none()
@@ -114,13 +120,38 @@ impl Background {
         provider: crate::providers::gh::GithubProvider,
         database: std::path::PathBuf,
     ) -> bool {
+        self.submit_scoped_actions_impl_v3(app, work, provider, database, None)
+    }
+    pub fn submit_scoped_actions_publication_v3(
+        &mut self,
+        app: &mut App,
+        work: Arc<crate::scoped_actions_v1::ScopedActionsWorkV1>,
+        provider: crate::providers::gh::GithubProvider,
+        database: std::path::PathBuf,
+        drafts: crate::drafts::DraftClient,
+    ) -> bool {
+        self.submit_scoped_actions_impl_v3(app, work, provider, database, Some(drafts))
+    }
+    fn submit_scoped_actions_impl_v3(
+        &mut self,
+        app: &mut App,
+        work: Arc<crate::scoped_actions_v1::ScopedActionsWorkV1>,
+        provider: crate::providers::gh::GithubProvider,
+        database: std::path::PathBuf,
+        drafts: Option<crate::drafts::DraftClient>,
+    ) -> bool {
         if work.check().is_err() || !native::current_input(app, &work) {
             // Cancel only this rejected captured token. Never touch another
             // live job, logical owner, generation or visible/private state.
             work.cancellation().cancel();
             return false;
         }
-        let owner = match native::ScopedActionsOwnerV1::new(work.clone()) {
+        let owner = match drafts.as_ref().map_or_else(
+            || native::ScopedActionsOwnerV1::new(work.clone()),
+            |drafts| {
+                native::ScopedActionsOwnerV1::new_publication_v3(work.clone(), &database, drafts)
+            },
+        ) {
             Ok(owner) => owner,
             Err(_) => {
                 work.cancellation().cancel();
@@ -128,16 +159,27 @@ impl Background {
             }
         };
         let (scope, source) = owner.remote_owners();
+        if native::publication_v3::workflow_edit_v9::prepare_cutoff(
+            &owner,
+            &provider,
+            &database,
+            drafts.as_ref(),
+        )
+        .is_err()
+        {
+            work.cancellation().cancel();
+            return false;
+        }
         self.cancel_scoped_actions_v1(app);
         self.cancel(View::Actions);
         self.generation += 1;
         let generation = self.generation;
         app.scoped_actions_owner_v1 = Some(owner.clone());
         let remote = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: Some(owner.clone()),
-            scope,
-            source,
-            navigation: None,
+            original: ScopedRemoteOriginalV13::catalogue(scope, source, None),
             check_origin: None,
             continuation_v2: None,
             pr_native_diff_v1: None,
@@ -168,7 +210,7 @@ impl Background {
                 if !same_token.same_instance(worker.cancellation()) {
                     return Err("Original Actions token differs".into());
                 }
-                crate::scoped_actions_v1::execute(worker.work().clone(), &provider, &database).map(
+                native::publication_v3::execute(&worker, &provider, &database, drafts.as_ref()).map(
                     |prepared| PreparedView {
                         scoped_actions_v1: Some(Box::new(prepared)),
                         ..Default::default()
@@ -269,7 +311,7 @@ impl Background {
             || c.local_navigation_owner.is_some()
             || c.original_tree_owner_v1.is_some()
             || c.original_diff_owner_v1.is_some()
-            || remote.navigation.is_some()
+            || remote.original.navigation().is_some()
             || remote.check_origin.is_some()
             || remote.continuation_v2.is_some()
             || remote.pr_native_diff_v1.is_some()
@@ -305,7 +347,7 @@ impl Background {
             native::fail(app, &owner)
         } else {
             match result {
-                Ok(mut p) => native::publish(
+                Ok(mut p) => native::publication_v3::publish(
                     app,
                     &owner,
                     *p.scoped_actions_v1.take().expect("closed checked result"),
@@ -329,6 +371,9 @@ impl Background {
         Some(admitted)
     }
 }
+#[cfg(test)]
+#[path = "scoped_actions_publication_v3_tests.rs"]
+mod publication_tests_v3;
 #[cfg(test)]
 #[path = "scoped_actions_read_v2_tests.rs"]
 mod read_tests_v2;

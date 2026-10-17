@@ -3,8 +3,10 @@
 use super::*;
 #[path = "repository_catalogue_scoped_pr_immutable_images_v1.rs"]
 mod immutable_images;
+#[path = "pr_conversation_v17.rs"]
+pub(crate) mod pr_conversation_v17;
 #[path = "review_threads_v1.rs"]
-mod review_threads_v1;
+pub(crate) mod review_threads_v1;
 #[path = "repository_catalogue_scoped_pr_checks_v1.rs"]
 mod scoped_checks;
 

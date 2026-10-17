@@ -8,6 +8,8 @@ use crate::providers::gh::{
 pub mod inline_v1;
 #[path = "scoped_pr_immutable_image_native_v1.rs"]
 pub mod native;
+#[path = "scoped_pr_personal_images_v13.rs"]
+pub(crate) mod personal_v13;
 #[path = "scoped_pr_review_intent_v2.rs"]
 pub mod reviews_v2;
 #[path = "scoped_pr_immutable_image_ui_v1.rs"]
@@ -44,6 +46,16 @@ pub fn take_image_input(
         .scoped_pr_resource
         .as_ref()
         .ok_or(ObservedPrTabFailureV1::SelectedPageUnavailable)?;
+    let file_index = selected_file_index_v13(view, row)?;
+    Ok(PrImmutableImageInputV1 {
+        input: take_resource_input(workspace, PrResourceKindV1::Files)?,
+        file_index,
+    })
+}
+fn selected_file_index_v13(
+    view: &ScopedPrResourceViewV1,
+    row: usize,
+) -> Result<usize, ObservedPrTabFailureV1> {
     let file_index = match view
         .row(row)
         .ok_or(ObservedPrTabFailureV1::SelectedPageUnavailable)?
@@ -68,10 +80,7 @@ pub fn take_image_input(
         }
         _ => return Err(ObservedPrTabFailureV1::SelectedPageUnavailable),
     };
-    Ok(PrImmutableImageInputV1 {
-        input: take_resource_input(workspace, PrResourceKindV1::Files)?,
-        file_index,
-    })
+    Ok(file_index)
 }
 /// Not a current permission lease. This private source proof was issued ONLY
 /// after actual original repository/local/final-principal closure, and is retired
@@ -79,7 +88,7 @@ pub fn take_image_input(
 pub struct ClosedPrFileImagesV1 {
     read: Arc<PrImmutableFileReadV1>,
     original_view: Arc<ScopedPrResourceViewV1>,
-    pub(crate) source: Arc<CatalogueIntentSource>,
+    pub(crate) source: crate::pr_read_origin_v13::PrReadOriginV13,
     pub(crate) active: Arc<ActiveRemoteScopeV1>,
     pub(crate) navigation: Arc<ScopedPrNavigationV1>,
     old_lines: Vec<(usize, usize)>,
@@ -106,6 +115,12 @@ impl ClosedPrFileImagesV1 {
     }
     pub fn source_scope(&self) -> &Scope {
         self.source.scope()
+    }
+    pub(crate) fn same_origin_v13(
+        &self,
+        source: &crate::pr_read_origin_v13::PrReadOriginV13,
+    ) -> bool {
+        self.source.same_allocation(source)
     }
     pub fn line_count(&self, side: PrImageSideV1) -> usize {
         self.lines(side).len()
@@ -146,9 +161,7 @@ impl ClosedPrFileImagesV1 {
         self.read.file_index()
     }
     pub fn owns(&self, app: &crate::app::App) -> bool {
-        app.remote_scope_source
-            .as_ref()
-            .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+        self.source.matches_source(app)
             && app
                 .remote_scope
                 .as_ref()
@@ -400,7 +413,7 @@ pub fn read_images_with_guard(
     let proof = Arc::new(ClosedPrFileImagesV1 {
         read: Arc::new(observed),
         original_view: view.clone(),
-        source: source.clone(),
+        source: crate::pr_read_origin_v13::PrReadOriginV13::catalogue(source.clone()),
         active: active.clone(),
         navigation: navigation.clone(),
         old_lines,

@@ -35,8 +35,13 @@ impl ActionsWorkspace {
                         SemanticToken::Pending
                     },
                     ..ActionsRow::text(format!(
-                        "{} unresolved publications shown • {total} reported • {}",
+                        "{} {}publications shown • {total} reported • {}",
                         self.publication_rows.len(),
+                        if self.recorded_workflow_history_v9 {
+                            "protected/recorded "
+                        } else {
+                            "unresolved "
+                        },
                         if self.publication_complete {
                             "complete bounded page"
                         } else {

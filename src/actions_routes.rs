@@ -31,11 +31,44 @@ pub fn original_lines(marker: &ActionsWriteMarker) -> Vec<String> {
             "Later transition observed • not proof the original request caused it"
         }
     };
+    let workflow_label = match (marker.kind, marker.target.target()) {
+        (
+            crate::actions_write_journal::ActionsWriteKind::EnableWorkflow,
+            crate::providers::gh::ActionsTarget::Workflow { .. },
+        ) => Some("Enable workflow"),
+        (
+            crate::actions_write_journal::ActionsWriteKind::DisableWorkflow,
+            crate::providers::gh::ActionsTarget::Workflow { .. },
+        ) => Some("Disable workflow"),
+        _ => None,
+    };
+    let dispatch = marker.kind == crate::actions_write_journal::ActionsWriteKind::DispatchWorkflow
+        && marker.context.original_dispatch_v7.is_some()
+        && matches!(
+            marker.target.target(),
+            crate::providers::gh::ActionsTarget::Workflow { .. }
+        );
+    let heading = if dispatch {
+        format!("Saved Dispatch #{}", marker.attempt_id)
+    } else {
+        workflow_label.map_or_else(
+            || {
+                format!(
+                    "ORIGINAL ACTIONS ATTEMPT #{} • {:?}",
+                    marker.attempt_id, marker.kind
+                )
+            },
+            |label| format!("Saved workflow change #{} • {label}", marker.attempt_id),
+        )
+    };
+    let target = match (workflow_label.is_some() || dispatch, marker.target.target()) {
+        (true, crate::providers::gh::ActionsTarget::Workflow { repository, id }) => {
+            format!("Saved workflow: #{id} • repository {repository}")
+        }
+        _ => format!("Original target: {:?}", marker.target.target()),
+    };
     let mut lines = vec![
-        format!(
-            "ORIGINAL ACTIONS ATTEMPT #{} • {:?}",
-            marker.attempt_id, marker.kind
-        ),
+        heading,
         state.into(),
         "This is the saved ORIGINAL target, not newly edited form fields. Nothing is resent."
             .into(),
@@ -44,7 +77,7 @@ pub fn original_lines(marker: &ActionsWriteMarker) -> Vec<String> {
             marker.target.scope().host,
             marker.target.scope().login
         ),
-        format!("Original target: {:?}", marker.target.target()),
+        target,
     ];
     if let Some(run) = marker.context.run_id {
         lines.push(format!(
@@ -65,10 +98,54 @@ pub fn original_lines(marker: &ActionsWriteMarker) -> Vec<String> {
         lines.push(format!("Original selected job: #{job}"));
     }
     if let Some(receipt) = &marker.receipt {
-        lines.push(format!(
-            "Recorded result: {:?} • resource {:?} • observed attempt {:?}",
-            receipt.kind, receipt.resource_id, receipt.observed_attempt
-        ));
+        if workflow_label.is_some()
+            && receipt.kind == crate::actions_write_journal::ActionsReceiptKind::WorkflowState
+        {
+            let workflow = receipt.resource_id.map_or_else(
+                || "workflow ID not reported".into(),
+                |id| format!("workflow #{id}"),
+            );
+            let attempt = receipt.observed_attempt.map_or_else(
+                || "Run attempt: not applicable to workflow state".into(),
+                |id| format!("Observed run attempt: #{id}"),
+            );
+            lines.push(format!(
+                "Recorded result: workflow state • {workflow} • {attempt}"
+            ));
+        } else if dispatch
+            && receipt.kind == crate::actions_write_journal::ActionsReceiptKind::Dispatch
+        {
+            let workflow = receipt.resource_id.map_or_else(
+                || "workflow ID not reported".into(),
+                |id| format!("workflow #{id}"),
+            );
+            lines.push(format!(
+                "Recorded acceptance: {workflow} • completion not confirmed"
+            ));
+            if let Some(run) = &receipt.original_dispatch_run_v7 {
+                lines.push(format!(
+                    "Returned run #{} • attempt #{} • workflow #{} • repository #{}",
+                    run.run_id, run.attempt, run.workflow_id, run.repository_id
+                ));
+                lines.push(format!(
+                    "Returned run node: {} • repository node: {} • check suite #{}",
+                    run.run_node, run.repository_node, run.check_suite_id
+                ));
+                lines.push(format!(
+                    "Returned run head: {} • event: {} • not workflow completion or causation",
+                    run.head_sha, run.event
+                ));
+            } else {
+                lines.push(
+                    "Run ID not returned • acceptance only; no run or attempt invented".into(),
+                );
+            }
+        } else {
+            lines.push(format!(
+                "Recorded result: {:?} • resource {:?} • observed attempt {:?}",
+                receipt.kind, receipt.resource_id, receipt.observed_attempt
+            ));
+        }
         if let Some(run) = receipt.observed_run_id {
             lines.push(format!(
                 "Correlated launch: run #{run} • correlation is not workflow completion"

@@ -60,6 +60,16 @@ impl fmt::Debug for PrCheckLogsObservation {
     }
 }
 impl PrCheckLogsObservation {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        b::sum([
+            b::owner::<Self>(),
+            self.origin.workflow_owned_bytes_v9()?,
+            b::identity(&self.identity)?,
+            self.logs.capacity(),
+            self.captured_target.workflow_owned_bytes_v9()?,
+        ])
+    }
     pub fn origin(&self) -> &Arc<PrCheckRunObservation> {
         &self.origin
     }

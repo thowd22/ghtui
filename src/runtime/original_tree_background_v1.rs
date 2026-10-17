@@ -127,6 +127,9 @@ impl Background {
 }
 /// Must run before generic loading/status/private/identity/model effects.
 pub(super) fn original_tree_prepared_only_v1(prepared: &PreparedView) -> bool {
+    if prepared.notifications_v63.is_some() {
+        return false;
+    }
     if prepared.scoped_actions_v1.is_some() {
         return false;
     }
@@ -196,6 +199,8 @@ pub(super) fn publish_original_tree_v1(
     if app.repository_load_requested
         || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
+        || app.notifications_work_v63.is_some()
+        || app.notifications_cancel_v63
         || app.scoped_inline_work_v1.is_some()
         || app.scoped_reviews_work_v2.is_some()
         || app.scoped_reviews_cancel_v2

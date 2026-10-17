@@ -245,7 +245,7 @@ impl ReviewOperationPreviewV3 {
         clock(cancel, deadline)?;
         preview
             .local
-            .validate(database, &original.source)
+            .validate_boundary_v13(database, original.source.local_boundary())
             .map_err(source_failure)?;
         let originals = original_images_v3(request.intent(), images, cancel, deadline)?;
         let receipt_slots = match action {
@@ -273,8 +273,9 @@ impl ReviewOperationPreviewV3 {
             )
             .ok_or_else(|| refused("Original operation measured request count overflow"))?;
         let issuer = provider.clone().with_catalogue_read_deadline(deadline);
-        let mut session = issuer
-            .begin_repository_catalogue_access(original.source.source(), access, cancel)
+        let mut session = original
+            .source
+            .begin_access(&issuer, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         original_scope(original, &identity, cancel, deadline)?;
@@ -308,7 +309,7 @@ impl ReviewOperationPreviewV3 {
             .map_err(source_failure)?;
         preview
             .local
-            .validate(database, &original.source)
+            .validate_boundary_v13(database, original.source.local_boundary())
             .map_err(source_failure)?;
         let values = operation_values_v3(request.intent(), Arc::from(request.body()))?;
         let inline = if values.comments().is_empty() {
@@ -350,7 +351,7 @@ impl ReviewOperationPreviewV3 {
         }
         preview
             .local
-            .validate(database, &original.source)
+            .validate_boundary_v13(database, original.source.local_boundary())
             .map_err(source_failure)?;
         let mut journal =
             PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;

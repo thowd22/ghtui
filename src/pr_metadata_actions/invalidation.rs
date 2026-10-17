@@ -2,7 +2,10 @@
 //! hook retains bytes while fencing OLD label-filter metadata and late reads.
 use super::{validate_recorded_marker, PrMetadataCommand, PrMetadataReceipt};
 use crate::{
-    pr_write_journal::{PrPublicationReference, PrWriteJournal, PrWriteState, PrWriteTarget},
+    pr_write_journal::{
+        metadata_members_v48::MetadataOriginDispositionV48, PrPublicationReference, PrWriteJournal,
+        PrWriteState, PrWriteTarget,
+    },
     providers::gh::{HostIdentity, PrSummary},
     storage::{Cache, SyncBindingKind, SyncFence, SyncNamespace},
 };
@@ -51,7 +54,32 @@ fn invalidate_confirmed_metadata_for_target(
         .ok_or(
             "Exact original metadata publication missing; no structured invalidation authority",
         )?;
-    validate_recorded_marker(&marker)?;
+    match journal
+        .metadata_origin_disposition_v48(key, &marker)
+        .map_err(|e| e.to_string())?
+    {
+        MetadataOriginDispositionV48::LegacyOriginless => validate_recorded_marker(&marker)?,
+        MetadataOriginDispositionV48::TextV25 => {
+            return Err("Text original cannot repair a member metadata receipt".into())
+        }
+        MetadataOriginDispositionV48::MembersV48(record) => {
+            if marker.state != PrWriteState::Confirmed
+                || !record
+                    .seed
+                    .matches_effect_v48(
+                        marker
+                            .confirmed
+                            .as_ref()
+                            .ok_or("Exact member receipt absent")?,
+                    )
+                    .map_err(|e| e.to_string())?
+            {
+                return Err(
+                    "Exact native member origin/receipt differs before structured repair".into(),
+                );
+            }
+        }
+    }
     let receipt = PrMetadataReceipt::decode(
         marker
             .confirmed
@@ -210,17 +238,49 @@ pub(crate) fn repair_label_filter_reads_for_target(
         if marker.state == PrWriteState::Confirmed {
             invalidate_confirmed_metadata_for_target(database, key, &reference)?;
         } else {
-            let id = marker
-                .selected_resource
-                .strip_prefix("labels:")
-                .and_then(|s| s.parse::<u64>().ok())
-                .filter(|id| *id > 0 && *id <= i64::MAX as u64)
-                .ok_or("Unresolved label attempt has no exact closed selected member identity")?;
-            if marker.selected_resource != format!("labels:{id}") || marker.confirmed.is_some() {
-                return Err(
-                    "Unresolved label attempt has contradictory metadata; no results released"
-                        .into(),
-                );
+            let native = journal
+                .metadata_origin_disposition_v48(key, &marker)
+                .map_err(|e| e.to_string())?;
+            let native_repository = match native {
+                MetadataOriginDispositionV48::MembersV48(record) => {
+                    if !matches!(
+                        record.seed.command().map_err(|e| e.to_string())?,
+                        PrMetadataCommand::AddLabel | PrMetadataCommand::RemoveLabel
+                    ) || !matches!(
+                        marker.state,
+                        PrWriteState::Pending | PrWriteState::Uncertain
+                    ) || marker.confirmed.is_some()
+                    {
+                        return Err("Unresolved native label purpose/state differs".into());
+                    }
+                    record
+                        .protected_values_v48(database, &marker)
+                        .map_err(|e| e.to_string())?;
+                    Some(record.seed.repository_id)
+                }
+                MetadataOriginDispositionV48::TextV25 => {
+                    return Err(
+                        "Text original cannot repair unresolved member label metadata".into(),
+                    )
+                }
+                MetadataOriginDispositionV48::LegacyOriginless => None,
+            };
+            if native_repository.is_none() {
+                let id = marker
+                    .selected_resource
+                    .strip_prefix("labels:")
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .filter(|id| *id > 0 && *id <= i64::MAX as u64)
+                    .ok_or(
+                        "Unresolved label attempt has no exact closed selected member identity",
+                    )?;
+                if marker.selected_resource != format!("labels:{id}") || marker.confirmed.is_some()
+                {
+                    return Err(
+                        "Unresolved label attempt has contradictory metadata; no results released"
+                            .into(),
+                    );
+                }
             }
             Cache::open(database)
                 .map_err(|e| e.to_string())?
@@ -228,7 +288,7 @@ pub(crate) fn repair_label_filter_reads_for_target(
                     key.scope(),
                     &SyncFence {
                         namespace: SyncNamespace::Collaboration,
-                        repository_id: None,
+                        repository_id: native_repository,
                         repository: key.repository().to_ascii_lowercase(),
                         resource: key.node_id().into(),
                         kinds: label_kinds(),

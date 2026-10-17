@@ -2,6 +2,10 @@
 //! remote access authority, effect confirmation, or a mutation permit.
 //! Capture/validate may initialize the normal private cache/journal. Decorate is
 //! pure: no database/file/provider access during input or rendering.
+#[path = "pr_checks_sql_guard_cleanup_v9.rs"]
+mod cleanup_v9;
+#[path = "pr_checks_sql_guard_publication_v4.rs"]
+mod publication_v4;
 #[path = "pr_checks_sql_guard_scoped_v1.rs"]
 mod scoped_v1;
 
@@ -44,6 +48,7 @@ pub struct PrChecksSqlGuard {
     target: PrWriteTarget,
     pr_generation: i64,
     metadata: [u8; 32],
+    cache_metadata_v4: [u8; 32],
     actions: [u8; 32],
     leases: Arc<ActionsPublicationLeaseSnapshot>,
     rows: Vec<ActionsPublicationRow>,
@@ -59,6 +64,20 @@ impl std::fmt::Debug for PrChecksSqlGuard {
     }
 }
 impl PrChecksSqlGuard {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        let mut n = b::sum([
+            b::owner::<Self>(),
+            self.database.capacity(),
+            self.target.workflow_owned_bytes_v9()?,
+            self.leases.workflow_owned_bytes_v9()?,
+            b::vector(&self.rows)?,
+        ])?;
+        for row in &self.rows {
+            n = b::sum([n, row.heading.capacity(), b::lines(&row.details)?])?;
+        }
+        Some(n)
+    }
     /// The caller must verify fresh remote numeric identity/access BEFORE this
     /// private SQL read. Local file ownership and a Scope are not that proof.
     /// All calls belong inside the caller's original operation-deadline hooks.
@@ -89,6 +108,7 @@ impl PrChecksSqlGuard {
         let database = journal.database_path().to_owned();
         let file = private_file(&database)?;
         let metadata = metadata_stamp(&database, &target)?;
+        let cache_metadata_v4 = metadata_stamp_without_actions_v4(&database, &target)?;
         let pr_generation = journal
             .source_generation(&target)
             .map_err(|error| error.to_string())?;
@@ -121,6 +141,7 @@ impl PrChecksSqlGuard {
         };
         if private_file(&database)? != file
             || metadata_stamp(&database, &target)? != metadata
+            || metadata_stamp_without_actions_v4(&database, &target)? != cache_metadata_v4
             || journal
                 .source_generation(&target)
                 .map_err(|error| error.to_string())?
@@ -134,6 +155,7 @@ impl PrChecksSqlGuard {
             target,
             pr_generation,
             metadata,
+            cache_metadata_v4,
             actions,
             leases: Arc::new(leases),
             rows,
@@ -323,6 +345,19 @@ const TABLES: &[Table] = &[
     },
 ];
 fn metadata_stamp(path: &Path, target: &PrWriteTarget) -> Result<[u8; 32], String> {
+    metadata_stamp_inner_v4(path, target, false)
+}
+fn metadata_stamp_without_actions_v4(
+    path: &Path,
+    target: &PrWriteTarget,
+) -> Result<[u8; 32], String> {
+    metadata_stamp_inner_v4(path, target, true)
+}
+fn metadata_stamp_inner_v4(
+    path: &Path,
+    target: &PrWriteTarget,
+    claimed_actions: bool,
+) -> Result<[u8; 32], String> {
     let connection = connection(path)?;
     let transaction = connection
         .unchecked_transaction()
@@ -342,6 +377,12 @@ fn metadata_stamp(path: &Path, target: &PrWriteTarget) -> Result<[u8; 32], Strin
     let mut total_rows = 0usize;
     let mut total_bytes = 0usize;
     for table in TABLES {
+        // Only the purpose-closed live claimed-publication validator uses this
+        // projection. Ordinary guards still hash the full Actions generation
+        // table and unresolved page exactly as before.
+        if claimed_actions && table.name == "actions_write_generations" {
+            continue;
+        }
         let lengths = table
             .fields
             .split(',')

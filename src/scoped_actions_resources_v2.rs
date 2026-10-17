@@ -46,6 +46,15 @@ pub struct ResourcePageV2 {
     refresh: Arc<ResourceRequestV2>,
 }
 impl ResourcePageV2 {
+    pub(crate) fn workflow_definition_v6(
+        &self,
+    ) -> Option<(&Arc<ScopedActionsWorkflowV2>, &Arc<WorkflowDefinition>)> {
+        if let ScopedActionsResourceBodyV2::Definition { target, definition } = self.read.body() {
+            Some((target, definition))
+        } else {
+            None
+        }
+    }
     pub(crate) fn prepare_run_controls(&self, w: &mut ActionsWorkspace) {
         if self.run().is_some() {
             for (label, view) in [

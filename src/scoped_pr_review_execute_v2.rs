@@ -246,9 +246,9 @@ pub(in super::super) fn validate_owned(
     {
         return Err(safe_local());
     }
-    Cache::open(database)
-        .map_err(|_| safe_local())?
-        .validate_repository_catalogue_intent_source(&intent.source)
+    intent
+        .source
+        .validate_cache(&Cache::open(database).map_err(|_| safe_local())?)
         .map_err(|_| safe_local())?;
     let journal = PrWriteJournal::open(database).map_err(|_| safe_local())?;
     if journal
@@ -341,7 +341,7 @@ impl ScopedReviewPreviewV2 {
         resources.validate().map_err(source_failure)?;
         let intent = &self.request.intent;
         self.local
-            .validate(database, &intent.source)
+            .validate_boundary_v13(database, intent.source.local_boundary())
             .map_err(source_failure)?;
         let originals = original_files(&self.request, images, cancel, deadline)?;
         // Every response slot is a full bounded document (not raw body bytes).
@@ -370,8 +370,9 @@ impl ScopedReviewPreviewV2 {
             )
             .ok_or_else(|| refused("Original review read count exceeds bounds"))?;
         let phase_provider = provider.clone().with_catalogue_read_deadline(deadline);
-        let mut session = phase_provider
-            .begin_repository_catalogue_access(intent.source.source(), access, cancel)
+        let mut session = intent
+            .source
+            .begin_access(&phase_provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         original_scope(intent, &identity, cancel, deadline)?;
@@ -402,7 +403,7 @@ impl ScopedReviewPreviewV2 {
             )
             .map_err(source_failure)?;
         self.local
-            .validate(database, &intent.source)
+            .validate_boundary_v13(database, intent.source.local_boundary())
             .map_err(source_failure)?;
         let current = session
             .observation_v1(parent.repository_id())
@@ -471,7 +472,7 @@ impl ScopedReviewPreviewV2 {
             return Err(source_failure(safe_local()));
         }
         self.local
-            .validate(database, &intent.source)
+            .validate_boundary_v13(database, intent.source.local_boundary())
             .map_err(source_failure)?;
         let mut journal =
             PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;

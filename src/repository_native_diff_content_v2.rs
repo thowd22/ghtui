@@ -87,6 +87,9 @@ pub trait NativeDiffPurposeV2: NativeDiffContentV2 + Sized {
     fn supports_review_threads() -> bool {
         false
     }
+    fn supports_file_comments_v75() -> bool {
+        false
+    }
     type Context;
     type Operation: crate::native_diff_operation_v3::NativeDiffCheckV3;
     fn validate_full_side_v3(

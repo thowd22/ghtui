@@ -60,6 +60,8 @@ impl RelatedPrOwnerV1 {
         app.view == View::Repository
             && app.remote_repository.is_none()
             && !app.repository_load_requested
+            && app.notifications_work_v63.is_none()
+            && !app.notifications_cancel_v63
             && app.scoped_inline_work_v1.is_none()
             && app.pr_native_diff_work_v1.is_none()
             && !app.pr_native_diff_cancel_v1

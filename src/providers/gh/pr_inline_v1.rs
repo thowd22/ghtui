@@ -1,6 +1,9 @@
 //! Complete inline publication receipts. No UI position or username grants access.
 use super::*;
 use std::time::Instant;
+#[path = "pr_inline_original_v14.rs"]
+mod original_v14;
+pub(crate) use original_v14::FreshInlineCommentObservationV14;
 
 /// Conservative boundary: a failure after invoking the write transport does
 /// not prove that GitHub received nothing. Never automatically resend it.
@@ -54,6 +57,7 @@ impl InlineCommentReceiptV1 {
 }
 
 pub(super) fn validate_inline_patch(comment: &InlineComment, patch: &str) -> GithubResult<()> {
+    comment.validate()?;
     let start = comment.start_line.unwrap_or(comment.line);
     if patch.len() > 8 * 1024 * 1024
         || patch.lines().take(65_537).count() > 65_536
@@ -80,7 +84,23 @@ pub(super) fn validate_inline_patch(comment: &InlineComment, patch: &str) -> Git
             "Inline proof needs one canonical text patch",
         ));
     }
-    let admitted = diff.files[0].hunks.iter().any(|hunk| {
+    validate_inline_file_v14(comment, &diff.files[0])
+}
+/// Same canonical predicate as the legacy patch envelope, reused by a genuine
+/// selected immutable file. No display row or file label becomes an anchor.
+pub(super) fn validate_inline_file_v14(
+    comment: &InlineComment,
+    file: &crate::diff::FileDiff,
+) -> GithubResult<()> {
+    comment.validate()?;
+    let start = comment.start_line.unwrap_or(comment.line);
+    if file.binary || comment.line - start > 9999 {
+        return Err(error(
+            GithubErrorKind::InvalidTarget,
+            "Inline canonical range exceeds its original bound",
+        ));
+    }
+    let admitted = file.hunks.iter().any(|hunk| {
         let endpoint_kind_matches = hunk.lines.iter().any(|line| match comment.side {
             DiffSide::Left => {
                 line.old_line.map(u64::from) == Some(comment.line)

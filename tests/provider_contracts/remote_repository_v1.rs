@@ -374,16 +374,62 @@ fn remote_tree_v1_provider_successful_stderr_over_cap_stops_no_hidden_final_chil
         },
     )
     .unwrap());
-    assert!(read(
+    let error = read(
         &f,
         &s,
         Request::File {
             original: child,
-            index: 0
-        }
+            index: 0,
+        },
     )
-    .is_err());
+    .err()
+    .expect("over-cap stderr must stop before closing children");
+    assert!(matches!(
+        error.kind,
+        model::providers::gh::GithubErrorKind::OutputLimit
+    ));
     assert_eq!(steps.len(), 28);
     fx::exact(&f, &steps);
+    fx::preserved(&f, &o);
+}
+
+#[test]
+fn remote_tree_v1_parent_capture_provider_exhaustion_stops_before_payload_or_final_principal() {
+    let f = Fixture::new();
+    let o = fx::objects(&f);
+    let mut steps = fx::source_steps();
+    let mut opening = fx::prefix();
+    opening[2].stderr = b"PRIVATE_PARENT_CAPTURE_CANARY ".repeat(50000);
+    assert!(opening[2].stderr.len() > 1024 * 1024);
+    steps.extend(opening);
+    assert_eq!(steps.len(), 10);
+    f.scripted_gh(&steps);
+    let s = fx::source(&f);
+    let database = f.root.join("cache.sqlite3");
+    let before = std::fs::read(&database).unwrap();
+    let mut phases = Vec::new();
+    let result = fx::provider(&f).remote_repository_read_guarded_v1(
+        s.source().clone(),
+        &reference(&s),
+        Request::DefaultTree,
+        &Default::default(),
+        &Default::default(),
+        |phase| {
+            phases.push(phase);
+            Ok(())
+        },
+    );
+    fx::exact(&f, &steps);
+    let error = result.err().expect("over-cap opening parent must refuse");
+    assert!(matches!(
+        error.kind,
+        model::providers::gh::GithubErrorKind::OutputLimit
+    ));
+    assert!(
+        phases.is_empty(),
+        "no payload or final-proof callback allowed"
+    );
+    assert!(!error.to_string().contains("PRIVATE_PARENT_CAPTURE_CANARY"));
+    assert_eq!(std::fs::read(database).unwrap(), before);
     fx::preserved(&f, &o);
 }

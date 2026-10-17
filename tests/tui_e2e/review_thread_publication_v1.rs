@@ -7,6 +7,10 @@ mod comments_v2;
 mod detail_v4;
 #[path = "review_thread_draft_witness_v1.rs"]
 mod draft_witness_v1;
+#[path = "file_thread_controls_v75.rs"]
+mod file_controls_v75;
+#[path = "file_comment_follow_v75.rs"]
+pub(super) mod file_follow_v75;
 #[path = "review_thread_history_v1.rs"]
 mod history_v1;
 use ghtui::providers::gh::{

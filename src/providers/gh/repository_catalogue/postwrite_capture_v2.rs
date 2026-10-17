@@ -2,7 +2,47 @@
 //! One original session retains its parent/final proof and ONE measured pool;
 //! bounded ordinary post-close children spend these already-reserved slots.
 use super::*;
+#[path = "postwrite_capture_v2/workflow_git_v9.rs"]
+mod workflow_git_v9;
+pub(crate) use workflow_git_v9::WorkflowCleanupSealV9;
+pub(crate) use workflow_git_v9::{WorkflowEditPhaseV9, WorkflowGitRoleV9, WorkflowPostCaptureV9};
+#[path = "postwrite_capture_v2/file_comment_created_v75.rs"]
+mod file_comment_created_v75;
 use crate::providers::runner::ScopedReadBudgetV1;
+#[path = "postwrite_capture_v2/actions_dispatch_ack_v7.rs"]
+mod actions_dispatch_ack_v7;
+#[path = "postwrite_capture_v2/actions_run_ack_v5.rs"]
+mod actions_run_ack_v5;
+#[path = "postwrite_capture_v2/actions_workflow_ack_v6.rs"]
+mod actions_workflow_ack_v6;
+#[path = "postwrite_capture_v2/conversation_detail_list_v19.rs"]
+mod conversation_detail_list_v19;
+#[path = "postwrite_capture_v2/conversation_http_v17.rs"]
+mod conversation_http_v17;
+#[path = "postwrite_capture_v2/empty_http_ack_v5.rs"]
+mod empty_http_ack_v5;
+#[path = "postwrite_capture_v2/issue_link_v87.rs"]
+mod issue_link_v87;
+#[path = "postwrite_capture_v2/members_metadata_v62.rs"]
+mod members_metadata_v62;
+#[path = "postwrite_capture_v2/metadata_context_v51.rs"]
+mod metadata_context_v51;
+#[path = "postwrite_capture_v2/metadata_members_request_v48.rs"]
+mod metadata_members_request_v48;
+#[path = "postwrite_capture_v2/state_request_v68.rs"]
+mod state_request_v68;
+pub(in crate::providers::gh) use members_metadata_v62::{
+    MembersMetadataClosingInputV62, MembersMetadataContextInputV62, MembersMetadataRoleV62,
+};
+#[path = "postwrite_capture_v2/notifications_http_v63.rs"]
+pub(in crate::providers::gh::repository_catalogue) mod notifications_http_v63;
+#[path = "postwrite_capture_v2/pinned_http_response_v5.rs"]
+mod pinned_http_response_v5;
+#[path = "postwrite_capture_v2/workflow_branch_http_v9.rs"]
+mod workflow_branch_http_v9;
+pub(in crate::providers::gh) use workflow_branch_http_v9::{
+    workflow_branch_response_v9, workflow_history_response_v9,
+};
 #[path = "postwrite_capture_v2/review_comment_delete_v2.rs"]
 mod review_comment_delete_v2;
 #[path = "postwrite_capture_v2/thread_reaction_http_v3.rs"]

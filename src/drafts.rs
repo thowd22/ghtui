@@ -8,10 +8,21 @@ use std::{
     thread,
 };
 
+#[path = "drafts/conversation_open_cutoff_v20.rs"]
+mod conversation_open_cutoff_v20;
 mod corpus_preview_v4;
 mod publication_v2;
+pub(crate) use conversation_open_cutoff_v20::{
+    ConversationOpenReadCutoffV20, ReadCutoffFailureV20,
+};
 pub use corpus_preview_v4::CorpusDraftFenceV4;
 use corpus_preview_v4::{DraftProducerV4, PendingDraftV4};
+pub(crate) use publication_v2::{
+    AcknowledgedProjectionCleanupV85, AcknowledgedWorkflowCleanupV9, AtomicCleanupBindingV85,
+    AtomicDraftInputV85, AtomicPublicationFailureV85, ClosedWorkflowCleanupV9,
+    PreparedWorkflowCleanupMessageV9, WorkflowCleanupBindingV9, WorkflowCleanupFailureV9,
+    WorkflowCleanupInputV9, WorkflowCleanupOutcomeV9,
+};
 pub use publication_v2::{DraftPublicationAckV2, DraftPublicationErrorV2, DraftPublicationFenceV2};
 
 #[cfg(test)]

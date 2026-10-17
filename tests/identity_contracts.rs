@@ -204,14 +204,12 @@ fn semantic_colors_canonical_range_selection_and_hunk_keep_narrow_override_notic
         })
         .collect::<Vec<_>>();
     assert!(anchors.len() >= 2);
-    let mut app = App {
-        workspace: Some(workspace),
-        repository_selection: Some(DiffSelection {
-            start: anchors[0].1.clone(),
-            end: anchors.last().unwrap().1.clone(),
-        }),
-        ..App::default()
-    };
+    let mut app = App::new();
+    app.workspace = Some(workspace);
+    app.repository_selection = Some(DiffSelection {
+        start: anchors[0].1.clone(),
+        end: anchors.last().unwrap().1.clone(),
+    });
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
         .draw(|frame| {
@@ -865,13 +863,11 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
     let fixture = git_support::Fixture::linear();
     let head = fixture.head();
     let index = std::fs::read(fixture.repository.git_dir.join("index")).unwrap();
-    let mut app = App {
-        view: View::Repository,
-        no_color: false,
-        color_mode: ColorMode::TrueColor,
-        workspace: Workspace::load(&fixture.root, RepositoryMode::Graph, "HEAD", None).unwrap(),
-        ..App::default()
-    };
+    let mut app = App::new();
+    app.view = View::Repository;
+    app.no_color = false;
+    app.color_mode = ColorMode::TrueColor;
+    app.workspace = Workspace::load(&fixture.root, RepositoryMode::Graph, "HEAD", None).unwrap();
     app.selected = app
         .workspace
         .as_ref()
@@ -967,15 +963,13 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                     );
                     assert!(rows.is_empty());
                 }
-                let mut app = App {
-                    view: View::Repository,
-                    context: format!(
-                        "Local repository: {} • selected {saved}",
-                        "deep/".repeat(40)
-                    ),
-                    workspace: Some(workspace),
-                    ..App::default()
-                };
+                let mut app = App::new();
+                app.view = View::Repository;
+                app.context = format!(
+                    "Local repository: {} • selected {saved}",
+                    "deep/".repeat(40)
+                );
+                app.workspace = Some(workspace);
                 if genuine {
                     app.selected = app
                         .workspace
@@ -1063,10 +1057,8 @@ fn semantic_colors_repository_clears_loading_shell_glyphs_before_controls_and_co
     };
     use ratatui::{backend::TestBackend, widgets::Paragraph, Terminal};
     let fixture = git_support::Fixture::linear();
-    let mut app = App {
-        workspace: Workspace::load(&fixture.root, RepositoryMode::Overview, "HEAD", None).unwrap(),
-        ..App::default()
-    };
+    let mut app = App::new();
+    app.workspace = Workspace::load(&fixture.root, RepositoryMode::Overview, "HEAD", None).unwrap();
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
         .draw(|frame| {

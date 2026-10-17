@@ -313,8 +313,25 @@ fn journey_with_interactions(
         }],
     );
     assert!(!restarted.screen().contains("Original native reply 界"));
+    // Delay only delivery of genuine PTY bytes, not the application or its
+    // provider. Paging must not run ahead of the completed opened-detail view.
+    let detail_opened_after = restarted.completed_cursorless_end();
+    restarted.hold_observed_output_after_next_write_v1(Duration::from_millis(200));
     choose(&mut restarted, mouse, "[Enter Open]", b"\r");
     restarted.wait_for_command_count(&fixture, old_end + 47);
+    restarted.wait_for_new_cursorless_condition(
+        detail_opened_after,
+        |frame| {
+            crate::support::overlay_body(frame, HISTORY).is_some_and(|body| {
+                body.contains("Recorded intent account:")
+                    && body.contains("Recorded attempt #")
+                    && body.contains("Inspect only")
+                    && !body.contains("Exact original history read pending")
+            })
+        },
+        "Actual completed opened history detail before any paging input",
+        Duration::from_secs(8),
+    );
     if legacy {
         detail_contains(&mut restarted, mouse, "Protected legacy attempt");
         assert!(!restarted.screen().contains("Original native reply 界"));
@@ -331,6 +348,12 @@ fn journey_with_interactions(
             assert_ne!(origin["seed"]["head"], json!("d".repeat(40)));
         }
     }
+    let detail_inputs = restarted.finish_observed_output_hold_v1();
+    assert_eq!(
+        crate::support::receiver_delivery_gate_v1::maximum_unacknowledged(&detail_inputs),
+        1,
+        "Only one actual history input before a completed viewport acknowledgement: {detail_inputs:?}"
+    );
     if lose_account {
         let before = restarted.completed_cursorless_end();
         choose(&mut restarted, mouse, "[r Refresh]", b"r");

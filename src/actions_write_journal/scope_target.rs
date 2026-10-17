@@ -52,7 +52,11 @@ impl ActionsWriteMarker {
     /// Worker-only validation of closed metadata and typed receipt policy.
     /// Retained snapshots validate once; selection must not hash or parse again.
     pub fn validate_metadata(&self) -> Result<()> {
-        let canonical = ActionsWriteTarget::from_scope(&self.target.scope, &self.target.target)?;
+        let canonical = ActionsWriteTarget::from_original_context_v3(
+            &self.target.scope,
+            &self.target.target,
+            &self.context,
+        )?;
         if canonical.resources != self.target.resources {
             bail!(
                 "Original Actions publication canonical resources are invalid; protection remains"

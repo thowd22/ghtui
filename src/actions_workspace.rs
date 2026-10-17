@@ -82,6 +82,7 @@ impl ActionsView {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionsAction {
+    EditWorkflowLocalV9,
     ScopedReadV2(crate::scoped_actions_resources_v2::ScopedActionsReadActionV2),
     View(ActionsView),
     Repository(usize),
@@ -291,6 +292,8 @@ pub struct ActionsWorkspace {
     pub publication_rows: Vec<ActionsPublicationRow>,
     pub publication_total: Option<u64>,
     pub publication_complete: bool,
+    /// Display-only actual closed W9 rows; never source/permission or a target.
+    pub recorded_workflow_history_v9: bool,
     pub publication_inspection: Option<ActionsPublicationInspectionPage>,
     pub publication_leases: Option<Arc<ActionsPublicationLeaseSnapshot>>,
 }
@@ -370,6 +373,7 @@ impl ActionsWorkspace {
             publication_rows: vec![],
             publication_total: None,
             publication_complete: false,
+            recorded_workflow_history_v9: false,
             publication_inspection: None,
             publication_leases: None,
         }
@@ -548,6 +552,7 @@ impl ActionsWorkspace {
     ) -> GithubResult<()> {
         use ActionsAction::*;
         match action {
+            EditWorkflowLocalV9 => return Err(plain_error("Local workflow editing requires the actual original Definition/Actions worker; no legacy mapping or write fallback")),
             ScopedReadV2(_) => {
                 return Err(plain_error(
                     "This read needs its actual original-scoped Actions owner; no legacy fallback",
@@ -1233,6 +1238,10 @@ impl ActionsWorkspace {
                 rows
             }
             Workflow => {
+                self.controls.push(ActionsControl {
+                    label: "[E Edit YAML locally]".into(), action: ActionsAction::EditWorkflowLocalV9,
+                    disabled_reason: Some("Requires an actual source-bound workflow Definition; no legacy/local-name fallback".into()),
+                });
                 self.controls.extend(
                     [
                         ActionsCommand::EnableWorkflow,

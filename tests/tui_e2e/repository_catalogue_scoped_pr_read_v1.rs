@@ -3,7 +3,7 @@ use super::*;
 #[path = "repository_catalogue_scoped_pr_observed_tabs_v1.rs"]
 mod observed_tabs;
 #[path = "repository_catalogue_scoped_pr_resources_v1.rs"]
-mod resources;
+pub(crate) mod resources;
 use rusqlite::{Connection, OpenFlags};
 
 const ROW_TITLE: &str = "Previous Issue-search observation";

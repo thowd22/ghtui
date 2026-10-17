@@ -58,6 +58,7 @@ fn context(selected: bool) -> PrActionContext {
         checks: None,
         rows: vec![],
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     });
     let selected = selected.then(|| SelectedComment {

@@ -31,6 +31,11 @@ pub struct IntentSource {
     owner_node_id: Option<String>,
 }
 impl IntentSource {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        std::mem::size_of::<Self>()
+            .checked_add(self.owner.as_ref().map_or(0, String::capacity))?
+            .checked_add(self.owner_node_id.as_ref().map_or(0, String::capacity))
+    }
     pub fn from_original(context: &RepositoryCatalogueContext) -> Result<Self, String> {
         let kind = match context.source() {
             RepositoryCatalogueSource::Organization(_) => IntentSourceKind::Organization,
@@ -156,6 +161,38 @@ pub enum IntentResolution {
     Unavailable(IntentUnavailable),
 }
 impl CatalogueIntentV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        let mut n = std::mem::size_of::<Self>()
+            .checked_add(self.scope.host.capacity())?
+            .checked_add(self.scope.login.capacity())?
+            .checked_add(self.source.owner.as_ref().map_or(0, String::capacity))?
+            .checked_add(
+                self.source
+                    .owner_node_id
+                    .as_ref()
+                    .map_or(0, String::capacity),
+            )?;
+        let node = 32usize.checked_add(16usize.checked_mul(
+            std::mem::size_of::<(u64, IntentReference)>() + std::mem::size_of::<usize>(),
+        )?)?;
+        for map in std::iter::once(&self.pins).chain(self.sets.values()) {
+            n = n.checked_add(map.len().checked_mul(8usize.checked_mul(node)?)?)?;
+            for r in map.values() {
+                n = n
+                    .checked_add(r.last_name.capacity())?
+                    .checked_add(r.node_id.as_ref().map_or(0, String::capacity))?;
+            }
+        }
+        let set_node = 32usize.checked_add(16usize.checked_mul(
+            std::mem::size_of::<(String, BTreeMap<u64, IntentReference>)>()
+                + std::mem::size_of::<usize>(),
+        )?)?;
+        n = n.checked_add(self.sets.len().checked_mul(8usize.checked_mul(set_node)?)?)?;
+        for s in self.sets.keys() {
+            n = n.checked_add(s.capacity())?;
+        }
+        Some(n)
+    }
     pub fn new(context: &RepositoryCatalogueContext) -> Result<Self, String> {
         let scope = Scope::github(&context.identity().host, context.identity().account_id)
             .map_err(|error| error.to_string())?;

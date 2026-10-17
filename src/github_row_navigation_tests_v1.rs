@@ -84,6 +84,7 @@ fn app(interactive: bool) -> App {
         checks: None,
         rows,
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     });
     App {

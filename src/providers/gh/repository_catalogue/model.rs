@@ -226,6 +226,71 @@ impl std::fmt::Debug for RepositoryCatalogueRead {
     }
 }
 impl RepositoryCatalogueRead {
+    /// W9 allocation accounting only; borrowed traversal, no source/DTO copy.
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        let mut n = std::mem::size_of::<Self>()
+            .checked_add(4 * std::mem::size_of::<usize>())?
+            .checked_add(
+                self.rows
+                    .len()
+                    .checked_mul(std::mem::size_of::<RepositoryCatalogueRepository>())?,
+            )?;
+        for s in [
+            &self.context.identity.host,
+            &self.context.identity.login,
+            &self.context.identity.gh_version,
+        ] {
+            n = n.checked_add(s.capacity())?;
+        }
+        match &self.context.source {
+            RepositoryCatalogueSource::Organization(s)
+            | RepositoryCatalogueSource::PublicUser(s) => n = n.checked_add(s.capacity())?,
+            _ => {}
+        }
+        if let Some(o) = &self.context.owner {
+            n = n
+                .checked_add(o.login.capacity())?
+                .checked_add(o.node_id.as_ref().map_or(0, String::capacity))?;
+        }
+        n = n.checked_add(
+            self.coverage
+                .reasons
+                .capacity()
+                .checked_mul(std::mem::size_of::<String>())?,
+        )?;
+        for s in &self.coverage.reasons {
+            n = n.checked_add(s.capacity())?;
+        }
+        for r in self.rows.iter() {
+            n = n.checked_add(r.full_name.capacity())?;
+            for s in [
+                &r.node_id,
+                &r.description,
+                &r.default_branch,
+                &r.language,
+                &r.updated_at,
+            ] {
+                n = n.checked_add(s.as_ref().map_or(0, String::capacity))?;
+            }
+            n = n.checked_add(
+                r.metadata_limitations
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<String>())?,
+            )?;
+            for s in &r.metadata_limitations {
+                n = n.checked_add(s.capacity())?;
+            }
+            if let Some(o) = &r.owner {
+                n = n
+                    .checked_add(o.node_id.as_ref().map_or(0, String::capacity))?
+                    .checked_add(o.actor.login.capacity())?
+                    .checked_add(o.actor.actor_type.capacity())?
+                    .checked_add(o.actor.display_name.as_ref().map_or(0, String::capacity))?
+                    .checked_add(o.actor.avatar_url.as_ref().map_or(0, String::capacity))?;
+            }
+        }
+        Some(n)
+    }
     pub fn context(&self) -> &RepositoryCatalogueContext {
         &self.context
     }

@@ -102,6 +102,8 @@ impl OriginalStashRecoveryOwnerV1 {
             && app.view == View::Repository
             && app.original_stash_recovery_request_v1.is_none()
             && !app.original_stash_recovery_cancel_requested_v1
+            && app.notifications_work_v63.is_none()
+            && !app.notifications_cancel_v63
             && app.scoped_inline_work_v1.is_none()
             && app.pr_native_diff_work_v1.is_none()
             && !app.pr_native_diff_cancel_v1

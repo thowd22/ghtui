@@ -1,7 +1,7 @@
 //! Worker-only fresh preview and durable single-submit inline publication.
 use super::*;
 use crate::{
-    drafts::DraftClient,
+    drafts::{DraftClient, DraftPublicationFenceV2},
     pr_write_journal::{
         PrConfirmedEffect, PrEffectKind, PrPublicationReference, PrWriteIntent, PrWriteJournal,
         PrWriteMarker, PrWriteState, PrWriteTarget,
@@ -145,8 +145,10 @@ impl ScopedInlineDraftV1 {
         let provider = provider
             .clone()
             .with_catalogue_read_deadline(original_deadline);
-        let mut session = provider
-            .begin_repository_catalogue_access(intent.proof.source.source(), access, cancel)
+        let mut session = intent
+            .proof
+            .source
+            .begin_access(&provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         let window = session
@@ -174,9 +176,9 @@ impl ScopedInlineDraftV1 {
             )
             .map_err(source_failure)?;
         private_check(cancel, original_deadline).map_err(source_failure)?;
-        let local = ResourceLocalGuard::capture(
+        let local = ResourceLocalGuard::capture_boundary_v13(
             database,
-            &intent.proof.source,
+            intent.proof.source.local_boundary(),
             &identity,
             parent.summary(),
         )
@@ -249,7 +251,7 @@ impl ScopedInlineDraftV1 {
         let closed = session
             .close_with_guard(cancel, || {
                 private_check(cancel, original_deadline)?;
-                local.validate(database, &intent.proof.source)?;
+                local.validate_boundary_v13(database, intent.proof.source.local_boundary())?;
                 private_check(cancel, original_deadline)
             })
             .map_err(source_failure)?;
@@ -313,6 +315,10 @@ fn encoded_draft_fits(intent: &ScopedInlineIntentV1, body: &str) -> bool {
             .and_then(|bytes| bytes.checked_add(intent.review_head().len()))
             .and_then(|bytes| bytes.checked_add(512 + 64))
             .is_some_and(|bytes| bytes <= 128 * 1024)
+        && string_bytes(body)
+            .and_then(|bytes| bytes.checked_add(string_bytes(intent.server_path())?))
+            .and_then(|bytes| bytes.checked_add(intent.review_head().len() + 256))
+            .is_some_and(|bytes| bytes <= 128 * 1024)
 }
 
 /// Not a permission lease: Confirm has a NEW original queued deadline, fresh
@@ -365,8 +371,10 @@ impl ScopedInlinePreviewV1 {
         let read_provider = provider
             .clone()
             .with_catalogue_read_deadline(original_deadline);
-        let mut session = read_provider
-            .begin_repository_catalogue_access(intent.proof.source.source(), access, cancel)
+        let mut session = intent
+            .proof
+            .source
+            .begin_access(&read_provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
         let window = session
@@ -389,9 +397,9 @@ impl ScopedInlinePreviewV1 {
         let observed = bounded
             .pr_immutable_file_images_v1(current, &identity, &original, limits, cancel, |parent| {
                 private_check(cancel, original_deadline)?;
-                local = Some(ResourceLocalGuard::capture(
+                local = Some(ResourceLocalGuard::capture_boundary_v13(
                     database,
-                    &intent.proof.source,
+                    intent.proof.source.local_boundary(),
                     &identity,
                     parent.summary(),
                 )?);
@@ -424,14 +432,6 @@ impl ScopedInlinePreviewV1 {
             return Err(source_failure(safe_local()));
         }
         let local = local.ok_or_else(|| source_failure(safe_local()))?;
-        let closed = session
-            .close_with_guard(cancel, || {
-                private_check(cancel, original_deadline)?;
-                local.validate(database, &intent.proof.source)?;
-                private_check(cancel, original_deadline)
-            })
-            .map_err(source_failure)?;
-        let identity = closed.identity().clone();
         let mut values = BTreeMap::new();
         values.insert("body".into(), body.to_string());
         values.insert(
@@ -508,6 +508,14 @@ impl ScopedInlinePreviewV1 {
         .map_err(|_| {
             refused("Inline Preview display exceeds bounded native presentation; draft retained")
         })?;
+        let closed = session
+            .close_with_guard(cancel, || {
+                private_check(cancel, original_deadline)?;
+                local.validate_boundary_v13(database, intent.proof.source.local_boundary())?;
+                private_check(cancel, original_deadline)
+            })
+            .map_err(source_failure)?;
+        let identity = closed.identity().clone();
         check(cancel, original_deadline)?;
         let result = Arc::new(Self {
             intent,
@@ -545,8 +553,9 @@ impl ScopedInlinePreviewV1 {
         &self.display_v1
     }
 
-    /// Only explicit Confirm can call this. Queueing captures a new absolute
-    /// deadline; neither this preview nor a restored draft is a write lease.
+    /// Direct code-contract adapter only. The actual native owner captures the
+    /// nonclone fence BEFORE its existing Inbox enqueue and calls the one engine.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
@@ -560,7 +569,50 @@ impl ScopedInlinePreviewV1 {
         cancel: &CancellationToken,
         original_deadline: Instant,
     ) -> Result<ScopedInlinePublicationV1, InlineFailureV1> {
-        check(cancel, original_deadline)?;
+        let publication = drafts
+            .capture_publication_v2(
+                database,
+                self.intent.scope(),
+                self.draft_key(),
+                cancel,
+                original_deadline,
+            )
+            .map_err(|_| refused("Original draft revision unavailable; nothing invoked"))?;
+        self.execute_with_publication_v14(
+            provider,
+            database,
+            limits,
+            access,
+            drafts,
+            publication,
+            confirmed,
+            restored,
+            cancel,
+            original_deadline,
+        )
+    }
+
+    /// The SAME engine serves native Catalogue and Personal origins. Confirm
+    /// owns ONE original Core/pool, prepaid transport cursor and same-client ACK.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Exact original source, limits, writer fence, explicit confirmation and fixed clock stay visible across publication"
+    )]
+    pub(crate) fn execute_with_publication_v14(
+        &self,
+        provider: &GithubProvider,
+        database: &Path,
+        limits: &PrResourceReadLimitsV1,
+        access: &RepositoryCatalogueAccessLimits,
+        drafts: &DraftClient,
+        publication: DraftPublicationFenceV2,
+        confirmed: bool,
+        restored: Option<&PrPublicationReference>,
+        cancel: &CancellationToken,
+        original_deadline: Instant,
+    ) -> Result<ScopedInlinePublicationV1, InlineFailureV1> {
+        let deadline = original_deadline.min(publication.deadline());
+        check(cancel, deadline)?;
         if !confirmed || restored.is_some() {
             return Err(refused("Explicit fresh confirmation is required; restored publication metadata is history, never permission to resend"));
         }
@@ -572,24 +624,43 @@ impl ScopedInlinePreviewV1 {
             return Err(refused("This inline preview already started an attempt; inspect its durable outcome instead of resending"));
         }
         limits.validate().map_err(source_failure)?;
-        let phase_provider = provider
-            .clone()
-            .with_catalogue_read_deadline(original_deadline);
-        let mut session = phase_provider
-            .begin_repository_catalogue_access(self.intent.proof.source.source(), access, cancel)
+        self.local
+            .validate_boundary_v13(database, self.intent.proof.source.local_boundary())
+            .map_err(source_failure)?;
+        let phase_provider = provider.clone().with_catalogue_read_deadline(deadline);
+        let mut session = self
+            .intent
+            .proof
+            .source
+            .begin_access(&phase_provider, access, cancel)
             .map_err(source_failure)?;
         let identity = session.identity().clone();
-        // Login is observed presentation, not the numeric account boundary.
         if identity.host != self.identity.host
             || identity.account_id.is_none_or(|id| id == 0)
             || identity.account_id != self.identity.account_id
         {
             return Err(source_failure(safe_local()));
         }
+        // Fixed conservative capture reservations include stdout+stderr as the
+        // shared runner defines them; not observed bytes or publication rights.
+        const CAPTURES: [usize; 6] = [
+            1024 * 1024,
+            1024 * 1024,
+            64 * 1024,
+            128 * 1024,
+            128 * 1024,
+            64 * 1024,
+        ];
+        let mut captures = session
+            .reserve_postwrite_capture_v2(&CAPTURES, 2, cancel)
+            .map_err(source_failure)?;
         let window = session
             .reserve_measured_external_reads(
-                2,
-                limits.max_document_bytes,
+                limits
+                    .max_external_requests(crate::providers::gh::PrResourceKindV1::Files)
+                    .checked_add(1)
+                    .ok_or_else(|| source_failure(safe_local()))?,
+                1024 * 1024,
                 limits.max_pool_bytes,
                 2,
                 cancel,
@@ -599,60 +670,12 @@ impl ScopedInlinePreviewV1 {
             .clone()
             .with_measured_read_window(window)
             .map_err(source_failure)?;
+        captures
+            .validate_prewrite(&bounded, cancel)
+            .map_err(source_failure)?;
         let current = session
             .verify(self.intent.proof.navigation.original(), cancel)
             .map_err(source_failure)?;
-        let parent = bounded
-            .pr_inline_original_parent_v1(
-                current,
-                &self.intent.proof.original_view.observed,
-                limits,
-                cancel,
-            )
-            .map_err(source_failure)?;
-        private_check(cancel, original_deadline).map_err(source_failure)?;
-        self.local
-            .validate(database, &self.intent.proof.source)
-            .map_err(source_failure)?;
-        let target = PrWriteTarget::new(&identity, parent.summary())
-            .map_err(|_| source_failure(safe_local()))?;
-        if target != self.local.target {
-            return Err(source_failure(safe_local()));
-        }
-        let mut journal =
-            PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;
-        private_check(cancel, original_deadline).map_err(source_failure)?;
-        let permit = journal
-            .begin(&target, &self.write_intent)
-            .map_err(|_| source_failure(safe_local()))?;
-        let marker = permit.marker();
-        let reference = marker.publication_reference();
-        // The same ordered writer used by typing persists the exact reference
-        // before any invocation. A failed save leaves the pending blocker.
-        let draft = serde_json::json!({"version":2,"values":{"body":self.body.as_ref()},"publication":reference}).to_string();
-        let saved = draft.len() <= 128 * 1024
-            && check(cancel, original_deadline).is_ok()
-            && drafts
-                .save_and_wait(self.intent.scope().clone(), self.draft_key().into(), draft)
-                .is_ok();
-        if !saved {
-            let mut result = pending(reference, ScopedInlinePublicationStateV1::NotStarted);
-            result.draft_retained = false;
-            return Ok(result);
-        }
-        if check(cancel, original_deadline).is_err()
-            || journal.claim(&permit, &target, &self.write_intent).is_err()
-        {
-            return Ok(pending(
-                reference,
-                ScopedInlinePublicationStateV1::NotStarted,
-            ));
-        }
-        let claimed_generation = self
-            .local
-            .generation
-            .checked_add(2)
-            .ok_or_else(|| source_failure(safe_local()))?;
         let comment = InlineComment {
             path: self.intent.server_path().into(),
             side: self.intent.side(),
@@ -662,39 +685,188 @@ impl ScopedInlinePreviewV1 {
             start_side: (self.intent.start() != self.intent.end()).then_some(self.intent.side()),
             body: self.body.to_string(),
         };
-        // The provider's ordinary bounded WRITE transport cannot carry this
-        // measured READ window. Close it fully in the final pre-POST callback.
-        let result = phase_provider.create_inline_comment_guarded_v1(
+        let observed: crate::providers::gh::FreshInlineCommentObservationV14 = bounded
+            .observe_inline_comment_v14(
+                current,
+                &identity,
+                &self.intent.proof.original_view.observed,
+                self.intent.proof.observed().patch_digest(),
+                &comment,
+                limits,
+                cancel,
+                |_| {
+                    private_check(cancel, deadline)?;
+                    self.local.validate_boundary_v13(
+                        database,
+                        self.intent.proof.source.local_boundary(),
+                    )?;
+                    private_check(cancel, deadline)
+                },
+            )
+            .map_err(source_failure)?;
+        let parent = observed.parent();
+        let target = PrWriteTarget::new(&identity, parent.summary())
+            .map_err(|_| source_failure(safe_local()))?;
+        if target != self.local.target {
+            return Err(source_failure(safe_local()));
+        }
+        self.local
+            .validate_boundary_v13(database, self.intent.proof.source.local_boundary())
+            .map_err(source_failure)?;
+        let mut journal =
+            PrWriteJournal::open(database).map_err(|_| source_failure(safe_local()))?;
+        private_check(cancel, deadline).map_err(source_failure)?;
+        let permit = journal
+            .begin(&target, &self.write_intent)
+            .map_err(|_| source_failure(safe_local()))?;
+        let marker = permit.marker();
+        let reference = marker.publication_reference();
+        let encoded = serde_json::json!({
+            "version":2,"values":{"body":self.body.as_ref()},"publication":reference
+        })
+        .to_string();
+        let begun = self
+            .local
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| source_failure(safe_local()))?;
+        let mut acknowledgement =
+            match drafts.save_publication_and_wait_v2(publication, encoded.clone(), cancel) {
+                Ok(ack) => Some(ack),
+                Err(_) => {
+                    let mut result = pending(reference, ScopedInlinePublicationStateV1::NotStarted);
+                    // ACK unknown cannot establish either persistence or invocation.
+                    result.draft_retained = false;
+                    return Ok(result);
+                }
+            };
+        let saved = validate_owned(
+            &self.local,
+            database,
+            &self.intent,
+            marker,
+            begun,
+            PrWriteState::Pending,
+        )
+        .and_then(|_| {
+            original_draft_matches_v14(
+                database,
+                self.intent.scope(),
+                self.draft_key(),
+                &encoded,
+                cancel,
+                deadline,
+            )
+        })
+        .is_ok();
+        if !saved {
+            let mut result = pending(reference, ScopedInlinePublicationStateV1::NotStarted);
+            result.draft_retained = false;
+            return Ok(result);
+        }
+        if check(cancel, deadline).is_err()
+            || acknowledgement.as_ref().is_none_or(|ack| {
+                ack.check_current(
+                    drafts,
+                    database,
+                    self.intent.scope(),
+                    self.draft_key(),
+                    cancel,
+                )
+                .is_err()
+            })
+            || journal.claim(&permit, &target, &self.write_intent).is_err()
+        {
+            return Ok(pending(
+                reference,
+                ScopedInlinePublicationStateV1::NotStarted,
+            ));
+        }
+        let claimed = begun
+            .checked_add(1)
+            .ok_or_else(|| source_failure(safe_local()))?;
+        let mut original_closed = None;
+        let result = phase_provider.publish_inline_comment_v14(
+            &bounded,
+            &mut captures,
             &identity,
-            parent.summary(),
+            &observed,
             &comment,
             cancel,
-            original_deadline,
             || {
-                private_check(cancel, original_deadline)?;
-                let closing_current = session
+                private_check(cancel, deadline)?;
+                acknowledgement
+                    .as_ref()
+                    .ok_or_else(safe_local)?
+                    .check_current(
+                        drafts,
+                        database,
+                        self.intent.scope(),
+                        self.draft_key(),
+                        cancel,
+                    )
+                    .map_err(|_| safe_local())?;
+                let current = session
                     .observation_v1(self.intent.original_repository_id())
                     .ok_or_else(safe_local)?;
                 bounded.pr_inline_original_parent_v1(
-                    closing_current,
+                    current,
                     &self.intent.proof.original_view.observed,
                     limits,
                     cancel,
                 )?;
                 session.verify(self.intent.proof.navigation.original(), cancel)?;
-                session.close_with_guard(cancel, || {
-                    private_check(cancel, original_deadline)?;
+                let closed = session.close_with_guard(cancel, || {
+                    private_check(cancel, deadline)?;
                     validate_owned(
                         &self.local,
                         database,
                         &self.intent,
                         marker,
-                        claimed_generation,
+                        claimed,
                         PrWriteState::Pending,
                     )?;
-                    private_check(cancel, original_deadline)
+                    original_draft_matches_v14(
+                        database,
+                        self.intent.scope(),
+                        self.draft_key(),
+                        &encoded,
+                        cancel,
+                        deadline,
+                    )?;
+                    acknowledgement
+                        .as_ref()
+                        .ok_or_else(safe_local)?
+                        .check_current(
+                            drafts,
+                            database,
+                            self.intent.scope(),
+                            self.draft_key(),
+                            cancel,
+                        )
+                        .map_err(|_| safe_local())?;
+                    private_check(cancel, deadline)
                 })?;
-                private_check(cancel, original_deadline)
+                if closed.identity().host != identity.host
+                    || closed.identity().account_id != identity.account_id
+                {
+                    return Err(safe_local());
+                }
+                let writing_identity = closed.identity().clone();
+                original_closed = Some(closed);
+                acknowledgement
+                    .as_ref()
+                    .ok_or_else(safe_local)?
+                    .check_current(
+                        drafts,
+                        database,
+                        self.intent.scope(),
+                        self.draft_key(),
+                        cancel,
+                    )
+                    .map_err(|_| safe_local())?;
+                private_check(cancel, deadline)?;
+                Ok(writing_identity)
             },
         );
         let receipt = match result {
@@ -702,11 +874,11 @@ impl ScopedInlinePreviewV1 {
                 return Ok(pending(
                     reference,
                     ScopedInlinePublicationStateV1::NotStarted,
-                ));
+                ))
             }
             Err(InlinePublicationFailureV1::WriteMayHaveStarted(_)) => {
                 let _ = journal.mark_uncertain(&permit);
-                let source_retired = matches!(
+                let retired = matches!(
                     crate::pr_projection::invalidate_unresolved_discussions(
                         database,
                         &identity,
@@ -716,72 +888,117 @@ impl ScopedInlinePreviewV1 {
                     Ok(Some(_))
                 );
                 let mut result = pending(reference, ScopedInlinePublicationStateV1::Uncertain);
-                result.source_retired = source_retired;
+                result.source_retired = retired;
                 return Ok(result);
             }
             Ok(receipt) => receipt,
         };
+        let id = receipt.comment().id;
         let effect = PrConfirmedEffect {
             kind: PrEffectKind::Comment,
-            resource_id: receipt.comment().id.to_string(),
+            resource_id: id.to_string(),
             node_id: Some(receipt.comment().node_id.clone()),
         };
+        // No private receipt capability crosses terminal source retirement.
+        drop(receipt);
         if journal.mark_confirmed(&permit, &effect).is_err() {
-            // Actual receipt exists, but no fabricated durable confirmation or
-            // retry permission is returned when its journal persistence failed.
-            let confirmed_comment_id = Some(receipt.comment().id);
-            drop(receipt);
-            let source_retired = matches!(
+            let retired = matches!(
                 crate::pr_projection::invalidate_unresolved_discussions(
                     database,
                     &identity,
                     parent.summary(),
-                    &reference
+                    &reference,
                 ),
                 Ok(Some(_))
             );
             return Ok(ScopedInlinePublicationV1 {
                 state: ScopedInlinePublicationStateV1::ConfirmedButJournalFailed,
                 reference,
-                confirmed_comment_id,
-                source_retired,
+                confirmed_comment_id: Some(id),
+                source_retired: retired,
                 hide_private: true,
                 draft_retained: true,
             });
         }
-        let confirmed_generation = claimed_generation
+        let confirmed_generation = claimed
             .checked_add(1)
             .ok_or_else(|| source_failure(safe_local()))?;
         let mut draft_retained = true;
-        let visible = self
-            .close_result_visibility(
-                &phase_provider,
-                database,
-                limits,
-                access,
-                drafts,
-                marker,
-                confirmed_generation,
-                cancel,
-                original_deadline,
-                &mut draft_retained,
-            )
-            .is_ok()
-            && check(cancel, original_deadline).is_ok();
-        let confirmed_comment_id = Some(receipt.comment().id);
-        drop(receipt);
-        // This is a terminal local retirement, NOT a rebased source epoch.
-        // No private source reads or cleanup may follow the mandatory fence.
+        let visible = original_closed
+            .as_ref()
+            .and_then(|closed| {
+                closed
+                    .verified()
+                    .iter()
+                    .find(|row| row.repository().id == self.intent.original_repository_id())
+            })
+            .is_some_and(|current| {
+                phase_provider
+                    .close_review_postwrite_visibility_v2(
+                        &identity,
+                        current,
+                        parent,
+                        &mut captures,
+                        cancel,
+                        deadline,
+                        || {
+                            private_check(cancel, deadline)?;
+                            validate_owned(
+                                &self.local,
+                                database,
+                                &self.intent,
+                                marker,
+                                confirmed_generation,
+                                PrWriteState::Confirmed,
+                            )?;
+                            original_draft_matches_v14(
+                                database,
+                                self.intent.scope(),
+                                self.draft_key(),
+                                &encoded,
+                                cancel,
+                                deadline,
+                            )?;
+                            let ack = acknowledgement.take().ok_or_else(safe_local)?;
+                            ack.check_current(
+                                drafts,
+                                database,
+                                self.intent.scope(),
+                                self.draft_key(),
+                                cancel,
+                            )
+                            .map_err(|_| safe_local())?;
+                            drafts
+                                .remove_publication_and_wait_v2(ack, cancel)
+                                .map_err(|_| safe_local())?;
+                            draft_retained = false;
+                            validate_owned(
+                                &self.local,
+                                database,
+                                &self.intent,
+                                marker,
+                                confirmed_generation,
+                                PrWriteState::Confirmed,
+                            )?;
+                            private_check(cancel, deadline)
+                        },
+                    )
+                    .is_ok()
+            })
+            && captures.consumed_requests() == CAPTURES.len()
+            && check(cancel, deadline).is_ok();
+        // Terminal intentional retirement is last. No private source/SQL/draft
+        // inspection or cleanup follows, even on a failed visibility closure.
         let source_retired = matches!(
             crate::pr_projection::invalidate_confirmed_discussions(
                 database,
                 &identity,
                 parent.summary(),
-                &reference
+                &reference,
             ),
             Ok(Some(_))
         );
-        let state = if visible && source_retired && check(cancel, original_deadline).is_ok() {
+        let state = if visible && source_retired && check(cancel, deadline).is_ok() {
             ScopedInlinePublicationStateV1::ConfirmedSnapshotRetired
         } else {
             ScopedInlinePublicationStateV1::ConfirmedButSourceUnavailable
@@ -789,76 +1006,33 @@ impl ScopedInlinePreviewV1 {
         Ok(ScopedInlinePublicationV1 {
             state,
             reference,
-            confirmed_comment_id,
+            confirmed_comment_id: Some(id),
             source_retired,
             hide_private: true,
             draft_retained,
         })
     }
+}
 
-    #[allow(clippy::too_many_arguments)]
-    fn close_result_visibility(
-        &self,
-        provider: &GithubProvider,
-        database: &Path,
-        limits: &PrResourceReadLimitsV1,
-        access: &RepositoryCatalogueAccessLimits,
-        drafts: &DraftClient,
-        marker: &PrWriteMarker,
-        generation: i64,
-        cancel: &CancellationToken,
-        deadline: Instant,
-        draft_retained: &mut bool,
-    ) -> Result<(), GithubError> {
-        private_check(cancel, deadline)?;
-        let mut session = provider.begin_repository_catalogue_access(
-            self.intent.proof.source.source(),
-            access,
-            cancel,
-        )?;
-        let window = session.reserve_measured_external_reads(
-            1,
-            limits.max_document_bytes,
-            limits.max_pool_bytes,
-            2,
-            cancel,
-        )?;
-        let bounded = provider.clone().with_measured_read_window(window)?;
-        let current = session.verify(self.intent.proof.navigation.original(), cancel)?;
-        bounded.pr_inline_original_parent_v1(
-            current,
-            &self.intent.proof.original_view.observed,
-            limits,
-            cancel,
-        )?;
-        session.verify(self.intent.proof.navigation.original(), cancel)?;
-        session.close_with_guard(cancel, || {
-            private_check(cancel, deadline)?;
-            validate_owned(
-                &self.local,
-                database,
-                &self.intent,
-                marker,
-                generation,
-                PrWriteState::Confirmed,
-            )?;
-            *draft_retained = drafts
-                .remove(self.intent.scope().clone(), self.draft_key().into())
-                .is_err();
-            private_check(cancel, deadline)?;
-            validate_owned(
-                &self.local,
-                database,
-                &self.intent,
-                marker,
-                generation,
-                PrWriteState::Confirmed,
-            )?;
-            private_check(cancel, deadline)
-        })?;
-        private_check(cancel, deadline)?;
-        Ok(())
+fn original_draft_matches_v14(
+    database: &Path,
+    scope: &crate::storage::Scope,
+    key: &str,
+    encoded: &str,
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> Result<(), GithubError> {
+    private_check(cancel, deadline)?;
+    if Cache::open(database)
+        .map_err(|_| safe_local())?
+        .bounded_draft(scope, key, 128 * 1024)
+        .map_err(|_| safe_local())?
+        .as_deref()
+        != Some(encoded)
+    {
+        return Err(safe_local());
     }
+    private_check(cancel, deadline)
 }
 
 fn validate_owned(
@@ -874,9 +1048,10 @@ fn validate_owned(
     {
         return Err(safe_local());
     }
-    Cache::open(database)
-        .map_err(|_| safe_local())?
-        .validate_repository_catalogue_intent_source(&intent.proof.source)
+    intent
+        .proof
+        .source
+        .validate_cache(&Cache::open(database).map_err(|_| safe_local())?)
         .map_err(|_| safe_local())?;
     let journal = PrWriteJournal::open(database).map_err(|_| safe_local())?;
     if journal

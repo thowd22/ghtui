@@ -13,6 +13,7 @@ pub use original_tree_inventory_v1::{
     OriginalTreeIntentV1, OriginalTreeInventoryV1, OriginalTreeKindV1, OriginalTreeMemberV1,
 };
 mod remote_handoff_read_v1;
+pub(crate) mod workflow_edit_v9;
 use remote_handoff_read_v1::{run_git_with_window_v1, GitReadPolicyV1};
 mod local_commit_actor_origin_v1;
 mod local_saved_navigation_origin_v1;
@@ -492,6 +493,14 @@ pub enum Operation {
         path: PathBuf,
         branch: String,
     },
+    /// Explicit new branch at an exact already-reviewed saved commit. W9's
+    /// closed controller adds current source/target/lock checks; this is not
+    /// a remote source, force replacement or saved-path capability.
+    AddWorktreeBranchAtV9 {
+        path: PathBuf,
+        branch: String,
+        commit: String,
+    },
     RemoveWorktree(PathBuf),
     Merge(String),
     Rebase(String),
@@ -623,30 +632,56 @@ impl GitRepository {
                 Err(result.error("Discover repository"))
             }
         };
-        let git_dir = PathBuf::from(OsString::from_vec(trim_line(&output.stdout).to_vec()));
-        let bare = trim_line(&read(directory, &["rev-parse", "--is-bare-repository"])?) == b"true";
-        let root = if bare {
-            git_dir.clone()
+        let bare_raw = read(directory, &["rev-parse", "--is-bare-repository"])?;
+        let bare = trim_line(&bare_raw) == b"true";
+        let root_raw = if bare {
+            output.stdout.clone()
         } else {
-            PathBuf::from(OsString::from_vec(
-                trim_line(&read(directory, &["rev-parse", "--show-toplevel"])?).to_vec(),
-            ))
+            read(directory, &["rev-parse", "--show-toplevel"])?
         };
+        let root = PathBuf::from(OsString::from_vec(trim_line(&root_raw).to_vec()));
+        if let Some(window) = &navigation_read_window {
+            window
+                .observe_workflow_discovered_root_v9(&root, &cancellation)
+                .map_err(|_| {
+                    GitError("Original W9 discovery/environment root changed; no fallback".into())
+                })?;
+        }
         let common = read(
             &root,
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         )?;
-        Ok(Some(Self {
-            root,
-            git_dir,
-            common_dir: PathBuf::from(OsString::from_vec(trim_line(&common).to_vec())),
-            bare,
+        let retained_runner = navigation_read_window
+            .as_ref()
+            .map(|window| window.actual_runner_v1().clone());
+        Ok(Some(Self::discovered_from_bytes_v9(
+            [&output.stdout, &bare_raw, &root_raw, &common],
             cancellation,
-            retained_read_runner_v1: navigation_read_window
-                .as_ref()
-                .map(|window| window.actual_runner_v1().clone()),
             navigation_read_window,
-        }))
+            retained_runner,
+        )))
+    }
+
+    // Private SAME installed-Git discovery representation for ordinary live
+    // discovery and W9's four fixed paid child outputs. No public raw source
+    // constructor, saved-path factory or navigation-window promotion.
+    fn discovered_from_bytes_v9(
+        raw: [&[u8]; 4],
+        cancellation: CancellationToken,
+        navigation_read_window: Option<
+            crate::providers::remote_git_read_window_v1::RemoteGitReadWindowV1,
+        >,
+        retained_read_runner_v1: Option<CommandRunner>,
+    ) -> Self {
+        Self {
+            root: PathBuf::from(OsString::from_vec(trim_line(raw[2]).to_vec())),
+            git_dir: PathBuf::from(OsString::from_vec(trim_line(raw[0]).to_vec())),
+            common_dir: PathBuf::from(OsString::from_vec(trim_line(raw[3]).to_vec())),
+            bare: trim_line(raw[1]) == b"true",
+            cancellation,
+            retained_read_runner_v1,
+            navigation_read_window,
+        }
     }
 
     /// Give each background request its own cancellation token; cancelled tokens are not reused.
@@ -693,10 +728,12 @@ impl GitRepository {
         let configured =
             std::env::var_os("GIT_REPLACE_REF_BASE").unwrap_or_else(|| "refs/replace".into());
         let prefix = replacement_prefix(&configured);
-        let replacements = self
-            .references()?
+        Ok(self.history_override_flags_v9(&self.references()?, &prefix))
+    }
+    fn history_override_flags_v9(&self, references: &[Reference], prefix: &[u8]) -> (usize, bool) {
+        let replacements = references
             .iter()
-            .filter(|reference| reference.raw_name.starts_with(&prefix))
+            .filter(|reference| reference.raw_name.starts_with(prefix))
             .count();
         let graft = std::env::var_os("GIT_GRAFT_FILE")
             .map(PathBuf::from)
@@ -711,7 +748,7 @@ impl GitRepository {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(_) => true,
         };
-        Ok((replacements, grafted))
+        (replacements, grafted)
     }
 
     pub fn status(&self) -> GitResult<RepoStatus> {
@@ -769,6 +806,9 @@ impl GitRepository {
             "for-each-ref",
             "--format=%(refname)%00%(objectname)%00%(upstream)%00%(HEAD)%00",
         ])?;
+        Self::references_from_bytes_v9(&bytes)
+    }
+    fn references_from_bytes_v9(bytes: &[u8]) -> GitResult<Vec<Reference>> {
         bytes
             .split(|b| *b == b'\n')
             .filter(|row| !row.is_empty())
@@ -1439,32 +1479,7 @@ impl GitRepository {
 
     pub fn worktrees(&self) -> GitResult<Vec<Worktree>> {
         let bytes = self.read(&["worktree", "list", "--porcelain", "-z"])?;
-        let mut result = Vec::new();
-        for field in bytes.split(|b| *b == 0) {
-            if let Some(path) = field.strip_prefix(b"worktree ") {
-                result.push(Worktree {
-                    path: PathBuf::from(OsString::from_vec(path.to_vec())),
-                    head: None,
-                    branch: None,
-                    bare: false,
-                    locked: false,
-                    prunable: false,
-                });
-            } else if let Some(worktree) = result.last_mut() {
-                if let Some(head) = field.strip_prefix(b"HEAD ") {
-                    worktree.head = Some(text(head));
-                } else if let Some(branch) = field.strip_prefix(b"branch ") {
-                    worktree.branch = Some(text(branch));
-                } else if field == b"bare" {
-                    worktree.bare = true;
-                } else if field.starts_with(b"locked") {
-                    worktree.locked = true;
-                } else if field.starts_with(b"prunable") {
-                    worktree.prunable = true;
-                }
-            }
-        }
-        Ok(result)
+        Ok(parse_worktrees_v9(&bytes))
     }
 
     pub fn fingerprint(&self) -> GitResult<WorkspaceFingerprint> {
@@ -1478,6 +1493,14 @@ impl GitRepository {
         &self,
         cap: usize,
     ) -> GitResult<WorkspaceFingerprint> {
+        self.fingerprint_and_config_v9(cap)
+            .map(|(fingerprint, _)| fingerprint)
+    }
+
+    /// SAME five reads and SAME legacy fingerprint. W9 also retains actual
+    /// bounded config records for hooks/signing/filter/remote continuity;
+    /// ordinary callers still drop these bytes without a second child.
+    fn fingerprint_and_config_v9(&self, cap: usize) -> GitResult<(WorkspaceFingerprint, Vec<u8>)> {
         if cap == 0 || cap > MAX_OUTPUT {
             return Err(GitError("Invalid mutable fingerprint capture limit".into()));
         }
@@ -1511,6 +1534,16 @@ impl GitRepository {
         // reservations inside a correctly measured operation. Enumerate once
         // and retain exactly the same raw remote key/value records instead.
         let config = self.bytes_with_capture_limit_v2(["config", "--null", "--list"], None, cap)?;
+        self.hash_remote_config_v9(&config, &mut hash)?;
+        self.bytes_with_capture_limit_v2(
+            ["diff", "--no-ext-diff", "--no-textconv", "--binary"],
+            None,
+            cap,
+        )?
+        .hash(&mut hash);
+        self.finish_fingerprint_v9(cap, hash, &status, config, None)
+    }
+    fn hash_remote_config_v9(&self, config: &[u8], hash: &mut DefaultHasher) -> GitResult<()> {
         let mut remote_config = Vec::new();
         for record in config
             .split(|byte| *byte == 0)
@@ -1526,20 +1559,33 @@ impl GitRepository {
                 remote_config.push(0);
             }
         }
-        remote_config.hash(&mut hash);
-        self.bytes_with_capture_limit_v2(
-            ["diff", "--no-ext-diff", "--no-textconv", "--binary"],
-            None,
-            cap,
-        )?
-        .hash(&mut hash);
+        remote_config.hash(hash);
+        Ok(())
+    }
+    fn finish_fingerprint_v9(
+        &self,
+        cap: usize,
+        mut hash: DefaultHasher,
+        status: &[u8],
+        config: Vec<u8>,
+        deadline: Option<std::time::Instant>,
+    ) -> GitResult<(WorkspaceFingerprint, Vec<u8>)> {
+        let check = || {
+            self.check_mutable_read_v2()?;
+            if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                return Err(GitError(
+                    "Original workflow post fingerprint expired; no renewed observation".into(),
+                ));
+            }
+            Ok(())
+        };
         let mut untracked_bytes = 0u64;
-        for entry in parse_status(&status)?
+        for entry in parse_status(status)?
             .entries
             .into_iter()
             .filter(StatusEntry::untracked)
         {
-            self.check_mutable_read_v2()?;
+            check()?;
             let path = self.root.join(entry.path.as_os_str());
             let metadata = std::fs::symlink_metadata(&path)?;
             if metadata.file_type().is_symlink() {
@@ -1568,7 +1614,7 @@ impl GitRepository {
                 let mut count = 0u64;
                 let mut buffer = [0u8; 64 * 1024];
                 loop {
-                    self.check_mutable_read_v2()?;
+                    check()?;
                     let read = file.read(&mut buffer)?;
                     if read == 0 {
                         break;
@@ -1588,11 +1634,11 @@ impl GitRepository {
                 }
             }
         }
-        self.check_mutable_read_v2()?;
+        check()?;
         format!("{:?}", self.sequencer()).hash(&mut hash);
         let result = WorkspaceFingerprint(hash.finish());
-        self.check_mutable_read_v2()?;
-        Ok(result)
+        check()?;
+        Ok((result, config))
     }
 
     fn check_mutable_read_v2(&self) -> GitResult<()> {
@@ -1641,6 +1687,27 @@ impl GitRepository {
 
     /// A mutation is always first converted into a target/effect preview with an observed state.
     pub fn plan(&self, operation: Operation) -> GitResult<MutationPlan> {
+        self.plan_with_config_v9(operation, None)
+    }
+    pub(crate) fn plan_workflow_edit_v9(
+        &self,
+        purpose: &workflow_edit_v9::WorkflowPlanPurposeV9,
+    ) -> GitResult<MutationPlan> {
+        purpose.validate(self)?;
+        self.plan_with_config_v9(purpose.operation(), Some(purpose.original_config_v9()))
+    }
+    pub(crate) fn plan_workflow_worktree_v9(
+        &self,
+        purpose: &workflow_edit_v9::WorkflowWorktreePurposeV9,
+    ) -> GitResult<MutationPlan> {
+        purpose.validate(self)?;
+        self.plan_with_config_v9(purpose.operation(), Some(purpose.original_config()))
+    }
+    fn plan_with_config_v9(
+        &self,
+        operation: Operation,
+        original_config: Option<&[u8]>,
+    ) -> GitResult<MutationPlan> {
         let status = self.status()?;
         let args = self.operation_args(&operation, &status)?;
         let target = match &operation {
@@ -1692,12 +1759,25 @@ impl GitRepository {
                 | Operation::DiscardFiles(_)
                 | Operation::ResolveConflict { .. }
         );
+        // SAME five existing fingerprint captures. Legacy None does not
+        // compare additional configuration or issue any additional child.
+        let (observed, config) = self.fingerprint_and_config_v9(if original_config.is_some() {
+            256 * 1024
+        } else {
+            MAX_OUTPUT
+        })?;
+        if original_config.is_some_and(|expected| expected != config) {
+            return Err(GitError(
+                "Original workflow Git configuration changed; inspect a fresh explicit local plan"
+                    .into(),
+            ));
+        }
         Ok(MutationPlan {
             operation,
             target,
             effect,
             destructive,
-            observed: self.fingerprint()?,
+            observed,
         })
     }
 
@@ -2102,6 +2182,35 @@ impl GitRepository {
                 args.push(path.as_os_str().to_owned());
                 args.push(branch.into());
             }
+            Operation::AddWorktreeBranchAtV9 {
+                path,
+                branch,
+                commit,
+            } => {
+                self.validate_ref(branch)?;
+                if !path.is_absolute()
+                    || !original_actor_saved_sha(commit)
+                    || !matches!(std::fs::symlink_metadata(path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+                {
+                    return Err(GitError(
+                        "New worktree needs an absent absolute target and exact saved commit"
+                            .into(),
+                    ));
+                }
+                let exact_branch = format!("refs/heads/{branch}");
+                if self
+                    .references()?
+                    .iter()
+                    .any(|reference| reference.raw_name == exact_branch.as_bytes())
+                {
+                    return Err(GitError(
+                        "New worktree branch already exists; no replacement or fallback".into(),
+                    ));
+                }
+                add(&["worktree", "add", "-b", branch, "--"]);
+                args.push(path.as_os_str().to_owned());
+                args.push(commit.into());
+            }
             Operation::RemoveWorktree(path) => {
                 let path = path.canonicalize()?;
                 if path == self.root {
@@ -2370,20 +2479,26 @@ impl GitRepository {
                 .collect::<Vec<_>>();
             let objects = self.batch_objects(&ids, "commit")?;
             for (commit, object) in chunk.iter_mut().zip(objects) {
-                commit.parents = object
-                    .split(|byte| *byte == b'\n')
-                    .take_while(|line| !line.is_empty())
-                    .filter_map(|line| line.strip_prefix(b"parent ").map(text))
-                    .collect();
-                for parent in &commit.parents {
-                    validate_object_id(parent)?;
-                }
+                commit.parents = original_parent_ids_v9(&object)?;
             }
         }
         Ok(commits)
     }
 }
 
+// SAME original-header parent scanner, also used for a just-created bounded
+// commit object. This pure fact parser never mints a Source or permission.
+fn original_parent_ids_v9(object: &[u8]) -> GitResult<Vec<String>> {
+    let parents = object
+        .split(|byte| *byte == b'\n')
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| line.strip_prefix(b"parent ").map(text))
+        .collect::<Vec<_>>();
+    for parent in &parents {
+        validate_object_id(parent)?;
+    }
+    Ok(parents)
+}
 fn parse_tree(bytes: &[u8]) -> GitResult<Vec<TreeEntry>> {
     bytes
         .split(|b| *b == 0)
@@ -2434,6 +2549,37 @@ fn parse_diff_paths(bytes: &[u8]) -> GitResult<DiffPaths> {
         paths.push(pair);
     }
     Ok(paths)
+}
+
+// SAME installed-Git worktree grammar shared by the ordinary reader and W9's
+// exact paid post-write observation. No second parser or repository factory.
+fn parse_worktrees_v9(bytes: &[u8]) -> Vec<Worktree> {
+    let mut result = Vec::new();
+    for field in bytes.split(|byte| *byte == 0) {
+        if let Some(path) = field.strip_prefix(b"worktree ") {
+            result.push(Worktree {
+                path: PathBuf::from(OsString::from_vec(path.to_vec())),
+                head: None,
+                branch: None,
+                bare: false,
+                locked: false,
+                prunable: false,
+            });
+        } else if let Some(worktree) = result.last_mut() {
+            if let Some(head) = field.strip_prefix(b"HEAD ") {
+                worktree.head = Some(text(head));
+            } else if let Some(branch) = field.strip_prefix(b"branch ") {
+                worktree.branch = Some(text(branch));
+            } else if field == b"bare" {
+                worktree.bare = true;
+            } else if field.starts_with(b"locked") {
+                worktree.locked = true;
+            } else if field.starts_with(b"prunable") {
+                worktree.prunable = true;
+            }
+        }
+    }
+    result
 }
 
 fn parse_status(bytes: &[u8]) -> GitResult<RepoStatus> {
@@ -2810,6 +2956,32 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let spec = git_command_spec_v9(directory, args, stdin, write, &policy, absolute_deadline);
+    let output = if let Some(window) = policy.window {
+        window.run(spec, cancellation)
+    } else {
+        policy
+            .runner
+            .unwrap_or_else(|| RUNNER.get_or_init(CommandRunner::default))
+            .run(spec, cancellation)
+    };
+    git_command_output_v9(output)
+}
+
+// Private builder reused by the closed W9 post-read boundary. No general
+// provider/spec/run getter is exported; ordinary argv/env/limits stay exact.
+fn git_command_spec_v9<I, S>(
+    directory: &Path,
+    args: I,
+    stdin: Option<&[u8]>,
+    write: bool,
+    policy: &GitReadPolicyV1<'_>,
+    absolute_deadline: Option<std::time::Instant>,
+) -> CommandSpec
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let args = args
         .into_iter()
         .map(|arg| arg.as_ref().to_owned())
@@ -2873,14 +3045,14 @@ where
     if write {
         spec = spec.write(format!("git:{}", directory.display()));
     }
-    let output = if let Some(window) = policy.window {
-        window.run(spec, cancellation)
-    } else {
-        policy
-            .runner
-            .unwrap_or_else(|| RUNNER.get_or_init(CommandRunner::default))
-            .run(spec, cancellation)
-    };
+    spec
+}
+fn git_command_output_v9(
+    output: Result<
+        crate::providers::runner::CommandOutput,
+        crate::providers::runner::CommandFailure,
+    >,
+) -> GitResult<GitOutput> {
     match output {
         Ok(output) => Ok(GitOutput {
             success: true,

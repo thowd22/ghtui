@@ -25,22 +25,29 @@ struct PublicationWaitV2 {
     cutoff: u64,
     failed: bool,
 }
+pub(super) struct ConversationReadWaitV20 {
+    pub(super) ticket: std::sync::Weak<()>,
+    pub(super) failed: bool,
+    pub(super) cutoff: u64,
+    pub(super) epoch: u64,
+}
 #[derive(Default)]
 pub(super) struct StateV4 {
     pub(super) revision: u64,
-    epoch: u64,
+    pub(super) epoch: u64,
     pub(super) outstanding: BTreeSet<u64>,
     latest: Option<LatestV4>,
     active: Option<(u64, Option<String>)>,
-    closed: bool,
+    pub(super) closed: bool,
     pub(super) legacy_active: usize,
     publication_ticket_v2: u64,
     publication_wait_v2: Option<PublicationWaitV2>,
+    pub(super) conversation_read_v20: Option<ConversationReadWaitV20>,
 }
 pub(super) struct DraftProducerV4 {
-    database: PathBuf,
+    pub(super) database: PathBuf,
     state: Mutex<StateV4>,
-    changed: Condvar,
+    pub(super) changed: Condvar,
 }
 impl DraftProducerV4 {
     /// Publication-only metadata bridge. Ordinary and Corpus admission retain
@@ -217,6 +224,11 @@ impl DraftProducerV4 {
     }
     pub fn transferred(&self, revision: u64) {
         if let Ok(mut state) = self.lock() {
+            if let Some(wait) = state.conversation_read_v20.as_mut() {
+                if revision <= wait.cutoff {
+                    wait.failed = true;
+                }
+            }
             state.outstanding.remove(&revision);
         }
         self.changed.notify_all();
@@ -229,6 +241,11 @@ impl DraftProducerV4 {
             // Only an ACTUAL outstanding completion can affect the current
             // bounded cutoff. A stale duplicate cannot poison a newer ticket.
             if state.outstanding.contains(&revision) && result.is_err() {
+                if let Some(wait) = state.conversation_read_v20.as_mut() {
+                    if revision <= wait.cutoff {
+                        wait.failed = true;
+                    }
+                }
                 if let Some(wait) = state
                     .publication_wait_v2
                     .as_mut()
@@ -252,6 +269,12 @@ impl DraftProducerV4 {
             state.outstanding.remove(&revision);
         }
         self.changed.notify_all();
+    }
+    pub(super) fn latest_save_failed_v20(state: &StateV4) -> bool {
+        state
+            .latest
+            .as_ref()
+            .is_some_and(|v| v.outcome.as_ref().is_some_and(Result::is_err))
     }
 }
 pub(super) struct LegacyActivityV4(Arc<DraftProducerV4>);

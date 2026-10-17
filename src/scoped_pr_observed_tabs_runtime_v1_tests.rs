@@ -280,10 +280,14 @@ fn pending_reviews_v2_scoped_principal_continuity_requires_actual_original_navig
 ) {
     let (fixture, original, active, mut app, steps) = detail_setup();
     let owner = ScopedRemoteOwner {
+        collaboration_v17: None,
+        notifications_v63: None,
         actions_v1: None,
-        scope: active.clone(),
-        source: original.clone(),
-        navigation: app.github.as_ref().unwrap().scoped_pr_navigation.clone(),
+        original: ScopedRemoteOriginalV13::catalogue(
+            active.clone(),
+            original.clone(),
+            app.github.as_ref().unwrap().scoped_pr_navigation.clone(),
+        ),
         check_origin: None,
         continuation_v2: None,
         pr_native_diff_v1: None,

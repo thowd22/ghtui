@@ -2,8 +2,22 @@
 //! reuse of the common transport budget without widening it.
 //! This observation is NOT authentication, journal or publication authority.
 use super::*;
+#[path = "metadata_catalogue/members_validation_v48.rs"]
+mod members_validation_v48;
+#[path = "metadata_catalogue/original_members_v48.rs"]
+mod original_members_v48;
 #[path = "metadata_catalogue/actions.rs"]
 mod publication_actions;
+pub(crate) use original_members_v48::{
+    ActualMembersPageContextV61, MembersMetadataHistoryReadV62, MembersWriteV48,
+    MetadataMembersObservationV48, MetadataMembersReadPurposeV48,
+    MetadataMembersRecoveryCurrentV48, OriginalMetadataMembersV48, PrMetadataMembersFailureV48,
+    PrMetadataMembersReceiptV48, METADATA_MEMBERS_POST_CAPS_V48, METADATA_MEMBERS_REFRESH_CAPS_V48,
+    METADATA_MEMBERS_TAB_POST_CAPS_V62, METADATA_MEMBERS_TAB_REFRESH_CAPS_V62,
+};
+pub(in crate::providers::gh) use original_members_v48::{
+    MembersVisibilityV48, MetadataMembersContextV48, PreparedMembersRequestV48,
+};
 pub use publication_actions::{
     pr_metadata_members_query, PrMetadataPublicationSession, PrMetadataPublished,
     PR_METADATA_REQUEST_REVIEWS_MUTATION, PR_METADATA_UPDATE_MUTATION,
@@ -11,7 +25,7 @@ pub use publication_actions::{
 #[path = "metadata_catalogue/branch.rs"]
 mod branch;
 #[path = "metadata_catalogue/context.rs"]
-mod context;
+pub(in crate::providers::gh) mod context;
 #[path = "metadata_catalogue/model.rs"]
 mod model;
 #[path = "metadata_catalogue/paging.rs"]

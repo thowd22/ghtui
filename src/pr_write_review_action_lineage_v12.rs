@@ -299,6 +299,33 @@ pub(crate) enum ReviewObservedOriginV12 {
     Lineage(Box<ReviewActionOriginRecordV12>),
 }
 impl ReviewObservedOriginV12 {
+    /// Pure captured-index validation, not a source/lineage constructor. ACK
+    /// captures these exact nullable bytes BEFORE its original final UID.
+    pub(super) fn validate_ack_index_v17(
+        &self,
+        connection: &Connection,
+        target: &PrWriteTarget,
+        attempt: i64,
+        base_key: Option<&str>,
+        action: Option<&str>,
+        parent_ack: Option<i64>,
+    ) -> Result<()> {
+        match self {
+            Self::Legacy(_) if base_key.is_none() && action.is_none() && parent_ack.is_none() => {
+                Ok(())
+            }
+            Self::Legacy(_) => bail!("Legacy origin cannot adopt nullable V12 ACK index metadata"),
+            Self::Lineage(record) => {
+                if base_key != Some(record.seed.observation.base_key.as_str())
+                    || action != Some(record.seed.observation.action.as_str())
+                    || parent_ack != record.seed.parent_ack
+                {
+                    bail!("Exact original lineage/index metadata differs before ACK");
+                }
+                validate_ancestor(connection, target, &record.seed, attempt)
+            }
+        }
+    }
     pub(crate) fn metadata(&self)->Option<&crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::metadata_v3::OriginalReviewOperationMetadataV3>{
         match self {
             Self::Legacy(record) => Some(record.seed.metadata()),

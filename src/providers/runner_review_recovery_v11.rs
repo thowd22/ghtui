@@ -20,7 +20,7 @@ fn phase(cancel: &CancellationToken, deadline: Instant) -> Result<(), CommandFai
     Ok(())
 }
 impl CommandRunner {
-    fn review_resource_state_v11(
+    fn bounded_resource_state_v63(
         &self,
         resource: &str,
         cancel: &CancellationToken,
@@ -58,7 +58,7 @@ impl CommandRunner {
         cancel: &CancellationToken,
         deadline: Instant,
     ) -> Result<u64, CommandFailure> {
-        let lock = self.review_resource_state_v11(resource, cancel, deadline)?;
+        let lock = self.bounded_resource_state_v63(resource, cancel, deadline)?;
         loop {
             phase(cancel, deadline)?;
             match lock.try_lock() {
@@ -84,7 +84,7 @@ impl CommandRunner {
         cancel: &CancellationToken,
         deadline: Instant,
     ) -> Result<(), CommandFailure> {
-        let lock = self.review_resource_state_v11(resource, cancel, deadline)?;
+        let lock = self.bounded_resource_state_v63(resource, cancel, deadline)?;
         loop {
             phase(cancel, deadline)?;
             match lock.try_lock() {

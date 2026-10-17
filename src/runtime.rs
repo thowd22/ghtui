@@ -14,7 +14,9 @@ use std::{
 
 #[derive(Default)]
 pub struct PreparedView {
-    pub scoped_actions_v1: Option<Box<crate::scoped_actions_v1::PreparedScopedActionsV1>>,
+    pub scoped_pr_collaboration_v17: Option<crate::scoped_pr_collaboration_native_v17::PreparedPrCollaborationV17>,
+    pub notifications_v63: Option<crate::notifications_v63::PreparedNotificationResultV63>,
+    pub scoped_actions_v1: Option<Box<crate::scoped_actions_native_v1::publication_v3::PreparedResultV3>>,
     pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::PreparedScopedThreadsV1>,
     pub scoped_reviews_v2: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::PreparedScopedReviewsV2>,
     pub scoped_inline_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::PreparedScopedInlineV1>,
@@ -86,10 +88,16 @@ mod remote_repository_background_v1;
 #[path = "runtime/graph_refresh_v3_tests.rs"]
 mod graph_refresh_v3_tests;
 
+#[path = "runtime/catalogue_clear_v5.rs"]
+mod catalogue_clear_v5;
 #[path = "runtime/local_saved_navigation_v1.rs"]
 mod local_saved_navigation_v1;
+#[path = "runtime/notifications_v63.rs"]
+mod notifications_v63;
 #[path = "runtime/original_diff_sides_background_v1.rs"]
 mod original_diff_sides_background_v1;
+#[path = "runtime/original_pr_owner_v13.rs"]
+mod original_pr_owner_v13;
 #[path = "runtime/original_stash_recovery_background_v1.rs"]
 mod original_stash_recovery_background_v1;
 #[path = "runtime/original_tree_background_v1.rs"]
@@ -106,6 +114,8 @@ mod scoped_inline_background_v1;
 #[cfg(test)]
 #[path = "runtime/scoped_inline_test_support_v1.rs"]
 pub(crate) mod scoped_inline_test_support_v1;
+#[path = "runtime/scoped_pr_collaboration_background_v17.rs"]
+mod scoped_pr_collaboration_background_v17;
 #[path = "runtime/scoped_pr_native_diff_background_v1.rs"]
 pub(crate) mod scoped_pr_native_diff_background_v1;
 #[path = "runtime/scoped_reviews_background_v2.rs"]
@@ -115,6 +125,9 @@ mod scoped_reviews_background_v2;
 pub(crate) mod scoped_reviews_test_support_v2;
 #[path = "runtime/scoped_threads_background_v1.rs"]
 mod scoped_threads_background_v1;
+use original_pr_owner_v13::ScopedRemoteOriginalV13;
+#[path = "runtime/personal_pr_entry_v13.rs"]
+mod personal_pr_entry_v13;
 #[cfg(test)]
 #[path = "runtime/scoped_threads_test_support_v1.rs"]
 pub(crate) mod scoped_threads_test_support_v1;
@@ -122,14 +135,14 @@ pub(crate) mod scoped_threads_test_support_v1;
 type Work = Box<dyn FnOnce(CancellationToken) -> Result<PreparedView, String> + Send>;
 
 struct ScopedRemoteOwner {
+    collaboration_v17: Option<Arc<crate::scoped_pr_collaboration_native_v17::ScopedPrCollaborationOwnerV17>>,
+    notifications_v63: Option<Arc<crate::notifications_v63::NotificationWorkV63>>,
     actions_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
     pr_native_diff_v1: Option<Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>>,
     threads_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
     reviews_v2: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::native_v2::ScopedReviewsOwnerV2>>,
     inline_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
-    scope: Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>,
-    source: Arc<crate::storage::CatalogueIntentSource>,
-    navigation: Option<Arc<crate::scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>>,
+    original: ScopedRemoteOriginalV13,
     check_origin: Option<Arc<crate::pr_checks_native::PrChecksOrigin>>,
     continuation_v2: Option<
         Arc<crate::pr_checks_native::scoped::choices::continuations_v2::PrCheckContinuationOwnerV2>,
@@ -144,11 +157,11 @@ impl ScopedRemoteOwner {
         app: &App,
         identity: &crate::providers::gh::HostIdentity,
     ) -> bool {
-        self.navigation.is_some()
+        self.original.navigation().is_some()
             && self.owns(app)
             && identity.account_id.is_some_and(|id| id > 0)
             && crate::storage::Scope::github(&identity.host, identity.account_id)
-                .is_ok_and(|scope| &scope == self.source.scope())
+                .is_ok_and(|scope| &scope == self.original.scope())
             && app.github.as_ref().is_some_and(|github| {
                 github.identity.host == identity.host
                     && github.identity.account_id == identity.account_id
@@ -156,7 +169,51 @@ impl ScopedRemoteOwner {
     }
 
     fn owns(&self, app: &App) -> bool {
-        self.actions_v1.as_ref().is_none_or(|owner| owner.owns(app))
+        let state_origin=match (&self.original,self.collaboration_v17.as_ref().map(|owner|owner.original())) {
+            (ScopedRemoteOriginalV13::StateSourceV80(actual),Some(crate::scoped_pr_collaboration_native_v17::CollaborationWorkOriginV78::StateInbox(expected)))=>{
+                Arc::ptr_eq(actual,expected)
+                    && self.notifications_v63.is_none() && self.actions_v1.is_none()
+                    && self.threads_v1.is_none() && self.inline_v1.is_none()
+                    && self.reviews_v2.is_none() && self.pr_native_diff_v1.is_none()
+                    && self.check_origin.is_none() && self.continuation_v2.is_none()
+            }
+            (ScopedRemoteOriginalV13::StateSourceV80(_),_)|(_,Some(crate::scoped_pr_collaboration_native_v17::CollaborationWorkOriginV78::StateInbox(_)))=>false,
+            _=>true,
+        };
+        state_origin
+            && (!matches!(
+                self.original,
+                ScopedRemoteOriginalV13::CollaborationRefreshV19(_)
+            ) || (self.collaboration_v17.is_some()
+                && self.notifications_v63.is_none()
+                && self.actions_v1.is_none()
+                && self.threads_v1.is_none()
+                && self.inline_v1.is_none()
+                && self.reviews_v2.is_none()
+                && self.pr_native_diff_v1.is_none()
+                && self.check_origin.is_none()
+                && self.continuation_v2.is_none()))
+            && (!matches!(self.original, ScopedRemoteOriginalV13::CatalogueClearV5(_))
+                || (self.collaboration_v17.is_none()
+                    && self.notifications_v63.is_none()
+                    && self.actions_v1.is_none()
+                    && self.pr_native_diff_v1.is_none()
+                    && self.threads_v1.is_none()
+                    && self.inline_v1.is_none()
+                    && self.reviews_v2.is_none()
+                    && self.check_origin.is_none()
+                    && self.continuation_v2.is_none()))
+            && (!matches!(self.original, ScopedRemoteOriginalV13::Notifications(_))
+                || self.notifications_v63.is_some())
+            && self
+                .collaboration_v17
+                .as_ref()
+                .is_none_or(|owner| owner.owns(app))
+            && self
+                .notifications_v63
+                .as_ref()
+                .is_none_or(|owner| owner.matches(app))
+            && self.actions_v1.as_ref().is_none_or(|owner| owner.owns(app))
             && self
                 .pr_native_diff_v1
                 .as_ref()
@@ -165,6 +222,8 @@ impl ScopedRemoteOwner {
             && self.inline_v1.as_ref().is_none_or(|owner| owner.owns(app))
             && self.reviews_v2.as_ref().is_none_or(|owner| owner.owns(app))
             && [
+                self.collaboration_v17.is_some(),
+                self.notifications_v63.is_some(),
                 self.actions_v1.is_some(),
                 self.pr_native_diff_v1.is_some(),
                 self.threads_v1.is_some(),
@@ -175,20 +234,37 @@ impl ScopedRemoteOwner {
             .filter(|present| *present)
             .count()
                 <= 1
+            && (self.collaboration_v17.is_none()
+                || (self.check_origin.is_none() && self.continuation_v2.is_none()))
+            && (self.notifications_v63.is_none()
+                || (self.check_origin.is_none()
+                    && self.continuation_v2.is_none()
+                    && self.notifications_v63.as_ref().is_some_and(|owner| {
+                        matches!(&self.original, ScopedRemoteOriginalV13::Notifications(original)
+                            if Arc::ptr_eq(original, owner.original()))
+                    })))
             && (self.actions_v1.is_none()
                 || (self.check_origin.is_none()
                     && self.continuation_v2.is_none()
-                    && self.navigation.is_none()))
+                    && self.original.navigation().is_none()))
             && (self.reviews_v2.is_none()
                 || (self.check_origin.is_none() && self.continuation_v2.is_none()))
-            && app
-                .remote_scope
-                .as_ref()
-                .is_some_and(|scope| Arc::ptr_eq(scope, &self.scope))
-            && app
-                .remote_scope_source
-                .as_ref()
-                .is_some_and(|source| Arc::ptr_eq(source, &self.source))
+            && match self.collaboration_v17.as_ref() {
+                Some(owner)
+                    if owner.work().phase()
+                        == crate::scoped_pr_collaboration_native_v17::ConversationPhaseKindV17::MetadataSectionV51 =>
+                {
+                    // Only the actual display-only Metadata owner may ignore
+                    // viewport movement. Never relax another original, write,
+                    // Form, source, account or mixed-facet ownership check.
+                    matches!((&self.original, owner.original()),
+                        (ScopedRemoteOriginalV13::CollaborationV17(original),
+                         crate::scoped_pr_collaboration_native_v17::CollaborationWorkOriginV78::PrPage(expected))
+                        if Arc::ptr_eq(original, expected)
+                            && original.owns_metadata_section_presentation_v266(app))
+                }
+                _ => self.original.owns(app),
+            }
             && self
                 .check_origin
                 .as_ref()
@@ -197,12 +273,6 @@ impl ScopedRemoteOwner {
                 .continuation_v2
                 .as_ref()
                 .is_none_or(|owner| owner.owns(app))
-            && self.navigation.as_ref().is_none_or(|navigation| {
-                app.github
-                    .as_ref()
-                    .and_then(|github| github.scoped_pr_navigation.as_ref())
-                    .is_some_and(|current| Arc::ptr_eq(current, navigation))
-            })
     }
 }
 struct Request {
@@ -248,6 +318,10 @@ struct Completion {
 }
 
 pub struct Background {
+    #[cfg(test)]
+    notifications_completion_observed_v63:usize,
+    current_notifications_v63: Option<(u64,Arc<crate::notifications_v63::NotificationWorkV63>)>,
+    current_personal_pr_entry_v13: Option<(u64,Arc<crate::personal_pr_entry_v13::PersonalPrEntryOwnerV13>)>,
     current_scoped_actions_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
     current_scoped_actions_generation_v1: Option<u64>,
     current_pr_native_diff_v1: Option<(u64, Arc<crate::scoped_pr_native_diff_native_v1::PrNativeOwnerV1>)>,
@@ -259,6 +333,7 @@ pub struct Background {
     inline_completion_sender_v1: SyncSender<Completion>,
     current_inline_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineOwnerV1>>,
     current_inline_generation_v1: Option<u64>,
+    current_collaboration_v17: Option<(u64, Arc<crate::scoped_pr_collaboration_native_v17::ScopedPrCollaborationOwnerV17>)>,
     current_stash_recovery_v1: Option<(
         u64,
         Arc<crate::repository_stash_recovery_v1::OriginalStashRecoveryOwnerV1>,
@@ -332,6 +407,10 @@ impl Background {
             }));
         }
         Self {
+            #[cfg(test)]
+            notifications_completion_observed_v63: 0,
+            current_notifications_v63: None,
+            current_personal_pr_entry_v13: None,
             current_scoped_actions_v1: None,
             current_scoped_actions_generation_v1: None,
             current_pr_native_diff_v1: None,
@@ -343,6 +422,7 @@ impl Background {
             inline_completion_sender_v1: sender,
             current_inline_owner_v1: None,
             current_inline_generation_v1: None,
+            current_collaboration_v17: None,
             current_stash_recovery_v1: None,
             current_related_pr_v1: None,
             current_related_pr_generation_v1: None,
@@ -404,11 +484,11 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: None,
             threads_v1: None,
-            scope,
-            source,
-            navigation: None,
+            original: ScopedRemoteOriginalV13::catalogue(scope, source, None),
             check_origin: None,
             continuation_v2: None,
             pr_native_diff_v1: None,
@@ -435,11 +515,11 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: None,
             threads_v1: None,
-            scope,
-            source,
-            navigation: Some(navigation),
+            original: ScopedRemoteOriginalV13::catalogue(scope, source, Some(navigation)),
             check_origin: None,
             continuation_v2: None,
             pr_native_diff_v1: None,
@@ -470,11 +550,15 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: None,
             threads_v1: None,
-            scope: scope.clone(),
-            source: source.clone(),
-            navigation: Some(navigation.clone()),
+            original: ScopedRemoteOriginalV13::catalogue(
+                scope.clone(),
+                source.clone(),
+                Some(navigation.clone()),
+            ),
             check_origin: Some(origin),
             continuation_v2: None,
             pr_native_diff_v1: None,
@@ -508,11 +592,15 @@ impl Background {
             return false;
         }
         let owner = ScopedRemoteOwner {
+            collaboration_v17: None,
+            notifications_v63: None,
             actions_v1: None,
             threads_v1: None,
-            scope: scope.clone(),
-            source: source.clone(),
-            navigation: Some(navigation.clone()),
+            original: ScopedRemoteOriginalV13::catalogue(
+                scope.clone(),
+                source.clone(),
+                Some(navigation.clone()),
+            ),
             check_origin: Some(origin),
             continuation_v2: Some(continuation),
             pr_native_diff_v1: None,
@@ -640,6 +728,9 @@ impl Background {
     }
     pub fn cancel(&mut self, view: View) {
         if view == View::Inbox {
+            self.current_collaboration_v17 = None;
+            self.current_notifications_v63 = None;
+            self.current_personal_pr_entry_v13 = None;
             self.current_threads_owner_v1 = None;
             self.current_threads_generation_v1 = None;
             self.current_reviews_owner_v2 = None;
@@ -928,11 +1019,50 @@ impl Background {
     pub fn poll(&mut self, app: &mut App) -> bool {
         let mut changed = false;
         while let Ok(mut completion) = self.completions.try_recv() {
+            if let Some(admitted) = self.poll_catalogue_clear_v5(app, &mut completion) {
+                changed |= admitted;
+                continue;
+            }
+            let notification_slot = if completion.remote_repository_owner.is_some() {
+                6
+            } else if completion.catalogue_owner.is_some() {
+                5
+            } else {
+                completion.view.index()
+            };
+            if let Some(admitted) =
+                self.poll_notifications_completion_v63(app, &mut completion, notification_slot)
+            {
+                changed |= admitted;
+                continue;
+            }
+            if let Some(admitted) = self.poll_scoped_pr_collaboration_v17(app, &mut completion) {
+                changed |= admitted;
+                continue;
+            }
+            if completion.view == View::Inbox
+                && (crate::scoped_pr_collaboration_native_v17::pending_intent(app)
+                    || self.current_collaboration_v17.is_some())
+            {
+                continue;
+            }
+            if let Some(admitted) = self.poll_personal_pr_entry_v13(app, &mut completion) {
+                changed |= admitted;
+                continue;
+            }
+            if completion.view == View::Inbox
+                && (app.personal_pr_entry_work_v13.is_some()
+                    || app.personal_pr_entry_cancel_v13
+                    || self.current_personal_pr_entry_v13.is_some())
+            {
+                continue;
+            }
             if let Some(admitted) = self.poll_scoped_actions_v1(app, &mut completion) {
                 changed |= admitted;
                 continue;
             }
-            if (app.scoped_actions_work_v1.is_some() || app.scoped_actions_cancel_v1)
+            if notification_slot == View::Actions.index()
+                && (app.scoped_actions_work_v1.is_some() || app.scoped_actions_cancel_v1)
                 && completion
                     .remote_scope_owner
                     .as_ref()
@@ -954,7 +1084,8 @@ impl Background {
             }
             // Main has not consumed this newer native intent yet. No older
             // producer may change slot/loading/private state, even on Err/panic.
-            if (app.pr_native_diff_work_v1.is_some() || app.pr_native_diff_cancel_v1)
+            if slot == View::Inbox.index()
+                && (app.pr_native_diff_work_v1.is_some() || app.pr_native_diff_cancel_v1)
                 && completion
                     .remote_scope_owner
                     .as_ref()

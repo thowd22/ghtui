@@ -68,6 +68,117 @@ fn observed_fixture(
     assert!(result.workspace.scoped_pr_navigation.is_some());
     (fixture, original, scope, result.workspace, steps)
 }
+
+#[test]
+fn scoped_pr_observed_tabs_integration_f8_exact_summary_actions_and_cached_inbox_notifications_key_mouse(
+) {
+    use crate::app::View;
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    for notifications in [false, true] {
+        for mouse in [false, true] {
+            let (fixture, original, scope, workspace, steps) = observed_fixture(REPO, None);
+            use crate::scoped_actions_test_support_v1 as real_git;
+            real_git::git(&fixture, &["init", "-q"]);
+            real_git::git(&fixture, &["config", "user.name", "F8 integration"]);
+            real_git::git(&fixture, &["config", "user.email", "f8@example.invalid"]);
+            fs::write(fixture.repo().join("tracked"), b"ORIGINAL_F8_GIT\n").unwrap();
+            real_git::git(&fixture, &["add", "tracked"]);
+            real_git::git(&fixture, &["commit", "-qm", "Original F8 integration"]);
+            fs::write(fixture.repo().join("tracked"), b"PRIVATE_DIRTY_F8\0\xff\n").unwrap();
+            let before_git = real_git::git_state(&fixture);
+            let mut app = App {
+                view: View::Inbox,
+                context: workspace.context(),
+                github: Some(workspace),
+                remote_scope: Some(scope.clone()),
+                remote_scope_source: Some(original.clone()),
+                ..App::default()
+            };
+            if notifications {
+                // SAME actual cached Inbox through genuine pure Back, never
+                // an invented empty PR/source or a deserialized notification.
+                app.dispatch(Action::Github(GithubAction::Back));
+                assert!(app.github.as_ref().unwrap().pr.is_none());
+                assert!(app.github.as_ref().unwrap().scoped_pr_navigation.is_none());
+                // Match the real next Main iteration's owned empty cancel
+                // drain, not an invented owner or a skipped pending intent.
+                assert!(app.scoped_pr_tab_cancel_requested);
+                let mut background = crate::runtime::Background::new();
+                app.scoped_pr_tab_cancel_requested = false;
+                background.cancel(View::Inbox);
+                assert!(
+                    crate::runtime::scoped_inline_test_support_v1::generation(&background)
+                        .is_none()
+                );
+                app.loading[View::Inbox.index()] = false;
+            }
+            let before = sql_state(&fixture);
+            let commands = fs::read(fixture.root.join("gh-fixture/commands.jsonl")).unwrap();
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+            terminal
+                .draw(|frame| crate::ui::draw(frame, &mut app))
+                .unwrap();
+            let expected = if notifications {
+                Action::NotificationsV63(crate::notifications_ui_v63::NotificationActionV63::Open)
+            } else {
+                Action::Github(GithubAction::ActionsHistoryV5)
+            };
+            let hits = app
+                .hits
+                .iter()
+                .filter(|hit| hit.action == expected)
+                .map(|hit| hit.rect)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                hits.len(),
+                1,
+                "One actually displayed F8 control in its exact context"
+            );
+            let forbidden = if notifications {
+                Action::Github(GithubAction::ActionsHistoryV5)
+            } else {
+                Action::NotificationsV63(crate::notifications_ui_v63::NotificationActionV63::Open)
+            };
+            assert!(!app.hits.iter().any(|hit| hit.action == forbidden));
+            if mouse {
+                app.handle_event(Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: hits[0].x + 1,
+                    row: hits[0].y,
+                    modifiers: KeyModifiers::NONE,
+                }));
+            } else {
+                app.handle_event(Event::Key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE)));
+            }
+            if notifications {
+                assert_eq!(app.overlay, Some(crate::app::Overlay::NotificationsV63));
+                assert!(app.notifications_work_v63.is_some());
+                assert!(app.scoped_actions_work_v1.is_none());
+                assert!(app.notifications_v63.as_ref().unwrap().original.owns(&app));
+            } else {
+                assert_eq!(app.view, View::Actions);
+                let work = app.scoped_actions_work_v1.as_ref().unwrap();
+                assert!(Arc::ptr_eq(work.source.original(), &original));
+                assert!(app.notifications_work_v63.is_none());
+                assert!(app.notifications_v63.is_none());
+            }
+            assert_eq!(
+                sql_state(&fixture),
+                before,
+                "F8 input captures intent only, no SQL/permission"
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("gh-fixture/commands.jsonl")).unwrap(),
+                commands
+            );
+            assert_eq!(real_git::git_state(&fixture), before_git);
+            exact(&fixture, &steps);
+        }
+    }
+}
 #[test]
 fn scoped_pr_observed_tabs_large_comment_shares_one_payload_and_preserves_exact_action_identity() {
     let body = (0..10_000)
@@ -505,4 +616,145 @@ fn scoped_pr_observed_tabs_initial_summary_actual_factory_row_cap_is_display_ref
         20,
         "closing original SQL/account proof happened before pure display refusal; no retries"
     );
+}
+
+#[test]
+fn conversation_comments_v101_genuine_scoped_menu_click_and_key_match_only_supported_tabs() {
+    use crate::app::{Overlay, View};
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+
+    for tab in [
+        ObservedPrTabV1::Summary,
+        ObservedPrTabV1::Conversation,
+        ObservedPrTabV1::Commits,
+    ] {
+        let (fixture, original, scope, workspace, steps) = observed_fixture(REPO, None);
+        git(&fixture, &["init", "-q"]);
+        git(&fixture, &["config", "user.name", "Original fixture"]);
+        git(
+            &fixture,
+            &["config", "user.email", "original@example.invalid"],
+        );
+        fs::write(fixture.repo().join("kept"), "original tracked bytes\n").unwrap();
+        git(&fixture, &["add", "kept"]);
+        git(&fixture, &["commit", "-qm", "original fixture"]);
+        fs::write(fixture.repo().join("kept"), "independent dirty bytes\n").unwrap();
+        let raw_git = [".git/index", ".git/config", "kept"]
+            .map(|path| fs::read(fixture.repo().join(path)).unwrap());
+        let head = git(&fixture, &["rev-parse", "HEAD"]);
+        let before = sql_state(&fixture);
+        let workspace = prepare(
+            original.clone(),
+            scope.clone(),
+            workspace,
+            tab,
+            &CancellationToken::default(),
+        )
+        .unwrap()
+        .workspace;
+        let navigation = workspace.scoped_pr_navigation.as_ref().unwrap().clone();
+        let original_body = workspace
+            .pr
+            .as_ref()
+            .unwrap()
+            .details
+            .summary
+            .pr
+            .body
+            .as_ptr();
+        let allowed = matches!(
+            tab,
+            ObservedPrTabV1::Summary | ObservedPrTabV1::Conversation
+        );
+        let mut app = App {
+            view: View::Inbox,
+            github: Some(workspace),
+            remote_scope: Some(scope.clone()),
+            remote_scope_source: Some(original.clone()),
+            ..Default::default()
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        for (width, height) in [(80, 24), (120, 40)] {
+            terminal.backend_mut().resize(width, height);
+            terminal.resize(Rect::new(0, 0, width, height)).unwrap();
+            app.handle_event(Event::Resize(width, height));
+            for mouse in [false, true] {
+                terminal
+                    .draw(|frame| crate::ui::draw(frame, &mut app))
+                    .unwrap();
+                let text = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>();
+                let hit = app
+                    .hits
+                    .iter()
+                    .find(|hit| hit.action == Action::Github(GithubAction::Actions))
+                    .map(|hit| hit.rect);
+                assert_eq!(text.contains("[p PR actions]"), allowed);
+                assert_eq!(hit.is_some(), allowed);
+                if mouse && allowed {
+                    let hit = hit.unwrap();
+                    assert_eq!(hit.width, "[p PR actions]".len() as u16);
+                    assert!(hit.right() <= width && hit.bottom() <= height);
+                    app.handle_event(Event::Mouse(MouseEvent {
+                        kind: MouseEventKind::Down(MouseButton::Left),
+                        column: hit.x + 1,
+                        row: hit.y,
+                        modifiers: KeyModifiers::NONE,
+                    }));
+                } else {
+                    app.handle_event(Event::Key(KeyEvent::new(
+                        KeyCode::Char('p'),
+                        KeyModifiers::NONE,
+                    )));
+                }
+                assert_eq!(app.overlay == Some(Overlay::PrActions), allowed);
+                assert!(app.pr_action.is_none() && app.github_action.is_none());
+                if allowed {
+                    app.dispatch(Action::Close);
+                    assert!(app.overlay.is_none());
+                } else {
+                    assert!(app.status.contains("own fresh scoped read"));
+                }
+                let workspace = app.github.as_ref().unwrap();
+                assert!(Arc::ptr_eq(
+                    workspace.scoped_pr_navigation.as_ref().unwrap(),
+                    &navigation
+                ));
+                assert!(Arc::ptr_eq(
+                    app.remote_scope_source.as_ref().unwrap(),
+                    &original
+                ));
+                assert!(Arc::ptr_eq(app.remote_scope.as_ref().unwrap(), &scope));
+                assert_eq!(
+                    workspace
+                        .pr
+                        .as_ref()
+                        .unwrap()
+                        .details
+                        .summary
+                        .pr
+                        .body
+                        .as_ptr(),
+                    original_body
+                );
+                exact(&fixture, &steps);
+                assert_eq!(sql_state(&fixture), before);
+                assert_eq!(git(&fixture, &["rev-parse", "HEAD"]), head);
+                for (path, bytes) in [".git/index", ".git/config", "kept"]
+                    .into_iter()
+                    .zip(&raw_git)
+                {
+                    assert_eq!(&fs::read(fixture.repo().join(path)).unwrap(), bytes);
+                }
+            }
+        }
+    }
 }

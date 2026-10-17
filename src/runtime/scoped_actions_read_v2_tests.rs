@@ -78,15 +78,10 @@ fn scoped_actions_read_v2_runtime_actual_search_uses_same_actions_slot_and_zero_
         .unwrap()
         .actions_v1
         .is_some());
-    assert!(value
-        .result
-        .as_ref()
-        .unwrap()
-        .scoped_actions_v1
-        .as_ref()
-        .unwrap()
-        .matches_v2
-        .is_some());
+    assert!(
+        matches!(&**value.result.as_ref().unwrap().scoped_actions_v1.as_ref().unwrap(),
+        native::publication_v3::PreparedResultV3::Read(prepared) if prepared.matches_v2.is_some())
+    );
     put(&bg, value);
     assert!(bg.poll(&mut app));
     assert!(!token.is_cancelled());
@@ -187,19 +182,17 @@ fn scoped_actions_read_v2_runtime_real_watch_group_keeps_original_token_and_fini
     let mut bg = Background::new();
     submit(&mut bg, &mut app, work, &p, &fix);
     let value = actual(&mut bg);
-    assert_eq!(
-        value
-            .result
-            .as_ref()
-            .unwrap()
-            .scoped_actions_v1
-            .as_ref()
-            .unwrap()
-            .watch_progress_v2
-            .unwrap()
-            .0,
-        1
-    );
+    let native::publication_v3::PreparedResultV3::Read(prepared) = value
+        .result
+        .as_ref()
+        .unwrap()
+        .scoped_actions_v1
+        .as_deref()
+        .unwrap()
+    else {
+        panic!("A real watch read must not produce a publication result");
+    };
+    assert_eq!(prepared.watch_progress_v2.unwrap().0, 1);
     put(&bg, value);
     assert!(bg.poll(&mut app));
     assert!(!token.is_cancelled());

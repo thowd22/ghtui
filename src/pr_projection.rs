@@ -7,7 +7,13 @@ use crate::{
 };
 use serde_json::json;
 use std::{collections::BTreeSet, path::Path};
+pub(crate) mod conversation_impact_v17;
 mod discussion_invalidation;
+mod file_comment_impact_v75;
+mod issue_link_impact_v87;
+pub(crate) mod metadata_base_impact_v32;
+pub(crate) mod metadata_members_impact_v48;
+pub(crate) mod metadata_text_impact_v25;
 mod review_impact_v2;
 pub(crate) mod review_operation_impact_v3;
 pub(crate) mod review_recovery_v11;
@@ -43,6 +49,106 @@ pub fn persist_confirmed_snapshot(
         .confirmed_publication(&target, publication)
         .map_err(|error| error.to_string())?
         .ok_or("No confirmed receipt matches this account, canonical PR and original attempt")?;
+    let records = prepare_snapshot_records_v19(details, &target)?;
+    let mut cache = Cache::open(database).map_err(|error| error.to_string())?;
+    let published = cache
+        .commit_sync(
+            target.scope(),
+            &format!("pr-write-projection:{}", target.node_id()),
+            publication.attempt_id as u64,
+            &records,
+            details.coverage.complete,
+        )
+        .map_err(|error| error.to_string())?;
+    if !published {
+        return Err("A newer or equal confirmed PR projection already exists; stale completion was not applied".into());
+    }
+    Ok(())
+}
+
+/// DATA-only existing record builder. Native callers still need the actual
+/// closing provider bracket + exact-row atomic terminal commit; these records
+/// cannot grant source/write/cache publication authority.
+pub(crate) fn prepare_actual_conversation_records_v19(
+    actual: &crate::providers::gh::ConversationDetailSnapshotV19,
+    target: &PrWriteTarget,
+) -> Result<Vec<Record>, String> {
+    let parent = actual.parent();
+    let summary = &actual.details().summary;
+    if parent.node_id() != target.node_id()
+        || parent.number() != target.number()
+        || !parent
+            .repository()
+            .eq_ignore_ascii_case(target.repository())
+        || summary.pr.host != target.scope().host
+        || summary.pr.id != parent.node_id()
+        || summary.head_sha != parent.head_sha()
+        || summary.base_sha != parent.base_tip_sha()
+    {
+        return Err("Actual Conversation refresh differs from its exact projection parent".into());
+    }
+    prepare_snapshot_records_v19(actual.details(), target)
+}
+/// SAME actual conversation target proof and record order, plus exactly the
+/// one existing Members structured-context record. No generic context input.
+pub(crate) fn prepare_actual_members_records_v61(
+    actual: &crate::providers::gh::ConversationDetailSnapshotV19,
+    context: &crate::providers::gh::ActualMembersPageContextV61,
+    target: &PrWriteTarget,
+) -> Result<Vec<Record>, String> {
+    context
+        .validate_snapshot_v61(actual)
+        .map_err(|e| e.to_string())?;
+    let mut records = prepare_actual_conversation_records_v19(actual, target)?;
+    records.push(
+        context
+            .prepare_fixed_record_v62(actual, target)
+            .map_err(|e| e.to_string())?,
+    );
+    Ok(records)
+}
+pub(crate) fn prepare_actual_issue_link_records_v87(
+    actual: &crate::providers::gh::ConversationDetailSnapshotV19,
+    context: &crate::providers::gh::ActualIssueLinkPageContextV87,
+    terminal: &crate::pr_write_journal::conversation_refresh_v19::ConversationTerminalWitnessV19,
+) -> Result<Vec<Record>, String> {
+    context
+        .validate_snapshot_v87(actual)
+        .map_err(|e| e.to_string())?;
+    if !terminal.validates_issue_link_context_v87(context) {
+        return Err("Actual Issue context differs from its terminal".into());
+    }
+    let mut records = prepare_actual_conversation_records_v19(actual, terminal.target())?;
+    records.push(
+        context
+            .prepare_fixed_record_v87(actual, terminal)
+            .map_err(|e| e.to_string())?,
+    );
+    Ok(records)
+}
+/// The single retained Metadata supplement may emit the old Members record
+/// only through its actual private command proof, never by tab/kind alone.
+pub(crate) fn prepare_actual_metadata_members_records_v62(
+    actual: &crate::providers::gh::ConversationDetailSnapshotV19,
+    context: &crate::providers::gh::ActualMetadataTabContextV51,
+    target: &PrWriteTarget,
+    command: crate::pr_metadata_actions::PrMetadataCommand,
+) -> Result<Vec<Record>, String> {
+    context
+        .validate_members_snapshot_v62(command, actual)
+        .map_err(|e| e.to_string())?;
+    let mut records = prepare_actual_conversation_records_v19(actual, target)?;
+    records.push(
+        context
+            .prepare_members_record_v62(actual, target, command)
+            .map_err(|e| e.to_string())?,
+    );
+    Ok(records)
+}
+fn prepare_snapshot_records_v19(
+    details: &crate::providers::gh::PrDetails,
+    target: &PrWriteTarget,
+) -> Result<Vec<Record>, String> {
     if !matches!(details.summary.head_sha.len(), 40 | 64)
         || !details
             .summary
@@ -92,20 +198,7 @@ pub fn persist_confirmed_snapshot(
         record.complete = complete;
         records.push(record);
     }
-    let mut cache = Cache::open(database).map_err(|error| error.to_string())?;
-    let published = cache
-        .commit_sync(
-            target.scope(),
-            &format!("pr-write-projection:{}", target.node_id()),
-            publication.attempt_id as u64,
-            &records,
-            complete,
-        )
-        .map_err(|error| error.to_string())?;
-    if !published {
-        return Err("A newer or equal confirmed PR projection already exists; stale completion was not applied".into());
-    }
-    Ok(())
+    Ok(records)
 }
 
 #[cfg(test)]
@@ -191,6 +284,7 @@ mod tests {
             checks: None,
             rows: vec![],
             context: None,
+            metadata_display_v51: None,
             review_progress: None,
         });
         workspace

@@ -74,6 +74,7 @@ impl std::fmt::Debug for RemoteRepositoryIntentV1 {
 #[derive(Clone)]
 enum State {
     DefaultPersonal,
+    NotificationPr(std::sync::Arc<crate::providers::gh::NotificationPrSourceV63>),
     Explicit(Vec<RemoteRepositoryIntentV1>),
     Fenced(RemoteScopeFenceV1),
 }
@@ -88,6 +89,7 @@ impl std::fmt::Debug for ActiveRemoteScopeV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match &self.state {
             State::DefaultPersonal => "ActiveRemoteScopeV1(DefaultPersonal)",
+            State::NotificationPr(_) => "ActiveRemoteScopeV1(NotificationPr original allocation)",
             State::Explicit(_) => "ActiveRemoteScopeV1(Explicit original references)",
             State::Fenced(_) => "ActiveRemoteScopeV1(Fenced)",
         })
@@ -106,11 +108,22 @@ impl<'a> ExplicitRemoteRepositoriesV1<'a> {
 }
 pub enum RemoteScopeConsumerV1<'a> {
     DefaultPersonal,
+    NotificationPr(NotificationPrScopeV63<'a>),
     Explicit(ExplicitRemoteRepositoriesV1<'a>),
     ExplicitEmpty,
     /// Refuse the whole requested set rather than silently narrowing/broadening.
     Unresolved(&'a [RemoteRepositoryIntentV1]),
     Fenced(RemoteScopeFenceV1),
+}
+/// Opaque public borrowed view required by the existing public consumer ABI.
+/// No constructor/serde/source capability escapes through the public surface.
+pub struct NotificationPrScopeV63<'a> {
+    source: &'a std::sync::Arc<crate::providers::gh::NotificationPrSourceV63>,
+}
+impl NotificationPrScopeV63<'_> {
+    pub(crate) fn source(&self) -> &std::sync::Arc<crate::providers::gh::NotificationPrSourceV63> {
+        self.source
+    }
 }
 /// Stop-only intent inspection; this cannot authorize a live query.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,6 +134,47 @@ pub enum RemoteScopeStopV1 {
 }
 
 impl ActiveRemoteScopeV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        let mut n = std::mem::size_of::<Self>()
+            .checked_add(2 * std::mem::size_of::<usize>())?
+            .checked_add(
+                self.original_scope
+                    .as_ref()
+                    .map_or(0, |s| s.host.capacity()),
+            )?;
+        n = n.checked_add(
+            self.original_scope
+                .as_ref()
+                .map_or(0, |s| s.login.capacity()),
+        )?;
+        match &self.state {
+            State::Explicit(rows) => {
+                n = n.checked_add(
+                    rows.capacity()
+                        .checked_mul(std::mem::size_of::<RemoteRepositoryIntentV1>())?,
+                )?;
+                for row in rows {
+                    for r in std::iter::once(&row.original).chain(row.observed.as_ref()) {
+                        n = n
+                            .checked_add(r.last_name.capacity())?
+                            .checked_add(r.node_id.as_ref().map_or(0, String::capacity))?;
+                    }
+                }
+            }
+            // W9 has no Notification producer. Unknown retained graph refuses.
+            State::NotificationPr(_) => return None,
+            _ => {}
+        }
+        Some(n)
+    }
+    pub(crate) fn notification_pr_v63(
+        source: std::sync::Arc<crate::providers::gh::NotificationPrSourceV63>,
+    ) -> Self {
+        Self {
+            original_scope: Some(source.scope().clone()),
+            state: State::NotificationPr(source),
+        }
+    }
     /// Authentication/setup may be unavailable before any original principal
     /// exists. This closed state cannot silently initialize a default query.
     pub fn unavailable(reason: RemoteScopeFenceV1) -> Self {
@@ -297,7 +351,7 @@ impl ActiveRemoteScopeV1 {
             {
                 Some(RemoteScopeStopV1::Unresolved)
             }
-            State::DefaultPersonal | State::Explicit(_) => None,
+            State::DefaultPersonal | State::NotificationPr(_) | State::Explicit(_) => None,
         }
     }
     pub fn consumer(&self, current: &HostIdentity) -> RemoteScopeConsumerV1<'_> {
@@ -315,6 +369,9 @@ impl ActiveRemoteScopeV1 {
         }
         match &self.state {
             State::DefaultPersonal => RemoteScopeConsumerV1::DefaultPersonal,
+            State::NotificationPr(source) => {
+                RemoteScopeConsumerV1::NotificationPr(NotificationPrScopeV63 { source })
+            }
             State::Explicit(references) if references.is_empty() => {
                 RemoteScopeConsumerV1::ExplicitEmpty
             }

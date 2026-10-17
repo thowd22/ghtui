@@ -1,4 +1,143 @@
 use super::*;
+
+#[test]
+fn task54_workflow_edit_v9_remaining_default_budget_preserves_exact_shared_rows_and_charges() {
+    let lines = vec![
+        "exact 界 e\u{301}\ttext\nnext\n".into(),
+        "\u{1b}[31mPRIVATE_BODY\u{1b}[0m".into(),
+        String::new(),
+    ];
+    let cancel = CancellationToken::default();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let old = PreparedFormTextV1::prepare(&lines, &cancel, deadline).unwrap();
+    let bounded = PreparedFormTextV1::prepare_with_remaining_v9(
+        &lines,
+        &cancel,
+        deadline,
+        RETAINED_BYTES,
+        TRANSIENT_BYTES,
+    )
+    .unwrap();
+    for width in FORM_COLUMNS_V1 {
+        assert_eq!(all_rows(&old, width), all_rows(&bounded, width));
+    }
+    assert_eq!(old.retained_bytes(), bounded.retained_bytes());
+    assert_eq!(
+        old.preparation_peak_bound(),
+        bounded.preparation_peak_bound()
+    );
+    assert_eq!(
+        lines[1], "\u{1b}[31mPRIVATE_BODY\u{1b}[0m",
+        "Presentation never changes original draft bytes"
+    );
+}
+
+#[test]
+fn task54_workflow_edit_v9_remaining_budget_refuses_before_layout_or_sanitizer_allocation() {
+    let lines = vec!["x".repeat(64 * 1024)];
+    let cancel = CancellationToken::default();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let full = PreparedFormTextV1::prepare(&lines, &cancel, deadline).unwrap();
+    let mut sanitized = 0;
+    let mut layout = false;
+    let result = PreparedFormTextV1::prepare_observed_with_budget_v9(
+        &lines,
+        &cancel,
+        deadline,
+        PreparationBudgetV9 {
+            retained: full.retained_bytes() - 1,
+            transient: TRANSIENT_BYTES,
+        },
+        |stage| {
+            if stage == PrepareStageV1::SanitizedLine {
+                sanitized += 1;
+            }
+            if stage == PrepareStageV1::LayoutAllocated {
+                layout = true;
+            }
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(PreparedFormTextErrorV1::RetainedBound)
+    ));
+    assert_eq!(
+        sanitized, 1,
+        "Actual safe source was prepared before complete row-index preflight"
+    );
+    assert!(
+        !layout,
+        "No partial layout vector may allocate after lower retained refusal"
+    );
+    let mut observed = false;
+    let result = PreparedFormTextV1::prepare_observed_with_budget_v9(
+        &lines,
+        &cancel,
+        deadline,
+        PreparationBudgetV9 {
+            retained: RETAINED_BYTES,
+            transient: 0,
+        },
+        |_| observed = true,
+    );
+    assert!(matches!(
+        result,
+        Err(PreparedFormTextErrorV1::TransientBound)
+    ));
+    assert!(
+        !observed,
+        "Insufficient initial transient room refuses before sanitizer or layout"
+    );
+    assert_eq!(lines[0].len(), 64 * 1024);
+}
+
+#[test]
+fn task54_workflow_edit_v9_remaining_budget_cannot_raise_caps_or_renew_original_clock() {
+    let lines = vec!["private original header".into()];
+    let cancel = CancellationToken::default();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    assert!(matches!(
+        PreparedFormTextV1::prepare_with_remaining_v9(
+            &lines,
+            &cancel,
+            deadline,
+            RETAINED_BYTES + 1,
+            TRANSIENT_BYTES
+        ),
+        Err(PreparedFormTextErrorV1::RetainedBound)
+    ));
+    assert!(matches!(
+        PreparedFormTextV1::prepare_with_remaining_v9(
+            &lines,
+            &cancel,
+            deadline,
+            RETAINED_BYTES,
+            TRANSIENT_BYTES + 1
+        ),
+        Err(PreparedFormTextErrorV1::TransientBound)
+    ));
+    assert!(matches!(
+        PreparedFormTextV1::prepare_with_remaining_v9(
+            &lines,
+            &cancel,
+            Instant::now(),
+            RETAINED_BYTES,
+            TRANSIENT_BYTES
+        ),
+        Err(PreparedFormTextErrorV1::PhaseEnded)
+    ));
+    cancel.cancel();
+    assert!(matches!(
+        PreparedFormTextV1::prepare_with_remaining_v9(
+            &lines,
+            &cancel,
+            deadline,
+            RETAINED_BYTES,
+            TRANSIENT_BYTES
+        ),
+        Err(PreparedFormTextErrorV1::PhaseEnded)
+    ));
+}
 use std::time::Duration;
 fn prepared(lines: &[String]) -> Arc<PreparedFormTextV1> {
     PreparedFormTextV1::prepare(

@@ -73,6 +73,8 @@ fn receipt(kind: ActionsReceiptKind) -> ActionsReceipt {
         resource_id: Some(123),
         observed_attempt: Some(3),
         observed_run_id: None,
+        original_dispatch_run_v7: None,
+        workflow_remote_v9: None,
     }
 }
 
@@ -140,6 +142,8 @@ fn actions_run_control_journal_settings_ids_association_kind_and_dispatch_correl
         resource_id: Some(99),
         observed_attempt: None,
         observed_run_id: None,
+        original_dispatch_run_v7: None,
+        workflow_remote_v9: None,
     };
     assert!(journal.mark_confirmed(&permit, &effect).is_err());
     assert_eq!(
@@ -185,6 +189,8 @@ fn actions_run_control_journal_settings_ids_association_kind_and_dispatch_correl
         resource_id: Some(7),
         observed_attempt: Some(1),
         observed_run_id: Some(123),
+        original_dispatch_run_v7: None,
+        workflow_remote_v9: None,
     };
     journal.mark_accepted_pending(&permit, &receipt).unwrap();
     let marker = journal

@@ -8,6 +8,8 @@ use ghtui::{
 use serde_json::{json, Value};
 #[path = "cache_named_v2.rs"]
 mod cache_named_v2;
+#[path = "personal_pr_entry_v13.rs"]
+mod personal_pr_entry_v13;
 #[path = "sqlite_dependency.rs"]
 mod sqlite_dependency;
 #[path = "timeline_actor_legacy_v1.rs"]
@@ -362,13 +364,197 @@ fn pr_details_pr_diff_pr_checks_keyboard_native_tabs() {
 fn pr_details_pr_diff_pr_checks_mouse_native_tabs() {
     detail(true)
 }
+// Only this cross-tab journey uses the real Metadata and Personal Files protocols.
+// The generic legacy pages() fixture remains unchanged for its other readers.
+fn detail_parent_v83(mut raw: Value) -> Value {
+    raw["id"] = json!(1007);
+    raw["merged"] = json!(false);
+    raw["url"] = json!("https://github.invalid/api/v3/repos/org/alpha/pulls/7");
+    raw["repository_url"] = json!("https://github.invalid/api/v3/repos/org/alpha");
+    raw["base"]["repo"] = json!({"id":1,"node_id":"NATIVE_TABS_REPO_1","full_name":"org/alpha"});
+    raw["user"]["id"] = json!(51);
+    raw["user"]["node_id"] = json!("NATIVE_TABS_AUTHOR_51");
+    raw
+}
+fn detail_repository_v83() -> Value {
+    json!({"id":1,"node_id":"NATIVE_TABS_REPO_1","full_name":"org/alpha",
+        "owner":{"id":71,"node_id":"NATIVE_TABS_ORG_71","login":"org","type":"Organization"},
+        "private":true,"fork":false,"archived":false,"default_branch":"main",
+        "permissions":{"pull":true,"push":false,"maintain":false,"admin":false}})
+}
+fn detail_steps_v83() -> (Vec<GhStep>, usize, usize) {
+    let mut steps = initial(false);
+    for step in &mut steps {
+        if step.args.get(1).is_some_and(|arg| arg == "search/issues") {
+            let mut raw: Value = serde_json::from_slice(&step.stdout).unwrap();
+            for item in raw["items"].as_array_mut().unwrap() {
+                if item["repository_url"]
+                    .as_str()
+                    .is_some_and(|url| url.ends_with("/repos/org/alpha"))
+                {
+                    *item = detail_parent_v83(item.clone());
+                }
+            }
+            step.stdout = serde_json::to_vec(&raw).unwrap();
+        }
+    }
+    let mut old = pages();
+    let checks = old.split_off(13);
+    assert_eq!(checks.len(), 2);
+    let old_diff = old.split_off(11);
+    assert_eq!(old_diff.len(), 2);
+    let legacy_metadata = old.split_off(7);
+    assert_eq!(legacy_metadata.len(), 4);
+    for step in &mut old {
+        match step.args.get(1).map(String::as_str) {
+            Some("repos/org/alpha/pulls/7") => {
+                step.stdout = serde_json::to_vec(&detail_parent_v83(
+                    serde_json::from_slice(&step.stdout).unwrap(),
+                ))
+                .unwrap();
+            }
+            Some("repos/org/alpha") => {
+                step.stdout = serde_json::to_vec(&detail_repository_v83()).unwrap();
+            }
+            _ => {}
+        }
+    }
+    steps.extend(old);
+    // The genuine Metadata producer has its own opening/closing principal and
+    // repository bracket. Its four actual documents must describe one PR and
+    // its distinct linked Issue, not the old display-only partial responses.
+    let mut metadata_parent =
+        detail_parent_v83(serde_json::from_slice(&legacy_metadata[0].stdout).unwrap());
+    metadata_parent["head"]["repo"]["node_id"] = json!("NATIVE_TABS_FORK_2");
+    metadata_parent["requested_reviewers"][0]["id"] = json!(61);
+    metadata_parent["requested_reviewers"][0]["node_id"] = json!("NATIVE_TABS_REVIEWER_61");
+    metadata_parent["requested_teams"][0]["node_id"] = json!("NATIVE_TABS_TEAM_10");
+    metadata_parent["labels"] =
+        json!([{"id":81,"node_id":"NATIVE_TABS_LABEL_81","name":"security"}]);
+    metadata_parent["assignees"] =
+        json!([{"id":62,"node_id":"NATIVE_TABS_ASSIGNEE_62","login":"assignee","type":"User"}]);
+    metadata_parent["milestone"] =
+        json!({"id":91,"node_id":"NATIVE_TABS_MILESTONE_91","number":1,"title":"Launch"});
+    metadata_parent["locked"] = json!(false);
+    let mut metadata_issue = metadata_parent.clone();
+    metadata_issue["id"] = json!(2007);
+    metadata_issue["node_id"] = json!("NATIVE_TABS_ISSUE_2007");
+    metadata_issue["pull_request"] = json!({
+        "url":"https://github.invalid/api/v3/repos/org/alpha/pulls/7",
+        "html_url":"https://github.invalid/org/alpha/pull/7"
+    });
+    assert_ne!(metadata_issue["id"], metadata_parent["id"]);
+    assert_ne!(metadata_issue["node_id"], metadata_parent["node_id"]);
+    let before_metadata = steps.len();
+    steps.extend(identity("octocat"));
+    steps.push(read(api("repos/org/alpha"), detail_repository_v83()));
+    steps.push(read(
+        api("repos/org/alpha/pulls/7"),
+        metadata_parent.clone(),
+    ));
+    steps.push(read(api("repos/org/alpha/issues/7"), metadata_issue));
+    steps.push(read(api("repos/org/alpha"), detail_repository_v83()));
+    steps.push(read(api("repos/org/alpha/pulls/7"), metadata_parent));
+    steps.push(read(api("repos/org/alpha"), detail_repository_v83()));
+    steps.extend(identity("octocat"));
+    assert_eq!(steps.len() - before_metadata, 10);
+    let before_files = steps.len();
+    assert_eq!(before_files, 24);
+    let parent = detail_parent_v83(pr("org/alpha", 7, "Improve auth", "2026-10-12T14:00:00Z"));
+    // Same genuine Core opening/closing principal + actual repo + raw PR;
+    // the Files body and raw patch belong to that one started read budget.
+    steps.extend(identity("octocat"));
+    steps.push(read(api("repos/org/alpha"), detail_repository_v83()));
+    steps.push(read(api("repos/org/alpha/pulls/7"), parent.clone()));
+    steps.push(read(
+        api("repos/org/alpha/pulls/7/files?per_page=100&page=1"),
+        json!([{"filename":"src/auth.rs","status":"modified","additions":1,"deletions":1,"patch":"@@ -1 +1 @@\n-old\n+new"}]),
+    ));
+    steps.push(old_diff[0].clone());
+    steps.push(read(api("repos/org/alpha/pulls/7"), parent));
+    steps.push(read(api("repos/org/alpha"), detail_repository_v83()));
+    steps.extend(identity("octocat"));
+    let after_files = steps.len();
+    assert_eq!(after_files - before_files, 10);
+    steps.extend(checks);
+    assert_eq!(steps.len(), 36);
+    (steps, before_files, after_files)
+}
+fn detail_sql_v83(fixture: &Fixture, include_reservations: bool) -> Vec<String> {
+    let db = rusqlite::Connection::open_with_flags(
+        fixture.root.join("config/ghtui/cache.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let names = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").unwrap()
+        .query_map([],|row|row.get::<_,String>(0)).unwrap().map(Result::unwrap).collect::<Vec<_>>();
+    let mut result = Vec::new();
+    for name in names {
+        if !include_reservations && name == "sync_reservations" {
+            continue;
+        }
+        let mut statement = db
+            .prepare(&format!("SELECT * FROM \"{}\"", name.replace('"', "\"\"")))
+            .unwrap();
+        let columns = statement.column_count();
+        let mut rows = statement
+            .query_map([], |row| {
+                let mut values = Vec::new();
+                for column in 0..columns {
+                    values.push(format!("{:?}", row.get_ref(column)?));
+                }
+                Ok(format!("{name}:{values:?}"))
+            })
+            .unwrap()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>();
+        rows.sort();
+        result.extend(rows);
+    }
+    result
+}
 fn detail(mouse: bool) {
     let fixture = configured();
-    let mut steps = initial(false);
-    steps.extend(pages());
+    fixture.init_git();
+    fixture.commit_file(
+        "preserved.txt",
+        b"original saved bytes\n",
+        "Original tab journey",
+    );
+    std::fs::write(
+        fixture.repo().join("preserved.txt"),
+        b"dirty original bytes\n",
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.repo().join("untracked.txt"),
+        b"untracked original bytes\n",
+    )
+    .unwrap();
+    let git_paths = [
+        ".git/HEAD",
+        ".git/index",
+        ".git/config",
+        "preserved.txt",
+        "untracked.txt",
+    ];
+    let original_git = git_paths.map(|path| std::fs::read(fixture.repo().join(path)).unwrap());
+    let original_config = std::fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
+    let (steps, before_files, after_files) = detail_steps_v83();
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
-    session.wait_for_screen("ghtui");
+    session.wait_for_main_frame();
+    let after = session.completed_cursorless_end();
+    choose(&mut session, mouse, "1 Inbox", b"1");
+    session.wait_for_new_cursorless_condition(
+        after,
+        |frame| {
+            frame.contents().contains("Inbox • focused view")
+                && crate::support::main_footer_visible(frame)
+        },
+        "Actual Inbox after real local Git startup",
+        std::time::Duration::from_secs(8),
+    );
     refresh(&mut session, mouse);
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     if mouse {
@@ -389,10 +575,59 @@ fn detail(mouse: bool) {
     choose(&mut session, mouse, "[h Commits]", b"h");
     session.wait_for_screen("Fix auth boundary");
     session.wait_for_screen("@build-bot [bot]");
+    journal(&mut session, &fixture, before_files);
+    let original_sql = detail_sql_v83(&fixture, false);
+    let after = session.completed_cursorless_end();
     choose(&mut session, mouse, "[f Files]", b"f");
-    session.wait_for_screen("Canonical diff");
+    session.wait_for_new_cursorless_condition(
+        after,
+        |frame| {
+            let text = frame.contents();
+            text.contains("Personal PR Files")
+                && text.contains("Current observed head")
+                && text.contains("File src/auth.rs")
+        },
+        "Actual newly verified personal Files, not the old cached Commits rows",
+        std::time::Duration::from_secs(8),
+    );
     session.wait_for_screen("1 +new");
     session.wait_for_screen("1       -old");
+    journal(&mut session, &fixture, after_files);
+    assert_eq!(detail_sql_v83(&fixture, false), original_sql);
+    let files_sql = detail_sql_v83(&fixture, true);
+    // Direct Files->Checks remains a documented product adapter gap. Prove
+    // its current useful refusal without pretending this closes tab parity.
+    let after = session.completed_cursorless_end();
+    choose(&mut session, mouse, "[k Checks]", b"k");
+    session.wait_for_new_cursorless_condition(
+        after,
+        |frame| {
+            let text = frame.contents();
+            text.contains("Use Back for the original cached page")
+                && text.contains("File src/auth.rs")
+                && !text.contains("Rust tests")
+        },
+        "Direct original personal Files Checks is honestly unavailable, no fallback request",
+        std::time::Duration::from_secs(8),
+    );
+    journal(&mut session, &fixture, after_files);
+    assert_eq!(detail_sql_v83(&fixture, true), files_sql);
+    let after = session.completed_cursorless_end();
+    choose(&mut session, mouse, "[b Back]", b"b");
+    session.wait_for_new_cursorless_condition(
+        after,
+        |frame| {
+            let text = frame.contents();
+            text.contains("Fix auth boundary")
+                && text.contains("@build-bot [bot]")
+                && !text.contains("Current observed head")
+                && !text.contains("File src/auth.rs")
+        },
+        "Pure Back restores exact original Commits without transport or SQL changes",
+        std::time::Duration::from_secs(8),
+    );
+    journal(&mut session, &fixture, after_files);
+    assert_eq!(detail_sql_v83(&fixture, true), files_sql);
     choose(&mut session, mouse, "[k Checks]", b"k");
     session.wait_for_screen("Rust tests");
     session.wait_for_screen("success");
@@ -403,6 +638,33 @@ fn detail(mouse: bool) {
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     journal(&mut session, &fixture, steps.len());
     session.quit_and_assert_restored_terminal(mouse);
+    assert_eq!(detail_sql_v83(&fixture, true), files_sql);
+    assert_eq!(
+        std::fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap(),
+        original_config
+    );
+    for (path, original) in git_paths.into_iter().zip(original_git) {
+        assert_eq!(
+            std::fs::read(fixture.repo().join(path)).unwrap(),
+            original,
+            "Read-only native tabs preserve original Git bytes: {path}"
+        );
+    }
+    let rows: Vec<Value> = std::fs::read_to_string(fixture.root.join("gh-fixture/commands.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), steps.len());
+    for (row, expected) in rows.iter().zip(&steps) {
+        assert_eq!(row["matched"], true);
+        assert_eq!(row["args"], json!(expected.args));
+        assert_eq!(row["stdin_hex"], "");
+        assert!(!expected
+            .args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "POST" | "PUT" | "PATCH" | "DELETE")));
+    }
 }
 
 #[test]

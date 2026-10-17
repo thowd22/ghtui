@@ -42,6 +42,7 @@ pub struct LoadedResourceResultV1 {
 }
 /// One narrow extension to PreparedView, not a second background publisher.
 pub enum PrResourceCompletionV1 {
+    PersonalOpen(Box<crate::personal_pr_entry_v13::PersonalPrEntryResultV13>),
     Native(Box<crate::scoped_pr_native_diff_native_v1::PreparedPrNativeV1>),
     Read(Box<PrResourceResultV1>),
     Images(Box<immutable_images::PrImmutableImageResultV1>),
@@ -180,22 +181,66 @@ pub fn prepare_loaded(
     {
         return Err(ObservedPrTabFailureV1::SelectedPageUnavailable);
     }
+    let prepared = prepare_loaded_view_v13(
+        view,
+        input.action,
+        input.selected,
+        input
+            .input
+            .observed
+            .page
+            .rows
+            .get(input.selected)
+            .and_then(|row| row.anchor.as_ref()),
+        cancel,
+    )?;
+    if let Some((view, rows)) = prepared.rebuilt {
+        input.input.observed.page.rows = rows;
+        input.input.previous_view = Some(view);
+    }
+    Ok(LoadedResourceResultV1 {
+        input: input.input,
+        source,
+        active,
+        selected: prepared.selected,
+        content_focus: prepared.content_focus,
+        notice: prepared.notice,
+        display_limited: prepared.display_limited,
+    })
+}
+/// SAME bounded patch presentation preparation for either genuine PR origin.
+/// Does not read a source/DB or mint permissions; callers keep original ownership.
+pub(crate) struct PreparedLoadedViewV13 {
+    pub(crate) rebuilt: Option<(Arc<ScopedPrResourceViewV1>, Vec<PrRow>)>,
+    pub(crate) selected: Option<usize>,
+    pub(crate) content_focus: bool,
+    pub(crate) notice: Option<String>,
+    pub(crate) display_limited: bool,
+}
+pub(crate) fn prepare_loaded_view_v13(
+    view: &ScopedPrResourceViewV1,
+    action: PrResourceUiActionV1,
+    selected_row: usize,
+    anchor: Option<&crate::repository_view::DiffAnchor>,
+    cancel: &CancellationToken,
+) -> Result<PreparedLoadedViewV13, ObservedPrTabFailureV1> {
+    if cancel.is_cancelled() {
+        return Err(ObservedPrTabFailureV1::Cancelled);
+    }
+    let mut rebuilt = None;
     let mut selected = None;
     let mut notice = None;
     let mut limited = false;
     let content_focus = matches!(
-        input.action,
+        action,
         PrResourceUiActionV1::NextFile | PrResourceUiActionV1::NextHunk
     );
-    match input.action {
+    match action {
         PrResourceUiActionV1::NativeDiff | PrResourceUiActionV1::Threads => {
             return Err(ObservedPrTabFailureV1::SelectedPageUnavailable)
         }
         PrResourceUiActionV1::NextFile | PrResourceUiActionV1::NextHunk => {
-            selected = view.next(
-                input.selected,
-                input.action == PrResourceUiActionV1::NextHunk,
-            );
+            selected = view.next(selected_row, action == PrResourceUiActionV1::NextHunk);
             if selected.is_none() {
                 notice=Some("No loaded file/hunk target in this observed patch; unobserved content remains unknown.".into());
             }
@@ -206,9 +251,7 @@ pub fn prepare_loaded(
             } else {
                 DiffLayout::Unified
             };
-            let before = input.input.observed.page.rows.get(input.selected);
-            let anchor = before.and_then(|row| row.anchor.as_ref());
-            let target = view.row(input.selected);
+            let target = view.row(selected_row);
             let prepared = view
                 .prepared_layout(layout, view.show_context, cancel)
                 .map_err(|_| ObservedPrTabFailureV1::PreparationUnavailable)?;
@@ -230,14 +273,13 @@ pub fn prepare_loaded(
                         }
                     })
                     .map(|(i, _)| i);
-                input.input.observed.page.rows = rows;
-                input.input.previous_view = Some(Arc::new(next));
+                rebuilt = Some((Arc::new(next), rows));
             } else {
                 limited = true;
             }
         }
         PrResourceUiActionV1::PatchContext => {
-            notice=Some(view.patch_context(input.selected,20).map(|lines|format!("Loaded patch context\n{}",lines.join("\n"))).unwrap_or_else(||"Loaded patch context unavailable for this selected row or bounded notice size. Select a loaded hunk/line; no missing file lines are fetched or invented.".into()));
+            notice=Some(view.patch_context(selected_row,20).map(|lines|format!("Loaded patch context\n{}",lines.join("\n"))).unwrap_or_else(||"Loaded patch context unavailable for this selected row or bounded notice size. Select a loaded hunk/line; no missing file lines are fetched or invented.".into()));
         }
         PrResourceUiActionV1::OldImage => {
             notice=Some(format!("Old image unavailable\n{OLD_IMAGE_UNVERIFIED}\nA genuine immutable merge-base and old commit/tree/path proof is required. Neither the mutable base-branch tip nor loaded patch coordinates authorizes old file content or inline review. This required follow-up remains tracked under TASK-15/TASK-19."));
@@ -246,10 +288,8 @@ pub fn prepare_loaded(
     if cancel.is_cancelled() {
         return Err(ObservedPrTabFailureV1::Cancelled);
     }
-    Ok(LoadedResourceResultV1 {
-        input: input.input,
-        source,
-        active,
+    Ok(PreparedLoadedViewV13 {
+        rebuilt,
         selected,
         content_focus,
         notice,
@@ -269,6 +309,9 @@ pub fn install_completion(
     completion: PrResourceCompletionV1,
 ) -> Result<ResourceInstallEffectsV1, ObservedPrTabFailureV1> {
     match completion {
+        PrResourceCompletionV1::PersonalOpen(_) => {
+            Err(ObservedPrTabFailureV1::SelectedPageUnavailable)
+        }
         PrResourceCompletionV1::Native(_) => Err(ObservedPrTabFailureV1::SelectedPageUnavailable),
         PrResourceCompletionV1::Images(result) => {
             let limited = immutable_images::native::install(app, *result)?;

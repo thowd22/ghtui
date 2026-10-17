@@ -43,6 +43,33 @@ const FORMULAS: [&str; 8] = [
     "highest observed attempt",
 ];
 
+/// One test-data clock, never an application clock override. The same value
+/// reaches every inventory and canonical Open response in this journey.
+#[derive(Clone, Copy)]
+struct FixtureUtcAnchorV43(u64);
+impl FixtureUtcAnchorV43 {
+    fn capture() -> Self {
+        Self(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+    }
+    fn alpha_created(self) -> u64 {
+        self.0.checked_sub(3 * 86_400).unwrap()
+    }
+    fn bot_created(self) -> u64 {
+        self.0.checked_sub(15 * 86_400).unwrap()
+    }
+    fn timestamp(seconds: u64) -> String {
+        format!("{}Z", utc(seconds).replace(' ', "T"))
+    }
+    fn stamp_updated(self, value: &mut Value) {
+        value["updated_at"] = json!(Self::timestamp(self.0.checked_sub(86_400).unwrap()));
+    }
+}
+
 fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if mouse {
         session.click_visible_action(label);
@@ -103,51 +130,69 @@ fn pull(
         "user":actor,"head":{"sha":HEAD,"ref":"feature"},"base":{"sha":BASE,"ref":"main","repo":repository(name)},"requested_reviewers":[{"id":reviewer,"login":"octocat","type":"User"}],"requested_teams":[],"changed_files":0,"additions":0,"deletions":0,"mergeable":true,"mergeable_state":"clean"})
 }
 fn alpha() -> Value {
-    pull(
+    alpha_with_clock(None)
+}
+fn alpha_with_clock(clock: Option<FixtureUtcAnchorV43>) -> Value {
+    let created = clock.map(|clock| FixtureUtcAnchorV43::timestamp(clock.alpha_created()));
+    let mut value = pull(
         APP,
         1,
         false,
-        Some("2026-10-09T00:00:00Z"),
+        Some(created.as_deref().unwrap_or("2026-10-09T00:00:00Z")),
         json!({"id":51,"login":"alice","type":"User","avatar_url":null}),
         42,
-    )
+    );
+    if let Some(clock) = clock {
+        clock.stamp_updated(&mut value);
+    }
+    value
 }
-fn rows(name: &str) -> Vec<Value> {
+fn rows(name: &str, clock: Option<FixtureUtcAnchorV43>) -> Vec<Value> {
     if name == APP {
-        vec![alpha()]
+        vec![alpha_with_clock(clock)]
     } else {
-        vec![
+        let created = clock.map(|clock| FixtureUtcAnchorV43::timestamp(clock.bot_created()));
+        let mut values = vec![
             pull(
                 TOOLS,
                 8,
                 false,
-                Some("2026-10-01T00:00:00Z"),
+                Some(created.as_deref().unwrap_or("2026-10-01T00:00:00Z")),
                 json!({"id":52,"login":"metrics-bot","type":"Bot","avatar_url":null}),
                 43,
             ),
             pull(TOOLS, 9, true, None, Value::Null, 42),
-        ]
+        ];
+        if let Some(clock) = clock {
+            for value in &mut values {
+                clock.stamp_updated(value);
+            }
+        }
+        values
     }
 }
 fn get(endpoint: &str, value: Value) -> GhStep {
     gh_fixture::read(endpoint, value)
 }
-fn inventory(name: &str) -> Vec<GhStep> {
+fn inventory(name: &str, clock: Option<FixtureUtcAnchorV43>) -> Vec<GhStep> {
     vec![
         get(&format!("repos/{name}"), repository(name)),
         get(
             &format!(
                 "repos/{name}/pulls?state=all&sort=created&direction=desc&per_page=100&page=1"
             ),
-            json!(rows(name)),
+            json!(rows(name, clock)),
         ),
         get(&format!("repos/{name}"), repository(name)),
     ]
 }
 fn refresh(names: &[&str]) -> Vec<GhStep> {
+    refresh_with_clock(names, None)
+}
+fn refresh_with_clock(names: &[&str], clock: Option<FixtureUtcAnchorV43>) -> Vec<GhStep> {
     let mut steps = gh_fixture::account(42);
     for name in names {
-        steps.extend(inventory(name));
+        steps.extend(inventory(name, clock));
     }
     steps.extend(gh_fixture::account(42));
     assert_eq!(steps.len(), 4 + 3 * names.len());
@@ -167,15 +212,18 @@ fn window(names: &[&str]) -> Vec<GhStep> {
     assert_eq!(steps.len(), 4 + 2 * names.len());
     steps
 }
-fn canonical_identity() -> Vec<GhStep> {
+fn canonical_identity(clock: Option<FixtureUtcAnchorV43>) -> Vec<GhStep> {
     vec![
         get(&format!("repos/{APP}"), repository(APP)),
-        get(&format!("repos/{APP}/pulls/1"), alpha()),
+        get(&format!("repos/{APP}/pulls/1"), alpha_with_clock(clock)),
         get(&format!("repos/{APP}"), repository(APP)),
     ]
 }
-fn details() -> Vec<GhStep> {
-    let mut steps = vec![get(&format!("repos/{APP}/pulls/1"), alpha())];
+fn details(clock: Option<FixtureUtcAnchorV43>) -> Vec<GhStep> {
+    let mut steps = vec![get(
+        &format!("repos/{APP}/pulls/1"),
+        alpha_with_clock(clock),
+    )];
     for suffix in [
         "issues/1/comments",
         "pulls/1/commits",
@@ -187,15 +235,21 @@ fn details() -> Vec<GhStep> {
         step.args.extend(["--paginate".into(), "--slurp".into()]);
         steps.push(step);
     }
-    steps.push(get(&format!("repos/{APP}/pulls/1"), alpha()));
+    steps.push(get(
+        &format!("repos/{APP}/pulls/1"),
+        alpha_with_clock(clock),
+    ));
     assert_eq!(steps.len(), 7);
     steps
 }
 fn open_steps() -> Vec<GhStep> {
+    open_steps_with_clock(None)
+}
+fn open_steps_with_clock(clock: Option<FixtureUtcAnchorV43>) -> Vec<GhStep> {
     let mut steps = gh_fixture::account(42);
-    steps.extend(canonical_identity());
-    steps.extend(details());
-    steps.extend(canonical_identity());
+    steps.extend(canonical_identity(clock));
+    steps.extend(details(clock));
+    steps.extend(canonical_identity(clock));
     steps.extend(gh_fixture::account(42));
     assert_eq!(steps.len(), 17);
     steps
@@ -371,18 +425,19 @@ fn metrics_mouse_repository_cohort_windows_all_cards_exact_native_open_and_retur
     happy(true);
 }
 fn happy(mouse: bool) {
+    let fixture_clock = FixtureUtcAnchorV43::capture();
     let fixture = configured(true);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
     let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
-    let mut steps = refresh(&[APP, TOOLS]);
+    let mut steps = refresh_with_clock(&[APP, TOOLS], Some(fixture_clock));
     steps.extend(window(&[APP, TOOLS]));
     steps.extend(window(&[APP, TOOLS]));
-    steps.extend(refresh(&[APP]));
+    steps.extend(refresh_with_clock(&[APP], Some(fixture_clock)));
     steps.extend(window(&[APP]));
-    steps.extend(refresh(&[APP, TOOLS]));
-    steps.extend(refresh(&[APP, TOOLS]));
-    steps.extend(open_steps());
+    steps.extend(refresh_with_clock(&[APP, TOOLS], Some(fixture_clock)));
+    steps.extend(refresh_with_clock(&[APP, TOOLS], Some(fixture_clock)));
+    steps.extend(open_steps_with_clock(Some(fixture_clock)));
     assert_eq!(steps.len(), 76);
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
@@ -394,8 +449,9 @@ fn happy(mouse: bool) {
     session.wait_for_screen("Sources: PR Partial • Checks Unavailable • Actions Unavailable");
     let clock = as_of(&mut session);
     assert_window(&mut session, 7, clock);
-    let created_alpha = 1_791_504_000u64; // 2026-10-09 00:00:00 UTC, independent fixture epoch.
-    let created_bot = 1_790_812_800u64; // 2026-10-01 00:00:00 UTC.
+    assert!(clock >= fixture_clock.0);
+    let created_alpha = fixture_clock.alpha_created();
+    let created_bot = fixture_clock.bot_created();
     let mean = (u128::from(clock - created_alpha) + u128::from(clock - created_bot)) / 2;
     session.wait_for_screen(&format!("Mean open PR age: {mean}s mean / 2 measured"));
     choose(&mut session, mouse, "[0 Last30 days]", b"0");

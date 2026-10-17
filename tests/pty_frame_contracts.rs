@@ -120,3 +120,86 @@ fn test_framework_frame_title_erasure_does_not_prove_completed_overlay_close() {
     assert!(!restored.contains("old-no-newline"));
     assert!(!restored.contains("new-no-newline"));
 }
+#[test]
+fn scoped_actions_rerun_v4_framework_focused_cells_are_not_cursorless_or_caret_position() {
+    // Explicit ANSI protocol unit fixture, not an App/PTy success oracle.
+    let mut frames = CursorlessFrames::default();
+    let mut parser = vt100::Parser::new(8, 80, 0);
+    let old = b"\x1b[1;1Hold source\x1b[?25l";
+    frames.process(&mut parser, old, 0);
+    let old_end = frames.end;
+    let focused = b"\x1b[1;1Hnew source\x1b[6;1H[Preview] [Confirm]\x1b[?25h";
+    frames.process(&mut parser, focused, old.len());
+    assert_eq!(frames.end, old_end);
+    assert!(frames
+        .last
+        .as_ref()
+        .unwrap()
+        .contents()
+        .contains("old source"));
+    let cells_end = frames.cells_end;
+    assert_eq!(cells_end, old.len() + focused.len());
+    assert!(frames
+        .last_cells
+        .as_ref()
+        .unwrap()
+        .contents()
+        .contains("new source"));
+    assert!(frames
+        .last_cells
+        .as_ref()
+        .unwrap()
+        .contents()
+        .contains("[Preview] [Confirm]"));
+    let before = frames.last_cells.as_ref().unwrap().cursor_position();
+    frames.process(&mut parser, b"\x1b[3;7H", cells_end);
+    assert_eq!(frames.cells_end, cells_end);
+    assert_eq!(
+        frames.last_cells.as_ref().unwrap().cursor_position(),
+        before
+    );
+    assert_eq!(parser.screen().cursor_position(), (2, 6));
+}
+#[test]
+fn scoped_actions_rerun_v4_framework_every_focused_footer_marker_split_retains_complete_cells_only()
+{
+    let bytes = b"\x1b[1;1Horiginal source\x1b[3;1Hdebug true\x1b[7;1H[Preview] [Close]\x1b[?25h";
+    for split in 0..=bytes.len() {
+        let mut frames = CursorlessFrames::default();
+        let mut parser = vt100::Parser::new(8, 80, 0);
+        frames.process(&mut parser, &bytes[..split], 0);
+        if split < bytes.len() {
+            assert!(frames.last_cells.is_none());
+        }
+        frames.process(&mut parser, &bytes[split..], split);
+        assert_eq!(frames.cells_end, bytes.len());
+        assert!(frames.last.is_none());
+        let body = frames.last_cells.as_ref().unwrap().contents();
+        assert!(
+            body.contains("original source")
+                && body.contains("debug true")
+                && body.contains("[Preview] [Close]")
+        );
+    }
+}
+#[test]
+fn scoped_actions_rerun_v4_framework_resize_partial_footer_cannot_reuse_old_completed_geometry() {
+    let mut frames = CursorlessFrames::default();
+    let mut parser = vt100::Parser::new(8, 80, 0);
+    let old = b"\x1b[1;1Horiginal\x1b[7;1H[Confirm]\x1b[?25h";
+    frames.process(&mut parser, old, 0);
+    assert!(frames.last_cells.is_some());
+    frames.invalidate_size();
+    parser.set_size(10, 40);
+    assert!(frames.last_cells.is_none());
+    assert!(frames.last.is_none());
+    let partial = b"\x1b[2J\x1b[1;1Hresize required\x1b[9;1H[Close]";
+    frames.process(&mut parser, partial, old.len());
+    assert!(frames.last_cells.is_none());
+    frames.process(&mut parser, b"\x1b[?25l", old.len() + partial.len());
+    let screen = frames.last_cells.as_ref().unwrap();
+    assert_eq!(screen.size(), (10, 40));
+    assert!(screen.contents().contains("[Close]"));
+    assert!(!screen.contents().contains("[Confirm]"));
+    assert_eq!(frames.end, frames.cells_end);
+}

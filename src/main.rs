@@ -3,6 +3,7 @@ use crossterm::event;
 use ghtui::scoped_pr_observed_tabs_v1::resources::immutable_images::reviews_v2::operations_v3::ui_v3 as review_operation_ui_v3;
 use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::publication::ui as comment_ui_v2;
 use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::comments_v2::reactions_v3::form as reaction_ui_v3;
+use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::file_comments_v75::form as file_comment_ui_v75;
 use ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::publication_v1::ui_v1 as thread_ui;
 use ghtui::{app::App, ui};
 use ghtui::{
@@ -64,10 +65,8 @@ fn run() -> Result<()> {
     }));
     let mut guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let mut app = App {
-        color_mode: ghtui::theme::ColorMode::detect(),
-        ..App::default()
-    };
+    let mut app = App::new();
+    app.color_mode = ghtui::theme::ColorMode::detect();
     app.original_tree_viewport_v2.width = terminal.size()?.width;
     app.no_color |= options.no_color || config.theme == ThemeName::NoColor;
     app.context = format!(
@@ -110,6 +109,12 @@ fn run() -> Result<()> {
         });
     }
     while !app.quit {
+        // Purpose-closed State Refresh capture/refusal precedes retirement.
+        // A refused new enqueue cannot cancel the old accepted source worker.
+        ghtui::scoped_pr_collaboration_native_v17::prepare_state_source_sync_v80(
+            &mut app,
+            &paths.database,
+        );
         // Retire the actual original actor job before ANY replacement Repo
         // request is queued. Do not use global cancel/app.view from a modal.
         if app.local_actor_cancel_requested {
@@ -125,8 +130,14 @@ fn run() -> Result<()> {
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                         | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                        | ghtui::forms::FormPurpose::PrFileCommentV75(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsV3(_)
+                        | ghtui::forms::FormPurpose::PrCollaborationV17(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsWorkflowV6(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsDispatchV7(_)
+                        | ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)
                 )
         }) {
             ghtui::remote_scope_gate_v1::refuse_legacy_request(
@@ -134,6 +145,15 @@ fn run() -> Result<()> {
                 &mut background,
                 ghtui::remote_scope_gate_v1::RemoteConsumerV1::RemoteForm,
             );
+        }
+        if let Some(action) = app.pr_action.clone() {
+            if ghtui::scoped_pr_collaboration_native_v17::capture_action(
+                &mut app,
+                &action,
+                &paths.database,
+            ) {
+                app.pr_action = None;
+            }
         }
         if app.pr_action.is_some()
             || (app.pr_checks_request
@@ -220,6 +240,19 @@ fn run() -> Result<()> {
                 Err(error) => app.status = format!("Settings error: {error:#}"),
             }
         }
+        if app.notifications_cancel_v63 {
+            app.notifications_cancel_v63 = false;
+            background.cancel_notifications_v63(&mut app);
+        }
+        background.retire_stale_notifications_v63(&mut app);
+        background.tick_notifications_v63(&mut app);
+        ghtui::personal_pr_entry_v13::retire_invalid(&mut app);
+        ghtui::notification_pr_v63::retire_invalid(&mut app);
+        if app.personal_pr_entry_cancel_v13 {
+            app.personal_pr_entry_cancel_v13 = false;
+            background.cancel_personal_pr_entry_v13(&mut app);
+        }
+        background.retire_stale_personal_pr_entry_v13(&mut app);
         ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::retire_invalid(&mut app);
         if app.scoped_threads_cancel_v1 {
             app.scoped_threads_cancel_v1 = false;
@@ -244,18 +277,25 @@ fn run() -> Result<()> {
         }
         background.retire_stale_pr_native_diff_v1(&mut app);
         background.retire_stale_scoped_inline_v1(&mut app);
+        if app.scoped_pr_collaboration_cancel_v17 {
+            app.scoped_pr_collaboration_cancel_v17 = false;
+            background.cancel_scoped_pr_collaboration_v17(&mut app);
+        }
+        background.retire_stale_scoped_pr_collaboration_v17(&mut app);
         ghtui::scoped_actions_native_v1::synchronize(&mut app);
         if app.scoped_actions_cancel_v1 {
             app.scoped_actions_cancel_v1 = false;
             background.cancel_scoped_actions_v1(&mut app);
         }
         background.retire_stale_scoped_actions_v1(&mut app);
+        ghtui::scoped_actions_publication_ui_v3::retire_invalid_form(&mut app);
         background.poll(&mut app);
         app.observe_navigation();
         inline_ui::retire_invalid_form(&mut app);
         thread_ui::retire_invalid_form(&mut app);
         comment_ui_v2::retire_invalid_form(&mut app);
         reaction_ui_v3::retire_invalid_form(&mut app);
+        file_comment_ui_v75::retire_invalid_form(&mut app);
         reviews_ui::retire_invalid_form(&mut app);
         reviews_native::retire_invalid(&mut app);
         if let Some(form) = &mut app.form {
@@ -267,11 +307,29 @@ fn run() -> Result<()> {
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
                         | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsV3(_)
+                        | ghtui::forms::FormPurpose::PrFileCommentV75(_)
+                        | ghtui::forms::FormPurpose::PrCollaborationV17(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsWorkflowV6(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsDispatchV7(_)
+                        | ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)
                 ) || !app.form_dismissed && app.overlay == Some(ghtui::app::Overlay::Form))
             {
-                form.invalidate_plan();
-                let encoded = if matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)) {
+                form.prepare_draft_autosave_v77();
+                let encoded = if matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)
+                ) {
+                    form.workflow_edit_draft_v9()
+                } else if matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrCollaborationV17(_)
+                ) {
+                    ghtui::scoped_pr_collaboration_ui_v17::encoded_draft(form)
+                } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrInline(_)) {
                     inline_ui::encoded_draft(form)
+                } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrFileCommentV75(_)) {
+                    file_comment_ui_v75::encoded_draft(form)
                 } else if matches!(form.purpose, ghtui::forms::FormPurpose::PrThread(_)) {
                     thread_ui::encoded_draft(form)
                 } else if matches!(
@@ -299,35 +357,46 @@ fn run() -> Result<()> {
                         .save(form.scope(), form.resource(), encoded)
                         .map_err(|error| error.to_string())
                 }) {
-                    Ok(()) => form.dirty = false,
-                    Err(error) => form.error = format!("Draft error: {error}"),
+                    Ok(()) => form.settle_draft_autosave_v77(true),
+                    Err(error) => {
+                        form.settle_draft_autosave_v77(false);
+                        form.error = format!("Draft error: {error}");
+                    }
+                }
+            }
+        }
+        if let Some(work) = app.notifications_work_v63.take() {
+            match GithubProvider::new(work.host()) {
+                Ok(provider) => {
+                    background.submit_notifications_v63(
+                        &mut app,
+                        work,
+                        provider.with_runner(runner.clone()),
+                        paths.database.clone(),
+                    );
+                }
+                Err(_) => {
+                    app.status = "Notification provider unavailable; nothing queued".into();
                 }
             }
         }
         if let Some(work) = app.pr_native_diff_work_v1.take() {
-            if let Some(host) = app
-                .remote_scope_source
-                .as_ref()
-                .map(|source| source.scope().host.clone())
-            {
-                match GithubProvider::new(&host) {
-                    Ok(provider) => {
-                        background.submit_pr_native_diff_v1(
-                            &mut app,
-                            work,
-                            provider.with_runner(runner.clone()),
-                            paths.database.clone(),
-                        );
-                    }
-                    Err(_) => {
-                        ghtui::scoped_pr_native_diff_native_v1::submission_failed(&mut app, &work);
-                    }
+            match GithubProvider::new(work.host()) {
+                Ok(provider) => {
+                    background.submit_pr_native_diff_v1(
+                        &mut app,
+                        work,
+                        provider.with_runner(runner.clone()),
+                        paths.database.clone(),
+                    );
                 }
-            } else {
-                ghtui::scoped_pr_native_diff_native_v1::submission_failed(&mut app, &work);
+                Err(_) => {
+                    ghtui::scoped_pr_native_diff_native_v1::submission_failed(&mut app, &work);
+                }
             }
         }
         inline_native::capture_form(&mut app);
+        ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::capture_personal_history_requested_v75(&mut app, &paths.database);
         ghtui::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::capture_form_with_drafts(
             &mut app,
             &paths.database,
@@ -352,6 +421,7 @@ fn run() -> Result<()> {
                 }
             }
         }
+        reviews_native::capture_requested_history_v15(&mut app, &paths.database);
         reviews_native::capture_form(&mut app);
         if let Some(work) = app.scoped_reviews_work_v2.take() {
             match GithubProvider::new(&work.scope().host) {
@@ -382,6 +452,27 @@ fn run() -> Result<()> {
                 }
                 Err(_) => {
                     app.status = "Original inline provider unavailable • nothing submitted".into();
+                }
+            }
+        }
+        ghtui::scoped_pr_collaboration_native_v17::prepare_requested(&mut app);
+        if let Some(work) = app.scoped_pr_collaboration_work_v17.take() {
+            match GithubProvider::new(work.host()) {
+                Ok(provider) => {
+                    if !background.submit_scoped_pr_collaboration_v17(
+                        &mut app,
+                        work.clone(),
+                        provider.with_runner(runner.clone()),
+                        paths.database.clone(),
+                        draft_writer.client(),
+                    ) {
+                        ghtui::scoped_pr_collaboration_native_v17::submission_failed(
+                            &mut app, &work,
+                        );
+                    }
+                }
+                Err(_) => {
+                    ghtui::scoped_pr_collaboration_native_v17::submission_failed(&mut app, &work)
                 }
             }
         }
@@ -460,8 +551,14 @@ fn run() -> Result<()> {
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                         | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                        | ghtui::forms::FormPurpose::PrFileCommentV75(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsV3(_)
+                        | ghtui::forms::FormPurpose::PrCollaborationV17(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsWorkflowV6(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsDispatchV7(_)
+                        | ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)
                 )
         }) {
             // Capture one original clock and accepted autosave cutoff BEFORE
@@ -527,12 +624,15 @@ fn run() -> Result<()> {
                         None
                     };
                 match &mut form.purpose {
+                    ghtui::forms::FormPurpose::PrCollaborationV17(_) => return Err("Original Conversation preview requires its SAME purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrThread(_) => return Err("Original thread preview requires its purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrThreadCommentV2(_) => return Err("Original selected-comment preview requires its purpose-specific worker • no legacy fallback".into()),
+                    ghtui::forms::FormPurpose::PrFileCommentV75(_) => return Err("Original FILE preview requires its same Thread worker • no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrThreadReactionV3(_) => return Err("Original reaction preview requires its purpose-specific worker • no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrInline(_) => return Err("Original scoped inline previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrReviewV2(_)=>return Err("Original scoped review previews require their purpose-specific worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrReviewOperationV3(_)=>return Err("Original pending operation requires its same Review worker; no legacy fallback".into()),
+                    ghtui::forms::FormPurpose::ScopedActionsV3(_) | ghtui::forms::FormPurpose::ScopedActionsWorkflowV6(_) | ghtui::forms::FormPurpose::ScopedActionsDispatchV7(_) | ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)=>return Err("Original Actions requires its SAME purpose-specific Actions worker; no legacy fallback".into()),
                     ghtui::forms::FormPurpose::PrMetadata(_) => unreachable!("metadata worker routed above"),
                     ghtui::forms::FormPurpose::Corpus(intent) => {
                         let fence = corpus_fence.as_ref().ok_or("Original repository preview draft cutoff unavailable")?;
@@ -641,7 +741,9 @@ fn run() -> Result<()> {
             if let Some(form) = &mut app.form {
                 if form.resource() == ack.resource && form.scope() == ack.scope {
                     if let Err(error) = ack.result {
-                        form.error = format!("Draft error: {error}");
+                        if !form.workflow_edit_draft_error_v9() {
+                            form.error = format!("Draft error: {error}");
+                        }
                     } else if app.overlay == Some(ghtui::app::Overlay::Form)
                         && !app.loading[app.view.index()]
                     {
@@ -662,20 +764,32 @@ fn run() -> Result<()> {
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                         | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                        | ghtui::forms::FormPurpose::PrFileCommentV75(_)
+                        | ghtui::forms::FormPurpose::PrCollaborationV17(_)
                 )
             }) {
                 let form = app.form.as_mut().expect("checked inline form");
                 form.editor_requested = false;
+                let is_conversation = matches!(
+                    form.purpose,
+                    ghtui::forms::FormPurpose::PrCollaborationV17(_)
+                );
                 let is_thread = matches!(form.purpose, ghtui::forms::FormPurpose::PrThread(_));
+                let is_file =
+                    matches!(form.purpose, ghtui::forms::FormPurpose::PrFileCommentV75(_));
                 let is_comment = matches!(
                     form.purpose,
                     ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                 );
-                let admitted = if matches!(
+                let admitted = if is_conversation {
+                    ghtui::scoped_pr_collaboration_ui_v17::validate_input(form, "")
+                } else if matches!(
                     form.purpose,
                     ghtui::forms::FormPurpose::PrThreadReactionV3(_)
                 ) {
                     Err("Reactions have no editable body or external editor".into())
+                } else if is_file {
+                    file_comment_ui_v75::validate_input(form, "")
                 } else if is_comment {
                     comment_ui_v2::validate_input(form, "")
                 } else if is_thread {
@@ -694,7 +808,13 @@ fn run() -> Result<()> {
                         terminal.resize(terminal.size()?.into())?;
                         match edited {
                             Ok(text) => {
-                                let replaced = if is_comment {
+                                let replaced = if is_file {
+                                    file_comment_ui_v75::replace_editor_result(form, &text)
+                                } else if is_conversation {
+                                    ghtui::scoped_pr_collaboration_ui_v17::replace_editor_result(
+                                        form, &text,
+                                    )
+                                } else if is_comment {
                                     comment_ui_v2::replace_editor_result(form, &text)
                                 } else if is_thread {
                                     thread_ui::replace_editor_result(form, &text)
@@ -716,6 +836,10 @@ fn run() -> Result<()> {
                     form.purpose,
                     ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsV3(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsWorkflowV6(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsDispatchV7(_)
+                        | ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)
                 )
             }) {
                 let form = app.form.as_mut().expect("checked original review form");
@@ -777,8 +901,14 @@ fn run() -> Result<()> {
                         | ghtui::forms::FormPurpose::PrThread(_)
                         | ghtui::forms::FormPurpose::PrThreadCommentV2(_)
                         | ghtui::forms::FormPurpose::PrThreadReactionV3(_)
+                        | ghtui::forms::FormPurpose::PrFileCommentV75(_)
                         | ghtui::forms::FormPurpose::PrReviewV2(_)
                         | ghtui::forms::FormPurpose::PrReviewOperationV3(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsV3(_)
+                        | ghtui::forms::FormPurpose::PrCollaborationV17(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsWorkflowV6(_)
+                        | ghtui::forms::FormPurpose::ScopedActionsDispatchV7(_)
+                        | ghtui::forms::FormPurpose::ScopedWorkflowEditV9(_)
                 )
         }) {
             let mut form = app.form.as_mut().unwrap().clone();
@@ -1079,6 +1209,7 @@ fn run() -> Result<()> {
             && app.overlay.is_none()
             && app.remote_scope.is_none()
             && !app.loading[0]
+            && !ghtui::scoped_pr_collaboration_native_v17::state_source_requires_explicit_refresh_v80(&app)
             && (app
                 .github
                 .as_ref()
@@ -1535,6 +1666,19 @@ fn run() -> Result<()> {
                 app.status = reason.label().into();
             }
         }
+        if matches!(
+            app.github_action.as_ref(),
+            Some(ghtui::github_workspace::GithubAction::PrTab(
+                ghtui::github_workspace::PrTab::Metadata
+            ))
+        ) {
+            app.github_action.take();
+            app.refresh_requested = false;
+            ghtui::scoped_pr_collaboration_native_v17::capture_metadata_section_v51(
+                &mut app,
+                &paths.database,
+            );
+        }
         // Selected initial PR Open only. Source/scope owners remain unchanged;
         // cached inbox navigation is captured privately, not shown while reading.
         if app.remote_scope.is_some()
@@ -1619,6 +1763,22 @@ fn run() -> Result<()> {
         }
         // Actual selected Files/Checks reads and bounded loaded controls reuse
         // the SAME page-only owner/generation publisher. No legacy fallback.
+        ghtui::personal_pr_entry_v13::capture_requested_files(&mut app, &paths.database);
+        if let Some(work) = ghtui::personal_pr_entry_v13::take_work(&mut app) {
+            match GithubProvider::new(work.host()).and_then(|provider| {
+                provider
+                    .with_runner(runner.clone())
+                    .with_scoped_read_window(work.original_deadline(), 1024 * 1024)
+            }) {
+                Ok(provider) => {
+                    background.submit_personal_pr_entry_v13(&mut app, work, provider);
+                }
+                Err(_) => {
+                    app.status =
+                        "Original personal provider unavailable • cached page retained".into();
+                }
+            }
+        }
         if app.remote_scope.is_some()
             && app
                 .github_action
@@ -1842,6 +2002,18 @@ fn run() -> Result<()> {
                         .into();
             }
         }
+        // Explicit LOCAL erasure is not a legacy remote read. Retain genuine
+        // original owners/numeric Inbox; never build fallback repository names.
+        if matches!(
+            app.github_action,
+            Some(ghtui::github_workspace::GithubAction::ClearCache)
+        ) && app.remote_scope_source.is_some()
+        {
+            let _ = background.submit_catalogue_clear_v5(&mut app, &paths.database);
+            // Consume only this input. Queue-full/stale refusal has not
+            // cancelled or changed any old slot/loading/status/source.
+            app.github_action = None;
+        }
         if (app.github_action.is_some()
             || (app.refresh_requested && app.view == ghtui::app::View::Inbox))
             && !ghtui::remote_scope_gate_v1::refuse_legacy_request(
@@ -1895,7 +2067,7 @@ fn run() -> Result<()> {
                             Ok(workspace)
                         }
                         Some(GithubAction::ClearCache) => previous.clear_cache(&database),
-                        Some(GithubAction::Resource(_)|GithubAction::ThreadHistoryV1|GithubAction::ReviewOperationHistoryV3|GithubAction::ReviewThreadsV4) => {
+                        Some(GithubAction::FileCommentV75|GithubAction::Resource(_)|GithubAction::ThreadHistoryV1|GithubAction::ReviewOperationHistoryV3|GithubAction::ReviewThreadsV4|GithubAction::ActionsHistoryV5) => {
                             return Err("Loaded scoped resource controls require the original scoped page; no legacy read sent".into());
                         }
                         Some(GithubAction::Compose(kind)) => {
@@ -1940,11 +2112,9 @@ fn run() -> Result<()> {
                         _ => previous.refresh(&provider, &database, &cancel),
                     }
                 } else {
-                    let identity = provider
-                        .identity(&cancel)
-                        .map_err(|error| error.to_string())?;
-                    GithubWorkspace::empty(identity, scoped_repositories, exclusions)
-                        .cached(&database)
+                    GithubWorkspace::legacy_startup_v80(
+                        &provider, scoped_repositories, exclusions, &database, &cancel,
+                    )
                 }
                 .map_err(|error| error.to_string())?;
                 let pending = if workspace.identity.account_id.is_some() {
@@ -1971,16 +2141,18 @@ fn run() -> Result<()> {
             ghtui::scoped_actions_native_v1::forward_refresh(&mut app);
         }
         ghtui::scoped_actions_native_v1::read_ui_v2::tick(&mut app);
+        ghtui::scoped_actions_native_v1::publication_v3::capture_form_work(&mut app);
         if let Some(work) = ghtui::scoped_actions_native_v1::take_work(&mut app) {
             match GithubProvider::new(work.host())
                 .map(|provider| provider.with_runner(runner.clone()))
             {
                 Ok(provider) => {
-                    background.submit_scoped_actions_v1(
+                    background.submit_scoped_actions_publication_v3(
                         &mut app,
                         work,
                         provider,
                         paths.database.clone(),
+                        draft_writer.client(),
                     );
                 }
                 Err(_) => ghtui::scoped_actions_native_v1::submission_failed(&mut app, &work),
@@ -2826,6 +2998,7 @@ fn external_editor_bounded(guard: &mut TerminalGuard, text: &str, limit: usize) 
 }
 
 fn main() {
+    ghtui::providers::runner::initialize_workflow_environment_v9();
     if let Err(error) = run() {
         eprintln!("ghtui: {error:#}");
         std::process::exit(1);

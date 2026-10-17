@@ -24,21 +24,14 @@ fn receipt(h: &history::GitImagesV1, side: &str) -> Value {
 pub(super) fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep> {
     let mut parent = parent_resource();
     h.bind_parent(&mut parent);
-    let mut steps = principal(42);
-    steps.push(get(&format!("repos/{FIRST}"), repository(0)));
+    let mut steps = resource_operation(false);
+    bind_steps(&mut steps, h);
+    steps.truncate(7); // Same actual original Files parser/transport.
     steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent.clone()));
-    steps.extend(principal(42));
-    steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent.clone()));
-    steps.push(paged(
-        &format!("repos/{FIRST}/pulls/7/files?per_page=100"),
-        json!([h.file()]),
-    ));
-    steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent.clone()));
-    steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent));
     steps.push(get(&format!("repos/{FIRST}"), repository(0)));
     steps.extend(principal(42));
     let payload = json!({"path":history::PATH,"side":side,"line":2,"start_line":1,"start_side":side,"commit_id":h.h,"body":BODY});
-    steps[4].delay_ms = 6_000; // Actual post-claim identity child, BEFORE any POST.
+    steps[7].delay_ms = 6_000; // Exact final measured parent AFTER durable claim.
     let mut post = GhStep::read(
         &[
             "api",
@@ -58,8 +51,12 @@ pub(super) fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep>
         &format!("repos/{FIRST}/pulls/comments/901"),
         receipt(h, side),
     ));
-    steps.extend(source_phase(h, false));
-    assert_eq!(steps.len(), 22);
+    // Exactly four prepaid visibility children; no second session/version.
+    steps.push(get("user", json!({"id":42,"login":"octocat"})));
+    steps.push(get(&format!("repos/{FIRST}"), repository(0)));
+    steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent));
+    steps.push(get("user", json!({"id":42,"login":"octocat"})));
+    assert_eq!(steps.len(), 17);
     steps
 }
 pub(super) fn stable_drafts(fixture: &Fixture) -> Vec<String> {
@@ -114,10 +111,11 @@ fn journey(mouse: bool, side: &str, cancel_after_post: bool) {
     steps.extend(fresh_images);
     let mut confirm = confirm_steps(&h, side);
     if cancel_after_post {
-        confirm[4].delay_ms = 0;
-        confirm[14].delay_ms = 6_000; // Actual readback child AFTER one successful POST.
-        confirm.truncate(15);
+        confirm[7].delay_ms = 0;
+        confirm[12].delay_ms = 6_000; // Actual readback child AFTER one successful POST.
+        confirm.truncate(13);
     }
+    let confirm_start = steps.len();
     steps.extend(confirm);
     fixture.scripted_gh(&steps);
     let before_git = git_state(&fixture);
@@ -213,7 +211,7 @@ fn journey(mouse: bool, side: &str, cancel_after_post: bool) {
         .any(|arg| arg == "POST")));
     let before = session.completed_cursorless_end();
     crate::local::confirm(&mut session, mouse, 1);
-    let held_ordinal = if cancel_after_post { 97 } else { 87 };
+    let held_ordinal = confirm_start + if cancel_after_post { 12 } else { 7 };
     session.wait_for_command_count(&fixture, held_ordinal + 1);
     let held_journal = commands(&session, &fixture);
     let child_pid = i32::try_from(held_journal[held_ordinal]["pid"].as_u64().unwrap()).unwrap();

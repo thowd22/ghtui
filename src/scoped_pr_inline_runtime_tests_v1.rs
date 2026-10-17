@@ -1,4 +1,6 @@
 //! Genuine original source producers, actual Background queue and channel.
+#[path = "scoped_pr_inline_common_v14_tests.rs"]
+mod common_v14;
 use super::*;
 use crate::{
     app::{Overlay, View},
@@ -58,6 +60,92 @@ fn completed(bg: &mut Background, app: &mut App) {
         std::thread::yield_now();
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+enum ReapProbeV308 {
+    Gone,
+    StillOwned,
+    #[cfg(target_os = "linux")]
+    Unresolved,
+}
+
+fn reap_probe_v308(
+    observed: std::io::Result<Option<original_process_identity::ProcessIdentity>>,
+    original: &original_process_identity::ProcessIdentity,
+) -> std::io::Result<ReapProbeV308> {
+    match observed {
+        Ok(None) => Ok(ReapProbeV308::Gone),
+        Ok(Some(now))
+            if (now.pid, now.uid, now.birth, now.session)
+                == (original.pid, original.uid, original.birth, original.session) =>
+        {
+            // A live or zombie original is still present; neither is cleanup.
+            Ok(ReapProbeV308::StillOwned)
+        }
+        Ok(Some(_)) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Cleanup observed a foreign process identity",
+        )),
+        #[cfg(target_os = "linux")]
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+            // Linux can retire ownership fields between strict /proc reads.
+            // UNKNOWN is not absence or permission to signal/reap anything.
+            // The original bounded poll must still reach a genuine None.
+            Ok(ReapProbeV308::Unresolved)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[test]
+fn inline_comments_runtime_reap_probe_requires_kernel_absence_not_invalid_zombie_or_foreign() {
+    let original = original_process_identity::process_identity(std::process::id() as i32)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        reap_probe_v308(Ok(Some(original.clone())), &original).unwrap(),
+        ReapProbeV308::StillOwned
+    );
+    let mut zombie = original.clone();
+    zombie.zombie = true;
+    assert_eq!(
+        reap_probe_v308(Ok(Some(zombie)), &original).unwrap(),
+        ReapProbeV308::StillOwned
+    );
+    for field in 0..4 {
+        let mut foreign = original.clone();
+        match field {
+            0 => foreign.pid += 1,
+            1 => foreign.uid += 1,
+            2 => foreign.birth.0 += 1,
+            _ => foreign.session += 1,
+        }
+        assert!(reap_probe_v308(Ok(Some(foreign)), &original).is_err());
+    }
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        reap_probe_v308(
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid stat ownership fields"
+            )),
+            &original,
+        )
+        .unwrap(),
+        ReapProbeV308::Unresolved
+    );
+    let denied = reap_probe_v308(
+        Err(std::io::Error::from_raw_os_error(libc::EACCES)),
+        &original,
+    )
+    .unwrap_err();
+    assert_eq!(denied.raw_os_error(), Some(libc::EACCES));
+    assert_eq!(
+        reap_probe_v308(Ok(None), &original).unwrap(),
+        ReapProbeV308::Gone
+    );
+}
+
 #[test]
 fn inline_comments_runtime_actual_queue_publishes_only_original_closed_draft_form() {
     let mut s = inline_setup(|h, steps| steps.extend(source_fence_steps(h, true)));
@@ -188,11 +276,9 @@ fn inline_comments_runtime_stale_preview_releases_only_exact_original_presentati
         );
         assert!(app.github.is_some());
         let deadline = Instant::now() + Duration::from_secs(5);
-        while let Some(now) = original_process_identity::process_identity(pid).unwrap() {
-            assert_eq!(
-                (now.uid, now.birth, now.session),
-                (held.uid, held.birth, held.session)
-            );
+        while reap_probe_v308(original_process_identity::process_identity(pid), &held).unwrap()
+            != ReapProbeV308::Gone
+        {
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
         }
@@ -353,8 +439,8 @@ fn inline_comments_runtime_dismissed_confirm_retires_only_same_original_source_a
             steps.extend(source_fence_steps(h, true));
             steps.extend(image_steps(h));
             let mut confirm = confirm_steps(h);
-            confirm[14].delay_ms = 6_000;
-            confirm.truncate(15);
+            confirm[12].delay_ms = 6_000;
+            confirm.truncate(13);
             steps.extend(confirm)
         });
         let mut form = super::inline_ui::form(&mut s);
@@ -432,11 +518,9 @@ fn inline_comments_runtime_dismissed_confirm_retires_only_same_original_source_a
             assert!(app.status.contains("nothing resent"));
         }
         let deadline = Instant::now() + Duration::from_secs(5);
-        while let Some(now) = original_process_identity::process_identity(pid).unwrap() {
-            assert_eq!(
-                (now.uid, now.birth, now.session),
-                (held.uid, held.birth, held.session)
-            );
+        while reap_probe_v308(original_process_identity::process_identity(pid), &held).unwrap()
+            != ReapProbeV308::Gone
+        {
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
         }

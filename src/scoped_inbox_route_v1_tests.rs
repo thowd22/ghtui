@@ -84,6 +84,38 @@ fn load(fixture: &Fixture) -> Arc<CatalogueIntentSource> {
 fn active(original: &CatalogueIntentSource, ids: &[u64]) -> Arc<ActiveRemoteScopeV1> {
     Arc::new(ActiveRemoteScopeV1::explicit_selection(original.source(), ids).unwrap())
 }
+
+/// Reuses the SAME genuine catalogue and current-ID Inbox factories above.
+/// Test consumers gain no source/parent/DTO constructor or alternate queue.
+pub(crate) fn actual_clear_fixture_v5(
+) -> (Fixture, crate::app::App, std::path::PathBuf, Vec<GhStep>) {
+    let fixture = Fixture::new();
+    let repos = [(410, "example/one")];
+    let mut steps = source_steps(&repos);
+    steps.extend(happy(&repos, &["example/one"]));
+    fixture.scripted_gh(&steps);
+    let original = load(&fixture);
+    let result = refresh(
+        Arc::clone(&original),
+        active(&original, &[410]),
+        &provider(&fixture),
+        &database(&fixture),
+        &CancellationToken::default(),
+    )
+    .unwrap();
+    let mut app = crate::app::App {
+        view: crate::app::View::Inbox,
+        context: result.workspace.context(),
+        github: Some(result.workspace),
+        remote_scope: Some(result.current_scope),
+        remote_scope_source: Some(original),
+        ..Default::default()
+    };
+    app.github_content_focused = true;
+    let path = database(&fixture);
+    exact(&fixture, &steps);
+    (fixture, app, path, steps)
+}
 fn issue(repository: &str) -> Value {
     let database_id = if repository == "example/two" {
         1008

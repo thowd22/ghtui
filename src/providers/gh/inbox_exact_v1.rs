@@ -31,6 +31,69 @@ pub(super) struct ExactInboxState {
     node_keys: BTreeMap<String, RecordKey>,
 }
 impl ExactInboxState {
+    /// Parser data only, restricted to the actual State complete-source
+    /// request. Empty repositories mean that producer's real personal query,
+    /// never an implicit fallback from a failed explicit selection.
+    pub(super) fn state_source_v80(
+        actual: &crate::state_inbox_sync_v76::StateInboxOriginalV76,
+    ) -> GithubResult<Self> {
+        if actual.repositories().is_empty() {
+            validate_name(&actual.identity().login)?;
+            Ok(Self {
+                repository: String::new(),
+                first_total: None,
+                queue_keys: BTreeSet::new(),
+                identities: BTreeMap::new(),
+                numeric_keys: BTreeMap::new(),
+                node_keys: BTreeMap::new(),
+            })
+        } else {
+            Self::new(
+                &actual.identity().host,
+                actual.identity(),
+                actual.repositories(),
+            )
+        }
+    }
+    pub(super) fn state_item_v80(
+        &mut self,
+        provider: &GithubProvider,
+        raw: &Value,
+        coverage: &mut Coverage,
+        repository: Option<&str>,
+    ) -> GithubResult<(PullRequest, bool)> {
+        if raw.get("state").and_then(Value::as_str) != Some("open")
+            || raw.get("draft").is_some_and(|v| !v.is_boolean())
+        {
+            return Err(schema(
+                "Complete State queue lacks the actual open state/draft type",
+            ));
+        }
+        // Derive only a parser consistency key from the actual canonical URL.
+        // This is not a repository access proof or a PR-parent constructor.
+        let name = match repository {
+            Some(name) => name,
+            None => {
+                let url = required_text(raw, "repository_url")?;
+                let prefix = if provider.host == "github.com" {
+                    "https://api.github.com/repos/".to_owned()
+                } else {
+                    format!("https://{}/api/v3/repos/", provider.host)
+                };
+                url.strip_prefix(&prefix).ok_or_else(|| {
+                    changed("Personal State queue repository URL is not its actual API host")
+                })?
+            }
+        };
+        validate_repo(name)?;
+        if name.len() > 256 {
+            return Err(schema(
+                "State queue repository name exceeds its actual bounded field",
+            ));
+        }
+        self.repository = name.to_owned();
+        self.item(provider, raw, coverage)
+    }
     pub fn new(host: &str, identity: &HostIdentity, scope: &[String]) -> GithubResult<Self> {
         if identity.host != host || identity.account_id.is_none_or(|id| id == 0) {
             return Err(error(

@@ -208,6 +208,145 @@ fn metrics_utc_half_open_windows_validate_leap_dates_and_do_not_clamp_future_age
     assert!(UtcWindow::new(100, 100).is_err());
     assert!(dashboard(&evidence(vec![]), 100, UtcWindow::new(0, 200).unwrap()).is_err());
 }
+
+#[test]
+fn metrics_relative_inventory_future_day_year_and_leap_boundaries_keep_real_cohorts() {
+    for date in [
+        "2035-01-01T23:59:59Z",
+        "2035-12-31T23:59:59Z",
+        "2036-02-29T23:59:59Z",
+    ] {
+        let anchor = utc_seconds(date).unwrap();
+        let mut recent = pr(1);
+        recent.created_at = Some(anchor - 3 * 86_400);
+        let mut old_bot = pr(2);
+        old_bot.created_at = Some(anchor - 15 * 86_400);
+        old_bot.review_requested_now = Some(false);
+        old_bot.author.actor.actor_type = "Bot".into();
+        old_bot.author.actor.login = "metrics-bot".into();
+        old_bot.author.account_id = Some(52);
+        let mut unknown = pr(3);
+        unknown.created_at = None;
+        unknown.draft = Some(true);
+        unknown.author.account_id = None;
+        unknown.author.actor = Actor::default();
+        let input = evidence(vec![recent, old_bot, unknown]);
+        for as_of in [anchor, anchor + 1] {
+            let seven = dashboard(
+                &input,
+                as_of,
+                UtcWindow::new(as_of - 7 * 86_400, as_of).unwrap(),
+            )
+            .unwrap();
+            let thirty = dashboard(
+                &input,
+                as_of,
+                UtcWindow::new(as_of - 30 * 86_400, as_of).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                card(&seven, MetricKind::OpenPrs).value,
+                MetricValue::Count(3)
+            );
+            assert_eq!(
+                card(&seven, MetricKind::NeedsMyReview).value,
+                MetricValue::Count(1)
+            );
+            let age = card(&seven, MetricKind::OpenAge);
+            assert_eq!(
+                age.value,
+                MetricValue::MeanSeconds {
+                    sum: u128::from(18 * 86_400 + 2 * (as_of - anchor)),
+                    samples: 2,
+                }
+            );
+            assert_eq!(
+                age.unknown, 1,
+                "Missing creation stays unknown, not a zero age"
+            );
+            for kind in [MetricKind::FirstReview, MetricKind::MergeLatency] {
+                let numbers = |snapshot: &DashboardSnapshot| {
+                    card(snapshot, kind)
+                        .contributors
+                        .iter()
+                        .map(|c| match &c.target {
+                            MetricTarget::PullRequest(pr) => pr.number,
+                            _ => panic!("PR cohort must keep actual PR target"),
+                        })
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    numbers(&seven),
+                    vec![1, 3],
+                    "Recent plus unknown, not old bot: {date}"
+                );
+                assert_eq!(
+                    numbers(&thirty),
+                    vec![1, 2, 3],
+                    "Thirty days genuinely includes old bot: {date}"
+                );
+                assert_eq!(card(&seven, kind).value, MetricValue::Unavailable);
+                assert!(
+                    card(&seven, kind).unknown > 0,
+                    "Absent retained events cannot become a historical zero"
+                );
+            }
+            assert_eq!(input.prs[1].author.actor.actor_type, "Bot");
+            assert!(input.prs[2].created_at.is_none() && input.prs[2].author.account_id.is_none());
+        }
+    }
+}
+
+#[test]
+fn metrics_relative_inventory_actual_computation_keeps_start_inclusive_end_exclusive() {
+    let as_of = utc_seconds("2035-01-02T00:00:00Z").unwrap();
+    let start = as_of - 7 * 86_400;
+    let mut at_start = pr(1);
+    at_start.created_at = Some(start);
+    let mut at_end = pr(2);
+    at_end.created_at = Some(as_of);
+    let mut before_start = pr(3);
+    before_start.created_at = Some(start - 1);
+    let mut missing = pr(4);
+    missing.created_at = None;
+    let output = dashboard(
+        &evidence(vec![at_start, at_end, before_start, missing]),
+        as_of,
+        UtcWindow::new(start, as_of).unwrap(),
+    )
+    .unwrap();
+    for kind in [MetricKind::FirstReview, MetricKind::MergeLatency] {
+        let actual = card(&output, kind);
+        assert_eq!(
+            actual
+                .contributors
+                .iter()
+                .map(|c| match &c.target {
+                    MetricTarget::PullRequest(pr) => pr.number,
+                    _ => panic!("Expected canonical PR target"),
+                })
+                .collect::<Vec<_>>(),
+            vec![1, 4]
+        );
+        assert_eq!(
+            actual.unknown,
+            if kind == MetricKind::FirstReview {
+                2
+            } else {
+                1
+            }
+        );
+        assert_eq!(
+            actual.censored,
+            if kind == MetricKind::FirstReview {
+                0
+            } else {
+                1
+            }
+        );
+        assert_eq!(actual.value, MetricValue::Unavailable);
+    }
+}
 #[test]
 fn metrics_open_includes_drafts_review_queue_excludes_drafts_and_deduplicates_pr_ids() {
     let first = pr(1);

@@ -12,8 +12,13 @@ use crate::providers::gh::{
 use crate::providers::runner::CancellationToken;
 use crate::storage::{now, Cache, Record, Scope};
 
+#[path = "github_legacy_startup_v80.rs"]
+mod legacy_startup_v80;
 #[path = "github_timeline_projection_v1.rs"]
 pub(crate) mod timeline_projection_v1;
+pub(crate) use legacy_startup_v80::LegacyStartupQueueV80;
+pub(crate) use legacy_startup_v80::PreparedStateWorkspaceV80;
+use legacy_startup_v80::StateSourceRouteHintV80;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PrKey {
@@ -88,9 +93,11 @@ impl PrTab {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GithubAction {
+    FileCommentV75,
     ThreadHistoryV1,
     ReviewOperationHistoryV3,
     ReviewThreadsV4,
+    ActionsHistoryV5,
     Filter(InboxFilter),
     Open(PrKey),
     Back,
@@ -131,6 +138,10 @@ pub struct PrPage {
     pub checks: Option<Vec<Check>>,
     pub rows: Vec<PrRow>,
     pub context: Option<crate::providers::gh::PrContext>,
+    /// Actual Metadata-tab display availability, never source or permission.
+    /// None preserves legacy contexts; only the genuine bounded producer can
+    /// create the opaque facts carried here.
+    pub metadata_display_v51: Option<crate::providers::gh::MetadataDisplayFactsV51>,
     pub review_progress: Option<crate::pr_progress::ReviewProgress>,
 }
 #[derive(Clone, Debug)]
@@ -395,73 +406,10 @@ impl PrPage {
                 || vec![PrRow { role: SemanticToken::Pending, ..PrRow::text("Review progress UNAVAILABLE • no viewed state inferred. Refresh this exact PR, then open Review progress again.") }],
                 |progress| progress.rows().into_iter().map(|(label,role)|PrRow {role, ..PrRow::text(label)}).collect(),
             ),
-            PrTab::Metadata => {
-                let context = self
-                    .context
-                    .as_ref()
-                    .context("PR metadata has not loaded")?;
-                let permissions = &context.repository.permissions;
-                let mut rows = vec![
-                    PrRow::text(format!(
-                        "Your repository permissions: read {} • write {} • maintain {} • admin {}",
-                        permissions.pull, permissions.push, permissions.maintain, permissions.admin
-                    )),
-                    PrRow::text(format!(
-                        "Fork origin: {}",
-                        context
-                            .head_repository
-                            .as_ref()
-                            .map_or("deleted or unavailable", |repo| repo.full_name.as_str())
-                    )),
-                    PrRow::text(format!(
-                        "Base repository: {} • cross-repository {} • maintainer edits {}",
-                        context.base_repository.full_name,
-                        context.is_cross_repository,
-                        context.maintainer_can_modify
-                    )),
-                    PrRow::text(format!(
-                        "Locked conversation: {}",
-                        context.issue_metadata["locked"].as_bool().unwrap_or(false)
-                    )),
-                    PrRow::text(format!(
-                        "Milestone: {}",
-                        context.issue_metadata["milestone"]["title"]
-                            .as_str()
-                            .unwrap_or("none")
-                    )),
-                ];
-                for label in context.issue_metadata["labels"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    rows.push(PrRow::text(format!(
-                        "Label: {}",
-                        label["name"].as_str().unwrap_or("unknown")
-                    )));
-                }
-                for assignee in context.issue_metadata["assignees"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    rows.push(PrRow::actor("assigned", value_actor(assignee)));
-                }
-                for reviewer in &context.requested_reviewers {
-                    rows.push(PrRow::actor("review requested", reviewer.clone()));
-                }
-                for team in &context.requested_teams {
-                    rows.push(PrRow::text(format!(
-                        "Review team: {} ({})",
-                        team.name, team.slug
-                    )));
-                }
-                rows.push(PrRow::text("Linked issues: inspect closing keywords in Description; GitHub resolves them on the default branch."));
-                for url in &context.source_urls {
-                    rows.push(PrRow::text(format!("Source: {url}")));
-                }
-                rows
-            }
+            PrTab::Metadata => metadata_rows_v51(
+                self.context.as_ref().context("PR metadata has not loaded")?,
+                self.metadata_display_v51.as_ref(),
+            ),
         };
         if self.rows.is_empty() {
             self.rows
@@ -498,6 +446,102 @@ impl PrPage {
             .selected_row(path)
             .map(|row| row + usize::from(!self.details.coverage.complete))
     }
+}
+pub(crate) fn metadata_rows_v51(
+    context: &crate::providers::gh::PrContext,
+    observed: Option<&crate::providers::gh::MetadataDisplayFactsV51>,
+) -> Vec<PrRow> {
+    let permissions = &context.repository.permissions;
+    let flag = |value: Option<bool>| match value {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "unavailable",
+    };
+    let permission_flags = observed.map(|facts| facts.permissions());
+    let mut rows = vec![
+        PrRow::text(format!(
+            "Your repository permissions: read {} • write {} • maintain {} • admin {}",
+            flag(permission_flags.map_or(Some(permissions.pull), |v| v[0])),
+            flag(permission_flags.map_or(Some(permissions.push), |v| v[1])),
+            flag(permission_flags.map_or(Some(permissions.maintain), |v| v[2])),
+            flag(permission_flags.map_or(Some(permissions.admin), |v| v[3])),
+        )),
+        PrRow::text(format!(
+            "Fork origin: {}",
+            context
+                .head_repository
+                .as_ref()
+                .map_or("deleted or unavailable", |repo| repo.full_name.as_str())
+        )),
+        PrRow::text(format!(
+            "Base repository: {} • cross-repository {} • maintainer edits {}",
+            context.base_repository.full_name,
+            context.is_cross_repository,
+            flag(observed.map_or(Some(context.maintainer_can_modify), |f| f.maintainer()))
+        )),
+        PrRow::text(format!(
+            "Locked conversation: {}",
+            flag(observed.map_or(
+                Some(context.issue_metadata["locked"].as_bool().unwrap_or(false)),
+                |f| f.locked()
+            ))
+        )),
+        PrRow::text(format!(
+            "Milestone: {}",
+            if observed.is_some_and(|f| !f.milestone_available()) {
+                "unavailable"
+            } else {
+                context.issue_metadata["milestone"]["title"]
+                    .as_str()
+                    .unwrap_or("none")
+            }
+        )),
+    ];
+    if let Some(facts) = observed {
+        for (available, label) in [
+            (facts.labels_available(), "Labels"),
+            (facts.assignees_available(), "Assignees"),
+            (facts.reviewers_available(), "Requested reviewers"),
+            (facts.teams_available(), "Requested teams"),
+        ] {
+            if !available {
+                rows.push(PrRow::text(format!(
+                    "{label}: unavailable • no empty set inferred"
+                )));
+            }
+        }
+    }
+    for label in context.issue_metadata["labels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        rows.push(PrRow::text(format!(
+            "Label: {}",
+            label["name"].as_str().unwrap_or("unknown")
+        )));
+    }
+    for assignee in context.issue_metadata["assignees"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        rows.push(PrRow::actor("assigned", value_actor(assignee)));
+    }
+    for reviewer in &context.requested_reviewers {
+        rows.push(PrRow::actor("review requested", reviewer.clone()));
+    }
+    for team in &context.requested_teams {
+        rows.push(PrRow::text(format!(
+            "Review team: {} ({})",
+            team.name, team.slug
+        )));
+    }
+    rows.push(PrRow::text("Linked issues: inspect closing keywords in Description; GitHub resolves them on the default branch."));
+    for url in &context.source_urls {
+        rows.push(PrRow::text(format!("Source: {url}")));
+    }
+    rows
 }
 fn value_actor(value: &serde_json::Value) -> crate::providers::gh::Actor {
     crate::providers::gh::Actor {
@@ -584,6 +628,11 @@ pub struct GithubWorkspace {
     pub selected: Option<PrKey>,
     pub freshness: Freshness,
     pub pr: Option<PrPage>,
+    /// Actual page-install epoch only; never authentication/source authority.
+    pub(crate) personal_pr_page_ticket_v13:
+        Option<std::sync::Arc<crate::personal_pr_entry_v13::PersonalPrPageTicketV13>>,
+    pub(crate) notification_pr_page_ticket_v63:
+        Option<std::sync::Arc<crate::notification_pr_v63::NotificationPrPageTicketV63>>,
     /// Navigation only; never authentication, permission or restored approval.
     pub scoped_pr_navigation:
         Option<std::sync::Arc<crate::scoped_pr_observed_tabs_v1::ScopedPrNavigationV1>>,
@@ -593,6 +642,13 @@ pub struct GithubWorkspace {
     >,
     pub needs_refresh: bool,
     pub generation: u64,
+    // Negative display state only: a fresh exact PR page does not certify the
+    // old aggregate queue/filter membership or counts. Never access authority.
+    state_membership_unavailable_v68: bool,
+    // Producer-issued read intent only. Neither missing scope fields nor a
+    // decoded/cached queue can manufacture this actual startup lineage.
+    legacy_startup_queue_v80: Option<std::sync::Arc<LegacyStartupQueueV80>>,
+    state_source_route_v80: Option<std::sync::Arc<StateSourceRouteHintV80>>,
 }
 impl GithubWorkspace {
     /// SAME borrowed target predicate for painting, mouse hit regions and key
@@ -660,10 +716,15 @@ impl GithubWorkspace {
             selected: None,
             freshness: Freshness::Empty,
             pr: None,
+            personal_pr_page_ticket_v13: None,
+            notification_pr_page_ticket_v63: None,
             scoped_pr_navigation: None,
             scoped_pr_resource: None,
             needs_refresh: true,
             generation: 0,
+            state_membership_unavailable_v68: false,
+            legacy_startup_queue_v80: None,
+            state_source_route_v80: None,
         }
     }
     pub fn scope(&self) -> Result<Scope> {
@@ -734,6 +795,9 @@ impl GithubWorkspace {
         })
     }
     pub fn coverage_label(&self) -> String {
+        if self.state_membership_unavailable_v68 {
+            return "PR queue membership/counts unavailable • refresh this scope explicitly".into();
+        }
         format!(
             "{} unique PRs across {} queue matches • {}{}",
             self.inbox.pull_requests.len(),
@@ -750,6 +814,19 @@ impl GithubWorkspace {
             }
         )
     }
+    pub(crate) fn state_membership_unavailable_v68(&self) -> bool {
+        self.state_membership_unavailable_v68
+    }
+    pub(crate) fn retire_state_membership_v68(&mut self) {
+        self.state_membership_unavailable_v68 = true;
+        self.inbox.pull_requests.clear();
+        self.inbox.coverage.loaded = 0;
+        self.inbox.coverage.complete = false;
+        self.inbox.coverage.reasons = vec![
+            "PR lifecycle changed • old filter membership/counts are unavailable, not empty".into(),
+        ];
+        self.needs_refresh = true;
+    }
     pub fn actors(&self) -> Vec<crate::providers::gh::Actor> {
         crate::actor_avatar_projection_v1::github(self, None).unwrap_or_default()
     }
@@ -757,6 +834,8 @@ impl GithubWorkspace {
         if let Err(error) = self.scope() {
             self.inbox.pull_requests.clear();
             self.pr = None;
+            self.personal_pr_page_ticket_v13 = None;
+            self.notification_pr_page_ticket_v63 = None;
             self.scoped_pr_navigation = None;
             self.scoped_pr_resource = None;
             self.needs_refresh = false;
@@ -957,6 +1036,13 @@ impl GithubWorkspace {
                 self.sort();
                 self.preserve_selection();
                 self.freshness = Freshness::Fresh { fetched_at };
+                if expected_scope.is_none() {
+                    // A bounded State recovery stamp is optional; its refusal
+                    // must not change the old ordinary refresh result.
+                    if self.install_legacy_queue_v80(None).is_err() {
+                        self.legacy_startup_queue_v80 = None;
+                    }
+                }
             }
             Err(error) if expected_scope.is_some() => return Err(error.into()),
             Err(error) if !cancel.is_cancelled() => {
@@ -1112,11 +1198,15 @@ impl GithubWorkspace {
             checks: None,
             rows: vec![],
             context: None,
+            metadata_display_v51: None,
             review_progress: None,
         };
         page.prepare_rows()?;
         self.selected = Some(key.clone());
         self.pr = Some(page);
+        self.personal_pr_page_ticket_v13 =
+            Some(crate::personal_pr_entry_v13::PersonalPrPageTicketV13::new());
+        self.notification_pr_page_ticket_v63 = None;
         self.scoped_pr_navigation = None;
         self.scoped_pr_resource = None;
         Ok(())
@@ -1216,6 +1306,9 @@ impl GithubWorkspace {
         }
         page.tab = tab;
         page.prepare_rows()?;
+        self.personal_pr_page_ticket_v13 =
+            Some(crate::personal_pr_entry_v13::PersonalPrPageTicketV13::new());
+        self.notification_pr_page_ticket_v63 = None;
         Ok(self)
     }
     /// An explicit PR refresh inspects the resource before releasing an unknown
@@ -1254,13 +1347,18 @@ impl GithubWorkspace {
             checks: None,
             rows: vec![],
             context: None,
+            metadata_display_v51: None,
             review_progress: None,
         });
         self.freshness = Freshness::Fresh { fetched_at: now() };
         self.load_tab(tab, provider, cancel)
     }
     pub fn clear_cache(mut self, path: &Path) -> Result<Self> {
+        let state_read_intent = self.state_source_sync_required_v80();
         Cache::open(path)?.clear_records(&self.scope()?)?;
+        if !state_read_intent {
+            self.legacy_startup_queue_v80 = None;
+        }
         self.inbox.pull_requests.clear();
         self.inbox.coverage = Coverage::default();
         self.selected = None;
@@ -1268,10 +1366,14 @@ impl GithubWorkspace {
         self.scoped_pr_navigation = None;
         self.scoped_pr_resource = None;
         self.freshness = Freshness::Empty;
+        self.personal_pr_page_ticket_v13 = None;
+        self.notification_pr_page_ticket_v63 = None;
         self.needs_refresh = false;
         Ok(self)
     }
     fn hide_private(mut self, error: &str) -> Self {
+        self.legacy_startup_queue_v80 = None;
+        self.state_source_route_v80 = None;
         self.identity.account_id = None;
         self.inbox.pull_requests.clear();
         self.inbox.coverage.complete = false;
@@ -1281,6 +1383,8 @@ impl GithubWorkspace {
         self.scoped_pr_navigation = None;
         self.scoped_pr_resource = None;
         self.selected = None;
+        self.personal_pr_page_ticket_v13 = None;
+        self.notification_pr_page_ticket_v63 = None;
         self.needs_refresh = false;
         self.freshness = Freshness::Offline {
             fetched_at: 0,

@@ -1,34 +1,98 @@
-//! Shared ORIGINAL read-session machinery. Only real catalogue membership is
-//! active in this prerequisite; a future personal member must come from its
-//! own actual producer, never a fabricated catalogue Read or raw DTO.
+//! Shared ORIGINAL read-session machinery. Personal membership comes ONLY from
+//! its actual single-repository producer, never a fabricated catalogue Read.
 //! Budget, measured pool and prepaid lineage are moved, never reset.
 use super::*;
 
 enum OriginalRepositoryMembershipV13<'a> {
     Catalogue(&'a RepositoryCatalogueRead),
+    Personal(Arc<PersonalRepositoryOriginalV13>),
+    Notifications(Arc<notifications_v63::NotificationRepositoryOriginalV63>),
 }
 impl OriginalRepositoryMembershipV13<'_> {
-    fn catalogue(&self) -> &RepositoryCatalogueRead {
-        let Self::Catalogue(original) = self;
-        original
-    }
     fn identity(&self) -> &HostIdentity {
-        self.catalogue().identity()
+        match self {
+            Self::Catalogue(original) => original.identity(),
+            Self::Personal(original) => &original.identity,
+            Self::Notifications(original) => original.identity(),
+        }
     }
     fn owner(&self) -> Option<&RepositoryCatalogueOwner> {
-        self.catalogue().owner()
+        match self {
+            Self::Catalogue(original) => original.owner(),
+            Self::Personal(original) => Some(&original.owner),
+            Self::Notifications(_) => None,
+        }
     }
-    fn repository_at(&self, index: usize) -> &RepositoryCatalogueRepository {
-        &self.catalogue().repositories()[index]
+    fn repository_at(&self, index: usize) -> OriginalRepositoryIdentityV63<'_> {
+        match self {
+            Self::Catalogue(original) => {
+                OriginalRepositoryIdentityV63::Full(&original.repositories()[index])
+            }
+            Self::Personal(original) => {
+                assert_eq!(
+                    index, 0,
+                    "closed personal membership has exactly one actual repository"
+                );
+                OriginalRepositoryIdentityV63::Full(original.current.repository())
+            }
+            Self::Notifications(original) => {
+                OriginalRepositoryIdentityV63::Notification(&original.repositories()[index])
+            }
+        }
     }
     fn parser_context_v13<'a>(
         &self,
         current_owner: &'a RepositoryCatalogueOwner,
     ) -> parse::RepositoryParseContextV13<'a> {
-        parse::RepositoryParseContextV13::current_catalogue(
-            self.catalogue().context(),
-            current_owner,
-        )
+        match self {
+            Self::Catalogue(original) => parse::RepositoryParseContextV13::current_catalogue(
+                original.context(),
+                current_owner,
+            ),
+            Self::Personal(_) | Self::Notifications(_) => {
+                parse::RepositoryParseContextV13::personal_observed_owner_v13(current_owner)
+            }
+        }
+    }
+}
+/// Genuine borrowed identity ONLY. Notification membership lacks the fields
+/// needed for a full repository DTO; never synthesize those absent values.
+#[derive(Clone, Copy)]
+enum OriginalRepositoryIdentityV63<'a> {
+    Full(&'a RepositoryCatalogueRepository),
+    Notification(&'a notifications_v63::NotificationRepositoryV63),
+}
+impl<'a> OriginalRepositoryIdentityV63<'a> {
+    fn node(self) -> Option<&'a str> {
+        match self {
+            Self::Full(r) => r.node_id.as_deref(),
+            Self::Notification(r) => Some(r.node()),
+        }
+    }
+    fn name(self) -> &'a str {
+        match self {
+            Self::Full(r) => &r.full_name,
+            Self::Notification(r) => r.name(),
+        }
+    }
+    fn owner(self) -> Option<(u64, Option<&'a str>, &'a str)> {
+        match self {
+            Self::Full(r) => r.owner.as_ref().and_then(|a| {
+                a.database_id
+                    .filter(|n| *n > 0)
+                    .map(|n| (n, a.node_id.as_deref(), a.actor.actor_type.as_str()))
+            }),
+            Self::Notification(r) => r.owner().map(|o| {
+                (
+                    o.id,
+                    o.node_id.as_deref(),
+                    match o.kind {
+                        RepositoryCatalogueOwnerKind::User => "User",
+                        RepositoryCatalogueOwnerKind::Organization => "Organization",
+                    },
+                )
+            }),
+        }
     }
 }
 
@@ -52,6 +116,7 @@ pub(super) struct OriginalRepositoryAccessCoreV13<'a> {
     pub(super) postwrite_reservation_v2:
         Option<postwrite_capture_v2::PostWriteSessionReservationV2>,
     pub(super) fatal: Option<GithubErrorKind>,
+    notification_reads_v63: BTreeMap<u64, usize>,
 }
 pub(super) struct ClosedOriginalRepositoryAccessV13 {
     pub(super) identity: HostIdentity,
@@ -65,6 +130,90 @@ pub(super) struct ClosedOriginalRepositoryAccessV13 {
     pub(super) postwrite_capture_v2: Option<PostWriteCaptureAccountingV2>,
 }
 impl<'a> OriginalRepositoryAccessCoreV13<'a> {
+    pub(super) fn from_started_notifications_v63(
+        provider: &'a GithubProvider,
+        original: Arc<notifications_v63::NotificationRepositoryOriginalV63>,
+        identity: HostIdentity,
+        limits: &RepositoryCatalogueAccessLimits,
+        budget: CatalogueBudget,
+        cancel: &CancellationToken,
+    ) -> GithubResult<Self> {
+        budget.check(cancel)?;
+        if !original.matches_issuer(provider)
+            || original.identity().host != identity.host
+            || original.identity().account_id != identity.account_id
+        {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Notification original issuer/numeric principal changed; no new budget/source",
+            ));
+        }
+        let original_indices = original
+            .repositories()
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.id(), i))
+            .collect();
+        Ok(Self {
+            provider,
+            original: OriginalRepositoryMembershipV13::Notifications(original),
+            identity,
+            limits: limits.clone(),
+            budget,
+            original_indices,
+            references: BTreeMap::new(),
+            verified: Vec::new(),
+            failures: Vec::new(),
+            repository_reads: 0,
+            metadata_bytes: 0,
+            external_requests_reserved: 0,
+            external_capture_reserved_bytes: 0,
+            original_cancellation: cancel.clone(),
+            measured_external: None,
+            measured_parent_reads_remaining: 0,
+            postwrite_reservation_v2: None,
+            fatal: None,
+            notification_reads_v63: BTreeMap::new(),
+        })
+    }
+    pub(super) fn from_started_personal_v13(
+        provider: &'a GithubProvider,
+        original: Arc<PersonalRepositoryOriginalV13>,
+        identity: HostIdentity,
+        limits: &RepositoryCatalogueAccessLimits,
+        budget: CatalogueBudget,
+        cancel: &CancellationToken,
+        initial: Option<usize>,
+    ) -> GithubResult<Self> {
+        budget.check(cancel)?;
+        let id = original.current.original().id;
+        let references = if initial.is_some() {
+            BTreeMap::from([(id, original.current.original().clone())])
+        } else {
+            BTreeMap::new()
+        };
+        Ok(Self {
+            provider,
+            original: OriginalRepositoryMembershipV13::Personal(original),
+            identity,
+            limits: limits.clone(),
+            budget,
+            original_indices: std::collections::HashMap::from([(id, 0)]),
+            references,
+            verified: Vec::new(),
+            failures: Vec::new(),
+            repository_reads: usize::from(initial.is_some()),
+            metadata_bytes: initial.unwrap_or(0),
+            external_requests_reserved: 0,
+            external_capture_reserved_bytes: 0,
+            original_cancellation: cancel.clone(),
+            measured_external: None,
+            measured_parent_reads_remaining: 0,
+            postwrite_reservation_v2: None,
+            fatal: None,
+            notification_reads_v63: BTreeMap::new(),
+        })
+    }
     /// Takes ownership of the ALREADY-started original budget. No second user
     /// read, new clock, reset capture pool or synthetic membership is created.
     pub(super) fn from_started_catalogue_v13(
@@ -101,10 +250,42 @@ impl<'a> OriginalRepositoryAccessCoreV13<'a> {
             measured_parent_reads_remaining: 0,
             postwrite_reservation_v2: None,
             fatal: None,
+            notification_reads_v63: BTreeMap::new(),
         })
     }
 }
 impl OriginalRepositoryAccessCoreV13<'_> {
+    pub(super) fn validate_personal_reference_v13(
+        &self,
+        reference: &IntentReference,
+    ) -> GithubResult<()> {
+        if let OriginalRepositoryMembershipV13::Personal(original) = &self.original {
+            if original.reference() != reference {
+                return Err(error(
+                    GithubErrorKind::InvalidTarget,
+                    "Personal original phase cannot select another repository/reference",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn personal_closing_ready_v13(&self) -> bool {
+        !matches!(&self.original, OriginalRepositoryMembershipV13::Personal(_))
+            || (self.repository_reads >= 2
+                && self.verified.len() == 1
+                && self.failures.is_empty()
+                && self.verified[0].repository().permissions.pull == Some(true))
+    }
+    pub(super) fn clamp_personal_capture_v13(&self, cap: usize) -> usize {
+        match &self.original {
+            OriginalRepositoryMembershipV13::Catalogue(_) => cap,
+            OriginalRepositoryMembershipV13::Personal(_)
+            | OriginalRepositoryMembershipV13::Notifications(_) => self
+                .provider
+                .scoped_read_window
+                .map_or(cap, |(_, original_cap)| cap.min(original_cap)),
+        }
+    }
     pub(super) fn identity(&self) -> &HostIdentity {
         &self.identity
     }
@@ -114,7 +295,16 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         self.verified.iter().find(|row| row.original.id == id)
     }
     pub(super) fn deadline(&self) -> Instant {
-        self.budget.deadline()
+        match &self.original {
+            OriginalRepositoryMembershipV13::Catalogue(_) => self.budget.deadline(),
+            OriginalRepositoryMembershipV13::Personal(_)
+            | OriginalRepositoryMembershipV13::Notifications(_) => self
+                .provider
+                .scoped_read_window
+                .map_or(self.budget.deadline(), |(deadline, _)| {
+                    self.budget.deadline().min(deadline)
+                }),
+        }
     }
     pub(super) fn remaining(&self, cancel: &CancellationToken) -> GithubResult<Duration> {
         self.budget.check(cancel)?;
@@ -189,6 +379,23 @@ impl OriginalRepositoryAccessCoreV13<'_> {
                 "Original access scope already refused; start an explicit new request",
             ));
         }
+        if let OriginalRepositoryMembershipV13::Notifications(original) = &self.original {
+            let valid = self
+                .original_indices
+                .get(&reference.id)
+                .and_then(|i| original.reference(*i))
+                .is_some_and(|actual| actual == *reference);
+            if !valid
+                || self
+                    .notification_reads_v63
+                    .get(&reference.id)
+                    .copied()
+                    .unwrap_or(0)
+                    >= 2
+            {
+                return Err(error(GithubErrorKind::InvalidTarget,"Notification phase requires exact actual member and at most opening/closing repository reads"));
+            }
+        }
         validate_reference(reference)
             .inspect_err(|_| self.fatal = Some(GithubErrorKind::InvalidTarget))?;
         if self.original.owner().is_some_and(|owner| {
@@ -242,6 +449,12 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         let result = self.observe(reference, cap, cancel);
         match result {
             Ok(observation) => {
+                if matches!(
+                    &self.original,
+                    OriginalRepositoryMembershipV13::Notifications(_)
+                ) {
+                    *self.notification_reads_v63.entry(reference.id).or_default() += 1;
+                }
                 self.failures
                     .retain(|failure| failure.original.id != reference.id);
                 let index = if let Some(index) = self
@@ -267,6 +480,7 @@ impl OriginalRepositoryAccessCoreV13<'_> {
                         | GithubErrorKind::RateLimited
                         | GithubErrorKind::MissingGh
                         | GithubErrorKind::Unsupported
+                        | GithubErrorKind::OutputLimit
                 ) {
                     self.fatal = Some(failure.kind.clone());
                 }
@@ -286,45 +500,14 @@ impl OriginalRepositoryAccessCoreV13<'_> {
         cap: usize,
         cancel: &CancellationToken,
     ) -> GithubResult<CurrentCatalogueRepository> {
-        let value = self.budget.json(
-            self.provider,
-            &format!("repos/{}", reference.last_name),
-            cap,
-            cancel,
-        )?;
+        let value = self
+            .budget
+            .original_repository_v9(self.provider, reference, cap, cancel)?;
         let prior = self
             .original_indices
             .get(&reference.id)
             .map(|index| self.original.repository_at(*index));
-        let raw_owner = value
-            .get("owner")
-            .filter(|owner| owner.is_object())
-            .ok_or_else(|| {
-                error(
-                    GithubErrorKind::IdentityChanged,
-                    "Current owner namespace is unavailable, not guessed from a repository name",
-                )
-            })?;
-        let login = raw_owner
-            .get("login")
-            .and_then(Value::as_str)
-            .filter(|login| !login.is_empty() && login.len() <= 100)
-            .ok_or_else(|| {
-                error(
-                    GithubErrorKind::IdentityChanged,
-                    "Current owner canonical name is unavailable",
-                )
-            })?;
-        let current_owner_source =
-            match raw_owner.get("type").and_then(Value::as_str) {
-                Some("Organization") => RepositoryCatalogueSource::Organization(login.into()),
-                Some("User") => RepositoryCatalogueSource::PublicUser(login.into()),
-                _ => return Err(error(
-                    GithubErrorKind::IdentityChanged,
-                    "Current owner resource kind is unverified; no node/number namespace inferred",
-                )),
-            };
-        let current_owner = parse::owner(raw_owner, &current_owner_source, login)?;
+        let current_owner = parse::repository_owner_v13(&value)?;
         let current_kind = match current_owner.kind {
             RepositoryCatalogueOwnerKind::Organization => "Organization",
             RepositoryCatalogueOwnerKind::User => "User",
@@ -339,15 +522,7 @@ impl OriginalRepositoryAccessCoreV13<'_> {
                 },
             ))
         } else {
-            prior.and_then(|row| row.owner.as_ref()).and_then(|actor| {
-                actor.database_id.filter(|id| *id > 0).map(|id| {
-                    (
-                        id,
-                        actor.node_id.as_deref(),
-                        actor.actor.actor_type.as_str(),
-                    )
-                })
-            })
+            prior.and_then(OriginalRepositoryIdentityV63::owner)
         };
         if previous_owner.is_some_and(|(id, node, kind)| {
             id != current_owner.id
@@ -387,9 +562,8 @@ impl OriginalRepositoryAccessCoreV13<'_> {
             return Err(error(GithubErrorKind::IdentityChanged,"Current repository does not match original database/node identity; no name alias or recreation admission"));
         }
         if prior.is_some_and(|row| {
-            row.node_id
-                .as_ref()
-                .is_some_and(|node| repository.node_id.as_ref() != Some(node))
+            row.node()
+                .is_some_and(|node| repository.node_id.as_deref() != Some(node))
         }) {
             return Err(error(GithubErrorKind::IdentityChanged,"Genuine original observed repository node changed; unverified intent cannot weaken it"));
         }
@@ -414,8 +588,7 @@ impl OriginalRepositoryAccessCoreV13<'_> {
             && (!repository
                 .full_name
                 .eq_ignore_ascii_case(&reference.last_name)
-                || prior
-                    .is_some_and(|row| !row.full_name.eq_ignore_ascii_case(&repository.full_name)))
+                || prior.is_some_and(|row| !row.name().eq_ignore_ascii_case(&repository.full_name)))
         {
             return Err(error(GithubErrorKind::IdentityChanged,"Rename lacks genuine original owner proof; do not infer ownership from a cached name"));
         }
@@ -447,7 +620,27 @@ impl OriginalRepositoryAccessCoreV13<'_> {
                 "Original access scope refused; no closed private observations",
             ));
         }
-        if self.references.is_empty() {
+        let notification_empty = matches!(&self.original,OriginalRepositoryMembershipV13::Notifications(original) if original.complete_empty());
+        if let OriginalRepositoryMembershipV13::Notifications(original) = &self.original {
+            if !original.complete_empty()
+                && (!self.failures.is_empty()
+                    || self
+                        .verified
+                        .iter()
+                        .any(|r| r.repository().permissions.pull != Some(true))
+                    || self.verified.len() != original.repositories().len()
+                    || original
+                        .repositories()
+                        .iter()
+                        .any(|r| self.notification_reads_v63.get(&r.id()) != Some(&2)))
+            {
+                return Err(error(
+                    GithubErrorKind::IdentityChanged,
+                    "Notification private rows lack actual opening/closing repository observations",
+                ));
+            }
+        }
+        if self.references.is_empty() && !notification_empty {
             return Err(error(
                 GithubErrorKind::InvalidTarget,
                 "No explicit original repository selected; never default to all",
@@ -484,11 +677,12 @@ impl OriginalRepositoryAccessCoreV13<'_> {
             .postwrite_reservation_v2
             .as_ref()
             .map(|reservation| reservation.metadata());
+        let original_deadline = self.deadline();
         let postwrite_reservation_v2 = self.postwrite_reservation_v2;
         let deadline = postwrite_reservation_v2
             .as_ref()
-            .map_or(self.budget.deadline(), |reservation| {
-                self.budget.deadline().min(reservation.deadline())
+            .map_or(original_deadline, |reservation| {
+                original_deadline.min(reservation.deadline())
             });
         let original_cancellation = self.original_cancellation;
         let result = ClosedOriginalRepositoryAccessV13 {

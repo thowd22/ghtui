@@ -130,6 +130,8 @@ fn workflow_controls_journal_distinct_dispatch_acceptance_rejects_pending_or_kno
                         } else {
                             None
                         },
+                        original_dispatch_run_v7: None,
+                        workflow_remote_v9: None,
                     },
                 )
                 .unwrap();

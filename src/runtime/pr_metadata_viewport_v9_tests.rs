@@ -27,6 +27,7 @@ fn workspace(tab: PrTab) -> GithubWorkspace {
         checks: None,
         rows: vec![],
         context: None,
+        metadata_display_v51: None,
         review_progress: None,
     };
     if tab == PrTab::Metadata {

@@ -51,6 +51,15 @@ debug = 0
 [profile.test]
 debug = 0
 
+# Keep the growing code/PTY test crates below the development-host memory
+# high-water mark even with incremental compilation disabled. Restrict this
+# partitioning to ghtui: dependency build settings and release output stay put.
+[profile.dev.package.ghtui]
+codegen-units = 256
+
+[profile.test.package.ghtui]
+codegen-units = 256
+
 # Verified upstream source pins and manifest-only platform reductions are documented
 # in vendor/upstream-sources.json and vendor/README.md.
 [patch.crates-io]

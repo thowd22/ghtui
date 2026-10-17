@@ -15,10 +15,11 @@ pub fn retire_invalid_form(app: &mut crate::app::App) -> bool {
         _ => None,
     });
     if original.is_some_and(|intent| {
-        crate::remote_scope_gate_v1::retire_original_account_mismatch(
+        crate::scoped_pr_observed_tabs_v1::resources::threads_v1::retire_original_account_v75(
             app,
             &intent.source,
             &intent.active,
+            &intent.navigation,
         )
     }) {
         return true;

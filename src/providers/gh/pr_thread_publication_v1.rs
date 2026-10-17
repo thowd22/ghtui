@@ -111,7 +111,7 @@ fn phase(cancel: &CancellationToken, deadline: Instant) -> GithubResult<()> {
 fn opaque_node(node: &str) -> bool {
     !node.is_empty() && node.len() <= 512 && !node.chars().any(char::is_control)
 }
-fn canonical_bigint(value: &Value) -> Option<u64> {
+pub(super) fn canonical_bigint(value: &Value) -> Option<u64> {
     if let Some(id) = value.as_u64() {
         return (id > 0).then_some(id);
     }

@@ -19,10 +19,12 @@ pub enum HistoryActionV1 {
     Refresh,
     CommentsV2,
     ReactionsV3,
+    FilesV75,
     Back,
     Quit,
 }
 pub struct ThreadHistoryBrowserV1 {
+    pub file_history_v75: Option<files_v75::ui::FileCommentHistoryBrowserV75>,
     pub comment_history_v2: Option<comments_v2::ui::CommentHistoryBrowserV2>,
     pub reaction_history_v3: Option<reactions_v3::ui::ReactionHistoryBrowserV3>,
     pub intent: Arc<ThreadHistoryIntentV1>,
@@ -46,8 +48,18 @@ pub fn retire_invalid(app: &mut App) -> bool {
     else {
         return false;
     };
-    if crate::remote_scope_gate_v1::retire_original_account_mismatch(app, &old.source, &old.active)
-    {
+    if old.retire_account_mismatch(app) {
+        // The Summary helper retires only its exact old page, not a newer slot.
+        if app
+            .scoped_thread_history_v1
+            .as_ref()
+            .is_some_and(|view| Arc::ptr_eq(&view.intent, &old))
+        {
+            app.scoped_thread_history_v1 = None;
+            if app.overlay == Some(Overlay::PrThreadHistoryV1) {
+                app.overlay = None;
+            }
+        }
         return true;
     }
     let consumed = app.overlay == Some(Overlay::PrThreadHistoryV1);
@@ -75,7 +87,7 @@ pub fn retire_invalid(app: &mut App) -> bool {
 }
 impl ThreadHistoryBrowserV1 {
     pub fn pending(intent: Arc<ThreadHistoryIntentV1>) -> Self {
-        Self{comment_history_v2:None,reaction_history_v3:None,intent,listed:None,opened:None,selected:0,scroll:0,column:0,message:"Fresh original Summary/account/source read pending • Esc cancels • nothing published",hits:vec![]}
+        Self{file_history_v75:None,comment_history_v2:None,reaction_history_v3:None,intent,listed:None,opened:None,selected:0,scroll:0,column:0,message:"Fresh original Summary/account/source read pending • Esc cancels • nothing published",hits:vec![]}
     }
 }
 pub fn dispatch(app: &mut App, action: HistoryActionV1) {
@@ -120,6 +132,10 @@ pub fn dispatch(app: &mut App, action: HistoryActionV1) {
     }
     if action == HistoryActionV1::ReactionsV3 {
         native_v1::open_reaction_history_v3(app);
+        return;
+    }
+    if action == HistoryActionV1::FilesV75 {
+        native_v1::open_file_history_v75(app);
         return;
     }
     let Some(view) = &mut app.scoped_thread_history_v1 else {
@@ -189,6 +205,13 @@ pub fn event(app: &mut App, event: &Event) -> bool {
     if app
         .scoped_thread_history_v1
         .as_ref()
+        .is_some_and(|view| view.file_history_v75.is_some())
+    {
+        return files_v75::ui::event(app, event);
+    }
+    if app
+        .scoped_thread_history_v1
+        .as_ref()
         .is_some_and(|view| view.reaction_history_v3.is_some())
     {
         return reactions_v3::ui::event(app, event);
@@ -218,6 +241,7 @@ pub fn event(app: &mut App, event: &Event) -> bool {
                     KeyCode::Char('r') => Some(HistoryActionV1::Refresh),
                     KeyCode::Char('c') => Some(HistoryActionV1::CommentsV2),
                     KeyCode::Char('R') => Some(HistoryActionV1::ReactionsV3),
+                    KeyCode::Char('F') => Some(HistoryActionV1::FilesV75),
                     KeyCode::Up | KeyCode::Char('k') => Some(HistoryActionV1::Move(-1)),
                     KeyCode::Down | KeyCode::Char('j') => Some(HistoryActionV1::Move(1)),
                     KeyCode::PageUp => Some(HistoryActionV1::Scroll(-10)),
@@ -251,6 +275,14 @@ pub fn event(app: &mut App, event: &Event) -> bool {
 }
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     retire_invalid(app);
+    if app
+        .scoped_thread_history_v1
+        .as_ref()
+        .is_some_and(|view| view.file_history_v75.is_some())
+    {
+        files_v75::ui::draw(frame, app, area);
+        return;
+    }
     if app
         .scoped_thread_history_v1
         .as_ref()
@@ -298,6 +330,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ("[r Refresh]", HistoryActionV1::Refresh),
         ("[c Comment history]", HistoryActionV1::CommentsV2),
         ("[R Reaction history]", HistoryActionV1::ReactionsV3),
+        ("[F FILE history]", HistoryActionV1::FilesV75),
         ("[PgUp Previous]", HistoryActionV1::Scroll(-10)),
         ("[PgDn Next]", HistoryActionV1::Scroll(10)),
         ("[Home Top]", HistoryActionV1::Home),

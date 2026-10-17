@@ -149,6 +149,7 @@ impl GithubProvider {
                 GithubErrorKind::Authentication
                     | GithubErrorKind::Transport
                     | GithubErrorKind::MissingGh
+                    | GithubErrorKind::OutputLimit
             ) {
                 return Err(remote_error(
                     error.kind.clone(),
@@ -214,16 +215,25 @@ fn reference(
     name: &str,
     cancel: &CancellationToken,
 ) -> GithubResult<(String, String)> {
+    reference_using_v7(repo, kind, name, &mut |endpoint| {
+        json_read(provider, endpoint, cancel)
+    })
+}
+pub(in crate::providers::gh) fn validate_reference_name_v7(name: &str) -> GithubResult<()> {
+    parse::reference_name(name)
+}
+pub(in crate::providers::gh) fn reference_using_v7(
+    repo: &str,
+    kind: RemoteReferenceKindV1,
+    name: &str,
+    read: &mut impl FnMut(&str) -> GithubResult<Value>,
+) -> GithubResult<(String, String)> {
     parse::reference_name(name)?;
-    let value = json_read(
-        provider,
-        &format!(
-            "repos/{repo}/git/ref/{}/{}",
-            kind.namespace(),
-            parse::encoded(name)
-        ),
-        cancel,
-    )?;
+    let value = read(&format!(
+        "repos/{repo}/git/ref/{}/{}",
+        kind.namespace(),
+        parse::encoded(name)
+    ))?;
     if parse::field(&value, "ref", 1040)? != format!("refs/{}/{name}", kind.namespace()) {
         return Err(remote_error(
             GithubErrorKind::IdentityChanged,
@@ -236,6 +246,65 @@ fn reference(
     let id = parse::field(object, "sha", 64)?;
     parse::oid(id)?;
     Ok((id.into(), parse::field(object, "type", 16)?.into()))
+}
+/// Actual ref/object evidence only, never a repository/source/write permit.
+/// SAME exact reference and tag parser used by ordinary remote browsing.
+pub(in crate::providers::gh) struct ExactReferenceCommitV7 {
+    pub(in crate::providers::gh) tip: String,
+    pub(in crate::providers::gh) original_type: String,
+    pub(in crate::providers::gh) commit: String,
+    pub(in crate::providers::gh) peels: usize,
+}
+pub(in crate::providers::gh) fn resolve_reference_using_v7(
+    repo: &str,
+    kind: RemoteReferenceKindV1,
+    name: &str,
+    expected: Option<&str>,
+    deadline: Instant,
+    cancel: &CancellationToken,
+    read: &mut impl FnMut(&str) -> GithubResult<Value>,
+) -> GithubResult<ExactReferenceCommitV7> {
+    let (tip, mut typ) = reference_using_v7(repo, kind, name, read)?;
+    let original_type = typ.clone();
+    let mut commit = tip.clone();
+    let mut seen = BTreeSet::new();
+    for _ in 0..8 {
+        if typ == "commit" {
+            break;
+        }
+        if typ != "tag" || kind != RemoteReferenceKindV1::Tag || !seen.insert(commit.clone()) {
+            return Err(remote_error(
+                GithubErrorKind::Unsupported,
+                "Remote tag is cyclic or not a saved commit",
+            ));
+        }
+        check(deadline, cancel)?;
+        let value = read(&format!("repos/{repo}/git/tags/{commit}"))?;
+        if parse::field(&value, "sha", 64)? != commit {
+            return Err(remote_error(
+                GithubErrorKind::IdentityChanged,
+                "Remote tag object differs",
+            ));
+        }
+        let object = value
+            .get("object")
+            .ok_or_else(|| remote_error(GithubErrorKind::Json, "Annotated tag target missing"))?;
+        commit = parse::field(object, "sha", 64)?.into();
+        parse::oid(&commit)?;
+        typ = parse::field(object, "type", 16)?.into();
+    }
+    if typ != "commit" || expected.is_some_and(|id| id != commit) {
+        return Err(remote_error(
+            GithubErrorKind::IdentityChanged,
+            "Remote ref tip moved or tag peel limit reached; choose freshly",
+        ));
+    }
+    Ok(ExactReferenceCommitV7 {
+        tip,
+        original_type,
+        commit,
+        peels: seen.len(),
+    })
 }
 fn saved_tree(
     provider: &GithubProvider,
@@ -288,41 +357,20 @@ fn selected_ref(
         name,
         expected,
     } = selection;
-    let (tip, mut typ) = reference(provider, repo, kind, name, cancel)?;
-    let original_type = typ.clone();
-    let mut commit = tip.clone();
-    let mut seen = BTreeSet::new();
-    for _ in 0..8 {
-        if typ == "commit" {
-            break;
-        }
-        if typ != "tag" || kind != RemoteReferenceKindV1::Tag || !seen.insert(commit.clone()) {
-            return Err(remote_error(
-                GithubErrorKind::Unsupported,
-                "Remote tag is cyclic or not a saved commit",
-            ));
-        }
-        check(deadline, cancel)?;
-        let value = json_read(provider, &format!("repos/{repo}/git/tags/{commit}"), cancel)?;
-        if parse::field(&value, "sha", 64)? != commit {
-            return Err(remote_error(
-                GithubErrorKind::IdentityChanged,
-                "Remote tag object differs",
-            ));
-        }
-        let object = value
-            .get("object")
-            .ok_or_else(|| remote_error(GithubErrorKind::Json, "Annotated tag target missing"))?;
-        commit = parse::field(object, "sha", 64)?.into();
-        parse::oid(&commit)?;
-        typ = parse::field(object, "type", 16)?.into();
-    }
-    if typ != "commit" || expected.is_some_and(|id| id != commit) {
-        return Err(remote_error(
-            GithubErrorKind::IdentityChanged,
-            "Remote ref tip moved or tag peel limit reached; choose freshly",
-        ));
-    }
+    let ExactReferenceCommitV7 {
+        tip,
+        original_type,
+        commit,
+        ..
+    } = resolve_reference_using_v7(
+        repo,
+        kind,
+        name,
+        expected,
+        deadline,
+        cancel,
+        &mut |endpoint| json_read(provider, endpoint, cancel),
+    )?;
     let directory = saved_tree(provider, repo, source, &commit, limits, cancel)?;
     let current = reference(provider, repo, kind, name, cancel)?;
     if current.0 != tip || current.1 != original_type {

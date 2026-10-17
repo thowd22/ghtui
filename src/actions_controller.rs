@@ -13,6 +13,18 @@ use crate::{
     },
 };
 mod local_only;
+mod remote_transaction_v3;
+mod scoped_dispatch_v7;
+mod scoped_run_v3;
+mod scoped_workflow_v6;
+mod workflow_remote_v9;
+pub(crate) use scoped_dispatch_v7::{execute as execute_scoped_dispatch_v7, DispatchExecutionV7};
+pub(crate) use scoped_run_v3::execute as execute_scoped_run_v3;
+pub(crate) use scoped_run_v3::RunExecutionV8;
+pub(crate) use scoped_workflow_v6::{execute as execute_scoped_workflow_v6, WorkflowExecutionV6};
+pub(crate) use workflow_remote_v9::{
+    execute as execute_workflow_remote_v9, WorkflowRemoteExecutionV9,
+};
 
 #[derive(Debug)]
 pub enum ActionsExecution {
@@ -222,84 +234,12 @@ where
             outcome: refreshed.outcome,
         };
     };
-    let permit = match journal.begin(&descriptor.target, &descriptor.intent) {
-        Ok(permit) => permit,
-        Err(error) => return refused(error.to_string(), true),
+    let mut policy = remote_transaction_v3::LegacyTransactionV3 {
+        provider,
+        plan,
+        cancel,
     };
-    let reference = permit.marker().publication_reference();
-    if ordered_metadata(permit.marker()).is_err() {
-        return refused("Original publication metadata could not be durably saved; no effect was sent and its pending marker remains blocked",true);
-    }
-    if let Err(error) = journal.claim(&permit, &descriptor.target, &descriptor.intent) {
-        return refused(
-            format!("Publication permit was not authorized; no effect was sent: {error}"),
-            true,
-        );
-    }
-    let publication = match plan.publish(provider, true, cancel) {
-        Ok(value) => value,
-        Err(error) => {
-            let persisted = journal.mark_uncertain(&permit);
-            let private_visible = fresh_identity(provider, &plan.identity, cancel).is_ok();
-            let mut message = publication_error(&error, descriptor.intent.kind, private_visible);
-            if persisted.is_err() {
-                message
-                    .push_str(" Pending marker retained because uncertainty persistence failed.");
-            }
-            return ActionsExecution::Unknown {
-                publication: reference,
-                error: message,
-                private_visible,
-            };
-        }
-    };
-    let disposition = publication.disposition.clone();
-    let (receipt, acceptance, persisted) = match &disposition {
-        ActionsDisposition::VerifiedEffect { receipt } => (
-            receipt.clone(),
-            None,
-            journal.mark_confirmed(&permit, receipt),
-        ),
-        ActionsDisposition::Accepted {
-            receipt,
-            observation,
-        } => (
-            receipt.clone(),
-            Some(observation.clone()),
-            journal.mark_accepted_pending(&permit, receipt),
-        ),
-        ActionsDisposition::LocalOnly => {
-            let _ = journal.mark_uncertain(&permit);
-            return ActionsExecution::Unknown {publication:reference,error:"Remote plan returned no typed effect/acceptance; original marker remains blocked and nothing may be resent".into(),private_visible:false};
-        }
-    };
-    if persisted.is_err() {
-        let private_visible = fresh_identity(provider, &plan.identity, cancel).is_ok();
-        return ActionsExecution::ReceiptPersistenceFailed {publication:reference,disposition,error:"GitHub returned a typed effect/acceptance but its durable receipt failed; pending barrier remains. Do not resend; inspect the exact original result.".into(),private_visible};
-    }
-    // Optional I/O is strictly after the durable synchronous/accepted receipt.
-    let mut refreshed = publication.refresh_checked(provider, cancel);
-    let current = match fresh_identity(provider, &plan.identity, cancel) {
-        Ok(current) => current,
-        Err(error) => return refresh_failure(reference, receipt, acceptance, None, error, false),
-    };
-    refreshed.outcome.workspace.identity = current;
-    if refreshed.refresh_failed {
-        return refresh_failure(reference,receipt,acceptance,Some(refreshed.outcome),"Original effect/acceptance is durably recorded; optional view refresh failed. Do not resend.".into(),true);
-    }
-    match acceptance {
-        Some(observation) => ActionsExecution::AcceptedPending {
-            publication: reference,
-            receipt,
-            observation,
-            outcome: refreshed.outcome,
-        },
-        None => ActionsExecution::Confirmed {
-            publication: reference,
-            receipt,
-            outcome: refreshed.outcome,
-        },
-    }
+    remote_transaction_v3::execute(journal, &descriptor, ordered_metadata, &mut policy)
 }
 
 #[cfg(test)]

@@ -149,6 +149,9 @@ impl NativeDiffPurposeV2 for ScopedPrNativeSourceV1 {
     fn supports_review_threads() -> bool {
         true
     }
+    fn supports_file_comments_v75() -> bool {
+        true
+    }
     type Context = App;
     type Operation = PrNativePreparationV1;
     type Intent = ScopedPrNativeIntentV1;

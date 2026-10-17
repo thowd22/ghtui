@@ -246,4 +246,4 @@ fn boundary_error() -> GithubError {
 
 #[cfg(test)]
 #[path = "scoped_inbox_route_v1_tests.rs"]
-mod tests;
+pub(crate) mod tests;

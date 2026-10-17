@@ -18,6 +18,22 @@ pub struct ActionsPublicationLeaseSnapshot {
     unavailable: bool,
 }
 impl ActionsPublicationLeaseSnapshot {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        let mut n = b::sum([
+            b::owner::<Self>(),
+            self.scope.host.capacity(),
+            self.scope.login.capacity(),
+            self.markers
+                .len()
+                .checked_mul(std::mem::size_of::<ActionsWriteMarker>())?,
+            2 * std::mem::size_of::<usize>(),
+        ])?;
+        for marker in self.markers.iter() {
+            n = n.checked_add(marker.workflow_owned_bytes_v9()?)?;
+        }
+        Some(n)
+    }
     /// Run in the worker after positive account verification and a bounded SQL read.
     /// Closed metadata is checked here once, never parsed or hashed by rendering.
     pub fn prepare(identity: &HostIdentity, page: &ActionsUnresolvedPage) -> Result<Self> {
@@ -326,6 +342,8 @@ mod tests {
                     resource_id: Some(123),
                     observed_attempt: Some(2),
                     observed_run_id: None,
+                    original_dispatch_run_v7: None,
+                    workflow_remote_v9: None,
                 },
             )
             .unwrap();

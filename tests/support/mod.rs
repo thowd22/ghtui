@@ -10,6 +10,7 @@ pub mod inherited_fixture_writer_v1;
 pub mod owned_pty_processes_v1;
 pub mod receiver_delivery_gate_v1;
 pub mod terminal_screenshots_v1;
+pub mod workflow_tls_v9;
 use std::{
     fs,
     io::{Read, Write},
@@ -709,6 +710,14 @@ impl Session {
 
     pub fn completed_cursorless_end(&self) -> usize {
         self.cursorless_frames.end
+    }
+    /// Pinned Show/Hide follows the completed cell diff. Show comes BEFORE
+    /// final cursor placement: this observes cells, never a caret coordinate.
+    pub fn completed_cells_screen(&self) -> Option<&vt100::Screen> {
+        self.cursorless_frames.last_cells.as_ref()
+    }
+    pub fn completed_cells_end(&self) -> usize {
+        self.cursorless_frames.cells_end
     }
 
     /// Explicit opt-in, completed PTY cells only. No App/renderer access or

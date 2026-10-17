@@ -12,6 +12,7 @@ pub use invalidation::{
     invalidate_confirmed_metadata, repair_label_filter_reads, PrMetadataLabelReadFence,
     PrMetadataStructuredImpact,
 };
+pub(crate) use model::canonical_members;
 pub use model::{
     current_members, PrMetadataCommand, PrMetadataMember, PrMetadataPlan, PrMetadataReceipt,
 };

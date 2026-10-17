@@ -846,6 +846,89 @@ fn atomic_cleanup_once(
 }
 
 #[test]
+fn metadata_post_uid_cleanup_v82_narrowed_actual_queue_cutoff_preserves_acknowledged_sql_body() {
+    let (_directory, path) = fixture();
+    let cache = Ok(Cache::open(&path).unwrap());
+    let (mut writer, receiver) = controlled(&path);
+    let token = CancellationToken::default();
+    let (ack, allocation) = atomic_cleanup_ack(&mut writer, &receiver, &cache, &path, &token);
+    let body = cache.as_ref().unwrap().draft(&scope(), RESOURCE).unwrap();
+    let original_deadline = ack.fence.deadline;
+    let cutoff = Instant::now() + Duration::from_millis(750);
+    assert!(cutoff < original_deadline);
+    let client = writer.client();
+    let cancellation = token.clone();
+    let waiting =
+        thread::spawn(move || client.remove_publication_before_v82(ack, &cancellation, cutoff));
+    let accepted = next(&receiver);
+    let Message::PublicationV2(ref message) = accepted else {
+        panic!("same actual Remove queue")
+    };
+    assert_eq!(message.fence.deadline, cutoff);
+    let PublicationEffectV2::Remove(ref actual) = message.effect else {
+        panic!("original body CAS")
+    };
+    assert_eq!(actual.as_ptr() as usize, allocation);
+    assert_eq!(writer.producer.lock().unwrap().legacy_active, 1);
+    thread::sleep(cutoff.saturating_duration_since(Instant::now()) + Duration::from_millis(5));
+    assert!(waiting
+        .join()
+        .unwrap()
+        .unwrap_err()
+        .acknowledgement_unknown());
+    dispatch(&writer, accepted, &cache);
+    assert_eq!(
+        cache.as_ref().unwrap().draft(&scope(), RESOURCE).unwrap(),
+        body
+    );
+    assert_eq!(writer.producer.lock().unwrap().legacy_active, 0);
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    finish(writer, receiver);
+}
+
+#[test]
+fn metadata_post_uid_cleanup_v82_later_requested_cutoff_never_renews_original_ack() {
+    let (_directory, path) = fixture();
+    let cache = Ok(Cache::open(&path).unwrap());
+    let (mut writer, receiver) = controlled(&path);
+    let token = CancellationToken::default();
+    let (ack, allocation) = atomic_cleanup_ack(&mut writer, &receiver, &cache, &path, &token);
+    let original_deadline = ack.fence.deadline;
+    let client = writer.client();
+    let waiting = thread::spawn(move || {
+        client.remove_publication_before_v82(
+            ack,
+            &token,
+            original_deadline + Duration::from_secs(10),
+        )
+    });
+    let accepted = next(&receiver);
+    let Message::PublicationV2(ref message) = accepted else {
+        panic!("same actual Remove queue")
+    };
+    assert_eq!(message.fence.deadline, original_deadline);
+    let PublicationEffectV2::Remove(ref actual) = message.effect else {
+        panic!("same acknowledged body")
+    };
+    assert_eq!(actual.as_ptr() as usize, allocation);
+    dispatch(&writer, accepted, &cache);
+    waiting.join().unwrap().unwrap();
+    assert_eq!(
+        cache.as_ref().unwrap().draft(&scope(), RESOURCE).unwrap(),
+        None
+    );
+    assert_eq!(writer.producer.lock().unwrap().legacy_active, 0);
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    finish(writer, receiver);
+}
+
+#[test]
 fn pending_reviews_v2_draft_publication_atomic_cleanup_external_replacement_preserves_newer_exact_bytes_despite_queue_current(
 ) {
     let (_directory, path) = fixture();

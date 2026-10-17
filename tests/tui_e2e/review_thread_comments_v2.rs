@@ -1,6 +1,8 @@
 //! SOURCE ONLY / UNRUN. Actual binary key/mouse journeys; strict command/stdin,
 //! original SQL/body/ref/origin, live owned child, Git/config and TTY witnesses.
 use super::*;
+#[path = "file_comment_controls_v75.rs"]
+mod file_controls_v75;
 #[path = "review_thread_historical_v5.rs"]
 mod historical_v5;
 #[path = "review_thread_reactions_v3.rs"]
@@ -688,8 +690,25 @@ fn journey_v2(mouse: bool, operation: CommentOpV2, finish: FinishV2, restart: bo
             "Actual separate closed V2 protected history row",
             Duration::from_secs(8),
         );
+        // Keep genuine output in its original receiver for one bounded hold;
+        // command invocation alone must not acknowledge the loaded detail.
+        let detail_opened_after = next.completed_cursorless_end();
+        next.hold_observed_output_after_next_write_v1(Duration::from_millis(200));
         control_v2(&mut next, mouse, HISTORY_V2, "[Enter Open]", b"\r");
         next.wait_for_command_count(&fixture, old_end + 55);
+        next.wait_for_new_cursorless_condition(
+            detail_opened_after,
+            |frame| {
+                crate::support::overlay_body(frame, HISTORY_V2).is_some_and(|body| {
+                    body.contains("Recorded comment author:")
+                        && body.contains("Recorded attempt #")
+                        && body.contains("INSPECT ONLY")
+                        && !body.contains("Exact original history read pending")
+                })
+            },
+            "Actual completed opened comment detail before any paging input",
+            Duration::from_secs(8),
+        );
         detail_v2(
             &mut next,
             mouse,
@@ -712,6 +731,12 @@ fn journey_v2(mouse: bool, operation: CommentOpV2, finish: FinishV2, restart: bo
         } else {
             assert!(!next.screen().contains(EDITED));
         }
+        let detail_inputs = next.finish_observed_output_hold_v1();
+        assert_eq!(
+            crate::support::receiver_delivery_gate_v1::maximum_unacknowledged(&detail_inputs),
+            1,
+            "Only one actual comment-history input before a completed viewport acknowledgement: {detail_inputs:?}"
+        );
         for (cols, rows) in [(80, 24), (120, 40)] {
             next.resize_owned_header(cols, rows, HISTORY_V2, &["[Enter Open]", "[Esc Back]"]);
             let before = next.completed_cursorless_end();

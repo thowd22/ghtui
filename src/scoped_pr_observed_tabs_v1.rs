@@ -56,11 +56,45 @@ impl std::fmt::Debug for ScopedPrNavigationV1 {
     }
 }
 impl ScopedPrNavigationV1 {
+    pub(crate) fn workflow_owned_bytes_v9(&self) -> Option<usize> {
+        use crate::providers::gh::workflow_capacity_v9 as b;
+        b::sum([
+            b::owner::<Self>(),
+            b::strings(
+                [
+                    &self.scope.host,
+                    &self.scope.login,
+                    &self.original.last_name,
+                    &self.canonical.host,
+                    &self.canonical.repository,
+                    &self.node,
+                    &self.head,
+                    &self.base,
+                ]
+                .into_iter()
+                .chain(self.original.node_id.iter()),
+            )?,
+        ])
+    }
     pub(crate) fn scope(&self) -> &Scope {
         &self.scope
     }
     pub(crate) fn original(&self) -> &IntentReference {
         &self.original
+    }
+    /// Pure comparison against an actual producer parent. No field/source
+    /// constructor, transport, permission or mutable navigation is exposed.
+    pub(crate) fn matches_parent_v63(
+        &self,
+        parent: &crate::providers::gh::PrResourceParentV1,
+    ) -> bool {
+        self.original.id == parent.repository_id()
+            && self.original.node_id.as_deref() == Some(parent.repository_node())
+            && self.canonical.repository == parent.repository()
+            && self.canonical.number == parent.number()
+            && self.node == parent.node_id()
+            && self.head == parent.head_sha()
+            && self.base == parent.base_tip_sha()
     }
     /// Called inside actual admitted initial read, after both genuine brackets.
     pub(crate) fn bind(
@@ -279,6 +313,19 @@ pub(crate) fn initial_summary_fits(
 ) -> Result<bool, ObservedPrTabFailureV1> {
     presentation_fits(page, ObservedPrTabV1::Summary, cancel)
 }
+/// Same existing bounded row/actor foundation, restricted to the actual
+/// Conversation refresh tab. No DTO/source conversion or skipped preflight.
+pub(crate) fn conversation_refresh_fits_v19(
+    page: &crate::github_workspace::PrPage,
+    cancel: &CancellationToken,
+) -> Result<bool, ObservedPrTabFailureV1> {
+    let tab = match page.tab {
+        PrTab::Summary => ObservedPrTabV1::Summary,
+        PrTab::Conversation => ObservedPrTabV1::Conversation,
+        _ => return Err(ObservedPrTabFailureV1::SelectedPageUnavailable),
+    };
+    presentation_fits(page, tab, cancel)
+}
 struct PresentationBudget {
     rows: usize,
     text: usize,
@@ -311,6 +358,13 @@ fn presentation_fits(
     cancel: &CancellationToken,
 ) -> Result<bool, ObservedPrTabFailureV1> {
     let mut budget = PresentationBudget { rows: 0, text: 0 };
+    if let Some(context) = &page.context {
+        if crate::pr_metadata_choices::members_context_capacity_v48(context)
+            .is_none_or(|bytes| !budget.add(0, bytes))
+        {
+            return Ok(false);
+        }
+    }
     if cancel.is_cancelled() {
         return Err(ObservedPrTabFailureV1::Cancelled);
     }

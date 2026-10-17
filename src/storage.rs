@@ -6,19 +6,37 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 mod remote_mapping_candidate_v1;
+pub(crate) mod workflow_cleanup_v9;
 pub(crate) use remote_mapping_candidate_v1::RemoteMappingCandidateV1;
 mod bindings;
+pub(crate) mod conversation_refresh_v19;
+mod state_filter_v68;
 pub use bindings::{
     CanonicalBindingStateMetadata, ResourceBindingMetadata, ResourceBindingSnapshot, SyncBinding,
     SyncBindingKind, SyncBindingStatus, SyncFence, SyncFenceResult, SyncMutationTombstone,
     SyncNamespace,
 };
+pub(crate) use state_filter_v68::PreparedStateCacheRepairV74;
+pub(crate) use state_filter_v68::{
+    state_disposition_fingerprint_v74, state_origin_fingerprint_v74,
+};
+pub(crate) use state_filter_v68::{StateAckCacheEpochV77, StateAckQueueBoundaryV78};
 mod metrics_retention;
 pub use metrics_retention::{
     MetricAuthorityPhase, MetricCategoryBatch, MetricEventTarget, MetricEventsReservation,
     MetricReadIntent, MetricsRetentionAuthority, MetricsRetentionLimits, StoredMetricFrame,
 };
+mod notification_source_v63;
+mod notification_write_v63;
+pub(crate) use notification_write_v63::{
+    NotificationRequestedV63, NotificationWriteMarkerV63, NotificationWritePermitV63,
+    NotificationWriteReferenceV63, NotificationWriteStateV63,
+};
+mod personal_pr_source_v13;
+pub(crate) use personal_pr_source_v13::parent_boundary_v16::ClosedPersonalParentBoundaryV16;
 mod repository_catalogue_intents_v1;
+pub(crate) use notification_source_v63::NotificationSourceWitnessV63;
+pub(crate) use personal_pr_source_v13::{PersonalPrReservationV13, PersonalPrSourceV13};
 pub use repository_catalogue_intents_v1::{
     CatalogueIntentBoundaryError, CatalogueIntentReservation, CatalogueIntentSource,
 };
@@ -86,6 +104,13 @@ pub struct Cache {
     connection: Connection,
 }
 
+#[path = "storage/state_source_commit_v80.rs"]
+mod state_source_commit_v80;
+#[path = "storage/state_source_epoch_v76.rs"]
+mod state_source_epoch_v76;
+pub(crate) use state_source_commit_v80::{CommittedStateSourceV80, PreparedStateSourceCommitV80};
+pub(crate) use state_source_epoch_v76::{StateSourceEpochV76, StateStartupReadV80};
+
 /// A committed source generation. `complete` describes actual fetch coverage;
 /// explicit reserved batches may prune a bounded authoritative membership union
 /// while retaining a truthful partial coverage flag.
@@ -112,6 +137,71 @@ struct SyncPolicy {
     complete: bool,
     prune_missing: bool,
     reservation_authoritative: bool,
+}
+/// Prepared data ONLY, never a source/access/publication permission. The closed
+/// Conversation transaction validates its actual terminal/source witnesses.
+struct EncodedRecordV19 {
+    kind: String,
+    id: String,
+    repository: String,
+    payload: String,
+    fetched_at: u64,
+    source_updated_at: Option<String>,
+    complete: bool,
+}
+struct EncodedSourceV19 {
+    records: Vec<EncodedRecordV19>,
+    previous_members: Vec<(String, String)>,
+    published_at: u64,
+}
+enum SyncRowsV19<'a> {
+    Ordinary(&'a [Record]),
+    Prepared(&'a EncodedSourceV19),
+}
+struct SyncRowV19<'a> {
+    kind: &'a str,
+    id: &'a str,
+    repository: &'a str,
+    payload: std::borrow::Cow<'a, str>,
+    fetched_at: u64,
+    source_updated_at: Option<&'a str>,
+    complete: bool,
+}
+impl SyncRowsV19<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Ordinary(rows) => rows.len(),
+            Self::Prepared(v) => v.records.len(),
+        }
+    }
+    fn row(&self, index: usize) -> Result<SyncRowV19<'_>> {
+        Ok(match self {
+            Self::Ordinary(rows) => {
+                let r = &rows[index];
+                SyncRowV19 {
+                    kind: &r.kind,
+                    id: &r.id,
+                    repository: &r.repository,
+                    payload: std::borrow::Cow::Owned(serde_json::to_string(&r.payload)?),
+                    fetched_at: r.fetched_at,
+                    source_updated_at: r.source_updated_at.as_deref(),
+                    complete: r.complete,
+                }
+            }
+            Self::Prepared(v) => {
+                let r = &v.records[index];
+                SyncRowV19 {
+                    kind: &r.kind,
+                    id: &r.id,
+                    repository: &r.repository,
+                    payload: std::borrow::Cow::Borrowed(&r.payload),
+                    fetched_at: r.fetched_at,
+                    source_updated_at: r.source_updated_at.as_deref(),
+                    complete: r.complete,
+                }
+            }
+        })
+    }
 }
 
 impl Cache {
@@ -180,6 +270,8 @@ impl Cache {
             bindings::initialize_bindings(&transaction)?;
             transaction.pragma_update(None, "user_version", 4)?;
         }
+        notification_write_v63::initialize(&transaction)?;
+        state_filter_v68::initialize(&transaction)?;
         // Corpus mappings/recovery describe deliberate user intent, not derived
         // cache data. Migrate atomically before any caller can clear records.
         transaction.execute_batch(
@@ -228,6 +320,18 @@ impl Cache {
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let generation = Self::reserve_sync_generation_row_v20(&transaction, scope, source)?;
+        transaction.commit()?;
+        Ok(generation)
+    }
+
+    // Same normal counter kernel, also used by the CLOSED actual Conversation
+    // read-attempt transaction. No caller-supplied generation or callback.
+    fn reserve_sync_generation_row_v20(
+        transaction: &rusqlite::Transaction<'_>,
+        scope: &Scope,
+        source: &str,
+    ) -> Result<u64> {
         let reserved: Option<u64> = transaction
             .query_row(
                 "SELECT generation FROM sync_reservations WHERE host=?1 AND login=?2 AND source=?3",
@@ -252,7 +356,6 @@ impl Cache {
             ON CONFLICT(host,login,source) DO UPDATE SET generation=excluded.generation,active=1",
             params![scope.host, scope.login, source, generation],
         )?;
-        transaction.commit()?;
         Ok(generation)
     }
 
@@ -333,13 +436,35 @@ impl Cache {
         records: &[Record],
         policy: SyncPolicy,
     ) -> Result<bool> {
+        Self::publish_sync_rows_v19(
+            transaction,
+            scope,
+            source,
+            generation,
+            SyncRowsV19::Ordinary(records),
+            policy,
+        )
+    }
+    /// Existing publication kernel, with a closed preencoded-data profile.
+    /// Generic callers retain their one-at-a-time JSON serialization/memory
+    /// behavior. Conversation supplies all payloads/old keys BEFORE final UID.
+    fn publish_sync_rows_v19(
+        transaction: &rusqlite::Transaction<'_>,
+        scope: &Scope,
+        source: &str,
+        generation: u64,
+        records: SyncRowsV19<'_>,
+        policy: SyncPolicy,
+    ) -> Result<bool> {
         if source.is_empty() || generation == 0 || generation > i64::MAX as u64 {
             bail!("A sync source and positive bounded generation are required");
         }
-        let mut keys = std::collections::BTreeSet::new();
-        for record in records {
-            if !keys.insert((&record.kind, &record.id)) {
-                bail!("A source generation contains duplicate record identities");
+        if let SyncRowsV19::Ordinary(rows) = &records {
+            let mut keys = std::collections::BTreeSet::new();
+            for record in *rows {
+                if !keys.insert((&record.kind, &record.id)) {
+                    bail!("A source generation contains duplicate record identities");
+                }
             }
         }
         let previous: Option<u64> = transaction
@@ -352,31 +477,35 @@ impl Cache {
         if previous.is_some_and(|previous| generation <= previous) {
             return Ok(false);
         }
-        let previous_members = if policy.prune_missing {
-            let mut statement = transaction.prepare(
+        let previous_members: std::borrow::Cow<'_, [(String, String)]> =
+            if let SyncRowsV19::Prepared(prepared) = &records {
+                std::borrow::Cow::Borrowed(&prepared.previous_members)
+            } else if policy.prune_missing {
+                let mut statement = transaction.prepare(
                 "SELECT kind,id FROM checkpoint_records WHERE host=?1 AND login=?2 AND source=?3",
             )?;
-            let members = statement
-                .query_map(params![scope.host, scope.login, source], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            members
-        } else {
-            Vec::new()
-        };
+                let members = statement
+                    .query_map(params![scope.host, scope.login, source], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                std::borrow::Cow::Owned(members)
+            } else {
+                std::borrow::Cow::Borrowed(&[])
+            };
         if policy.prune_missing {
             transaction.execute(
                 "DELETE FROM checkpoint_records WHERE host=?1 AND login=?2 AND source=?3",
                 params![scope.host, scope.login, source],
             )?;
         }
-        for record in records {
+        for index in 0..records.len() {
+            let record = records.row(index)?;
             transaction.execute("INSERT INTO records VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
                 ON CONFLICT(host,login,kind,id) DO UPDATE SET repository=excluded.repository,payload=excluded.payload,
                 fetched_at=excluded.fetched_at,source_updated_at=excluded.source_updated_at,complete=excluded.complete
                 WHERE ?10 OR excluded.fetched_at>=records.fetched_at",
-                params![scope.host,scope.login,record.kind,record.id,record.repository,serde_json::to_string(&record.payload)?,record.fetched_at,record.source_updated_at,record.complete,policy.reservation_authoritative])?;
+                params![scope.host,scope.login,record.kind,record.id,record.repository,record.payload.as_ref(),record.fetched_at,record.source_updated_at,record.complete,policy.reservation_authoritative])?;
             transaction.execute(
                 "INSERT OR IGNORE INTO checkpoint_records VALUES (?1,?2,?3,?4,?5)",
                 params![scope.host, scope.login, source, record.kind, record.id],
@@ -385,7 +514,7 @@ impl Cache {
         // Records may belong to more than one saved source. Removing one source's
         // member must not erase another source or any user's drafts/saved views.
         if policy.prune_missing {
-            for (kind, id) in previous_members {
+            for (kind, id) in previous_members.iter() {
                 transaction.execute(
                     "DELETE FROM records WHERE host=?1 AND login=?2 AND kind=?3 AND id=?4
                     AND NOT EXISTS (SELECT 1 FROM checkpoint_records m WHERE m.host=records.host
@@ -403,7 +532,10 @@ impl Cache {
                 scope.login,
                 source,
                 generation,
-                now(),
+                match records {
+                    SyncRowsV19::Ordinary(_) => now(),
+                    SyncRowsV19::Prepared(v) => v.published_at,
+                },
                 policy.complete
             ],
         )?;
@@ -442,21 +574,26 @@ impl Cache {
     }
 
     pub fn sync_frame(&self, scope: &Scope, source: &str) -> Result<Option<SyncFrame>> {
-        let checkpoint = self.connection.query_row(
+        let tx = self.connection.unchecked_transaction()?;
+        state_filter_v68::guard_source(&tx, scope, source)?;
+        let checkpoint = tx.query_row(
             "SELECT generation,fetched_at,complete FROM checkpoints WHERE host=?1 AND login=?2 AND source=?3",
             params![scope.host,scope.login,source],
             |row| Ok((row.get::<_,u64>(0)?,row.get::<_,u64>(1)?,row.get::<_,bool>(2)?)),
         ).optional()?;
         let Some((generation, fetched_at, complete)) = checkpoint else {
+            tx.commit()?;
             return Ok(None);
         };
-        let mut statement = self.connection.prepare("SELECT r.kind,r.id,r.repository,r.payload,r.fetched_at,r.source_updated_at,r.complete
+        let mut statement = tx.prepare("SELECT r.kind,r.id,r.repository,r.payload,r.fetched_at,r.source_updated_at,r.complete
             FROM records r JOIN checkpoint_records m ON m.host=r.host AND m.login=r.login AND m.kind=r.kind AND m.id=r.id
             WHERE m.host=?1 AND m.login=?2 AND m.source=?3 ORDER BY r.kind,r.id")?;
         let records = statement
             .query_map(params![scope.host, scope.login, source], record_row)?
             .map(|row| parse_record(row?))
             .collect::<Result<Vec<_>>>()?;
+        drop(statement);
+        tx.commit()?;
         Ok(Some(SyncFrame {
             source: source.into(),
             generation,
@@ -537,6 +674,28 @@ impl Cache {
         if max_bytes == 0 || max_bytes > 128 * 1024 {
             bail!("Invalid private draft byte budget");
         }
+        self.bounded_draft_bytes_v9(scope, resource, max_bytes)
+    }
+
+    /// Closed workflow-edit text profile; never a caller-selected larger cap.
+    /// The actual retained intent supplies account/resource, not decoded text.
+    pub(crate) fn bounded_workflow_edit_draft_v9(
+        &self,
+        intent: &crate::scoped_actions_workflow_edit_v9::WorkflowEditIntentV9,
+    ) -> Result<Option<String>> {
+        self.bounded_draft_bytes_v9(
+            intent.source().original().scope(),
+            intent.key(),
+            crate::scoped_actions_workflow_edit_v9::draft_v9::WORKFLOW_DRAFT_BYTES_V9,
+        )
+    }
+
+    fn bounded_draft_bytes_v9(
+        &self,
+        scope: &Scope,
+        resource: &str,
+        max_bytes: usize,
+    ) -> Result<Option<String>> {
         let transaction = self.connection.unchecked_transaction()?;
         let bytes: Option<usize> = transaction.query_row(
             "SELECT length(CAST(body AS BLOB)) FROM drafts WHERE host=?1 AND login=?2 AND resource=?3",
@@ -570,8 +729,37 @@ impl Cache {
         resource: &str,
         body: &str,
     ) -> Result<()> {
+        Self::remove_publication_draft_exact_connection_v85(&self.connection, scope, resource, body)
+    }
+    /// SAME fixed predicate, also used inside the native atomic projection's
+    /// existing Immediate transaction. No connection/source constructor.
+    pub(crate) fn remove_publication_draft_exact_connection_v85(
+        connection: &Connection,
+        scope: &Scope,
+        resource: &str,
+        body: &str,
+    ) -> Result<()> {
         if body.len() > 128 * 1024 {
             bail!("Original acknowledged draft exceeds publication cleanup bound");
+        }
+        let affected=connection.execute(
+            "DELETE FROM drafts WHERE host=?1 AND login=?2 AND resource=?3 AND body=?4 COLLATE BINARY",
+            params![scope.host,scope.login,resource,body],
+        )?;
+        if affected != 1 {
+            bail!("Original acknowledged draft changed or is absent; newer draft retained, no cleanup retry");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn remove_workflow_edit_draft_exact_v9(
+        &self,
+        scope: &Scope,
+        resource: &str,
+        body: &str,
+    ) -> Result<()> {
+        if body.len() > crate::scoped_actions_workflow_edit_v9::draft_v9::WORKFLOW_DRAFT_BYTES_V9 {
+            bail!("Original acknowledged workflow draft exceeds fixed cleanup bound");
         }
         let affected=self.connection.execute(
             "DELETE FROM drafts WHERE host=?1 AND login=?2 AND resource=?3 AND body=?4 COLLATE BINARY",
@@ -675,8 +863,19 @@ impl Cache {
     /// Remove derivative source data without deleting drafts or saved searches.
     pub fn clear_records(&mut self, scope: &Scope) -> Result<()> {
         let transaction = self.connection.transaction()?;
-        Self::fence_reservations(&transaction, scope)?;
-        bindings::fence_binding_visibility(&transaction, scope, None)?;
+        Self::clear_records_transaction_v5(&transaction, scope)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    // SAME local deletion kernel. The closed Catalogue caller validates its
+    // original source/file/clock under this SAME transaction before entering.
+    fn clear_records_transaction_v5(
+        transaction: &rusqlite::Transaction<'_>,
+        scope: &Scope,
+    ) -> Result<()> {
+        Self::fence_reservations(transaction, scope)?;
+        bindings::fence_binding_visibility(transaction, scope, None)?;
         transaction.execute(
             "DELETE FROM checkpoints WHERE host=?1 AND login=?2",
             params![scope.host, scope.login],
@@ -685,7 +884,6 @@ impl Cache {
             "DELETE FROM records WHERE host=?1 AND login=?2",
             params![scope.host, scope.login],
         )?;
-        transaction.commit()?;
         Ok(())
     }
 

@@ -101,7 +101,7 @@ struct AttemptV2<'a> {
     cancel: &'a CancellationToken,
     deadline: Instant,
     close: &'a mut dyn FnMut() -> Result<(), crate::providers::gh::GithubError>,
-    closed: &'a std::cell::RefCell<Option<crate::providers::gh::ClosedCatalogueAccess>>,
+    closed: &'a std::cell::RefCell<Option<crate::providers::gh::OriginalPrClosedAccessV13>>,
 }
 impl AttemptV2<'_> {
     fn resolve(
@@ -139,7 +139,9 @@ impl AttemptV2<'_> {
         let current = closed
             .as_ref()
             .unwrap()
-            .observation(self.actual.parent().repository_id())
+            .verified()
+            .iter()
+            .find(|row| row.repository().id == self.actual.parent().repository_id())
             .unwrap();
         self.provider.close_thread_postwrite_visibility_v2(
             self.identity,
@@ -187,8 +189,9 @@ fn with_original_caps_v3<T>(
     let cancel = CancellationToken::default();
     let deadline = Instant::now() + Duration::from_secs(30);
     let phase = provider(&real.fixture).with_catalogue_read_deadline(deadline);
-    let mut session = phase
-        .begin_repository_catalogue_access(intent.source.source(), &Default::default(), &cancel)
+    let mut session = intent
+        .source
+        .begin_access(&phase, &Default::default(), &cancel)
         .unwrap();
     let identity = session.identity().clone();
     let mut captures = session
@@ -204,9 +207,9 @@ fn with_original_caps_v3<T>(
     let parent = bounded
         .pr_inline_original_parent_v1(current, observed, &Default::default(), &cancel)
         .unwrap();
-    let local = ResourceLocalGuard::capture(
+    let local = ResourceLocalGuard::capture_boundary_v13(
         &database(&real.fixture),
-        &intent.source,
+        intent.source.local_boundary(),
         &identity,
         parent.summary(),
     )
@@ -226,7 +229,7 @@ fn with_original_caps_v3<T>(
         bounded.pr_inline_original_parent_v1(current, observed, &Default::default(), &cancel)?;
         session.verify(intent.navigation.original(), &cancel)?;
         *closed.borrow_mut() = Some(session.close_with_guard(&cancel, || {
-            local.validate(&database(&real.fixture), &intent.source)
+            local.validate_boundary_v13(&database(&real.fixture), intent.source.local_boundary())
         })?);
         Ok(())
     };

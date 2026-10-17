@@ -181,6 +181,38 @@ pub struct PreparedFormTextV1 {
     retained: usize,
     preparation_peak: usize,
 }
+/// Downward-only presentation accounting. No source, token, permission or
+/// lease is captured/reissued by a remaining-allocation budget.
+#[derive(Clone, Copy)]
+struct PreparationBudgetV9 {
+    retained: usize,
+    transient: usize,
+}
+impl PreparationBudgetV9 {
+    const DEFAULT: Self = Self {
+        retained: RETAINED_BYTES,
+        transient: TRANSIENT_BYTES,
+    };
+    fn retained(self, bytes: usize) -> ResultV1<()> {
+        retained(bytes)?;
+        if bytes > self.retained {
+            Err(PreparedFormTextErrorV1::RetainedBound)
+        } else {
+            Ok(())
+        }
+    }
+    fn transient(self, bytes: usize) -> ResultV1<()> {
+        transient(bytes)?;
+        if bytes > self.transient {
+            Err(PreparedFormTextErrorV1::TransientBound)
+        } else {
+            Ok(())
+        }
+    }
+    fn restricted(self) -> bool {
+        self.retained != RETAINED_BYTES || self.transient != TRANSIENT_BYTES
+    }
+}
 impl std::fmt::Debug for PreparedFormTextV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PreparedFormTextV1")
@@ -196,10 +228,53 @@ impl PreparedFormTextV1 {
     ) -> ResultV1<Arc<Self>> {
         Self::prepare_observed(lines, cancel, original_deadline, |_| {})
     }
+    /// Original worker only. Existing material/editor allocations have already
+    /// been charged by the caller; these remaining bounds can only RESTRICT
+    /// the SAME sanitizer/layout, never raise the shared16MiB/32MiB caps.
+    pub(crate) fn prepare_with_remaining_v9(
+        lines: &[String],
+        cancel: &CancellationToken,
+        original_deadline: Instant,
+        retained_remaining: usize,
+        transient_remaining: usize,
+    ) -> ResultV1<Arc<Self>> {
+        check(cancel, original_deadline)?;
+        if retained_remaining > RETAINED_BYTES {
+            return Err(PreparedFormTextErrorV1::RetainedBound);
+        }
+        if transient_remaining > TRANSIENT_BYTES {
+            return Err(PreparedFormTextErrorV1::TransientBound);
+        }
+        Self::prepare_observed_with_budget_v9(
+            lines,
+            cancel,
+            original_deadline,
+            PreparationBudgetV9 {
+                retained: retained_remaining,
+                transient: transient_remaining,
+            },
+            |_| {},
+        )
+    }
     fn prepare_observed(
         lines: &[String],
         cancel: &CancellationToken,
         original_deadline: Instant,
+        observe: impl FnMut(PrepareStageV1),
+    ) -> ResultV1<Arc<Self>> {
+        Self::prepare_observed_with_budget_v9(
+            lines,
+            cancel,
+            original_deadline,
+            PreparationBudgetV9::DEFAULT,
+            observe,
+        )
+    }
+    fn prepare_observed_with_budget_v9(
+        lines: &[String],
+        cancel: &CancellationToken,
+        original_deadline: Instant,
+        budget: PreparationBudgetV9,
         mut observe: impl FnMut(PrepareStageV1),
     ) -> ResultV1<Arc<Self>> {
         check(cancel, original_deadline)?;
@@ -219,12 +294,29 @@ impl PreparedFormTextV1 {
         }
         let self_bytes = arc_allocation::<Self>(1)?;
         let line_array = arc_allocation::<Arc<str>>(lines.len())?;
-        retained(add(self_bytes, line_array)?)?;
+        budget.retained(add(self_bytes, line_array)?)?;
+        if budget.restricted() {
+            budget.transient(add(self_bytes, line_array)?)?;
+        }
         let mut safe = Vec::with_capacity(lines.len());
         let mut line_bytes = 0;
         let mut peak = 0;
         for line in lines {
             check(cancel, original_deadline)?;
+            if budget.restricted() {
+                // BEFORE the sanitizer/Arc clone, reserve its non-expanding
+                // output and bounded geometric String capacity. Default
+                // callers retain their exact old acceptance behavior.
+                let predicted = add(line_bytes, arc_allocation::<u8>(line.len())?)?;
+                budget.retained(add(add(self_bytes, line_array)?, predicted)?)?;
+                budget.transient(add(
+                    add(
+                        add(self_bytes, array::<Arc<str>>(safe.capacity())?)?,
+                        predicted,
+                    )?,
+                    add(line.len().saturating_mul(2), 8)?,
+                )?)?;
+            }
             // Existing single sanitizer is non-expanding; one admitted <=1MiB
             // logical line is nonpreemptive. Check SAME clock on both sides.
             let sanitized = sanitize_terminal(line);
@@ -233,7 +325,7 @@ impl PreparedFormTextV1 {
                 return Err(PreparedFormTextErrorV1::DocumentBound);
             }
             let next_bytes = add(line_bytes, arc_allocation::<u8>(sanitized.len())?)?;
-            retained(add(add(self_bytes, line_array)?, next_bytes)?)?;
+            budget.retained(add(add(self_bytes, line_array)?, next_bytes)?)?;
             let during = add(
                 add(
                     add(self_bytes, array::<Arc<str>>(safe.capacity())?)?,
@@ -241,7 +333,7 @@ impl PreparedFormTextV1 {
                 )?,
                 sanitized.capacity(),
             )?;
-            transient(during)?;
+            budget.transient(during)?;
             peak = peak.max(during);
             let text: Arc<str> = Arc::from(sanitized.as_str());
             drop(sanitized);
@@ -275,7 +367,7 @@ impl PreparedFormTextV1 {
             arc_allocation::<PreparedFormRowV1>(counts[1])?,
         )?;
         let total = add(lines_charge, rows_charge)?;
-        retained(total)?; // COMPLETE row/header/index preflight BEFORE allocation
+        budget.retained(total)?; // COMPLETE row/header/index preflight BEFORE allocation
         let predicted_peak = add(
             total,
             add(
@@ -283,7 +375,7 @@ impl PreparedFormTextV1 {
                 add(array::<Arc<str>>(safe.capacity())?, array::<LayoutV1>(2)?)?,
             )?,
         )?;
-        transient(predicted_peak)?;
+        budget.transient(predicted_peak)?;
         peak = peak.max(predicted_peak);
         let mut layouts = Vec::with_capacity(2);
         let layouts_peak = add(
@@ -296,7 +388,7 @@ impl PreparedFormTextV1 {
                 )?,
             )?,
         )?;
-        transient(layouts_peak)?;
+        budget.transient(layouts_peak)?;
         peak = peak.max(layouts_peak);
         for (layout, column) in FORM_COLUMNS_V1.iter().copied().enumerate() {
             let mut rows = Vec::with_capacity(counts[layout]);
@@ -312,7 +404,7 @@ impl PreparedFormTextV1 {
                     )?,
                 )?,
             )?;
-            transient(actual_peak)?;
+            budget.transient(actual_peak)?;
             peak = peak.max(actual_peak);
             for (source, line) in safe.iter().enumerate() {
                 visit_wrapped_ranges_v1(

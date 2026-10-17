@@ -2,6 +2,87 @@
 use super::*;
 use std::{collections::BTreeSet, sync::Arc};
 
+enum WorkflowRawV9 {
+    Legacy(Value),
+    Bounded(WorkflowJsonBoxedValueV9),
+}
+impl WorkflowRawV9 {
+    fn value(&self) -> &Value {
+        match self {
+            Self::Legacy(raw) => raw,
+            Self::Bounded(raw) => raw.value(),
+        }
+    }
+}
+fn workflow_fixed_read_v9(
+    provider: &GithubProvider,
+    endpoint: &str,
+    role: WorkflowJsonRoleV9,
+    heap: &WorkflowJsonLedgerV9,
+    cancel: &CancellationToken,
+) -> GithubResult<WorkflowJsonBoxedValueV9> {
+    let capture = heap.capture_v9(provider, role, cancel)?;
+    let boxed = capture.precharge_box_v9()?;
+    workflow_captured_read_v9(provider, endpoint, capture, cancel)
+        .and_then(|value| boxed.wrap_v9(value))
+}
+fn workflow_captured_read_v9(
+    provider: &GithubProvider,
+    endpoint: &str,
+    capture: WorkflowJsonCaptureV9,
+    cancel: &CancellationToken,
+) -> GithubResult<WorkflowJsonValueV9> {
+    let mut spec = provider.spec(vec![
+        "api".into(),
+        endpoint.into(),
+        "--hostname".into(),
+        provider.host.clone(),
+        "--method".into(),
+        "GET".into(),
+    ]);
+    spec.output_limit = spec.output_limit.min(capture.cap_v9());
+    spec.original_read_cancellation = Some(cancel.clone());
+    capture.check_spec_v9(&mut spec)?;
+    let raw = provider
+        .runner
+        .run(spec, cancel)
+        .map_err(|_| {
+            error(
+                GithubErrorKind::Transport,
+                "Original workflow parent/workflow read unavailable; private diagnostics omitted",
+            )
+        })?
+        .stdout;
+    let length = raw.len();
+    capture.decode_owned_v9(raw, 0..length)
+}
+fn workflow_parent_read_v9(
+    provider: &GithubProvider,
+    endpoint: &str,
+    heap: Option<&WorkflowJsonLedgerV9>,
+    cancel: &CancellationToken,
+) -> GithubResult<WorkflowRawV9> {
+    match heap {
+        Some(heap) => {
+            let capture = heap.capture_v9(provider, WorkflowJsonRoleV9::CurrentPrParent, cancel)?;
+            let boxed = capture.precharge_box_v9()?;
+            workflow_captured_read_v9(provider, endpoint, capture, cancel)
+                .and_then(|value| boxed.wrap_v9(value))
+                .map(WorkflowRawV9::Bounded)
+        }
+        None => provider
+            .api(endpoint, "GET", None, None, false, cancel)
+            .map(WorkflowRawV9::Legacy),
+    }
+}
+struct WorkflowPrParentInputsV9<'a> {
+    identity: &'a HostIdentity,
+    current: &'a CurrentCatalogueRepository,
+    resource: &'a PrResourceReadV1,
+    index: usize,
+    observed: &'a Arc<PrCheckRunObservation>,
+}
+
 pub struct ScopedActionsRepositoryV2 {
     producer: CommandRunner,
     id: u64,
@@ -99,6 +180,70 @@ pub struct ScopedActionsWorkflowV2 {
     model: Workflow,
 }
 impl ScopedActionsWorkflowV2 {
+    pub(crate) fn matches_dispatch_pool_v7(
+        &self,
+        provider: &GithubProvider,
+        current: &CurrentCatalogueRepository,
+    ) -> bool {
+        self.original_writer_v6(provider)
+            && self.repository.matches(provider, current)
+            && current.repository().permissions.pull == Some(true)
+    }
+    pub(crate) fn node_v6(&self) -> Option<&str> {
+        self.node.as_deref()
+    }
+    pub(crate) fn original_writer_v6(&self, provider: &GithubProvider) -> bool {
+        self.repository.producer.same_instance(&provider.runner)
+            && self.repository.id > 0
+            && self.repository.id <= i64::MAX as u64
+            && self.repository.node.is_some()
+            && self.node.is_some()
+            && self.model.id > 0
+            && self.model.id <= i64::MAX as u64
+    }
+    /// Same observed repository/workflow identity. State may change only when
+    /// explicitly observing the result, never during a pre-invocation check.
+    pub(crate) fn same_pin_v6(&self, other: &Self, unchanged_state: bool) -> bool {
+        self.repository
+            .producer
+            .same_instance(&other.repository.producer)
+            && self.repository.id == other.repository.id
+            && self.repository.node == other.repository.node
+            && self.model.id == other.model.id
+            && self.node == other.node
+            && self.model.path == other.model.path
+            && (!unchanged_state || self.model.state == other.model.state)
+    }
+    pub(in crate::providers::gh) fn bind_raw_v6(
+        &self,
+        provider: &GithubProvider,
+        raw: &Value,
+        unchanged_state: bool,
+    ) -> GithubResult<Arc<Self>> {
+        let model = workflows::workflow_from_json_v2(raw);
+        workflows::validate_workflow_v2(&model)?;
+        let fresh = Self {
+            repository: self.repository.clone(),
+            node: node(raw)?,
+            model,
+        };
+        if !self.original_writer_v6(provider)
+            || raw["id"].as_u64() != Some(self.model.id)
+            || !self.same_pin_v6(&fresh, unchanged_state)
+            || fresh.node.is_none()
+            || fresh.model.path.len() > 4096
+            || fresh.model.path.chars().any(char::is_control)
+            || fresh.model.name.len() > 4096
+            || fresh.model.state.len() > 128
+            || fresh.model.state.chars().any(char::is_control)
+        {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Original workflow numeric ID/node/path/state changed or unavailable",
+            ));
+        }
+        Ok(Arc::new(fresh))
+    }
     pub(crate) fn owned_bytes_v2(&self) -> usize {
         std::mem::size_of::<Self>()
             + 2 * std::mem::size_of::<usize>()
@@ -239,6 +384,68 @@ fn artifact(
     Ok((value, node(raw)?))
 }
 impl GithubProvider {
+    pub(crate) fn scoped_actions_workflow_snapshot_v6(
+        &self,
+        current: &CurrentCatalogueRepository,
+        original: &Arc<ScopedActionsWorkflowV2>,
+        unchanged_state: bool,
+        cancel: &CancellationToken,
+    ) -> GithubResult<Arc<ScopedActionsWorkflowV2>> {
+        self.workflow_snapshot_inner_v9(current, original, unchanged_state, None, cancel)
+    }
+    pub(crate) fn scoped_actions_workflow_snapshot_heap_v9(
+        &self,
+        current: &CurrentCatalogueRepository,
+        original: &Arc<ScopedActionsWorkflowV2>,
+        unchanged_state: bool,
+        heap: &WorkflowJsonLedgerV9,
+        cancel: &CancellationToken,
+    ) -> GithubResult<Arc<ScopedActionsWorkflowV2>> {
+        self.workflow_snapshot_inner_v9(current, original, unchanged_state, Some(heap), cancel)
+    }
+    fn workflow_snapshot_inner_v9(
+        &self,
+        current: &CurrentCatalogueRepository,
+        original: &Arc<ScopedActionsWorkflowV2>,
+        unchanged_state: bool,
+        heap: Option<&WorkflowJsonLedgerV9>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<Arc<ScopedActionsWorkflowV2>> {
+        if !original.repository.matches(self, current) {
+            return Err(error(
+                GithubErrorKind::IdentityChanged,
+                "Original workflow repository identity/access changed",
+            ));
+        }
+        let raw = match heap {
+            Some(heap) => WorkflowRawV9::Bounded(workflow_fixed_read_v9(
+                self,
+                &format!(
+                    "repos/{}/actions/workflows/{}",
+                    current.repository().full_name,
+                    original.model.id
+                ),
+                WorkflowJsonRoleV9::WorkflowSnapshot,
+                heap,
+                cancel,
+            )?),
+            None => WorkflowRawV9::Legacy(self.scoped_workflow_raw_v6(
+                &current.repository().full_name,
+                original.model.id,
+                cancel,
+            )?),
+        };
+        let fresh = original.bind_raw_v6(self, raw.value(), unchanged_state)?;
+        // An observed repository rename is supported only after genuine current
+        // repository validation, not from a saved alias or display label.
+        let repository = ScopedActionsRepositoryV2::from_current(self, current)?;
+        end(cancel)?;
+        Ok(Arc::new(ScopedActionsWorkflowV2 {
+            repository,
+            node: fresh.node.clone(),
+            model: fresh.model.clone(),
+        }))
+    }
     /// Fresh genuine original PR/check closure around every Actions resource
     /// continuation. Uses the SAME raw parent parser and actual captured
     /// producer; no display/DTO facts can supply this binding.
@@ -251,6 +458,52 @@ impl GithubProvider {
         observed: &Arc<PrCheckRunObservation>,
         cancel: &CancellationToken,
     ) -> GithubResult<()> {
+        self.workflow_pr_parent_inner_v9(
+            WorkflowPrParentInputsV9 {
+                identity,
+                current,
+                resource,
+                index,
+                observed,
+            },
+            None,
+            cancel,
+        )
+    }
+    pub(crate) fn scoped_actions_pr_parent_heap_v9(
+        &self,
+        parent: (&HostIdentity, &CurrentCatalogueRepository),
+        resource: &PrResourceReadV1,
+        index: usize,
+        observed: &Arc<PrCheckRunObservation>,
+        heap: &WorkflowJsonLedgerV9,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
+        self.workflow_pr_parent_inner_v9(
+            WorkflowPrParentInputsV9 {
+                identity: parent.0,
+                current: parent.1,
+                resource,
+                index,
+                observed,
+            },
+            Some(heap),
+            cancel,
+        )
+    }
+    fn workflow_pr_parent_inner_v9(
+        &self,
+        parent: WorkflowPrParentInputsV9<'_>,
+        heap: Option<&WorkflowJsonLedgerV9>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
+        let WorkflowPrParentInputsV9 {
+            identity,
+            current,
+            resource,
+            index,
+            observed,
+        } = parent;
         if !self.runner.same_instance(observed.producing_runner_v2())
             || !observed.matches_resource_v1(identity, resource, index)
         {
@@ -259,50 +512,41 @@ impl GithubProvider {
                 "Original PR Actions source/principal differs",
             ));
         }
-        let raw = self.api(
-            &format!(
-                "repos/{}/pulls/{}",
-                current.repository().full_name,
-                observed.pr_number()
-            ),
-            "GET",
-            None,
-            None,
-            false,
-            cancel,
-        )?;
-        resource.validate_check_parent_v1(self, current, &raw)?;
-        if raw["id"].as_u64() != Some(observed.pr_database_id())
-            || raw["node_id"].as_str() != Some(observed.pr_node())
-            || raw["head"]["sha"].as_str() != Some(observed.head_sha())
+        let endpoint = format!(
+            "repos/{}/pulls/{}",
+            current.repository().full_name,
+            observed.pr_number()
+        );
+        let raw = workflow_parent_read_v9(self, &endpoint, heap, cancel)?;
+        let value = raw.value();
+        resource.validate_check_parent_v1(self, current, value)?;
+        if value["id"].as_u64() != Some(observed.pr_database_id())
+            || value["node_id"].as_str() != Some(observed.pr_node())
+            || value["head"]["sha"].as_str() != Some(observed.head_sha())
         {
             return Err(error(
                 GithubErrorKind::IdentityChanged,
                 "Original PR database/node/head changed before Actions resource",
             ));
         }
+        drop(raw);
         let check = resource.checks().get(index).ok_or_else(|| {
             error(
                 GithubErrorKind::InvalidTarget,
                 "Original CheckRun unavailable",
             )
         })?;
-        let raw = self.api(
-            &format!(
-                "repos/{}/check-runs/{}",
-                current.repository().full_name,
-                check.id
-            ),
-            "GET",
-            None,
-            None,
-            false,
-            cancel,
-        )?;
-        if raw["id"].as_u64() != Some(check.id)
-            || raw["head_sha"].as_str() != Some(observed.head_sha())
-            || raw["node_id"].as_str() != Some(observed.check_node())
-            || raw["check_suite"]["id"].as_u64() != Some(observed.suite_id())
+        let endpoint = format!(
+            "repos/{}/check-runs/{}",
+            current.repository().full_name,
+            check.id
+        );
+        let raw = workflow_parent_read_v9(self, &endpoint, heap, cancel)?;
+        let value = raw.value();
+        if value["id"].as_u64() != Some(check.id)
+            || value["head_sha"].as_str() != Some(observed.head_sha())
+            || value["node_id"].as_str() != Some(observed.check_node())
+            || value["check_suite"]["id"].as_u64() != Some(observed.suite_id())
         {
             return Err(error(
                 GithubErrorKind::IdentityChanged,
@@ -546,8 +790,17 @@ impl GithubProvider {
             ));
         }
         end(cancel)?;
+        // Retain the actual workflow GET's canonical state, not the earlier
+        // catalogue DTO's state. Identity/path are still bound above. This is
+        // the same original read, not a renewed source or another request.
+        let repository = ScopedActionsRepositoryV2::from_current(self, current)?;
+        let target = Arc::new(ScopedActionsWorkflowV2 {
+            repository: repository.clone(),
+            node: node(&raw)?,
+            model: actual,
+        });
         Ok(ScopedActionsResourceReadV2 {
-            repository: ScopedActionsRepositoryV2::from_current(self, current)?,
+            repository,
             body: ScopedActionsResourceBodyV2::Definition { target, definition },
         })
     }
