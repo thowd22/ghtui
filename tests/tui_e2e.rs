@@ -62,6 +62,8 @@ mod relevance;
 mod remote_search;
 #[path = "tui_e2e/repository_catalogue_native_v1.rs"]
 mod repository_catalogue_native_v1;
+#[path = "tui_e2e/runner_pipe_lifetime.rs"]
+mod runner_pipe_lifetime;
 #[path = "tui_e2e/scoped_actions_owned_body_v120.rs"]
 mod scoped_actions_owned_body_v120;
 #[path = "tui_e2e/search.rs"]

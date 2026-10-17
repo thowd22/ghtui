@@ -2,6 +2,8 @@
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::os::unix::process::CommandExt;
+use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -34,6 +36,20 @@ fn main() {
     let fixture = PathBuf::from(
         std::env::var_os("GH_FIXTURE_DIR").expect("GH_FIXTURE_DIR required; network is forbidden"),
     );
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--ghtui-test-pipe-holder-v1") {
+        assert_eq!(args.len(), 2);
+        let step: usize = args[1].parse().expect("private helper step");
+        let prefix = fixture.join(format!("{step:03}"));
+        let duration = number(&PathBuf::from(format!("{}.pipe-holder-ms", prefix.display())), 0);
+        assert!((1..=8_000).contains(&duration), "finite private pipe holder only");
+        fs::write(
+            PathBuf::from(format!("{}.pipe-holder-pid", prefix.display())),
+            format!("{}\n", std::process::id()),
+        ).expect("publish complete private helper PID");
+        thread::sleep(Duration::from_millis(duration));
+        return;
+    }
     let lock = fixture.join(".fixture-lock");
     let started = Instant::now();
     while fs::create_dir(&lock).is_err() {
@@ -47,7 +63,6 @@ fn main() {
     fs::write(fixture.join("next-step"), (step + 1).to_string()).expect("write step");
     let prefix = fixture.join(format!("{step:03}"));
     let file = |suffix: &str| PathBuf::from(format!("{}.{}", prefix.display(), suffix));
-    let args: Vec<String> = std::env::args().skip(1).collect();
     let expected = fs::read_to_string(file("args"))
         .ok()
         .map(|s| s.lines().map(str::to_owned).collect::<Vec<_>>());
@@ -91,5 +106,17 @@ fn main() {
     std::io::stderr()
         .write_all(&bytes(&file("stderr")))
         .expect("stderr");
+    if number(&file("pipe-holder-ms"), 0) > 0 {
+        // Test-only self-child in a distinct group, not an external executable
+        // or request. The strict original argv/stdin journal remains unchanged.
+        std::io::stdout().flush().expect("flush stdout");
+        std::io::stderr().flush().expect("flush stderr");
+        let child = Command::new(std::env::current_exe().expect("fixture executable"))
+            .args(["--ghtui-test-pipe-holder-v1", &step.to_string()])
+            .process_group(0)
+            .spawn()
+            .expect("finite same-session pipe helper");
+        drop(child);
+    }
     std::process::exit(number(&file("status"), 0) as i32);
 }

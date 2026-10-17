@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@root'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-17 07:57'
+updated_date: '2026-10-17 07:59'
 labels:
   - foundation
   - e2e
@@ -167,6 +167,8 @@ AC4: native_diff_ui_drag_uses_two_genuine_current_epoch_endpoints_and_retired_hi
 AC5/6 and DoD: node scripts/test-all.mjs executed unfiltered cargo test --locked --all-targets:4018code/provider+1530real-binary PTY=5548PASS,0failed0ignored,37targets (binary0-test harness is not positive coverage). All6checked keys described above passed with nonzero code and PTY selections. Full format-check and strict offline locked all-target Clippy exit0. Current audit report target/build/task4-audits-2026-10-17T07-55-45-802Z.json PASS: all1530native names independently checked,2322owned sessions/2320completed positives, exactly2source-reviewed intentional panic negatives excluded,2138keyboard/1166mouse positive sessions (overlapping), all-owned cleanup true; one explicit noninteractive invalid-startup test remains documented. Node gate3PASS, dependencies PASS, Backlog79valid/doctor PASS. New Help/hover journeys independently preserve exact Git HEAD/refs/index/status/files/config, zero extra Git/gh children, zero drafts, and terminal restoration. No placeholder, ignored required test or accepted-by-default snapshot.
 Screenshots: target/build/task4-screenshots-current-2026-10-17T07-55-59-995Z.json PASS exports current actual completed no-color offline mouse frames (diff120x40,Actions80x24,Help80x24) under target/screenshots/task4-all-zybIFd with PNG/SVG/ANSI/provenance. Visually reviewed; crowded technical labels/hard word wrapping remain Task67 usability work, not UX acceptance.
 Resource cleanup: both exact temporary root-owned compiler swap files were validated, swapoff completed, removed07:56:29/35UTC; target/build/task4-temporary-swap-20261017.json now CLEANED_TEMPORARY_DEVELOPMENT_SWAP. Original /swap.img and logs/screenshots preserved; no permanent system config change. Full scope peak901062656bytes,pids70, all memory high/max/OOM/pids.events0. No agents. This completes the common interaction feature on Linux, not full business-workflow parity, performance/usability acceptance or release readiness. Native macOS remains mandatory in the release gate; Task1/2 Mac criteria and Task64/65/66/67/69 gates are not waived.
+
+Local checkpoint saved as30fae482a82c4c723d3ddd0d3d1c777789a1284d (19explicit own source/backlog files), no push or persisted Git identity. Guard initially stopped before staging because the repaired tests/pr_ui_contracts.rs was omitted from the explicit candidate list; verified it as the known same-source fixture change and added that exact path only. All current source hashes rechecked after commit;4unrelated untracked root logs retained. Checkpoint receipt target/build/task4-local-checkpoint-20261017.json.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

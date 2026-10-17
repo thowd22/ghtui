@@ -32,6 +32,8 @@ mod metrics;
 mod metrics_access;
 #[path = "provider_contracts/metrics_threads.rs"]
 mod metrics_threads;
+#[path = "provider_contracts/pipe_lifetime.rs"]
+mod pipe_lifetime;
 #[path = "provider_contracts/pr_checks_bridge.rs"]
 mod pr_checks_bridge;
 #[path = "provider_contracts/principal_freshness.rs"]

@@ -2,6 +2,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -488,6 +490,21 @@ fn failure(kind: FailureKind, message: impl Into<String>, unknown: bool) -> Comm
         outcome_unknown: unknown,
     }
 }
+
+// A child may exit while another process still holds an inherited pipe. All
+// three owned I/O workers must remain stoppable at the original command bound.
+#[cfg(unix)]
+fn nonblocking_pipe(pipe: &impl AsRawFd) -> std::io::Result<()> {
+    let fd = pipe.as_raw_fd();
+    // SAFETY: the live owned pipe retains this descriptor through both calls;
+    // F_GETFL/F_SETFL change only its open-file status flags, never ownership.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 fn execute(
     spec: &CommandSpec,
     cancellation: &CancellationToken,
@@ -629,20 +646,58 @@ fn execute_mode_v63(
             return Err(error);
         }
     }
-    let input = spec.stdin.clone();
     let mut stdin = child.stdin.take().expect("piped stdin");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    #[cfg(unix)]
+    if let Err(error) = nonblocking_pipe(&stdin)
+        .and_then(|_| nonblocking_pipe(&stdout))
+        .and_then(|_| nonblocking_pipe(&stderr))
+    {
+        terminate(group);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(failure(
+            FailureKind::Spawn,
+            format!("Could not configure bounded command pipes: {error}"),
+            matches!(spec.kind, CommandKind::Write { .. }),
+        ));
+    }
+    let input = spec.stdin.clone();
+    let io_stop = Arc::new(AtomicBool::new(false));
+    let input_stop = io_stop.clone();
     let input_thread = thread::spawn(move || {
-        let _ = stdin.write_all(&input);
+        let mut remaining = input.as_slice();
+        while !remaining.is_empty() && !input_stop.load(Ordering::Acquire) {
+            match stdin.write(remaining) {
+                Ok(0) => break,
+                Ok(count) => remaining = &remaining[count..],
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(2));
+                }
+                Err(_) => break,
+            }
+        }
     });
     let size = Arc::new(AtomicUsize::new(0));
     let limit = spec.output_limit;
     let read_pipe = |mut pipe: Box<dyn Read + Send>, size: Arc<AtomicUsize>| {
+        let stop = io_stop.clone();
         thread::spawn(move || {
             let mut output = Vec::new();
             let mut buffer = [0; 8192];
             loop {
+                if stop.load(Ordering::Acquire) {
+                    break;
+                }
                 match pipe.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(_) => break,
                     Ok(n) => {
                         let before = size.fetch_add(n, Ordering::Relaxed);
                         let keep = n.min(limit.saturating_sub(before));
@@ -656,16 +711,11 @@ fn execute_mode_v63(
             output
         })
     };
-    let stdout_thread = read_pipe(
-        Box::new(child.stdout.take().expect("piped stdout")),
-        size.clone(),
-    );
-    let stderr_thread = read_pipe(
-        Box::new(child.stderr.take().expect("piped stderr")),
-        size.clone(),
-    );
+    let stdout_thread = read_pipe(Box::new(stdout), size.clone());
+    let stderr_thread = read_pipe(Box::new(stderr), size.clone());
     let mut stopped = None;
-    let status = loop {
+    let mut status = None;
+    loop {
         if cancellation.is_cancelled()
             || spec
                 .original_read_cancellation
@@ -689,21 +739,41 @@ fn execute_mode_v63(
         if stopped.is_some() {
             terminate(group);
             let _ = child.kill();
-            break child.wait().ok();
+            if status.is_none() {
+                status = child.wait().ok();
+            }
+            break;
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => thread::sleep(Duration::from_millis(5)),
-            Err(_) => {
-                stopped = Some(FailureKind::Spawn);
-                terminate(group);
-                let _ = child.kill();
-                break child.wait().ok();
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exit)) => {
+                    status = Some(exit);
+                    // Close ordinary owned-group descendants' pipes promptly,
+                    // but keep enforcing bounds if an external holder remains.
+                    terminate(group);
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    stopped = Some(FailureKind::Spawn);
+                    terminate(group);
+                    let _ = child.kill();
+                    status = child.wait().ok();
+                    break;
+                }
             }
         }
-    };
+        if status.is_some()
+            && input_thread.is_finished()
+            && stdout_thread.is_finished()
+            && stderr_thread.is_finished()
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
     // Descendants may hold the pipes after the immediate process exits.
     terminate(group);
+    io_stop.store(true, Ordering::Release);
     let _ = input_thread.join();
     let mut stdout = stdout_thread.join().unwrap_or_default();
     let captured_stdout_bytes = stdout.len();
