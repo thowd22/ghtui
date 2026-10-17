@@ -18,6 +18,8 @@ mod collaboration_index;
 mod inbox_exact_v1;
 #[path = "provider_contracts/inline_receipts_v1.rs"]
 mod inline_receipts_v1;
+#[path = "provider_contracts/inventory_contracts_v1.rs"]
+mod inventory_contracts_v1;
 #[path = "provider_contracts/local_commit_actor_v1.rs"]
 mod local_commit_actor_v1;
 #[path = "provider_contracts/metadata_actions.rs"]

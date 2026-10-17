@@ -28,6 +28,39 @@ fn select(inspector: &mut CapabilityInspector, id: &str) {
 }
 
 #[test]
+fn gh_provider_inventory_contracts_inspector_finds_suboperations_without_claiming_support() {
+    let mut inspector = CapabilityInspector::new(Some(&identity(Some(42))), None).unwrap();
+    inspector.dispatch(InspectorAction::Insert("milestone".into()));
+    assert_eq!(inspector.visible.len(), 1);
+    assert_eq!(inspector.selected_id(), Some("pr-metadata"));
+    let text = details(&inspector);
+    let compact = text.split_whitespace().collect::<String>();
+    for required in [
+        "Contract scope:",
+        "pr.metadata",
+        "pr.dismissal",
+        "Required native operations:",
+        "Effect class:",
+        "Verification tasks: TASK-18, TASK-20",
+        "Host limit:",
+        "Evidence limit:",
+    ] {
+        assert!(
+            compact.contains(&required.split_whitespace().collect::<String>()),
+            "{required}"
+        );
+    }
+    assert!(text.contains("not observed/granted"));
+    assert!(!text.contains("permission granted"));
+    let mut unknown = capability_inventory().remove(0);
+    unknown.id = "unknown-valid-category".into();
+    let unknown = CapabilityInspector::prepare(vec![unknown], None, None).unwrap();
+    assert!(details(&unknown).contains("Contract scope: unmapped category"));
+    assert!(!details(&unknown).contains("Required native operations:"));
+    assert!(!details(&unknown).contains("Documented local flag floor:"));
+}
+
+#[test]
 fn gh_provider_cli_inventory_exact_routes_keep_documented_flags_floors_and_authority_separate() {
     let mut inspector = CapabilityInspector::new(Some(&identity(Some(42))), None).unwrap();
     for (id, flag, floor) in [

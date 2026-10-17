@@ -1,5 +1,7 @@
 //! Actual readonly inspector input; numeric syntax facts never grant API access.
 use super::*;
+#[path = "capability_inspector_contracts.rs"]
+mod requirement_contracts;
 
 #[derive(Clone, Copy)]
 enum Build {

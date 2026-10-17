@@ -172,6 +172,7 @@ impl CapabilityInspector {
             let permission = bounded(&capability.permission)?;
             let guard = bounded(&capability.concurrency_guard)?;
             let reason = bounded(&capability.reason)?;
+            let contract = capability.requirements_v1();
             let cli_details = cli_syntax::details(&id, cli_version.as_ref());
             let cli_search = cli_details.join(" ");
             if capability.source_urls.len() > 8 {
@@ -189,6 +190,35 @@ impl CapabilityInspector {
                 "Paging/fixture/live evidence: task-specific verification is required; a static inventory flag or browser handoff cannot close coverage.".into(),
                 format!("Inventory note (may precede newer task evidence): {reason}"),
             ];
+            let mut contract_search = String::new();
+            if let Some(contract) = contract {
+                let rows = contract
+                    .rows
+                    .iter()
+                    .map(|row| format!("{}: {} ({})", row.document(), row.label(), row.key()))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let tasks = contract
+                    .tasks
+                    .iter()
+                    .map(|task| format!("TASK-{task}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                contract_search = format!("{} {}", contract.operations, rows);
+                details.extend([
+                    format!("Contract scope: {rows}"),
+                    format!("Required native operations: {}", contract.operations),
+                    format!("Effect class: {}", contract.effect().label()),
+                    format!("Required confirmation: {}", contract.preview_requirement()),
+                    format!("Required target guard: {}", contract.target_requirement()),
+                    format!("Paging contract: {}", contract.paging_requirement()),
+                    format!("Verification tasks: {tasks}; no task is marked complete by this inventory."),
+                    format!("Host limit: {}", contract.host_limit()),
+                    format!("Evidence limit: {}", contract.evidence_limit()),
+                ]);
+            } else {
+                details.push("Contract scope: unmapped category; no operation, host floor or permission requirement is guessed.".into());
+            }
             details.extend(cli_details);
             for url in capability.source_urls {
                 details.push(format!("Reference: {}", bounded(&url)?));
@@ -207,8 +237,10 @@ impl CapabilityInspector {
                 .iter()
                 .flat_map(|line| prepared_lines(line, 64))
                 .collect();
-            let searchable =
-                format!("{id} {label} {task} {transport} {permission} {cli_search}").to_lowercase();
+            let searchable = format!(
+                "{id} {label} {task} {transport} {permission} {cli_search} {contract_search}"
+            )
+            .to_lowercase();
             rows.push(Row {
                 id,
                 label,

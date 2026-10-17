@@ -1,31 +1,11 @@
 //! Local syntax explanations for exact provider routes, not host probes,
 //! operation eligibility, native parity, or a mutation capability registry.
-use crate::providers::gh::{CliRequirement, CliUnverified, GhCliVersion, LocalCliSyntax};
+use crate::providers::gh::{
+    capability_requirement_contract_v1, CliRequirement, CliUnverified, GhCliVersion, LocalCliSyntax,
+};
 
 fn fact(id: &str) -> Option<(&'static str, CliRequirement)> {
-    Some(match id {
-        "pr-details" => (
-            "PR detail collection via gh api --paginate --slurp",
-            CliRequirement::ApiSlurp,
-        ),
-        "pr-checks" | "actions-logs" => (
-            "Exact-attempt logs via gh run view --attempt --log",
-            CliRequirement::RunAttempt,
-        ),
-        "pr-lifecycle" => (
-            "CLI draft conversion via gh pr ready --undo",
-            CliRequirement::ReadyUndo,
-        ),
-        "pr-merge" => (
-            "CLI expected-head merge via gh pr merge --match-head-commit",
-            CliRequirement::MergeExpectedHead,
-        ),
-        "actions-secrets-variables" => (
-            "Empty selected organization secret scope via gh secret set --no-repos-selected",
-            CliRequirement::SecretEmptySelection,
-        ),
-        _ => return None,
-    })
+    capability_requirement_contract_v1(id)?.cli
 }
 
 pub(super) fn details(id: &str, version: Option<&GhCliVersion>) -> Vec<String> {
