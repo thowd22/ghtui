@@ -24,6 +24,7 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    app.pointer_region.clear();
     crate::notification_pr_v63::retire_invalid(app);
     crate::notifications_native_v63::retire_invalid(app);
     if app.overlay == Some(Overlay::NotificationsV63) {
@@ -172,6 +173,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         });
     }
     crate::navigation_state::draw_navigation(frame, app, rows[0]);
+    if app.overlay.is_none() {
+        app.pointer_region.capture(app.view, app.overlay, rows[3]);
+    }
     let content: Vec<Line> = app.content[app.view.index()]
         .iter()
         .map(|line| Line::from(safe_text(line)))
@@ -489,6 +493,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             rect,
         );
         let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
+        app.pointer_region.capture(app.view, app.overlay, rect);
         match overlay {
             Overlay::NotificationsV63 => unreachable!("Owned Notifications drawn above"),
             Overlay::PrThreadsV1 | Overlay::PrThreadHistoryV1 => {

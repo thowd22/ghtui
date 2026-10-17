@@ -68,6 +68,7 @@ impl ContextHelp {
         )?;
         help.push(HelpLineKind::Guidance, "Tab / Shift-Tab: focus visible controls. Enter: activate the focused control. Click uses the same action and guards.".into())?;
         help.push(HelpLineKind::Guidance, "Arrow keys select or scroll the focused pane. Mouse wheel scrolls its hovered pane. Escape closes an overlay or cancels the current read.".into())?;
+        help.push(HelpLineKind::Guidance, "Help: Page Up/Down or click the scrollbar track to page; Home/End or drag its thumb to reach the ends. The scrollbar arrows move one line.".into())?;
         help.push(HelpLineKind::Guidance, "A disabled action opens its explanation. An overlay captures input; clicking its background does not activate a hidden action.".into())?;
         help.push(HelpLineKind::Limitation, "Back and saved positions are navigation intent only. They never restore permission, stale server state, a selected numeric row or an approved write.".into())?;
         for (name, label) in [

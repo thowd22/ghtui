@@ -3,7 +3,7 @@ id: doc-13
 title: Sequential delivery reset and current-state audit
 type: guide
 created_date: '2026-10-16 23:29'
-updated_date: '2026-10-17 04:53'
+updated_date: '2026-10-17 07:58'
 ---
 # Sequential delivery reset and current-state audit
 
@@ -151,3 +151,62 @@ Evidence:
 The two real over-cap request bugs now stop immediately: remote payload and original repository-access guards recognize the newer distinct OutputLimit kind. A genuine red regression observed an illegal extra principal request before the guard fix; independent provider and both-input native cases now require exact request counts, hidden private content and preserved storage/Git/config. Other stabilization corrections retained meaningful assertions and fixed stale fixture/oracle/synchronization mistakes; required tests were not removed or ignored, and no runtime caps or host limits were raised.
 
 The user's approved readiness split now applies: TASK-79 is the Linux executable/framework prerequisite for subsequent development. Original TASK-1/2 native macOS acceptance stays open and release-blocking; TASK-69 CI/CD stays near the end and must supply native build/PTY evidence before release. Next sequential work is TASK-3's remaining prepared/visible rendering acceptance, not another parallel metadata/org branch. Full PR/Actions/search/local-Git parity, performance, beginner UX, installer/release and native macOS requirements remain open. There is no whole-product completion claim.
+
+
+## Sequential progress — 2026-10-17, TASK-3 accepted
+
+TASK-3 is now Done for Linux development, after audited original-worker prepared rendering and freshly checked async_events (8 code/2 PTY) plus form_preview_visible (23 code/8 PTY): 31 code and 10 real-binary tests, zero failures/ignored, 14 physical sessions, independently checked keyboard/mouse and cleanup. Report: `target/build/task3-async_events-2026-10-17T05-01-18-105Z.json` (SHA-256 `375dcf5e04198a63f63acc85d48eef63daec816602d695232ed583b967262628`). All 1,508 application-input paths were byte-identical to TASK-79 full/format/strict-lint evidence; those global results were explicitly reused, not falsely represented as newly executed. TASK-1/2 native macOS acceptance and release gates remain open.
+
+TASK-4 is the sole active coordinating feature after TASK-3. Its first missing interaction slice is a reusable Help scrollbar with arrow/track/drag actions equivalent to keyboard scrolling, geometry retirement and preserved text width. Implementation and seven code/two actual-binary test declarations are written, but verification is still pending. Original bounded session32988 / `ghtui-task4-scrollbar-20261017a.scope` is compiling the first checked gate; memory-high throttling is observed, no OOM or limit increase. Current input inventory is 1,511 files, report `target/build/task4-mouse_keyboard_scrollbar-2026-10-17T05-07-14-156Z.json`. Do not count this pending feature as a pass or full action/scrollbar parity. All application-source edits remain frozen during verification. No agents or private-copy implementation loops have restarted.
+
+
+## Current sequential state — 2026-10-17 06:04 UTC
+
+TASK-3 remains Done after exact-candidate Linux verification; native macOS foundation acceptance is still required for release. TASK-4 remains the sole active feature. Its first Help scrollbar slice passed checked8code/2PTY, broader mouse_keyboard22code/10PTY and navigation154code/54PTY plus format/strict Clippy (report `target/build/task4-mouse_keyboard_scrollbar-2026-10-17T05-33-12-765Z.json`). Actual reviewed screenshot links are in TASK-4 notes and `target/screenshots/task4-task-wgbfqN/`.
+
+A second concrete interaction defect was reproduced through real terminal input: scrolling over the global footer moved repository rows. The original negative2PTY evidence is preserved at `target/build/task4-hover-red-2026-10-17T05-46-21-521Z.json`. The bounded view/overlay-tagged pointer-region fix then passed hover_routing2code/2PTY, scrollbar8/2, broader mouse_keyboard24/10, navigation154/54, format and strict Clippy (`target/build/task4-hover_routing-2026-10-17T05-54-22-592Z.json`). A first independent audit refusal was only an ambiguous new test component label, corrected without reducing behavioral or physical-input assertions.
+
+The current final refinement includes painted panel titles/borders in their hover region and adds real Local operations popup wheel/keyboard parity at both sizes. Original session36277 / `ghtui-task4-hover-final-20261017a.scope`, report `target/build/task4-hover_routing-2026-10-17T06-02-47-624Z.json`, is still verifying; no final/full-suite/Task-4 Done claim. The last completed unfiltered gate remains TASK-79 on its recorded baseline, not these new source changes. No agents or private-copy loops have restarted.
+
+Development-host temporary swap MUST be cleaned up after verification: the original global8GiB swap was full, preventing use of the verifier scoped512MiB allowance. Two explicitly documented root-owned0600 generated swap files (512MiB+1GiB) are active under the exact disk-backed verification TMPDIR. Metadata with exact paths/inodes and safe per-file swapoff/removal instructions is `target/build/task4-temporary-swap-20261017.json`. Do not touch `/swap.img`. No fstab/service/permanent config, CPU/memory/pid or per-verifier swap limit was changed; original256-CGU profile is restored. Source/host resource negatives remain documented, not recast as passing tests.
+
+
+### Final TASK-4 candidate frozen — 2026-10-17 06:10 UTC
+
+Both focused interaction slices now pass. Final focused report `target/build/task4-hover_routing-2026-10-17T06-02-47-624Z.json` is PASS: hover_routing2code/2PTY, scrollbar8/2, shared mouse_keyboard24/10, navigation154/54, formatting and strict all-target Clippy; independently checked physical paths and owned cleanup. Counts overlap. Candidate1,513-file source-vector SHA-256: `783aa7a64f555e54d48623fec4beb1b7cd078f90df95166247911ae4fc0ac340`.
+
+The unfiltered complete regression is now running on that frozen source: original session34664, unit `ghtui-task4-all-20261017a.scope`, report `target/build/task4-all-2026-10-17T06-10-45-913Z.json`. It executes the actual portable test-all entrypoint (no filters), then formatting and strict lint. Expected inventory is4,018code/provider+1,530native=5,548tests; expected is not passing evidence. Task4 remains In Progress pending global results, independent input/cleanup audit and final criterion review. No other feature or source edits while this run is active. Both temporary swap files remain active and their exact cleanup is mandatory per the recorded metadata above. Native macOS remains a required release gate.
+
+
+### 2026-10-17 06:42 UTC — TASK4 full-regression recovery
+
+The first frozen783aa candidate full run did not pass:3323 library cases completed, then a legacy held-metadata mouse test deadlocked after attempting wheel input without painting a viewport. Root stopped only verified UID/cwd/cgroup library PID817674; report task4-all-2026-10-17T06-10-45-913Z.json records FAIL/all-targets101. Production hover refusal remains correct. The fixture now draws the actual120x40 viewport and both held-worker receives have3s bounds; exact scroll21/new-tab/reset/visible metadata assertions remain unchanged. Focused report target/build/task4-pr_metadata_viewport_v9-2026-10-17T06-38-15-703Z.json passed3metadata code+2PTY and2hover code+2PTY, with independent per-test physical input and cleanup, format-check0 and strictClippy0. Current1513-path source vector6ab566fa6f0472a91ff0b1fc1c2b4b434734abc5919066f48db5371b5e398c51.
+
+Fresh final unfiltered test-all is RUNNING under ghtui-task4-all-20261017b.scope, original exec23395, report target/build/task4-all-2026-10-17T06-42-03-922Z.json and matching-all-targets.log. Expected5548 tests is inventory, not a passing result. Root remains sole worker; no new feature starts before this feature is verified. Both exact temporary swap files in target/build/task4-temporary-swap-20261017.json remain ACTIVE and must be safely swapoff/removed after owned verification; per-scope limits remain unchanged. Native macOS remains mandatory before release.
+
+
+### 2026-10-17 07:01 UTC — remaining fixture assumption repaired; integration batch green
+
+The06:42 full run ended FAIL/all-targets101 after ALL3324 library tests passed0failed0ignored in941.80s. The5-case pr_ui_contracts target reported4pass/1fail because its reaction wheel coordinate(10,8) is outside the centered120-column popup. Root retained production hover refusal, changed only the fixture to an actually painted paging-control coordinate and added an explicit background(0,0)wheel no-op at120x40/80x24/40x12; actor/ownership/focus/pending-publication assertions remain. Report target/build/task4-integration-check-2026-10-17T06-59-19-230Z.json then passed ALL34 non-PTY integration targets/694tests/0failed/0ignored under the unchanged bounded shared lock. Current1513-path vector5ca83596ec322122c5444266b7430160362f7b096d9f908ab00282bc8844776b. This batch is diagnostic, not a substitute for a successful unfiltered gate.
+
+Current owned verification: exec69643, ghtui-task4-final-focused-20261017a.scope, report target/build/task4-reaction-2026-10-17T07-00-56-691Z.json. It is running the checked reaction, pr_metadata_viewport_v9, hover_routing, mouse_keyboard_scrollbar, mouse_keyboard and navigation gates, then check-only formatting/strict lint. No task acceptance is checked; a fresh unfiltered gate follows only after this focused batch finishes green. No agents/new feature. Both temporary swap areas remain ACTIVE and require exact-path cleanup as previously documented.
+
+
+### 2026-10-17 07:05 UTC — final focused batch green; current unfiltered run
+
+Focused report target/build/task4-reaction-2026-10-17T07-00-56-691Z.json is PASS on the current1513-path vector5ca83596ec322122c5444266b7430160362f7b096d9f908ab00282bc8844776b. Checked keys/counts(code/PTY):reaction37/50;pr_metadata_viewport_v9 3/2;hover_routing2/2;mouse_keyboard_scrollbar8/2;mouse_keyboard24/10;navigation154/54. Counts overlap, not unique totals. All0failed0ignored, independent per-test physical input and all-owned cleanup; check-only fmt and strictClippy both0. Peak490311680bytes,pids43; memory high/max/OOM/pids events0. The exact same candidate also passed all34integrationtargets/694tests.
+
+CURRENT full unfiltered run is exec92618, unit ghtui-task4-all-20261017c.scope, started07:05:23UTC; report target/build/task4-all-2026-10-17T07-05-23-133Z.json and matching-all-targets.log. It is RUNNING, NOT acceptance. Source remains frozen. Read-only monitor:node target/build/task4-progress.mjs /home/admin2/CODE/ghtui/target/build/task4-all-2026-10-17T07-05-23-133Z.json. After actual PASS, run same-source native-input/Node/dependency/Backlog audits, then generated receipt helper target/build/task4-seal.mjs FULL_REPORT AUDITS_REPORT FOCUSED_REPORT. Do not run that helper against a partial or failed report. Task4 remains open until actual evidence and criteria review; no agents/next feature. Both exact temporary swap areas remain ACTIVE and must be cleaned after owned verification. Native macOS remains required before release.
+
+
+### 2026-10-17 07:58 UTC — TASK4 Done; verified Linux checkpoint
+
+TASK4 is now Done after all6AC/3DoD objective reviews. Its final frozen1513-path vector5ca83596ec322122c5444266b7430160362f7b096d9f908ab00282bc8844776b passed the actual unfiltered cargo test --locked --all-targets via test-all:4018code/provider+1530real-binary PTY=5548PASS0failed0ignored; check-only formatting/strictClippy both0. Full report target/build/task4-all-2026-10-17T07-05-23-133Z.json PASS/SHA d5efd3a6bc8c6aff2fe14cd15d52a5eccc9573e92e36dd19a1ce6a2d19c4a89e. All6focused keys and all34integrationtargets694tests passed on the exact candidate. Final joined receipt target/build/task4-final-evidence-20261017.json SHA b9b4e4be39abf3e1c9a671d6c88217651c40eb934fe8ec4dbc9f7b792a2d0b47, statusLINUX_SHARED_INTERACTION_VERIFIED. Native suite1954.22s is not a UI latency benchmark.
+
+Fresh audit target/build/task4-audits-2026-10-17T07-55-45-802Z.json PASS:1530independently checked names,2322owned sessions/2320positive/2specific intentional panic negatives,2138keyboard/1166mouse positive sessions (overlap), all-owned cleanuptrue; one documented noninteractive invalid-startup case. Node gate3PASS, dependencies/backlog79/doctor PASS. Earlier07:55:09 audit failed only a required literal command-description check, corrected via Backlog CLI while retaining wrapper-first policy; preserved as negative metadata evidence, not app regression. Full scope peak901062656bytes,pids70, high/max/OOM/pids events0.
+
+Current genuine no-color offline mouse captures (PNG/SVG/ANSI/provenance) are in target/screenshots/task4-all-zybIFd:3415168-git-native-diff-120x40-228306;3683567-actions-run-80x24-20350;3522563-task4-help-scrollbar-tail-80x24-80x24-57368. Conversion report target/build/task4-screenshots-current-2026-10-17T07-55-59-995Z.json PASS. Root visually reviewed and recorded dense controls/technical labels/hard word wrapping in existingTASK67, without starting a second feature or claiming usability/color acceptance.
+
+BOTH temporary compiler swap files have been safely validated, deactivated and removed07:56:29/35UTC; metadata target/build/task4-temporary-swap-20261017.json nowCLEANED_TEMPORARY_DEVELOPMENT_SWAP. Original /swap.img remains; no permanent system-config changes. Do not recreate or remove those already-cleaned paths on recovery. Logs/screenshots are retained. No Cargo/rustc remains active. Root only; no agents.
+
+Next sequential feature is TASK5 (bounded cancellable command runner), only after local checkpoint. Read its current contract and dependencies; apply the user-approved Linux readiness split when a foundation native-Mac dependency prevents Linux work, without waiving required native macOS release evidence. TASK1/2 native-Mac criteria and full product parity/UX/performance/CI/release gates remain open.

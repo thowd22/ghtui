@@ -252,8 +252,27 @@ fn conversation_comments_reaction_catalog_is_readonly_paged_shared_actor_and_ove
         let before = app.pr_reaction_scroll;
         app.handle_event(Event::Mouse(MouseEvent {
             kind: MouseEventKind::ScrollUp,
-            column: 10,
-            row: 8,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(
+            app.pr_reaction_scroll, before,
+            "background wheel must not scroll the owned reaction popup"
+        );
+        // The centered popup moves between these three layouts. Hover its
+        // actually painted paging control, not a fixed background coordinate.
+        let hovered = app
+            .hits
+            .iter()
+            .find(|hit| matches!(hit.action, Action::PrReactionScroll(_)))
+            .unwrap()
+            .rect;
+        assert!(!hovered.is_empty());
+        app.handle_event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: hovered.x,
+            row: hovered.y,
             modifiers: KeyModifiers::NONE,
         }));
         assert!(app.pr_reaction_scroll < before);

@@ -18,6 +18,8 @@ mod file_history;
 mod git_maintenance_v1;
 #[path = "tui_e2e/github.rs"]
 mod github;
+#[path = "tui_e2e/help_scrollbar.rs"]
+mod help_scrollbar;
 #[path = "support/hydration.rs"]
 mod hydration_fixture;
 #[path = "tui_e2e/identity.rs"]
@@ -44,6 +46,8 @@ mod notifications_v63;
 mod owned_form_prose_v120;
 #[path = "tui_e2e/owned_pty_cleanup_v1.rs"]
 mod owned_pty_cleanup_v1;
+#[path = "tui_e2e/mouse_hover.rs"]
+mod pointer_hover;
 #[path = "support/positive_pid_publication_v1.rs"]
 mod positive_pid_publication_v1;
 #[path = "tui_e2e/pr_actions.rs"]

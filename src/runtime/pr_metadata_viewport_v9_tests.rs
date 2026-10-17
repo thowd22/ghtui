@@ -64,13 +64,22 @@ fn pr_metadata_viewport_v9_held_tab_completion_retires_old_scroll_after_both_inp
         let mut background = Background::new();
         assert!(background.submit(&mut app, View::Inbox, move |_| {
             started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
+            release_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("Held test worker must be released, including assertion-failure cleanup");
             Ok(PreparedView {
                 github: Some(workspace(PrTab::Metadata)),
                 ..Default::default()
             })
         }));
         started_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        // Mouse input belongs to a completed, currently painted viewport, just
+        // as it does in the real binary; an unpainted App has no hover target.
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::ui::draw(frame, &mut app))
+            .unwrap();
         for _ in 0..7 {
             if mouse {
                 app.handle_event(crossterm::event::Event::Mouse(
@@ -98,8 +107,6 @@ fn pr_metadata_viewport_v9_held_tab_completion_retires_old_scroll_after_both_inp
             app.github.as_ref().unwrap().pr.as_ref().unwrap().tab,
             PrTab::Metadata
         );
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
         terminal
             .draw(|frame| crate::ui::draw(frame, &mut app))
             .unwrap();
@@ -200,7 +207,9 @@ fn pr_metadata_viewport_v9_superseded_held_tab_result_cannot_reset_newer_same_ta
     });
     assert!(background.submit(&mut app, View::Inbox, move |_| {
         started_tx.send(()).unwrap();
-        release_rx.recv().unwrap();
+        release_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("Held test worker must be released, including assertion-failure cleanup");
         Ok(PreparedView {
             github: Some(workspace(PrTab::Metadata)),
             ..Default::default()

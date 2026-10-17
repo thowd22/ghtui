@@ -181,6 +181,26 @@ impl DiffSelection {
     }
 }
 
+/// Last painted legacy pane only. Presentation geometry is not source,
+/// selection, account, or publication authority; native widgets own theirs.
+#[derive(Default)]
+pub(crate) struct PointerRegion {
+    owner: Option<(View, Option<Overlay>)>,
+    area: Rect,
+}
+impl PointerRegion {
+    pub(crate) fn clear(&mut self) {
+        *self = Self::default();
+    }
+    pub(crate) fn capture(&mut self, view: View, overlay: Option<Overlay>, area: Rect) {
+        self.owner = Some((view, overlay));
+        self.area = area;
+    }
+    fn contains(&self, view: View, overlay: Option<Overlay>, column: u16, row: u16) -> bool {
+        self.owner == Some((view, overlay)) && self.area.contains((column, row).into())
+    }
+}
+
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
     pub notifications_v63: Option<crate::notifications_ui_v63::NotificationBrowserV63>,
@@ -242,6 +262,9 @@ pub struct App {
     pub context_help_scroll: usize,
     pub context_help_rows: usize,
     pub context_help_area: Rect,
+    /// Keep presentation geometry outside the already-wide inline App layout.
+    pub(crate) help_scrollbar: Box<crate::scrollbar::Scrollbar>,
+    pub(crate) pointer_region: Box<PointerRegion>,
     pub navigation_trail: crate::navigation_trail::NavigationTrail,
     pub original_saved_visits: crate::navigation_local_source_v1::OriginalSavedVisitsV1,
     pub original_diff_picker_v1: Option<crate::repository_diff_sides_v1::OriginalDiffPickerV1>,
@@ -481,6 +504,8 @@ impl Default for App {
             context_help_scroll: 0,
             context_help_rows: 1,
             context_help_area: Rect::default(),
+            help_scrollbar: Default::default(),
+            pointer_region: Default::default(),
             navigation_trail: Default::default(),
             original_saved_visits: Default::default(),
             original_diff_picker_v1: None,
@@ -1270,10 +1295,12 @@ impl App {
             Action::Navigation(action) => self.request_navigation(action),
             Action::PaletteInput(input) => crate::navigation_ui::palette_input(self, input),
             Action::HelpScroll(delta) => {
-                self.context_help_scroll = self
-                    .context_help_scroll
-                    .saturating_add_signed(delta as isize)
-                    .min(4096);
+                if self.overlay == Some(Overlay::Help) {
+                    self.context_help_scroll = self
+                        .context_help_scroll
+                        .saturating_add_signed(delta as isize)
+                        .min(4096);
+                }
             }
             Action::Capabilities => {
                 let identity = self
@@ -1477,6 +1504,7 @@ impl App {
                 self.clear_capability_inspector();
                 self.context_help = None;
                 self.context_help_area = Rect::default();
+                self.help_scrollbar.clear();
                 if self.overlay == Some(Overlay::Form) {
                     if let Some(form) = &mut self.form {
                         form.observe_presentation_input_v4();
@@ -2013,6 +2041,9 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: Event) {
+        if matches!(&event, Event::Resize(_, _)) {
+            self.pointer_region.clear();
+        }
         let old_notification_pr = self.notification_pr_source_v63.is_some();
         crate::notification_pr_v63::retire_invalid(self);
         if old_notification_pr && self.notification_pr_source_v63.is_none() && self.github.is_none()
@@ -3143,6 +3174,9 @@ impl App {
                 }
             }
             Event::Mouse(mouse) => {
+                let hovering =
+                    self.pointer_region
+                        .contains(self.view, self.overlay, mouse.column, mouse.row);
                 if self.overlay.is_none()
                     && self.view == View::Dashboard
                     && matches!(
@@ -3175,13 +3209,15 @@ impl App {
                         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                     )
                 {
-                    self.dispatch(Action::PrReactionScroll(
-                        if mouse.kind == MouseEventKind::ScrollDown {
-                            3
-                        } else {
-                            -3
-                        },
-                    ));
+                    if hovering {
+                        self.dispatch(Action::PrReactionScroll(
+                            if mouse.kind == MouseEventKind::ScrollDown {
+                                3
+                            } else {
+                                -3
+                            },
+                        ));
+                    }
                     return;
                 }
                 if matches!(
@@ -3191,13 +3227,15 @@ impl App {
                     mouse.kind,
                     MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                 ) {
-                    self.dispatch(Action::NoticeScroll(
-                        if mouse.kind == MouseEventKind::ScrollDown {
-                            3
-                        } else {
-                            -3
-                        },
-                    ));
+                    if hovering {
+                        self.dispatch(Action::NoticeScroll(
+                            if mouse.kind == MouseEventKind::ScrollDown {
+                                3
+                            } else {
+                                -3
+                            },
+                        ));
+                    }
                     return;
                 }
                 if self.overlay.is_none()
@@ -3207,7 +3245,7 @@ impl App {
                         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                     )
                 {
-                    if let Some(actions) = &self.actions {
+                    if let Some(actions) = self.actions.as_ref().filter(|_| hovering) {
                         let index = actions.selected.saturating_add_signed(
                             if mouse.kind == MouseEventKind::ScrollDown {
                                 3
@@ -3228,13 +3266,15 @@ impl App {
                     mouse.kind,
                     MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                 ) {
-                    self.dispatch(Action::MenuScroll(
-                        if mouse.kind == MouseEventKind::ScrollDown {
-                            3
-                        } else {
-                            -3
-                        },
-                    ));
+                    if hovering {
+                        self.dispatch(Action::MenuScroll(
+                            if mouse.kind == MouseEventKind::ScrollDown {
+                                3
+                            } else {
+                                -3
+                            },
+                        ));
+                    }
                     return;
                 }
                 match mouse.kind {
@@ -3257,10 +3297,10 @@ impl App {
                             }
                         }
                     }
-                    MouseEventKind::ScrollDown if self.overlay.is_none() => {
+                    MouseEventKind::ScrollDown if self.overlay.is_none() && hovering => {
                         self.dispatch(Action::Scroll(3))
                     }
-                    MouseEventKind::ScrollUp if self.overlay.is_none() => {
+                    MouseEventKind::ScrollUp if self.overlay.is_none() && hovering => {
                         self.dispatch(Action::Scroll(-3))
                     }
                     _ => {}
@@ -3610,6 +3650,10 @@ fn pressed_shortcut(code: KeyCode, modifiers: KeyModifiers) -> Option<String> {
 pub fn safe_text(text: &str) -> String {
     crate::providers::runner::sanitize_terminal(text)
 }
+
+#[cfg(test)]
+#[path = "app/pointer_hover_tests.rs"]
+mod pointer_hover_tests;
 
 #[cfg(test)]
 mod tests {

@@ -19,6 +19,7 @@ impl App {
     /// Retire owned actions, not only geometry. This epoch only refuses stale
     /// discovery; it is never fresh repository/identity/mutation authority.
     pub fn retire_command_context(&mut self) {
+        self.help_scrollbar.clear();
         self.command_palette = None;
         self.command_palette_context = None;
         if self.overlay == Some(Overlay::Palette) {
@@ -36,6 +37,7 @@ pub fn open_palette(app: &mut App) {
     app.clear_capability_inspector();
     app.context_help = None;
     app.context_help_area = Rect::default();
+    app.help_scrollbar.clear();
     app.hits.clear();
     app.palette_index = 0;
     if app.command_context_exhausted {
@@ -118,6 +120,7 @@ pub fn palette_input(app: &mut App, input: PaletteAction) {
 pub fn open_help(app: &mut App) {
     app.context_help_scroll = 0;
     app.context_help_area = Rect::default();
+    app.help_scrollbar.clear();
     app.hits.clear();
     match ContextHelp::prepare(app.view, &app.bindings) {
         Ok(help) => {
@@ -176,6 +179,9 @@ pub fn event(app: &mut App, event: Event) {
     if app.overlay != Some(Overlay::Help) {
         return;
     }
+    if matches!(event, Event::Key(_) | Event::Paste(_)) {
+        app.help_scrollbar.cancel_drag();
+    }
     let action = match event {
         Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
             KeyCode::Esc | KeyCode::Char('?') => Some(Action::Close),
@@ -183,14 +189,8 @@ pub fn event(app: &mut App, event: Event) {
             KeyCode::Down | KeyCode::Char('j') => Some(Action::HelpScroll(1)),
             KeyCode::PageUp => Some(Action::HelpScroll(-(app.context_help_rows as i32))),
             KeyCode::PageDown => Some(Action::HelpScroll(app.context_help_rows as i32)),
-            KeyCode::Home => {
-                app.context_help_scroll = 0;
-                None
-            }
-            KeyCode::End => {
-                app.context_help_scroll = 4096;
-                None
-            }
+            KeyCode::Home => Some(Action::HelpScroll(-4096)),
+            KeyCode::End => Some(Action::HelpScroll(4096)),
             KeyCode::Tab => {
                 app.focus = (app.focus + 1) % app.hits.len().max(1);
                 None
@@ -202,35 +202,52 @@ pub fn event(app: &mut App, event: Event) {
             KeyCode::Enter => app.hits.get(app.focus).map(|hit| hit.action.clone()),
             _ => None,
         },
-        Event::Mouse(mouse) => match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => app
-                .hits
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, hit)| hit.rect.contains((mouse.column, mouse.row).into()))
-                .map(|(index, hit)| {
-                    app.focus = index;
-                    hit.action.clone()
-                }),
-            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
-                if app
-                    .context_help_area
-                    .contains((mouse.column, mouse.row).into()) =>
+        Event::Mouse(mouse) => {
+            if let Some(request) = app
+                .help_scrollbar
+                .mouse(mouse.kind, mouse.column, mouse.row)
             {
-                Some(Action::HelpScroll(
-                    if mouse.kind == MouseEventKind::ScrollDown {
-                        3
-                    } else {
-                        -3
-                    },
-                ))
+                let delta = match request {
+                    crate::scrollbar::ScrollRequest::By(delta) => delta,
+                    crate::scrollbar::ScrollRequest::To(target) => (target as i128
+                        - app.context_help_scroll as i128)
+                        .clamp(i128::from(i32::MIN), i128::from(i32::MAX))
+                        as i32,
+                };
+                Some(Action::HelpScroll(delta))
+            } else {
+                match mouse.kind {
+                    MouseEventKind::Down(MouseButton::Left) => app
+                        .hits
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, hit)| hit.rect.contains((mouse.column, mouse.row).into()))
+                        .map(|(index, hit)| {
+                            app.focus = index;
+                            hit.action.clone()
+                        }),
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if app
+                            .context_help_area
+                            .contains((mouse.column, mouse.row).into()) =>
+                    {
+                        Some(Action::HelpScroll(
+                            if mouse.kind == MouseEventKind::ScrollDown {
+                                3
+                            } else {
+                                -3
+                            },
+                        ))
+                    }
+                    _ => None,
+                }
             }
-            _ => None,
-        },
+        }
         Event::Resize(_, _) => {
             app.hits.clear();
             app.context_help_area = Rect::default();
+            app.help_scrollbar.clear();
             None
         }
         _ => None,
@@ -289,6 +306,14 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
     app.context_help_scroll = app
         .context_help_scroll
         .min(lines.len().saturating_sub(app.context_help_rows));
+    app.help_scrollbar.draw(
+        frame,
+        Rect::new(rect.right().saturating_sub(1), body.y, 1, body.height),
+        lines.len(),
+        body.height,
+        app.context_help_scroll,
+        theme,
+    );
     frame.render_widget(
         Paragraph::new(lines).scroll((app.context_help_scroll as u16, 0)),
         body,

@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@root'
 created_date: '2026-10-17 01:58'
-updated_date: '2026-10-17 04:53'
+updated_date: '2026-10-17 04:58'
 labels: []
 dependencies:
   - TASK-70
@@ -124,6 +124,8 @@ USER DECISION 2026-10-17: explicitly selected 'Separate Linux readiness; keep ma
 Final unfiltered cargo test --locked --all-targets completed PASS/exit0:4008code/provider (3314library,349strict GH,345other) plus1526native=5534tests,0failed/0ignored/0filtered; native1950.87s. Original report records all-targetsPASS/0 and format-checkPASS/0, but remains RUNNING with clippyRUNNING after coordinator exit following daemon recovery. Clippy log contains Finished dev profile in0.22s, no project error, but final exit was not persisted; do NOT rewrite or label original report terminalPASS. Scope inactive/dead at04:50:12, coordinator3090082/cargo3090097 absent, current all1508source hashes independently unchanged. This is incomplete coordinator metadata, not a new observed product-test failure. Preserve original report/log. Run check-only fmt+strict under a new capped locked scope on exactsame source, then input/dependency/backlog audits and create a separate honest completion receipt linking both actual reports. No repeat of already completed unfiltered tests is required absent source drift.
 
 FINAL Linux baseline VERIFIED. Receipt target/build/task79-final-evidence-20261017.json joins completed full unfiltered5534tests (4008code/provider +1526real TUI,0failed/0ignored), fresh check-onlyfmt/strict0 after daemon metadata loss, and all5auditsPASS on byte-identical1508source paths. Source-vector SHA7c353514f14ef0054b2b9a9e8931f96acab6f9e8d065e7361a2bf28a4a305a34. Full report SHAebb982c2ec8123dbdc7daf3fa8837b06fe0bc1eb9d4f69c9ad5f4680b8515910 retains unfinished wrapper status honestly; quality6a1de552f1ee447f254f30b4851195e1751ed8c177891b8b7f845493b6370fc7 and audits0b5141728fba49bf67cb40da582b93372272b4e82fd6b6885e59561224c90d4a terminalPASS. Global physical audit all1526names independentlychecked,2318sessions/2316positive/2deliberatepanics excluded/2135keyboard/1163mouse/allcleanup; exactjournal/hash in receipt. Node negative3/3, upstream86/10300files/108patches/117registry,79backlogvalid/doctorclean. Final receipt-seal report task79-seal-2026-10-17T04-53-07-241Z PASS. Doc13 now records current evidence and approved Linux-readiness/native-macOS-release split; original platform and incomplete product gates remain open, private source preserved. Screenshots/commands/provenance are linked there and above. Ready to check this bounded Linux task's4AC/3DoD and markDone; no Task1/2macOS or whole-product acceptance inferred.
+
+Local reproducible baseline checkpoint committed as5cfea49f5a84a1ded5acac7ae126ab615ab17355,753verified source/backlog files, no push or remote change. Command-scoped Codex <codex@localhost> identity used because author config was absent; no repository/global Git config persisted. Current1508source hashes unchanged and index clean. Four pre-existing target-fullside-*.log files remain untracked and untouched. Exact guarded checkpoint receipt target/build/task79-local-checkpoint-20261017.json and capped checkpoint report task79-checkpoint-2026-10-17T04-57-36-831Z PASS. Task3 now depends on verifiedLinux79, not pendingMac2, per explicit user choice; originalTask1/2nativeMac gates retained.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

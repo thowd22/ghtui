@@ -242,6 +242,91 @@ fn app_close(app: &mut App) {
 }
 
 #[test]
+fn mouse_keyboard_scrollbar_help_arrows_pages_and_drag_match_keyboard_without_work() {
+    let mut keyboard = App {
+        view: View::Repository,
+        ..Default::default()
+    };
+    let mut mouse = App {
+        view: View::Repository,
+        ..Default::default()
+    };
+    for app in [&mut keyboard, &mut mouse] {
+        app.dispatch(Action::Help);
+        draw(app, 80, 24);
+    }
+    // Help's existing border, not a column taken away from its wrapped text.
+    let arrow = Rect::new(77, mouse.context_help_area.bottom() - 1, 1, 1);
+    click(&mut mouse, arrow);
+    key(&mut keyboard, KeyCode::Down);
+    assert_eq!(mouse.context_help_scroll, 1);
+    assert_eq!(mouse.context_help_scroll, keyboard.context_help_scroll);
+    assert_eq!(draw(&mut mouse, 80, 24), draw(&mut keyboard, 80, 24));
+    key(&mut mouse, KeyCode::Home);
+    key(&mut keyboard, KeyCode::Home);
+    draw(&mut mouse, 80, 24);
+    click(&mut mouse, Rect::new(77, arrow.y - 1, 1, 1));
+    key(&mut keyboard, KeyCode::PageDown);
+    assert_eq!(mouse.context_help_scroll, keyboard.context_help_scroll);
+    assert_eq!(draw(&mut mouse, 80, 24), draw(&mut keyboard, 80, 24));
+    key(&mut mouse, KeyCode::Home);
+    draw(&mut mouse, 80, 24);
+    let thumb_y = mouse.context_help_area.y + 1;
+    click(&mut mouse, Rect::new(77, thumb_y, 1, 1));
+    mouse.handle_event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: 0,
+        row: 23,
+        modifiers: KeyModifiers::NONE,
+    }));
+    key(&mut keyboard, KeyCode::End);
+    assert_eq!(draw(&mut mouse, 80, 24), draw(&mut keyboard, 80, 24));
+    assert!(mouse.context_help_scroll > 0);
+    for app in [&mouse, &keyboard] {
+        assert!(app.github_action.is_none() && app.actions_action.is_none());
+        assert!(app.local_command.is_none() && app.form.is_none());
+        assert!(!app.refresh_requested && !app.repository_load_requested);
+    }
+}
+
+#[test]
+fn mouse_keyboard_scrollbar_help_resize_close_reopen_and_keyboard_cancel_old_drag() {
+    for retire in 0..3 {
+        let mut app = App::default();
+        app.dispatch(Action::Help);
+        draw(&mut app, 80, 24);
+        let thumb_y = app.context_help_area.y + 1;
+        click(&mut app, Rect::new(77, thumb_y, 1, 1));
+        match retire {
+            0 => app.handle_event(Event::Resize(120, 40)),
+            1 => {
+                app.dispatch(Action::Close);
+                app.dispatch(Action::Help);
+            }
+            _ => key(&mut app, KeyCode::Home),
+        }
+        app.handle_event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 77,
+            row: 20,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(
+            app.context_help_scroll, 0,
+            "retired drag cannot scroll new geometry"
+        );
+        assert_eq!(app.view, View::Inbox);
+        assert_eq!(app.overlay, Some(Overlay::Help));
+    }
+    let mut app = App::default();
+    app.dispatch(Action::HelpScroll(10));
+    assert_eq!(
+        app.context_help_scroll, 0,
+        "closed Help ignores a stale scroll action"
+    );
+}
+
+#[test]
 fn navigation_ui_emergency_quit_is_retained_for_both_new_overlays() {
     for action in [Action::Help, Action::Palette] {
         let mut app = App::default();

@@ -4,7 +4,7 @@ title: Evaluate and refine beginner-friendly Git PR and Actions workflows
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-17 03:32'
+updated_date: '2026-10-17 07:57'
 labels:
   - delivery
   - e2e
@@ -175,4 +175,6 @@ V312 READ-ONLY addendum to V311: target/build/parallel-tree-base-context-v312-al
 Observed UX debt in actual passing Linux offline Root Task79 terminal screenshots (not novice-user evaluation or task acceptance): target/screenshots/task79-task-H0jBf8/ contains Issue picker/preview and PR action preview PNG+SVG+raw/provenance. User-facing text currently exposes Core, Some([false,...]), long internal hashes/nodes and repeated implementation disclaimers; long prose wraps mid-word, and requester/fallback label spacing looks cramped. Preserve exact target/effect/safety information and advanced source evidence when addressing usability, but do not mistake these passing integrity tests for a beginner-friendly product. No UX implementation/status/AC change in baseline work.
 
 Additional actual Linux/offline terminal observation during TASK79 full native run: target/screenshots/task79-native-6b7XTt/2228664-git-native-diff-120x40-299623.png (SVG/ANSI/raw/provenance retained). Visually inspected completed keyboard diff frame: additions/deletions and separate local author/committer labels are clear, but dense top status and bracket-key Previous/Next file captions remain technical/ambiguous for beginners (for example original canonical rows, hidden counts, patch-only syntax fallback). Preserve exact source/semantics and accessibility while evaluating simpler captions/grouping in this task. This is a visual-review observation, not a novice-user success measure or TASK67 acceptance; no implementation or platform claim.
+
+2026-10-17 Root visual review (documentation only; no concurrent feature implementation): current Task4 full-source no-color offline captures in target/screenshots/task4-all-zybIFd show a crowded Actions control toolbar, dense protocol/source wording and Help paragraphs breaking mid-word. Diff shows precise source/actor roles but technical canonical-row terminology remains. These are genuine completed frames, NOT human usability or color-mode acceptance. Keep beginner-language, spacing/overflow and prose wrapping refinement in this existing usability task; do not infer Task67 Done from5548automated passes. Current screenshot provenance/conversion report target/build/task4-screenshots-current-2026-10-17T07-55-59-995Z.json.
 <!-- SECTION:NOTES:END -->

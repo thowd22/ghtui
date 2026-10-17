@@ -138,6 +138,7 @@ pub mod scoped_pr_native_diff_native_v1;
 pub mod scoped_pr_native_diff_source_v1;
 pub mod scoped_pr_observed_tabs_v1;
 pub mod scoped_pr_read_v1;
+mod scrollbar;
 pub mod search;
 pub mod search_blend;
 pub mod search_sources;
