@@ -3,6 +3,8 @@ mod fixture_shell_publication_v1;
 mod git_support;
 #[path = "git_contracts/graph_paging_v1.rs"]
 mod graph_paging_v1;
+#[path = "git_contracts/provider_special_read_v1.rs"]
+mod provider_special_read_v1;
 #[path = "support/raw_git_argv_v1.rs"]
 mod raw_git_argv_v1;
 #[path = "support/raw_git_argv_v1_tests.rs"]

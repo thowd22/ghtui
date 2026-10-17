@@ -16,6 +16,8 @@ mod editor_viewport;
 mod file_history;
 #[path = "tui_e2e/git_maintenance_v1.rs"]
 mod git_maintenance_v1;
+#[path = "tui_e2e/git_provider_sparse_v1.rs"]
+mod git_provider_sparse_v1;
 #[path = "tui_e2e/github.rs"]
 mod github;
 #[path = "tui_e2e/help_scrollbar.rs"]
