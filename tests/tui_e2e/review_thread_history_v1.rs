@@ -1,4 +1,4 @@
-//! DECLARED/UNRUN. Actual protected publication -> real binary restart -> fresh
+//! Actual protected publication -> real binary restart -> fresh
 //! Catalogue/MyPRs/Summary -> J inspect-only route, with no guessed old target.
 use super::*;
 #[path = "review_thread_history_interactions_v1.rs"]
@@ -341,12 +341,6 @@ fn journey_with_interactions(
         if interactions {
             interactions_v1::detail(&mut restarted, &fixture, mouse, old_end + 47);
         }
-        if changed_head {
-            choose(&mut restarted, mouse, "[Home Top]", b"\x1b[H");
-            history_ready(&mut restarted, &[&"d".repeat(40)]);
-            detail_contains(&mut restarted, mouse, "Historical H");
-            assert_ne!(origin["seed"]["head"], json!("d".repeat(40)));
-        }
     }
     let detail_inputs = restarted.finish_observed_output_hold_v1();
     assert_eq!(
@@ -354,6 +348,44 @@ fn journey_with_interactions(
         1,
         "Only one actual history input before a completed viewport acknowledgement: {detail_inputs:?}"
     );
+    if changed_head {
+        // The current-head header is also present in the scrolled old view.
+        // Matching it alone cannot acknowledge Home Top. Hold delivery of the
+        // genuine next output again so this boundary is exercised causally,
+        // independently of the earlier Open/paging hold and its assertions.
+        let current_head = "d".repeat(40);
+        let previous =
+            crate::support::overlay_body(restarted.completed_cursorless_screen().unwrap(), HISTORY)
+                .unwrap();
+        assert!(previous.contains(&current_head));
+        assert!(previous.contains("Original native reply 界"));
+        let top_after = restarted.completed_cells_end();
+        restarted.hold_observed_output_after_next_write_v1(Duration::from_millis(200));
+        choose(&mut restarted, mouse, "[Home Top]", b"\x1b[H");
+        restarted.wait_for_new_cursorless_condition(
+            top_after,
+            |frame| {
+                crate::support::overlay_body(frame, HISTORY).is_some_and(|body| {
+                    body.contains(&current_head)
+                        && body.contains("Recorded attempt #")
+                        && body.contains("Recorded intent account:")
+                        && body.contains("Inspect only")
+                        && body.contains("[Esc Back]")
+                        && body.contains("[q Quit]")
+                })
+            },
+            "New completed owned Home Top viewport before any further history paging",
+            Duration::from_secs(8),
+        );
+        detail_contains(&mut restarted, mouse, "Historical H");
+        let top_inputs = restarted.finish_observed_output_hold_v1();
+        assert_eq!(
+            crate::support::receiver_delivery_gate_v1::maximum_unacknowledged(&top_inputs),
+            1,
+            "Home Top and further paging each need their own completed acknowledgement: {top_inputs:?}"
+        );
+        assert_ne!(origin["seed"]["head"], json!(current_head));
+    }
     if lose_account {
         let before = restarted.completed_cursorless_end();
         choose(&mut restarted, mouse, "[r Refresh]", b"r");

@@ -339,4 +339,89 @@ mod tests {
         config.bindings.insert("imaginary".into(), "z".into());
         assert!(config.validate().is_err());
     }
+
+    #[test]
+    fn configuration_missing_defaults_and_all_preferences_roundtrip_without_implicit_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preferences with spaces/config.toml");
+        assert_eq!(Config::load(&path).unwrap(), Config::default());
+        assert!(!path.parent().unwrap().exists());
+        let mapping = dir.path().join("local mapping 日本");
+        let mut config = Config {
+            host: "git.example.invalid".into(),
+            theme: ThemeName::NoColor,
+            refresh_seconds: 37,
+            active_set: Some("Work".into()),
+            excluded_repositories: vec!["org/b".into()],
+            avatars: false,
+            max_file_bytes: 7 * 1024 * 1024,
+            ..Config::default()
+        };
+        config.repository_sets.insert(
+            "Work".into(),
+            vec!["org/a".into(), "org/b".into(), "org/c".into()],
+        );
+        config
+            .repository_sets
+            .insert("Personal".into(), vec!["user/notes".into()]);
+        config
+            .local_repositories
+            .insert("org/a".into(), mapping.clone());
+        config.bindings.insert("help".into(), "h".into());
+        config.bindings.insert("quit".into(), "ctrl+x".into());
+        config.save(&path).unwrap();
+        let saved = fs::read(&path).unwrap();
+        let restored = Config::load(&path).unwrap();
+        assert_eq!(restored, config);
+        assert_eq!(
+            restored.selected_repositories(),
+            Some(vec!["org/a", "org/c"])
+        );
+        assert_eq!(restored.resolved_bindings().unwrap()["quit"], "ctrl+x");
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            saved,
+            "Loading must not rewrite preferences"
+        );
+        assert!(
+            !mapping.exists(),
+            "Saving a mapping is not permission to create or clone it"
+        );
+    }
+
+    #[test]
+    fn configuration_invalid_limits_and_unknown_fields_preserve_valid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let config = Config::default();
+        config.save(&path).unwrap();
+        let original = fs::read(&path).unwrap();
+        let invalid: [fn(&mut Config); 6] = [
+            |c| c.refresh_seconds = 4,
+            |c| c.refresh_seconds = 86_401,
+            |c| c.max_file_bytes = 0,
+            |c| c.max_file_bytes = 128 * 1024 * 1024 + 1,
+            |c| c.version = 2,
+            |c| c.host = "https://github.com".into(),
+        ];
+        for change in invalid {
+            let mut candidate = config.clone();
+            change(&mut candidate);
+            assert!(candidate.save(&path).is_err());
+            assert_eq!(fs::read(&path).unwrap(), original);
+            assert_eq!(Config::load(&path).unwrap(), config);
+        }
+        let invalid_path = dir.path().join("invalid.toml");
+        for bytes in [
+            b"version = \"not a number\"\n".as_slice(),
+            b"imaginary_preference = true\n",
+        ] {
+            fs::write(&invalid_path, bytes).unwrap();
+            let error = Config::load(&invalid_path).unwrap_err().to_string();
+            assert!(error.contains("Invalid configuration"));
+            assert!(error.contains("invalid.toml"));
+            assert_eq!(fs::read(&invalid_path).unwrap(), bytes);
+            assert_eq!(fs::read(&path).unwrap(), original);
+        }
+    }
 }

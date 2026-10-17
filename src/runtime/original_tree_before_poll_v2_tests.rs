@@ -9,6 +9,134 @@ use crate::{
 use ratatui::layout::Rect;
 use std::time::Duration;
 
+#[test]
+fn original_tree_viewport_reaped_git_is_not_worker_capacity_and_each_retry_is_new() {
+    for format in ["sha1", "sha256"] {
+        let real = Real::new(format);
+        let workspace = Workspace::load(&real.root, RepositoryMode::Tree, &real.original, None)
+            .unwrap()
+            .unwrap();
+        let mut jump = OriginalTreeJumpV1::new(OriginalTreeIntentV1::capture(&workspace).unwrap());
+        let work = Arc::new(OriginalTreeWorkV1::Query(jump.request().unwrap()));
+        let before = real.snapshot();
+        let mut app = App {
+            view: View::Repository,
+            workspace: Some(workspace),
+            original_tree_jump_v1: Some(jump),
+            refresh_requested: false,
+            ..Default::default()
+        };
+        let mut background = Background::new();
+        // Declared after Background: even an assertion failure drops these
+        // senders first and releases the actual workers before their join.
+        let mut releases = Vec::new();
+        for view in [View::Inbox, View::Search] {
+            let repository = real.repository.clone();
+            let original = real.original.clone();
+            let (release, waiting) = mpsc::channel();
+            let (finished_git, observed) = mpsc::channel();
+            releases.push(release);
+            assert!(background.submit(&mut app, view, move |_| {
+                // This synchronous installed-Git read has exited and reaped
+                // its child BEFORE the worker is held. No fabricated PID or
+                // substituted queue is used to manufacture saturation.
+                let resolved = repository
+                    .resolve_original(&original)
+                    .map_err(|e| e.to_string())?;
+                finished_git.send(resolved).unwrap();
+                waiting
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(|e| e.to_string())?;
+                Err("controlled original worker finished after its Git child".into())
+            }));
+            assert_eq!(
+                observed.recv_timeout(Duration::from_secs(5)).unwrap(),
+                real.original
+            );
+        }
+        for _ in 0..4 {
+            assert!(background.submit(&mut app, View::Actions, |_| {
+                Err("controlled last queued ordinary request".into())
+            }));
+        }
+        real.clear_trace();
+        assert!(!background.submit_original_tree_v1(&mut app, work.clone()));
+        let failure = app.original_tree_viewport_v2.failure.clone().unwrap();
+        assert!(failure.is_current(
+            app.workspace.as_ref().unwrap(),
+            app.original_tree_jump_v1.as_ref().unwrap()
+        ));
+        assert!(!app.loading[View::Repository.index()]);
+        assert!(app.status.contains("Original tree queue full"));
+        crate::repository_tree_viewport_native_v2::dispatch(
+            &mut app,
+            crate::repository_tree_viewport_v2::TreeViewportActionV2::Retry(failure.clone()),
+        );
+        let still_busy = app.original_tree_work_v1.take().unwrap();
+        assert!(!Arc::ptr_eq(&work, &still_busy));
+        assert!(!background.submit_original_tree_v1(&mut app, still_busy));
+        assert!(!failure.is_current(
+            app.workspace.as_ref().unwrap(),
+            app.original_tree_jump_v1.as_ref().unwrap()
+        ));
+        let current_failure = app.original_tree_viewport_v2.failure.clone().unwrap();
+        assert!(app.status.contains("Original tree queue full"));
+        assert!(
+            real.children().is_empty(),
+            "No rejected or implicit inventory read"
+        );
+        assert_eq!(real.snapshot(), before);
+
+        for release in releases {
+            release.send(()).unwrap();
+        }
+        // Two held workers and the last queued Actions request complete;
+        // its three canceled predecessors are skipped by the real workers.
+        for _ in 0..3 {
+            assert!(background
+                .completions
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .result
+                .is_err());
+        }
+        assert!(current_failure.is_current(
+            app.workspace.as_ref().unwrap(),
+            app.original_tree_jump_v1.as_ref().unwrap()
+        ));
+        assert!(
+            real.children().is_empty(),
+            "Freed capacity never automatically resends"
+        );
+        crate::repository_tree_viewport_native_v2::dispatch(
+            &mut app,
+            crate::repository_tree_viewport_v2::TreeViewportActionV2::Retry(current_failure),
+        );
+        let admitted = app.original_tree_work_v1.take().unwrap();
+        assert!(!Arc::ptr_eq(&work, &admitted));
+        assert!(background.submit_original_tree_v1(&mut app, admitted));
+        let owner = background.current_original_tree_owner_v1.clone().unwrap();
+        let completion = background
+            .completions
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(completion.result.is_ok());
+        assert_eq!(owner.accounting().unwrap().children_started(), 1);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(completion).unwrap();
+        background.completions = receiver;
+        assert!(background.poll(&mut app));
+        let frame = app.original_tree_jump_v1.as_ref().unwrap().frame().unwrap();
+        assert_eq!(frame.inventory().members().len(), 1);
+        assert_eq!(
+            real.children().len(),
+            1,
+            "Only the final explicit retry reads inventory"
+        );
+        assert_eq!(real.snapshot(), before);
+    }
+}
+
 fn completion_before_new_intent(kind: u8) {
     for input in 0..7 {
         let real = Real::new("sha256");

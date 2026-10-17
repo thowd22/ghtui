@@ -1,5 +1,4 @@
-//! UNREGISTERED child of original_tree_jump_v1. Actual binary input/effect
-//! journeys; future selectors require the separately reviewed V2 hooks.
+//! Actual binary input/effect journeys for the original saved-tree viewport.
 //! No UTF8 Trace2 argv is ever used to identify a raw Git destination.
 use super::*;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession, ProcessIdentity};
@@ -998,6 +997,74 @@ fn hold_unrelated_version(native: &Native) {
     )).unwrap();
     fs::set_permissions(program, fs::Permissions::from_mode(0o755)).unwrap();
 }
+/// A retry may legitimately find the ordinary queue still full after a Git
+/// child exits. Each input needs NEW owned feedback, never an old error or an
+/// automatic resend. Pending work is allowed to finish without another input.
+fn retry_with_owned_feedback_v2(session: &mut Session, mouse: bool, deadline: Instant) -> bool {
+    fn rejected_epoch(body: &str) -> Option<u64> {
+        body.lines().find_map(|line| {
+            line.trim()
+                .strip_prefix("Request #")?
+                .strip_suffix(" rejected")?
+                .parse()
+                .ok()
+        })
+    }
+    let point = session.wait_for_owned_completed_action(TITLE, "[Retry]", &[PALETTE_V2]);
+    if !mouse {
+        session.focus_visible_action("[Retry]");
+    }
+    let previous_epoch = rejected_epoch(
+        &crate::support::overlay_body(session.completed_cells_screen().unwrap(), TITLE).unwrap(),
+    )
+    .expect("Actual currently displayed rejected request identity");
+    let after = session.completed_cells_end();
+    if mouse {
+        session.click(point.0, point.1);
+    } else {
+        session.send_key(b"\r");
+    }
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if session.completed_cells_end() > after {
+            if let Some(body) = session
+                .completed_cells_screen()
+                .and_then(|frame| crate::support::overlay_body(frame, TITLE))
+            {
+                if body.contains("nested/renamed.txt") && body.contains("[Esc Close]") {
+                    if body.contains("Complete saved tree") && body.contains("1 known matches") {
+                        return true;
+                    }
+                    if body.contains("Original tree queue full")
+                        && body.contains("Retry is explicit")
+                        && body.contains("[Retry]")
+                    {
+                        if let Some(epoch) =
+                            rejected_epoch(&body).filter(|epoch| *epoch > previous_epoch)
+                        {
+                            assert_eq!(
+                                Some(epoch),
+                                previous_epoch.checked_add(1),
+                                "One explicit input creates exactly the next rejected request"
+                            );
+                            eprintln!(
+                                "Explicit retry received NEW owned request#{epoch} queue-full feedback: {after} -> {}",
+                                session.completed_cells_end()
+                            );
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Original combined8s explicit-retry budget; no blind input or timeout extension\n{}",
+            session.screen()
+        );
+    }
+}
+
 fn full_queue(mouse: bool) {
     let native = fixture("sha256");
     install_git_observer(&native, Some("search"));
@@ -1060,6 +1127,17 @@ fn full_queue(mouse: bool) {
         before,
         "Resize must not rebase/retry a failed original query"
     );
+    // Controlled negative: retry while BOTH original workers are still held.
+    // A second honest owned failure is valid, but must be newly acknowledged.
+    assert!(!retry_with_owned_feedback_v2(
+        &mut session,
+        mouse,
+        Instant::now() + Duration::from_secs(8)
+    ));
+    assert!(alive_v2(git.0.pid) && alive_v2(gh.0.pid));
+    assert_eq!(inventory_count(&native), 0);
+    assert_eq!(current_count(&native), before);
+    session.capture_completed_terminal_v1("tree-queue-owned-busy-40x24");
     fs::write(
         native.fixture.root.join("v2-release-search"),
         b"release after actual queue failure\n",
@@ -1072,16 +1150,20 @@ fn full_queue(mouse: bool) {
     .unwrap();
     reaped(&native, &mut session, "search", git);
     reaped(&native, &mut session, "gh", gh);
-    session.wait_for_screen("Retry is explicit");
-    choose_focus(&mut session, mouse, "[Retry]");
-    session.wait_for_screen("Complete saved tree");
-    session.wait_for_screen("1 known matches");
+    let retry_deadline = Instant::now() + Duration::from_secs(8);
+    while !retry_with_owned_feedback_v2(&mut session, mouse, retry_deadline) {
+        // This is another explicit action ONLY after a fresh owned rejection,
+        // not a rerun of a failed test or a pending/admitted operation.
+        assert_eq!(inventory_count(&native), 0);
+        assert!(Instant::now() < retry_deadline);
+    }
     assert_eq!(
         inventory_count(&native),
         1,
         "ONLY explicit NEW operation reads actual inventory"
     );
     narrow_jump(&mut session, 80);
+    session.capture_completed_terminal_v1("tree-queue-explicit-ready-80x24");
     select_row(&mut session, mouse, "file · nested/renamed.txt");
     session.wait_for_overlay_close(TITLE);
     session.wait_for_screen("saved nested line 002");

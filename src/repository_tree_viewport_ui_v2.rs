@@ -105,13 +105,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
         Rect::new(inner.x, inner.y + 1, inner.width, saved_rows),
     );
     let status_y = inner.y + 1 + saved_rows;
-    let failed = app.workspace.as_ref().is_some_and(|workspace| {
+    let rejected_epoch = app.workspace.as_ref().and_then(|workspace| {
         app.original_tree_viewport_v2
             .failure
             .as_ref()
-            .is_some_and(|failure| failure.is_current(workspace, jump))
+            .filter(|failure| failure.is_current(workspace, jump))
+            .map(|failure| failure.request_epoch_v2())
     });
-    if failed {
+    if rejected_epoch.is_some() {
         let reason = jump
             .status
             .split(" • Retry is explicit")
@@ -235,11 +236,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
             );
         }
     } else {
-        frame.render_widget(
-            Paragraph::new("Original source/filter pending • no old rows may be opened")
-                .wrap(Wrap { trim: false }),
-            list,
+        let pending = "Original source/filter pending • no old rows may be opened";
+        let notice = rejected_epoch.map_or_else(
+            || pending.to_owned(),
+            |epoch| format!("Request #{epoch} rejected\n{pending}"),
         );
+        frame.render_widget(Paragraph::new(notice).wrap(Wrap { trim: false }), list);
     }
     let mut x = detail.x;
     for field in Field::ALL {

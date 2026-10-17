@@ -64,6 +64,11 @@ impl OriginalTreeQueueFailureV2 {
     pub fn message(&self) -> &str {
         &self.message
     }
+    /// Display identity of this exact rejected navigation request, not an
+    /// operation receipt, retry authorization or a claim that capacity is free.
+    pub fn request_epoch_v2(&self) -> u64 {
+        self.request.epoch()
+    }
     pub fn is_current(&self, workspace: &Workspace, jump: &OriginalTreeJumpV1) -> bool {
         jump.owns(workspace) && jump.failed_request_matches_v2(&self.request)
     }

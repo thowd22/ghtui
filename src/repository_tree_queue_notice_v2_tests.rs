@@ -32,6 +32,66 @@ fn original_tree_viewport_queue_full_exact_owner_clears_only_pending_and_paints_
     assert!(Arc::ptr_eq(&failure.request, &original));
     assert!(failure.is_current(&workspace, &jump));
     assert_eq!(owner.accounting().unwrap().children_started(), 0);
+    assert_eq!(failure.request_epoch_v2(), original.epoch());
+    let mut app = crate::app::App {
+        view: crate::app::View::Repository,
+        workspace: Some(workspace),
+        original_tree_jump_v1: Some(jump),
+        refresh_requested: false,
+        ..Default::default()
+    };
+    app.original_tree_viewport_v2.failure = Some(failure.clone());
+    let mut previous = None;
+    for expected_epoch in [original.epoch(), original.epoch() + 1] {
+        let label = format!("Request #{expected_epoch} rejected");
+        for width in [40, 80, 120] {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 24)).unwrap();
+            terminal
+                .draw(|frame| crate::ui::draw(frame, &mut app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(usize::from(width))
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                text.contains(&label),
+                "Exact rejected request is visible at width{width}: {text}"
+            );
+            assert!(
+                text.contains("Original tree queue full") && text.contains("Retry is explicit")
+            );
+            assert!(text.contains("[Retry]") && text.contains("[Esc Close]"));
+            if let Some(previous) = &previous {
+                assert!(
+                    !text.contains(previous),
+                    "Old rejection cannot acknowledge the new request"
+                );
+            }
+        }
+        if previous.is_none() {
+            crate::repository_tree_viewport_native_v2::dispatch(
+                &mut app,
+                crate::repository_tree_viewport_v2::TreeViewportActionV2::Retry(failure.clone()),
+            );
+            let next = app.original_tree_work_v1.take().unwrap();
+            let next_failure = OriginalTreeQueueFailureV2::reject(
+                app.workspace.as_ref().unwrap(),
+                app.original_tree_jump_v1.as_mut().unwrap(),
+                &next,
+                None,
+                "Original tree queue full",
+            )
+            .unwrap();
+            assert_eq!(next_failure.request_epoch_v2(), expected_epoch + 1);
+            app.original_tree_viewport_v2.failure = Some(next_failure);
+        }
+        previous = Some(label);
+    }
     assert!(real.children().is_empty());
 }
 #[test]

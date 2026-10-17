@@ -328,7 +328,21 @@ fn settings_journey(mouse: bool) {
     config
         .repository_sets
         .insert("Work".into(), vec!["org/a".into(), "org/b".into()]);
+    config.refresh_seconds = 3600;
+    config.excluded_repositories.push("org/b".into());
+    config.avatars = false;
+    config.max_file_bytes = 3 * 1024 * 1024;
+    config.bindings.insert("help".into(), "h".into());
+    let mapping = fixture.root.join("kept local mapping");
+    config
+        .local_repositories
+        .insert("org/a".into(), mapping.clone());
     config.save(&config_path).unwrap();
+    let mut expected = config.clone();
+    expected.host = "git.example.com".into();
+    expected.active_set = Some("Work".into());
+    expected.theme = ghtui::config::ThemeName::Light;
+    assert!(!mapping.exists());
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     if mouse {
@@ -352,6 +366,7 @@ fn settings_journey(mouse: bool) {
         session.send_key(b"\t\r");
     }
     session.wait_for_screen("[Theme: Light]");
+    let save_after = session.completed_cells_end();
     if mouse {
         session.click_visible_action("[Save settings]");
     } else {
@@ -362,10 +377,37 @@ fn settings_journey(mouse: bool) {
     assert_eq!(saved.host, "git.example.com");
     assert_eq!(saved.active_set.as_deref(), Some("Work"));
     assert_eq!(saved.theme, ghtui::config::ThemeName::Light);
+    assert_eq!(
+        saved, expected,
+        "Settings save must preserve every unrelated preference"
+    );
+    assert_eq!(saved.selected_repositories(), Some(vec!["org/a"]));
+    assert!(
+        !mapping.exists(),
+        "Settings must not create or clone local mappings"
+    );
     assert!(
         session.inspect_command_journal(&fixture).is_empty(),
         "local settings must not send any GitHub mutation"
     );
+    session.wait_for_new_cursorless_condition(
+        save_after,
+        |frame| {
+            frame.contents().contains("Settings saved locally")
+                && frame.contents().contains("git.example.com / Work")
+        },
+        "completed settings save after actual keyboard or mouse input",
+        std::time::Duration::from_secs(8),
+    );
+    assert_eq!(
+        session.completed_cells_end(),
+        session.completed_cursorless_end()
+    );
+    session.capture_completed_terminal_v1(if mouse {
+        "configuration-settings-saved-80x24"
+    } else {
+        "configuration-settings-saved-120x40"
+    });
     let mut restarted = session.restart_with_same_cache(&fixture, 80, 24);
     restarted.wait_for_screen("git.example.com / Work");
     if mouse {
@@ -374,11 +416,29 @@ fn settings_journey(mouse: bool) {
         restarted.send_key(b"s");
     }
     restarted.wait_for_screen("[Theme: Light]");
+    let close_after = restarted.completed_cells_end();
     if mouse {
         restarted.click_visible_action("[Esc Close]");
     } else {
         restarted.close_overlay_by_key("Settings • local preferences");
     }
+    restarted.wait_for_new_cursorless_condition(
+        close_after,
+        |frame| {
+            frame.contents().contains("git.example.com / Work")
+                && !frame.contents().contains("Settings • local preferences")
+        },
+        "completed restarted configuration after closing settings",
+        std::time::Duration::from_secs(8),
+    );
+    assert_eq!(
+        restarted.completed_cells_end(),
+        restarted.completed_cursorless_end()
+    );
+    restarted.capture_completed_terminal_v1("configuration-restart-80x24");
+    assert_eq!(ghtui::config::Config::load(&config_path).unwrap(), expected);
+    assert!(restarted.inspect_command_journal(&fixture).is_empty());
+    assert!(!mapping.exists());
     restarted.quit_and_assert_restored_terminal(mouse);
 }
 
