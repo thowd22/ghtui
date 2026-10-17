@@ -2302,7 +2302,10 @@ fn run() -> Result<()> {
                 .pr_checks_route
                 .as_ref()
                 .is_none_or(|route| !route.scoped_v1())
-            && app.actions.as_ref().is_some_and(|actions| actions.watching)
+            && app
+                .actions
+                .as_ref()
+                .is_some_and(|actions| actions.watching && actions.watch_applies())
             && app.scoped_actions_v1.is_none()
             && Instant::now() >= next_actions_refresh
             && !ghtui::remote_scope_gate_v1::refuse_legacy_request(

@@ -286,6 +286,8 @@ pub struct ActionsWorkspace {
     pub fetched_at: Option<u64>,
     pub warnings: Vec<String>,
     pub watching: bool,
+    /// Plain outcome of the last watch tick, e.g. that the watched run finished.
+    pub watch_note: Option<String>,
     pub log_search: Option<(String, bool)>,
     pub reconciliation_target: Option<ActionsTarget>,
     pub observation: Option<ActionsObservation>,
@@ -296,6 +298,25 @@ pub struct ActionsWorkspace {
     pub recorded_workflow_history_v9: bool,
     pub publication_inspection: Option<ActionsPublicationInspectionPage>,
     pub publication_leases: Option<Arc<ActionsPublicationLeaseSnapshot>>,
+}
+/// Archives above this compressed size are not downloaded into memory for preview/export.
+pub const ARTIFACT_IN_APP_LIMIT: u64 = 16 * 1024 * 1024;
+fn artifact_too_large(artifact: &ActionsArtifact) -> bool {
+    artifact.size_in_bytes > ARTIFACT_IN_APP_LIMIT
+}
+/// Human-readable binary size, e.g. "57.7 MiB".
+pub fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["KiB", "MiB", "GiB", "TiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
 }
 pub fn status_role(status: &str, conclusion: &str) -> SemanticToken {
     match conclusion {
@@ -367,6 +388,7 @@ impl ActionsWorkspace {
             fetched_at: None,
             warnings: vec![],
             watching: false,
+            watch_note: None,
             log_search: None,
             reconciliation_target: None,
             observation: None,
@@ -431,6 +453,66 @@ impl ActionsWorkspace {
         crate::actor_avatar_projection_v1::actions(self)
             .map(crate::actor_avatar_projection_v1::distinct)
             .unwrap_or_default()
+    }
+    /// Watch refreshes only the run list or an open run (and its jobs).
+    pub fn watch_applies(&self) -> bool {
+        match self.view {
+            ActionsView::Runs => true,
+            ActionsView::Run | ActionsView::Jobs => self.run.is_some(),
+            _ => false,
+        }
+    }
+    /// Start or stop watching. Pure local state; the main loop performs the refreshes.
+    pub fn toggle_watch(&mut self) -> Result<(), String> {
+        if self.watching {
+            self.watching = false;
+            self.watch_note = Some("Watch stopped".into());
+        } else if !self.watch_applies() {
+            return Err(
+                "Watch updates the run list or an open run: open Runs or a run, then press w"
+                    .into(),
+            );
+        } else {
+            self.watching = true;
+            self.watch_note = None;
+        }
+        let label = self.watch_label();
+        for control in &mut self.controls {
+            if control.action == ActionsAction::Watch {
+                control.label = label.into();
+            }
+        }
+        Ok(())
+    }
+    fn watch_label(&self) -> &'static str {
+        if self.watching {
+            "[w Stop watch]"
+        } else {
+            "[w Watch]"
+        }
+    }
+    /// One watch tick observed `run`: stop once it has finished, otherwise report progress.
+    pub fn observe_watched_run(&mut self, run: &WorkflowRun) {
+        if run.status == "completed" {
+            self.watching = false;
+            self.watch_note = Some(format!(
+                "Watch ended: run {} attempt {} finished • {}",
+                run.id,
+                run.attempt,
+                if run.conclusion.is_empty() {
+                    "no conclusion reported"
+                } else {
+                    &run.conclusion
+                }
+            ));
+        } else {
+            self.watch_note = Some(format!(
+                "Run {} attempt {} is {}",
+                run.id,
+                run.attempt,
+                run.status.replace('_', " ")
+            ));
+        }
     }
     pub fn select(&mut self, index: usize) {
         self.selected = index.min(self.rows.len().saturating_sub(1));
@@ -551,6 +633,12 @@ impl ActionsWorkspace {
         cancel: &CancellationToken,
     ) -> GithubResult<()> {
         use ActionsAction::*;
+        if matches!(
+            action,
+            OpenRun { .. } | View(_) | Back | Repository(_) | Artifacts | Logs(_)
+        ) {
+            self.watch_note = None;
+        }
         match action {
             EditWorkflowLocalV9 => return Err(plain_error("Local workflow editing requires the actual original Definition/Actions worker; no legacy mapping or write fallback")),
             ScopedReadV2(_) => {
@@ -567,7 +655,9 @@ impl ActionsWorkspace {
                 return Ok(());
             }
             Watch => {
-                self.watching = !self.watching;
+                if let Err(reason) = self.toggle_watch() {
+                    self.warnings.push(reason);
+                }
                 self.prepare_rows();
                 return Ok(());
             }
@@ -721,12 +811,18 @@ impl ActionsWorkspace {
                     .find(|artifact| artifact.id == *id)
                     .cloned()
                     .ok_or_else(|| plain_error("Artifact is outside the displayed catalog"))?;
-                self.archive = Some(Arc::new(gh.download_artifact(
-                    self.repository()?,
-                    &artifact,
-                    ArtifactLimits::default(),
-                    cancel,
-                )?));
+                // Larger archives are not downloaded into memory; the page still offers Delete
+                // and explains how to download them outside ghtui.
+                self.archive = if artifact_too_large(&artifact) {
+                    None
+                } else {
+                    Some(Arc::new(gh.download_artifact(
+                        self.repository()?,
+                        &artifact,
+                        ArtifactLimits::default(),
+                        cancel,
+                    )?))
+                };
                 self.artifact = Some(artifact);
                 self.artifact_preview = None;
                 self.artifact_image = None;
@@ -829,7 +925,22 @@ impl ActionsWorkspace {
     fn load_view(&mut self, gh: &GithubProvider, cancel: &CancellationToken) -> GithubResult<()> {
         use ActionsView::*;
         match self.view {
-            Runs => return self.load_catalog(gh, cancel),
+            Runs => {
+                // Keep the same run selected when a refresh or watch tick adds newer runs.
+                let selected = self
+                    .runs
+                    .get(self.selected)
+                    .map(|item| (item.repository.clone(), item.run.id));
+                self.load_catalog(gh, cancel)?;
+                if let Some(index) = selected.and_then(|(repository, id)| {
+                    self.runs
+                        .iter()
+                        .position(|item| item.repository == repository && item.run.id == id)
+                }) {
+                    self.selected = index;
+                }
+                return Ok(());
+            }
             Workflows => {
                 let repo = gh.repository(self.repository()?, cancel)?;
                 if repo.default_branch.is_empty() {
@@ -920,6 +1031,18 @@ impl ActionsWorkspace {
                 };
                 page.attempt =
                     gh.run_attempt(&page.repository, page.attempt.run.id, attempt, cancel)?;
+                if page
+                    .selected_job
+                    .is_some_and(|id| !page.attempt.jobs.iter().any(|job| job.id == id))
+                {
+                    page.selected_job = None;
+                }
+                if self.watching {
+                    let run = self.run.as_ref().map(|page| page.attempt.run.clone());
+                    if let Some(run) = run {
+                        self.observe_watched_run(&run);
+                    }
+                }
             }
             Usage => {
                 let usage = gh.cache_usage(self.repository()?, cancel)?;
@@ -983,6 +1106,8 @@ impl ActionsWorkspace {
         self.rows = match self.view {
             Runs => {
                 self.controls.push(command(ActionsCommand::FilterRuns));
+                self.controls
+                    .push(add(self.watch_label(), ActionsAction::Watch));
                 self.runs
                     .iter()
                     .map(|item| ActionsRow {
@@ -1035,14 +1160,7 @@ impl ActionsWorkspace {
                     ),
                     add("[a Artifacts]", ActionsAction::Artifacts),
                     add("[G Gates]", ActionsAction::View(Approvals)),
-                    add(
-                        if self.watching {
-                            "[w Stop watch]"
-                        } else {
-                            "[w Watch]"
-                        },
-                        ActionsAction::Watch,
-                    ),
+                    add(self.watch_label(), ActionsAction::Watch),
                 ]);
                 self.controls.extend(
                     [
@@ -1159,10 +1277,10 @@ impl ActionsWorkspace {
                 .iter()
                 .map(|artifact| ActionsRow {
                     label: format!(
-                        "{} #{} • {} bytes • run {} • attempt {} • expires {}{}",
+                        "{} #{} • {} • run {} • attempt {} • expires {}{}",
                         artifact.name,
                         artifact.id,
-                        artifact.size_in_bytes,
+                        human_bytes(artifact.size_in_bytes),
                         artifact.run_id,
                         artifact
                             .attempt
@@ -1222,6 +1340,21 @@ impl ActionsWorkspace {
                         artifact.size_in_bytes,
                         artifact.expires_at
                     )));
+                    if self.archive.is_none() && artifact_too_large(artifact) {
+                        let repository = self.repository().unwrap_or_default();
+                        rows.push(ActionsRow {
+                            role: SemanticToken::Pending,
+                            ..ActionsRow::text(format!(
+                                "Not downloaded: {} is over ghtui's {} preview/export limit. Delete still works here.",
+                                human_bytes(artifact.size_in_bytes),
+                                human_bytes(ARTIFACT_IN_APP_LIMIT),
+                            ))
+                        });
+                        rows.push(ActionsRow::text(format!(
+                            "Download it in a shell: gh run download {} -R {} -n {}",
+                            artifact.run_id, repository, artifact.name
+                        )));
+                    }
                 }
                 if let Some(archive) = &self.archive {
                     rows.push(ActionsRow::text(if archive.digest_verified {"Integrity: supported SHA256 digest verified against downloaded ZIP bytes"}else{"Integrity: no supported SHA256 digest was available; ZIP paths/sizes are still validated"}));
@@ -1469,8 +1602,11 @@ impl ActionsWorkspace {
             Publications | PublicationInspection => self.prepare_publication_rows(),
         };
         if self.rows.is_empty() {
-            self.rows
-                .push(ActionsRow::text("No records reported in this scope."));
+            self.rows.push(ActionsRow::text(if self.view == Artifacts {
+                "This run has no artifacts (or they were already deleted)."
+            } else {
+                "No records reported in this scope."
+            }));
         }
         if let Some(id) = selected_environment {
             if let Some(index) = self
@@ -1566,6 +1702,16 @@ impl ActionsWorkspace {
         };
         if missing {
             return Some("Select and inspect this exact target first".into());
+        }
+        if matches!(command, ExportArtifact | ExtractArtifact) && self.archive.is_none() {
+            return Some(match &self.artifact {
+                Some(artifact) if artifact_too_large(artifact) => format!(
+                    "{} is over the {} in-app limit; use gh run download",
+                    human_bytes(artifact.size_in_bytes),
+                    human_bytes(ARTIFACT_IN_APP_LIMIT)
+                ),
+                _ => "Open the artifact to download its archive first".into(),
+            });
         }
         if command == EditEnvironment {
             if let Some(environment) = self.selected_environment() {

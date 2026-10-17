@@ -919,3 +919,253 @@ fn actions_artifacts_worker_prepares_text_image_binary_and_terminal_fallback_wit
         .is_err());
     assert!(journal(&fixture).is_empty());
 }
+
+fn jobs_step(attempt: u64) -> GhStep {
+    step(
+        &format!("repos/example/repo/actions/runs/123/attempts/{attempt}/jobs?per_page=100"),
+        json!([{"jobs":[{"id":500 + attempt,"run_id":123,"run_attempt":attempt,"head_sha":"a".repeat(40),"name":"test linux","status":"completed","conclusion":"success","steps":[]}]}]),
+        true,
+    )
+}
+fn run_state(attempt: u64, status: &str, conclusion: Value) -> Value {
+    let mut run = raw_run(123);
+    run["run_attempt"] = json!(attempt);
+    run["status"] = json!(status);
+    run["conclusion"] = conclusion;
+    run
+}
+#[test]
+fn v1_actions_controls_watch_follows_rerun_attempt_and_stops_when_finished() {
+    let fixture = Fixture::new();
+    let running = run_state(3, "in_progress", Value::Null);
+    let finished = run_state(3, "completed", json!("success"));
+    fixture.scripted_gh(&[
+        step(
+            "repos/example/repo/actions/runs/123/attempts/2",
+            raw_run(123),
+            false,
+        ),
+        jobs_step(2),
+        step(
+            "repos/example/repo/actions/runs/123",
+            running.clone(),
+            false,
+        ),
+        step(
+            "repos/example/repo/actions/runs/123/attempts/3",
+            running,
+            false,
+        ),
+        jobs_step(3),
+        step(
+            "repos/example/repo/actions/runs/123",
+            finished.clone(),
+            false,
+        ),
+        step(
+            "repos/example/repo/actions/runs/123/attempts/3",
+            finished,
+            false,
+        ),
+        jobs_step(3),
+    ]);
+    let gh = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let mut workspace = workspace();
+    workspace
+        .apply(
+            &gh,
+            &ActionsAction::OpenRun {
+                repository: "example/repo".into(),
+                id: 123,
+                attempt: 2,
+            },
+            &cancel,
+        )
+        .unwrap();
+    workspace.run.as_mut().unwrap().selected_job = Some(502);
+    assert!(workspace.watch_applies());
+    workspace.toggle_watch().unwrap();
+    assert!(workspace.watching);
+    assert!(workspace
+        .controls
+        .iter()
+        .any(|control| control.label == "[w Stop watch]"));
+    workspace
+        .apply(&gh, &ActionsAction::Refresh, &cancel)
+        .unwrap();
+    // The watch picked up the rerun's newer attempt; the old job selection is dropped.
+    let page = workspace.run.as_ref().unwrap();
+    assert_eq!(page.attempt.run.attempt, 3);
+    assert_eq!(page.selected_job, None);
+    assert!(workspace.watching);
+    assert_eq!(
+        workspace.watch_note.as_deref(),
+        Some("Run 123 attempt 3 is in progress")
+    );
+    workspace
+        .apply(&gh, &ActionsAction::Refresh, &cancel)
+        .unwrap();
+    assert!(!workspace.watching);
+    assert_eq!(
+        workspace.watch_note.as_deref(),
+        Some("Watch ended: run 123 attempt 3 finished • success")
+    );
+    assert!(workspace
+        .controls
+        .iter()
+        .any(|control| control.label == "[w Watch]"));
+    assert_eq!(journal(&fixture).len(), 8);
+    assert!(journal(&fixture).iter().all(|row| row["matched"] == true));
+}
+#[test]
+fn v1_actions_controls_watch_is_explained_outside_runs_and_run_views() {
+    let mut workspace = workspace();
+    workspace.prepare_rows();
+    assert!(workspace
+        .controls
+        .iter()
+        .any(|control| control.label == "[w Watch]" && control.action == ActionsAction::Watch));
+    workspace.view = ActionsView::Secrets;
+    let reason = workspace.toggle_watch().unwrap_err();
+    assert!(reason.contains("open Runs or a run"));
+    assert!(!workspace.watching);
+    workspace.view = ActionsView::Runs;
+    workspace.toggle_watch().unwrap();
+    workspace.toggle_watch().unwrap();
+    assert!(!workspace.watching);
+    assert_eq!(workspace.watch_note.as_deref(), Some("Watch stopped"));
+}
+#[test]
+fn v1_actions_controls_run_list_refresh_keeps_the_selected_run() {
+    let fixture = Fixture::new();
+    let mut newer = raw_run(124);
+    newer["created_at"] = json!("2026-10-14T12:00:00Z");
+    fixture.scripted_gh(&[
+        step(
+            "repos/example/repo/actions/runs?per_page=100",
+            json!({"total_count":1,"workflow_runs":[raw_run(123)]}),
+            false,
+        ),
+        step(
+            "repos/example/repo/actions/runs?per_page=100",
+            json!({"total_count":2,"workflow_runs":[newer, raw_run(123)]}),
+            false,
+        ),
+    ]);
+    let gh = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let mut workspace = workspace();
+    workspace.load_catalog(&gh, &cancel).unwrap();
+    workspace.toggle_watch().unwrap();
+    workspace
+        .apply(&gh, &ActionsAction::Refresh, &cancel)
+        .unwrap();
+    assert_eq!(workspace.runs.len(), 2);
+    assert_eq!(workspace.selected, 1);
+    assert_eq!(workspace.runs[workspace.selected].run.id, 123);
+    assert!(workspace.watching);
+}
+#[test]
+fn v1_actions_controls_large_artifact_opens_without_download_and_keeps_delete() {
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[]);
+    let mut workspace = workspace();
+    workspace.view = ActionsView::Artifacts;
+    workspace.artifacts = vec![ActionsArtifact {
+        id: 44,
+        name: "release-binaries".into(),
+        run_id: 123,
+        attempt: None,
+        head_sha: "a".repeat(40),
+        size_in_bytes: 60_468_414,
+        expired: false,
+        created_at: String::new(),
+        updated_at: String::new(),
+        expires_at: "2026-10-20T12:00:00Z".into(),
+        digest: None,
+    }];
+    workspace.prepare_rows();
+    assert!(workspace.rows[0]
+        .label
+        .contains("release-binaries #44 • 57.7 MiB"));
+    workspace
+        .apply(
+            &provider(&fixture),
+            &ActionsAction::OpenArtifact(44),
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    assert_eq!(workspace.view, ActionsView::Artifact);
+    assert!(workspace.archive.is_none());
+    assert!(journal(&fixture).is_empty(), "no download was attempted");
+    let rows = workspace
+        .rows
+        .iter()
+        .map(|row| row.label.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rows.contains("Not downloaded: 57.7 MiB is over ghtui's 16.0 MiB"));
+    assert!(rows.contains("gh run download 123 -R example/repo -n release-binaries"));
+    for command in [
+        ActionsCommand::ExportArtifact,
+        ActionsCommand::ExtractArtifact,
+    ] {
+        assert!(workspace
+            .disabled_reason(command)
+            .unwrap()
+            .contains("57.7 MiB is over the 16.0 MiB in-app limit"));
+    }
+    assert_eq!(
+        workspace.disabled_reason(ActionsCommand::DeleteArtifact),
+        None
+    );
+    assert_eq!(
+        ghtui::actions_workspace::ARTIFACT_IN_APP_LIMIT,
+        ArtifactLimits::default().compressed_bytes as u64
+    );
+}
+#[test]
+fn v1_actions_controls_sizes_empty_artifacts_and_single_bracket_labels() {
+    use ghtui::actions_workspace::human_bytes;
+    assert_eq!(human_bytes(0), "0 B");
+    assert_eq!(human_bytes(1023), "1023 B");
+    assert_eq!(human_bytes(118_660), "115.9 KiB");
+    assert_eq!(human_bytes(10_311_685), "9.8 MiB");
+    assert_eq!(human_bytes(3 * 1024 * 1024 * 1024), "3.0 GiB");
+    let mut workspace = workspace();
+    workspace.view = ActionsView::Artifacts;
+    workspace.prepare_rows();
+    assert_eq!(
+        workspace.rows[0].label,
+        "This run has no artifacts (or they were already deleted)."
+    );
+    workspace.view = ActionsView::Runs;
+    workspace.prepare_rows();
+    workspace.toggle_watch().unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            draw(
+                frame,
+                &mut workspace,
+                area,
+                Theme::new(ThemeName::Dark, ColorMode::NoColor),
+                &Default::default(),
+            );
+        })
+        .unwrap();
+    let screen = terminal
+        .backend()
+        .buffer()
+        .content()
+        .chunks(120)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(screen.contains("[r Refresh]"));
+    assert!(!screen.contains("[[r Refresh]]"));
+    assert!(screen.contains("[w Stop watch]"));
+    assert!(screen.contains("Watching: refreshes every 5s • w stops"));
+}

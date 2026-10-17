@@ -73,15 +73,18 @@ pub fn draw(
     let mut row = 0u16;
     let mut column = 0u16;
     for (index, control) in workspace.controls.iter().enumerate() {
-        let label = format!(
-            "[{}{}]",
-            sanitize_terminal(&control.label),
-            control
-                .disabled_reason
-                .as_ref()
-                .map(|reason| format!(" unavailable: {}", sanitize_terminal(reason)))
-                .unwrap_or_default()
-        );
+        let text = sanitize_terminal(&control.label);
+        let label = match &control.disabled_reason {
+            // Labels such as "[r Refresh]" already carry their brackets.
+            None if text.starts_with('[') && text.ends_with(']') => text,
+            reason => format!(
+                "[{text}{}]",
+                reason
+                    .as_ref()
+                    .map(|reason| format!(" unavailable: {}", sanitize_terminal(reason)))
+                    .unwrap_or_default()
+            ),
+        };
         let width = (Line::from(label.as_str()).width() as u16).min(area.width);
         if column > 0 && column.saturating_add(width) > area.width {
             column = 0;
@@ -171,14 +174,25 @@ pub fn draw(
         let freshness = workspace.fetched_at.map_or("Not loaded".into(), |at| {
             format!("Fetched {}", crate::metrics_workspace::utc_label(at))
         });
-        let status = format!(
-            "{freshness}{}",
-            if workspace.watching {
-                " • watching: bounded polling, not a live stream"
-            } else {
-                ""
-            }
-        );
+        let watch = if workspace.watching && workspace.watch_applies() {
+            format!(
+                " • Watching: refreshes every 5s{} • w stops",
+                workspace
+                    .watch_note
+                    .as_ref()
+                    .map(|note| format!(" • {}", sanitize_terminal(note)))
+                    .unwrap_or_default()
+            )
+        } else if workspace.watching {
+            " • Watch paused here; it resumes on Runs or the run".into()
+        } else {
+            workspace
+                .watch_note
+                .as_ref()
+                .map(|note| format!(" • {}", sanitize_terminal(note)))
+                .unwrap_or_default()
+        };
+        let status = format!("{freshness}{watch}");
         frame.render_widget(
             Paragraph::new(status).style(theme.style(SemanticToken::Muted)),
             Rect::new(area.x, y, area.width, 1),
