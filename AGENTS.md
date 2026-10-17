@@ -8,7 +8,7 @@ The research and specifications linked from README.md describe the current produ
 
 Use Backlog.md CLI to create or edit tasks, documents, and milestones. Do not directly edit its generated Markdown. Begin with `backlog instructions overview` and the appropriate detailed workflow guide. Future tasks belong in this backlog with explicit dependencies, acceptance criteria, and testing steps.
 
-The executable and shared real-binary PTY framework are implemented. Read task status before starting: prepared backends do not imply their product workflows are complete. No sub-agents for implementation; one agent works on one feature at a time.
+The executable and shared real-binary PTY framework are implemented. Read task status before starting: prepared backends do not imply their product workflows are complete. On 2026-10-17 the user re-enabled parallel feature agents: each works in its own git worktree on one feature area, builds through `~/.cache/ghtui-agents/shared/agent-run.sh` (at most 4 concurrent builds, 6 GiB cap each, own target/temp dirs), runs only focused gates, and commits to its own branch; the coordinator merges and runs the single full suite.
 
 **Current target (user decision 2026-10-17): a usable Linux v1.** macOS support stays in scope but its native verification is deferred to later testing and is not a v1 blocker. Prioritize core daily flows (repository discovery, PR inbox/review, Actions, local Git operations, search, install) over niche parity tasks. GitHub CI/CD is TASK-69 near the end.
 
