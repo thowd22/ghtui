@@ -777,6 +777,7 @@ fn coverage(label: &str, value: &crate::providers::gh::PrResourceCoverageV1) -> 
     let loaded = value.admitted_rows;
     match value.reported_total {
         _ if value.complete_observed() && loaded == 0 => format!("{label}: none"),
+        Some(total) if loaded == 0 => format!("{label}: list not loaded ({total} total)"),
         _ if value.complete_observed() => format!("{label}: all {loaded} loaded"),
         Some(total) => format!("{label}: {loaded} of {total} loaded"),
         None => format!("{label}: {loaded} loaded (total unknown)"),

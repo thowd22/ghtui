@@ -828,6 +828,11 @@ pub fn intercept_action(app: &mut App, action: &crate::app::Action) -> bool {
         && matches!(action,
         Action::Github(GithubAction::PrTab(tab)) if *tab!=PrTab::Files)
     {
+        // Same as pressing Back first: restore the original cached page, then
+        // let this tab action continue through the ordinary route.
+        if back_to_original(app) {
+            return false;
+        }
         app.status =
             "Use Back for the original cached page • no personal global-tab fallback".into();
         return true;
