@@ -3,7 +3,7 @@ id: doc-13
 title: Sequential delivery reset and current-state audit
 type: guide
 created_date: '2026-10-16 23:29'
-updated_date: '2026-10-17 15:03'
+updated_date: '2026-10-17 15:20'
 ---
 # Sequential delivery reset and current-state audit
 
@@ -364,3 +364,33 @@ Guarded inventory-seal target/build/task6-inventory-seal-2026-10-17T15-02-43-646
 Additional genuine main-view captures: target/build/task6-screenshots-current-2026-10-17T15-02-32-299Z.json PASS/SHA3983f2f7aef7c281e21101de21f517f193b5bc39c62de55974161c1bc08e3782, terminal0, exact full-source vector and actual positive completed mouse-session cleanup. Rendered3PNG/SVG/provenance sets in target/screenshots/task6-all-5qvSgi:682319-git-history120x40,551892-git-native-diff120x40 and820465-actions-run80x24. ALL3PNGs visually inspected and links delivered to user. These supplement the three focused inventory captures; offline Linux fixture cells are not live/macOS/novice acceptance. The diff capture deliberately uses no-color/plain-patch fallback; do not infer broken color support. Repository actor-line clipping and dense/truncated narrow Actions controls remain Task67 usability review items, not accepted UX.
 
 Next: explicit-owned-file local checkpoint, then criterion-by-criterion TASK6 acceptance review. Requirements mapping is not availability/permission authority or delivered native parity. TASK1/2 native macOS acceptance remains release-blocking under the approved Linux-readiness split; Task69 stays near the end. One Root/noagents, no next source feature yet; no remote, push, live mutation, package/dependency changes or release claim.
+
+### 2026-10-17 — TASK6 Linux foundation inventory accepted; product parity still open
+
+2026-10-17 final Linux foundation acceptance review after checkpoint8719113 and documentation-ledger audit:
+
+AC1: actual missing-gh/auth-denied/limited-Enterprise/invalid-version real-binary routes (six setup journeys plus invalid-version pair), compiled actionable missing-base/head/run-attempt/GraphQL/schema diagnostics and exact zero-extra-request checks. Unknown host support is explained, not invented.
+
+AC2: strict structured argv/stdin/JSON and selected host/account/repository contracts; positive durable UID, reassignment/expiry/deadline checks, invalid-target zero-launch and secret/token-redaction/persistence gates. The app delegates authentication/transport to gh; local Git stays separate.
+
+AC3: inventory-level verification, NOT completed row/native/live parity. Closed33-category ->16PR-row matrix and permission/preview/current-target/paging/task requirements are exercised by compiled tests and physical inspector journeys. Doc14 independently ties documented public operations and actual executed fixture subsets to those rows. Suggestions/application and isolated PR editing/conflicts are explicitly unavailable/unverified product gaps (23/27), not false supported capabilities. Task64 AC1/4 explicitly owns implemented-native parity and real-host/disposable evidence; it stays unchecked. No criterion is redefined to mean all28workflows shipped.
+
+AC4: prepared read-only inspector shows actual setup reason, last observed numeric principal, required permissions, exact syntax facts and unverified availability/host/native axes. Filter, rows, focus, page/detail controls, Unicode/paste refusal, capture, close and resize are tested through keys/clicks, with unchanged command/Git/config/scoped SQL evidence.
+
+AC5: current unfiltered source contains57gh_provider code/provider tests, plus focused new inventory7code/provider and related slices; actual nonzero tests,0failed/ignored. Counts overlap and are not summed.
+
+AC6: all28gh_provider native names passed in the same full run, including both new inventory paths. Independent full audit verifies1548native names/input routes and owned cleanup; no snapshot-only acceptance or ignored required tests.
+
+AC7: all12Actions rows are covered by the closed requirement matrix and current documentation ledger: exact-run/control, artifact, approval, cache, settings, policy/environment, runners and activity; scoped permission/host/version limits remain explicit. Documented public capability and fixture examples are not target permission/native parity.
+
+AC8: six actual setup journeys retain local Git exploration after missing/denied/limited gh; both key/mouse staging, commit and branch/tag management pairs execute in credential-free isolated state and assert no gh commands, with independent real Git effects. GitHub-only setup/error state is visible; no credential fallback is added.
+
+DoD1-3: actual checked task gates plus unfiltered5597/fmt/strict/audits are recorded, independent positive physical-input/cleanup evidence and six visually reviewed completed-frame screenshots retained. README/documentation follow-up is prose only; no app code changes are planned during finalization.
+
+Evidence: target/build/task6-inventory-checkpoint-evidence-20261017.json SHAc2224da6c126ad4506ca12ccad3b096e16ff4665d58fba17298578dd99d1fa2a; Doc14 ledger target/build/task6-capability-source-ledger-20261017.json SHA595b5dff22899ff3ed41ca7a41e9e518d23ec35d3bc0a780abac7f54bbc60c09; bounded target/build/task6-inventory-ledger-audit-2026-10-17T15-15-45-595Z.json PASS. Full5597/format0/strict0 and audits are completed on1530/source039a0886bb631aa461a06fd0007154a8fbec1757faaf25c5ea24b941b6dc5edf, explicitly reused for this documentation-only acceptance, not newly executed. Task6Done means the Linux authentication/structured transport/capability-inventory foundation only. All dependent native workflows, minimum supported GHES/live-host evidence, native macOS, performance, UX, installer and release gates remain separately open. No new authentication, Windows, live mutation, remote/push, permission grant or publication bypass.
+
+Current local source checkpoint8719113 preserves all13owned feature/evidence files; no push. New Doc14 was created/updated through Backlog CLI, with28ordered unique contract rows,26actually executed fixture examples (one explicitly shared navigation example) and2requirement-only product gaps. Source/fixture/Backlog/doctor audit target/build/task6-inventory-ledger-audit-2026-10-17T15-15-45-595Z.json passed under the unchanged bounded Root scope. Official documentation verifies public operations, NOT runtime permission, minimum GHES support or completed native parity. This scope is distinct from Task64implemented/native/live acceptance; no future workflow task was promoted by the registry. Native macOS foundation acceptance(Task1/2) remains open/release-blocking under the approved Linux-readiness split; Task69staysnearend. Next select a dependency-ready feature, one Root/noagents, and use its meaningful code/provider plus real-binary key/mouse gate before any next feature. Documentation-only README status synchronization may follow this accepted byte-identical-code checkpoint; record its exact delta instead of relabelling the old source vector.
+
+### 2026-10-17 — final Task6 documentation-only checkpoint
+
+Final Task6 Linux acceptance receipt target/build/task6-final-linux-evidence-20261017.json SHA66261b47b264b470204978f85e25a7ee949cc6232ad4dd2b98dd7c8531209caf; all8AC/3DoD checked after their documented review. The subsequent README status synchronization changes exactly one prose paragraph (1added/1removed line). All1529other application/test/build-input paths are byte-identical to completed full5597/fmt/strict/audits at source039a0886bb631aa461a06fd0007154a8fbec1757faaf25c5ea24b941b6dc5edf. README is not included by runtime/test/build code; existing similarly named test files are independent fixture bytes. Original tests/report vectors are preserved, not relabelled or rerun. Current documentation-successor1530-path vector d497219160e8ed8d5b359cf73753474b5001d75794743b40cdfbb7b53e332b6a; exact old/new README SHAd77e05984c654ff4e71e592553870a2e62ecb989235d4d12fa8a6a8a2854eebd -> 06025ab20959d2bc05af70e840b0d7bd9a4390a258a67b3d233fd99a1fc61229. Native Mac, real-host/GHES parity, all future workflow tasks and release gates stay open. New final local checkpoint is explicit-owned-file only; no push.
