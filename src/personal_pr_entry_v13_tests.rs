@@ -424,7 +424,16 @@ fn personal_pr_entry_v13_clear_retires_actual_epoch_without_draft_or_permission_
 fn personal_tab_switch_from_files_restores_original_page_then_continues() {
     use crate::{app::Action, github_workspace::GithubAction};
     let mut s = setup(phase());
-    let rows = s.app.github.as_ref().unwrap().pr.as_ref().unwrap().rows.as_ptr();
+    let rows = s
+        .app
+        .github
+        .as_ref()
+        .unwrap()
+        .pr
+        .as_ref()
+        .unwrap()
+        .rows
+        .as_ptr();
     let owner = owner(&mut s);
     let result = execute(owner.clone(), &s.api).unwrap_or_else(|e| panic!("{}", e.message));
     assert!(publish(&mut s.app, &owner, result));
@@ -434,7 +443,10 @@ fn personal_tab_switch_from_files_restores_original_page_then_continues() {
     let checks = Action::Github(GithubAction::PrTab(PrTab::Checks));
     let _ = intercept_action(&mut s.app, &files);
     assert!(s.app.personal_pr_source_v13.is_some());
-    assert!(!intercept_action(&mut s.app, &checks), "tab action continues");
+    assert!(
+        !intercept_action(&mut s.app, &checks),
+        "tab action continues"
+    );
     assert!(s.app.personal_pr_source_v13.is_none());
     let page = s.app.github.as_ref().unwrap().pr.as_ref().unwrap();
     assert_eq!(page.rows.as_ptr(), rows);
