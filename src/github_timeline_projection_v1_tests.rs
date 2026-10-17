@@ -73,14 +73,18 @@ fn timeline_actor_v1_unknown_future_event_remains_observed_without_user_role_gue
 }
 #[test]
 fn timeline_actor_v1_committed_raw_git_author_committer_never_become_associated_accounts() {
-    let event = json!({"event":"committed","sha":"original","author":{"name":"looks-like-a-login","email":"private@example.invalid","date":"2026-10-14T00:00:00Z"},"committer":{"name":"different-recorder","email":"record@example.invalid"}});
+    let event = json!({"event":"committed","sha":"0123456789abcdef","message":"Fix playback\n\nLonger body","author":{"name":"looks-like-a-login","email":"private@example.invalid","date":"2026-10-14T00:00:00Z"},"committer":{"name":"different-recorder","email":"record@example.invalid"}});
     let before = event.to_string();
     let rows = prepare(std::slice::from_ref(&event)).unwrap();
     assert_eq!(rows.len(), 1);
-    let actor = ActorIdentity::github("github.invalid", rows[0].actor.as_ref().unwrap());
-    assert_eq!(actor.kind, ActorKind::Unknown);
-    assert!(actor.login.is_none());
-    assert!(actor.avatar_url.is_none());
+    // Readable commit line; the Git author name is text, never an account,
+    // avatar, or email disclosure.
+    assert!(rows[0].actor.is_none());
+    assert_eq!(
+        rows[0].label,
+        "● commit 01234567 • looks-like-a-login • 2026-10-14T00:00:00Z • Fix playback"
+    );
+    assert!(!rows[0].label.contains("private@example.invalid"));
     assert_eq!(event.to_string(), before);
 }
 #[test]

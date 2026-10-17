@@ -103,6 +103,26 @@ pub(super) fn prepare(events: &[Value]) -> Result<Vec<PrRow>, TimelineDisplayLim
                     ));
                 }
             }
+            // Commit events carry Git author fields, not a GitHub actor.
+            "committed" => {
+                let sha = scalar(event, "sha", "unknown commit");
+                let short = sha.get(..8).unwrap_or(sha);
+                let author = event["author"]["name"]
+                    .as_str()
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or("unknown author");
+                let date = event["author"]["date"]
+                    .as_str()
+                    .filter(|date| !date.is_empty())
+                    .unwrap_or("time not provided");
+                let subject = event["message"]
+                    .as_str()
+                    .and_then(|message| message.lines().next())
+                    .unwrap_or("");
+                rows.push(PrRow::text(format!(
+                    "● commit {short} • {author} • {date} • {subject}"
+                )));
+            }
             _ => rows.push(PrRow::actor(
                 format!("observed event actor • {kind} • {created}"),
                 value_actor(&event["actor"]),
