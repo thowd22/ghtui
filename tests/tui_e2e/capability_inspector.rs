@@ -1,5 +1,7 @@
 //! Real-binary read-only capability inspector journeys. These check visible
 //! state, strict provider requests, scoped storage, Git and terminal restoration.
+#[path = "capability_inspector_cli.rs"]
+mod cli;
 #[path = "capability_inspector_identity.rs"]
 mod identity;
 
@@ -23,6 +25,7 @@ enum Scenario {
     MissingGh,
     AuthDenied,
     LimitedHost,
+    InvalidVersion,
 }
 impl Scenario {
     fn host(self) -> &'static str {
@@ -37,6 +40,7 @@ impl Scenario {
             Self::MissingGh => 0,
             Self::AuthDenied => 2,
             Self::LimitedHost => 5,
+            Self::InvalidVersion => 1,
         }
     }
 }
@@ -56,6 +60,10 @@ fn user(host: &str) -> GhStep {
 fn protocol(scenario: Scenario) -> Vec<GhStep> {
     match scenario {
         Scenario::MissingGh => vec![],
+        Scenario::InvalidVersion => vec![GhStep::read(
+            &["--version"],
+            "gh version 2.invalid\nNeverDisplayedPrivateCapabilityRecordCanary\n",
+        )],
         Scenario::AuthDenied => {
             let mut denied = user(HOST);
             denied.stdout.clear();
@@ -391,6 +399,9 @@ fn journey(scenario: Scenario, mouse: bool) {
     match scenario {
         Scenario::MissingGh => session.wait_for_screen("GitHub CLI is missing"),
         Scenario::AuthDenied => session.wait_for_screen("GitHub authentication failed"),
+        Scenario::InvalidVersion => {
+            session.wait_for_screen("GitHub CLI version could not be verified")
+        }
         Scenario::LimitedHost => {
             session.wait_for_command_count(&fixture, 5);
             session.wait_for_screen("Offline/stale");
@@ -422,6 +433,7 @@ fn journey(scenario: Scenario, mouse: bool) {
             Scenario::MissingGh => "GitHub CLI is missing",
             Scenario::AuthDenied => "GitHub authentication failed",
             Scenario::LimitedHost => "Unknown JSON field",
+            Scenario::InvalidVersion => "Check gh --version",
         },
     );
     scroll_detail_until(&mut session, mouse, "Implementation: TASK-19");
@@ -597,4 +609,13 @@ fn gh_provider_inspector_keyboard_limited_host_never_invents_native_version_or_a
 #[test]
 fn gh_provider_inspector_mouse_limited_host_never_invents_native_version_or_admin_support() {
     journey(Scenario::LimitedHost, true);
+}
+
+#[test]
+fn gh_provider_identity_version_keyboard_invalid_cli_preserves_inspector_local_git_and_drafts() {
+    journey(Scenario::InvalidVersion, false);
+}
+#[test]
+fn gh_provider_identity_version_mouse_invalid_cli_preserves_inspector_local_git_and_drafts() {
+    journey(Scenario::InvalidVersion, true);
 }

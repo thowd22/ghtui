@@ -107,6 +107,9 @@ pub(crate) use pr_resources_v1::{FileCommentReceiptV75, FILE_COMMENT_NODE_QUERY_
 #[cfg(test)]
 #[path = "gh/identity_before_tests.rs"]
 mod identity_before_tests;
+#[cfg(test)]
+#[path = "gh/identity_version_tests.rs"]
+mod identity_version_tests;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HostIdentity {
@@ -753,8 +756,8 @@ impl GithubProvider {
     pub fn identity(&self, cancel: &CancellationToken) -> GithubResult<HostIdentity> {
         self.identity_with_deadline(None, cancel)
     }
-    /// Same gh argv and legacy parsing policy, but both fresh children consume
-    /// the caller's original deadline. No version floor or authentication stack.
+    /// Same gh argv and bounded version policy, but both fresh children consume
+    /// the caller's original deadline. No minor-version floor or auth stack.
     pub(crate) fn identity_before(
         &self,
         deadline: std::time::Instant,
@@ -781,15 +784,10 @@ impl GithubProvider {
             }
             Ok(provider)
         };
-        let version = current()?.execute(vec!["--version".into()], None, None, cancel)?;
-        let version = String::from_utf8_lossy(&version)
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .to_owned();
-        if !version.starts_with("gh version 2.") {
-            return Err(error(GithubErrorKind::Unsupported,format!("Unsupported GitHub CLI version: {version}. Install gh 2.x or newer after checking compatibility.")));
-        }
+        let mut version_spec = current()?.spec(vec!["--version".into()]);
+        version_spec.output_limit = version_spec.output_limit.min(4096);
+        let version = self.runner.run(version_spec, cancel)?.stdout;
+        let version = Self::identity_version_line(&version)?;
         let user = current()?
             .api("user", "GET", None, None, false, cancel)
             .map_err(|mut e| {
@@ -802,6 +800,31 @@ impl GithubProvider {
                 e
             })?;
         self.identity_from_user_v3(&user, version)
+    }
+    // One bounded syntax policy for ordinary and original-deadline identity.
+    // This grants neither operation-flag nor host/permission authority.
+    fn identity_version_line(version: &[u8]) -> GithubResult<String> {
+        let parsed = GhCliVersion::parse_stdout(version).map_err(|failure| {
+            error(
+                GithubErrorKind::Unsupported,
+                format!("GitHub CLI version could not be verified: {failure}. Check gh --version and install a reviewed gh 2.x build; local Git remains available."),
+            )
+        })?;
+        if parsed.numbers().major != 2 {
+            return Err(error(
+                GithubErrorKind::Unsupported,
+                "Unsupported GitHub CLI major version. Install a reviewed gh 2.x build; future majors require compatibility review. Local Git remains available.",
+            ));
+        }
+        // Parsing validates the complete bounded raw output before any display
+        // text is retained. A valid suffix is not proof of operation flags,
+        // host support, security policy or current repository permissions.
+        Ok(std::str::from_utf8(version)
+            .expect("version parser validated UTF-8")
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned())
     }
     /// ONE scalar user parser shared by the unchanged legacy identity bracket
     /// and an already-prepaid final user observation. Not an auth fallback.

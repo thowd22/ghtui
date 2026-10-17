@@ -26,6 +26,86 @@ fn select(inspector: &mut CapabilityInspector, id: &str) {
     assert!(!inspector.dispatch(InspectorAction::Row(index)));
     assert_eq!(inspector.selected_id(), Some(id));
 }
+
+#[test]
+fn gh_provider_cli_inventory_exact_routes_keep_documented_flags_floors_and_authority_separate() {
+    let mut inspector = CapabilityInspector::new(Some(&identity(Some(42))), None).unwrap();
+    for (id, flag, floor) in [
+        ("pr-details", "--slurp", "2.48.0"),
+        ("pr-checks", "--attempt", "2.26.0"),
+        ("actions-logs", "--attempt", "2.26.0"),
+        ("pr-lifecycle", "--undo", "2.16.0"),
+        ("pr-merge", "--match-head-commit", "2.13.0"),
+        ("actions-secrets-variables", "--no-repos-selected", "2.75.0"),
+    ] {
+        select(&mut inspector, id);
+        let text = details(&inspector);
+        assert!(text.contains("CLI provider route only:"));
+        assert!(text.contains(flag));
+        assert!(text.contains(&format!("Documented local flag floor: gh {floor}")));
+        assert!(text.contains(&format!("https://github.com/cli/cli/releases/tag/v{floor}")));
+        assert!(text.contains("numeric release shape meets documented flag floor"));
+        assert!(text.contains("not a fresh executable probe"));
+        assert!(text.contains("current target permissions"));
+        assert!(text.contains("not observed/granted"));
+        assert!(!text.contains("permission granted"));
+    }
+    select(&mut inspector, "pr-metadata");
+    assert!(details(&inspector).contains("no exact operation-flag floor reviewed"));
+    assert!(!details(&inspector).contains("Documented local flag floor:"));
+}
+
+#[test]
+fn gh_provider_cli_inventory_missing_old_custom_future_and_malformed_versions_stay_distinct() {
+    for (raw, expected) in [
+        ("gh version 2.12.0", "below documented flag floor"),
+        (
+            "gh version 2.13.0",
+            "numeric release shape meets documented flag floor",
+        ),
+        (
+            "gh version 2.101.0-custom",
+            "custom/prerelease build; flag support unverified",
+        ),
+        ("gh version 3.0.0", "future major; flag support unverified"),
+        (
+            "gh version 2.",
+            "no parsed last-observed version; flag support unverified",
+        ),
+    ] {
+        let mut id = identity(Some(42));
+        id.gh_version = raw.into();
+        let mut inspector = CapabilityInspector::new(Some(&id), None).unwrap();
+        select(&mut inspector, "pr-merge");
+        let text = details(&inspector);
+        assert!(text.contains(expected), "{raw}: {text}");
+        assert!(text.contains("Minimum operation version: unverified"));
+        assert!(text.contains("Never drop an exact head, attempt or scope flag"));
+    }
+    for id in [None, Some(0)] {
+        let mut inspector = CapabilityInspector::new(Some(&identity(id)), None).unwrap();
+        select(&mut inspector, "pr-merge");
+        assert!(details(&inspector).contains("no parsed last-observed version"));
+    }
+}
+
+#[test]
+fn gh_provider_cli_inventory_flag_search_selects_only_exact_reviewed_route_categories() {
+    let mut inspector = CapabilityInspector::new(None, None).unwrap();
+    inspector.dispatch(InspectorAction::Insert("--attempt".into()));
+    assert_eq!(
+        inspector
+            .visible
+            .iter()
+            .map(|&i| inspector.rows[i].id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pr-checks", "actions-logs"]
+    );
+    inspector.dispatch(InspectorAction::ClearFilter);
+    inspector.dispatch(InspectorAction::Insert("--slurp".into()));
+    assert_eq!(inspector.selected_id(), Some("pr-details"));
+    assert_eq!(inspector.visible.len(), 1);
+}
 fn render(
     inspector: &mut CapabilityInspector,
     width: u16,

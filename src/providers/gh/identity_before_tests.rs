@@ -1,5 +1,6 @@
 //! Original-deadline and cancellation contracts using actual strict gh children.
-//! No parser/version/auth/same_account policy is replaced by these contracts.
+//! These contracts retain argv/auth/account semantics and one original clock;
+//! shared strict version parsing is covered by identity_version_tests.
 use super::*;
 use crate::test_support::{Fixture, GhStep};
 use std::{fs, thread, time::Instant};
@@ -83,7 +84,7 @@ fn reaped(rows: &[Value]) {
 }
 
 #[test]
-fn gh_provider_identity_before_legacy_argv_parser_and_global_account_policy_are_unchanged() {
+fn gh_provider_identity_before_legacy_argv_and_global_account_policy_are_unchanged() {
     for id in [json!(42), json!(0), Value::Null] {
         let value = json!({"login":"OcToCaT","id":id});
         let regular = Fixture::new();

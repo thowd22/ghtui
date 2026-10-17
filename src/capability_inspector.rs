@@ -7,7 +7,7 @@ use crate::{
     editor::{display_line, display_width, TextBuffer},
     identity::ActorIdentity,
     providers::{
-        gh::{capability_inventory, Actor, Capability, HostIdentity},
+        gh::{capability_inventory, Actor, Capability, GhCliVersion, HostIdentity},
         runner::sanitize_terminal,
     },
     theme::{SemanticToken, Theme},
@@ -19,6 +19,8 @@ use ratatui::{
     Frame,
 };
 use unicode_segmentation::UnicodeSegmentation;
+#[path = "capability_cli_syntax.rs"]
+mod cli_syntax;
 
 const MAX_QUERY_BYTES: usize = 512;
 const MAX_QUERY_CHARACTERS: usize = 128;
@@ -136,6 +138,9 @@ impl CapabilityInspector {
             "No verified numeric GitHub identity. Install gh and use gh auth login; local Git still works.".into()
         };
         let reason = setup_reason.map(bounded).transpose()?;
+        let cli_version = identity
+            .filter(|i| i.account_id.is_some_and(|id| id > 0))
+            .and_then(|i| GhCliVersion::parse_line(&i.gh_version).ok());
         let availability = reason.map_or_else(
             || "Availability: unverified; current host, permission and exact target must be checked by the actual workflow.".into(),
             |reason| format!("Setup/availability diagnostic: {reason}. Local Git remains independent of GitHub authentication.")
@@ -167,6 +172,8 @@ impl CapabilityInspector {
             let permission = bounded(&capability.permission)?;
             let guard = bounded(&capability.concurrency_guard)?;
             let reason = bounded(&capability.reason)?;
+            let cli_details = cli_syntax::details(&id, cli_version.as_ref());
+            let cli_search = cli_details.join(" ");
             if capability.source_urls.len() > 8 {
                 return Err("Capability source budget exceeded".into());
             }
@@ -182,6 +189,7 @@ impl CapabilityInspector {
                 "Paging/fixture/live evidence: task-specific verification is required; a static inventory flag or browser handoff cannot close coverage.".into(),
                 format!("Inventory note (may precede newer task evidence): {reason}"),
             ];
+            details.extend(cli_details);
             for url in capability.source_urls {
                 details.push(format!("Reference: {}", bounded(&url)?));
             }
@@ -199,7 +207,8 @@ impl CapabilityInspector {
                 .iter()
                 .flat_map(|line| prepared_lines(line, 64))
                 .collect();
-            let searchable = format!("{id} {label} {task} {transport} {permission}").to_lowercase();
+            let searchable =
+                format!("{id} {label} {task} {transport} {permission} {cli_search}").to_lowercase();
             rows.push(Row {
                 id,
                 label,
