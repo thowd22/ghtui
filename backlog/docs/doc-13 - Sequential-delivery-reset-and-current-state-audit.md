@@ -3,7 +3,7 @@ id: doc-13
 title: Sequential delivery reset and current-state audit
 type: guide
 created_date: '2026-10-16 23:29'
-updated_date: '2026-10-17 19:09'
+updated_date: '2026-10-17 19:22'
 ---
 # Sequential delivery reset and current-state audit
 
@@ -487,3 +487,11 @@ Task81 thenTask80 thenTask7 accepted after their focused gates and ONE shared fr
 ### 2026-10-17 — Sequential repair cohort local checkpoint
 
 Local sequential configuration/repair checkpoint: receipts /home/admin2/CODE/ghtui/target/build/task7-final-linux-evidence-20261017.json SHA44663c57ac953a28c6b34085c517842d61d916a57a6ec52af1e00060b6ccdc62, /home/admin2/CODE/ghtui/target/build/task80-final-linux-evidence-20261017.json SHAd51214ee6fd68fd931eed9934d69e1504748b52bcff95fb5e4f3089d3465b57c, /home/admin2/CODE/ghtui/target/build/task81-final-linux-evidence-20261017.json SHA729c572536b9df3d6b4db3a06d7e32654a4d64b2b4e85c5ced3f998f82d1733d. Their ONE shared fresh5604/fmt/strict/audit execution is preserved at source1532/ce102c4374275cbf7967375cc1bdc3d6439145d176ca8031457c18cb5b36b582. The later README status synchronization changes exactly1prose paragraph (1added/1removed); all1531other code/test/build inputs are byte-identical. Current documentation-only successor1532/d269ca65ed21f6d296d0ed50a1bc5b969d0c1a7b51879e46147debee8e5efa35, README f07cb32cb33058a77830dc11f64c128fe53f90c2f3b7274eeff3e9c6e6711537 -> ae05b6644e11d90b424454c348011858e1c30a8e34241fb6940bdeb0094361bf. No new full execution or source-vector relabelling is claimed for this prose change. Explicit13-file checkpoint owns only the sequential Config/history/tree implementation/tests and associated Task7/80/81/Doc13/README updates. Four unrelated user logs remain untracked and unstaged. Native macOS/downstream product/live-host/performance/noviceUX/curl bootstrap/near-endCI/release remain open; no remote/push.
+
+### 2026-10-17 — Linux account-scoped cache/draft foundation accepted
+
+Task8 is Done on the approved Linux development track after review of current integrated source, complete old plan/evidence and docs2/4. No application/test/build input changed. Fresh cache68code/12native,composer20/10,corpus32/10,SQLite4/2 andfmt/strict PASS; selectors overlap. Focus /home/admin2/CODE/ghtui/target/build/task8-cache_storage-2026-10-17T19-15-40-006Z.json SHA904682e07431b41bbd9ee346b5dd76562d822682dae74372289d807b6cb399b2; fresh audits /home/admin2/CODE/ghtui/target/build/task8-audits-2026-10-17T19-17-52-804Z.json SHA364b871e2f50b611a6f3e3d8a9b88090987b71e9e016ae5b52860c80199accd6. Actual positive cache26sessions/12names and exact input/effects/cleanup independently verified; full1550-name audit/Node3/3/dependency/Backlog/doctor pass. Existing5604/fmt/strict global90fcae07 is explicitly reused, not rerun: current1532/d269ca65ed21f6d296d0ed50a1bc5b969d0c1a7b51879e46147debee8e5efa35 is the exact README-only successor of verified1532/ce102c43, pinned in Task7 checkpoint6a76d4e0; all1531other source inputs identical. Task notes contain the criterion matrix and preserved historical negatives. Receipt /home/admin2/CODE/ghtui/target/build/task8-final-linux-evidence-20261017.json. Native macOS Task1/2, SQLite release-integrity Task73 and downstream product/live-host/performance/noviceUX/curl/near-endCI/release gates remain open. Rootsolo/fixed safeguards/no new remote or live write.
+
+### 2026-10-17 — Task8 metadata-only local checkpoint
+
+Task8 exact metadata-only local checkpoint: receipt /home/admin2/CODE/ghtui/target/build/task8-final-linux-evidence-20261017.json SHAd7b7fd393a9c400cd58e5f334be171a3925bb53077f9fed174ddd24f3aecc405 verifies fresh68/12cache,20/10composer,32/10corpus,4/2SQLite,fmt/strict/audits plus explicit unchanged-code5604 global reuse. Current1532/d269ca65ed21f6d296d0ed50a1bc5b969d0c1a7b51879e46147debee8e5efa35 remains unchanged across this2-file task/Doc13 checkpoint; global executed1532/ce102c4374275cbf7967375cc1bdc3d6439145d176ca8031457c18cb5b36b582 and exact prior README successor remain separately pinned. No application/test/build or README change, no new full execution. NativeMac Task1/2/73 and downstream/release remain open, no remote/push.
