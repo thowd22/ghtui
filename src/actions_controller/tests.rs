@@ -15,6 +15,8 @@ use std::{cell::RefCell, collections::BTreeMap, fs, process::Command};
 use support::{Fixture, GhStep};
 #[path = "local_only_tests.rs"]
 mod local_only_tests;
+#[path = "secret_cli_tests.rs"]
+mod secret_cli_tests;
 
 fn identity() -> HostIdentity {
     HostIdentity {

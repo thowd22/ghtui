@@ -211,8 +211,12 @@ where
             )
         }
     };
-    if let Err(error) = fresh_identity(provider, &plan.identity, cancel) {
-        return refused(error, false);
+    let current = match fresh_identity(provider, &plan.identity, cancel) {
+        Ok(current) => current,
+        Err(error) => return refused(error, false),
+    };
+    if let Err(error) = plan.check_cli_syntax_v1(provider, &current) {
+        return refused(error.to_string(), true);
     }
     let Some(descriptor) = descriptor else {
         let publication = match plan.publish(provider, true, cancel) {

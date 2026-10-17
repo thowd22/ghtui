@@ -24,6 +24,95 @@ fn workspace() -> ActionsWorkspace {
         vec!["example/repo".into()],
     )
 }
+
+#[test]
+fn gh_provider_secret_cli_refused_route_reopens_fields_clears_secret_and_requires_new_preview() {
+    use crate::{
+        actions_workspace::{ActionsPlan, ActionsView},
+        drafts::DraftWriter,
+        editor::TextBuffer,
+    };
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[]);
+    let provider = provider(&fixture);
+    let mut workspace = workspace();
+    workspace.scope = ActionsScope::Organization {
+        organization: "example".into(),
+    };
+    workspace.view = ActionsView::Secrets;
+    let values = std::collections::BTreeMap::from([
+        ("name".into(), "DEPLOY_TOKEN".into()),
+        ("value".into(), "transient-secret".into()),
+        ("visibility".into(), "selected".into()),
+        ("repositories".into(), String::new()),
+    ]);
+    let plan = ActionsPlan::prepare(
+        &workspace,
+        ActionsCommand::SetSecret,
+        &values,
+        &provider,
+        &CancellationToken::default(),
+    )
+    .unwrap();
+    let mut form = Form::actions(workspace.clone(), ActionsCommand::SetSecret).unwrap();
+    for field in &mut form.fields {
+        field.editor = TextBuffer::new(values.get(&field.key).unwrap()).unwrap();
+    }
+    if let FormPurpose::Actions(intent) = &mut form.purpose {
+        intent.plan = Some(plan);
+    } else {
+        panic!("actual Actions form required")
+    }
+    assert!(form.plan_ready());
+    form.preview = true;
+    form.preview_scroll = 7;
+    form.error_scroll = 3;
+    form.focus = form.fields.len() + 2;
+    let database = fixture.root.join("state.sqlite3");
+    let journal = ActionsWriteJournal::open(&database).unwrap();
+    let writer = DraftWriter::new(database.clone());
+    let prepared = present(
+        ActionsExecution::Refused {
+            error: "gh 2.75.0 required for --no-repos-selected".into(),
+            private_visible: true,
+        },
+        form,
+        workspace,
+        &provider,
+        &journal,
+        &writer.client(),
+    )
+    .unwrap();
+    assert!(!prepared.clear_private);
+    let form = prepared.form.unwrap();
+    assert!(!form.preview);
+    assert!(!form.plan_ready());
+    assert_eq!(form.preview_scroll, 0);
+    assert_eq!(form.error_scroll, 0);
+    assert!(form.actions_publication.is_none());
+    assert_eq!(
+        form.fields
+            .iter()
+            .find(|field| field.key == "name")
+            .unwrap()
+            .editor
+            .text,
+        "DEPLOY_TOKEN"
+    );
+    let secret = form.fields.iter().position(|field| field.secret).unwrap();
+    assert!(form.fields[secret].editor.text.is_empty());
+    assert_eq!(form.focus, secret);
+    assert_eq!(form.active_field, secret);
+    assert_eq!(form.field_top, secret);
+    let count: i64 = Connection::open(&database)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM actions_write_attempts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 0);
+    assert_reads(&fixture, 0);
+}
 fn provider(fixture: &Fixture) -> GithubProvider {
     GithubProvider::new("github.invalid")
         .unwrap()

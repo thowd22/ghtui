@@ -350,6 +350,21 @@ fn present(
             private_visible,
         } => {
             clear_private = !private_visible;
+            if form.actions_publication.is_none() {
+                // A refused, uninvoked request has no valid preview/approval.
+                // Keep its nonsecret fields editable rather than drawing an
+                // empty prepared preview after invalidate_plan below.
+                form.preview = false;
+                form.preview_scroll = 0;
+                form.error_scroll = 0;
+                form.focus = form
+                    .fields
+                    .iter()
+                    .position(|field| field.secret)
+                    .unwrap_or(form.active_field.min(form.fields.len().saturating_sub(1)));
+                form.active_field = form.focus;
+                form.field_top = form.focus;
+            }
             form.error = error.clone();
             format!("Actions intent refused • {error}")
         }

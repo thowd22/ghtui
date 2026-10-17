@@ -397,12 +397,22 @@ fn cancel_live_child(mouse: bool) {
     steps.extend(operation.into_iter().take(4));
     assert_eq!(steps.len(), 35);
     fixture.scripted_gh(&steps);
+    fs::write(
+        fixture.root.join("gh-fixture/031.journal-prefix-delay-ms"),
+        "200",
+    )
+    .unwrap();
     let mut session = launch(&fixture, mouse);
     open_private_body(&mut session, &fixture, mouse, &objects);
     let source = extra::source_row(&fixture);
     let saved = extra::saved_bytes(&fixture);
+    let partial_before = session.observed_partial_command_journal_v1();
     refresh_private_body(&mut session, mouse);
     extra::wait_commands(&mut session, &fixture, 35);
+    assert!(
+        session.observed_partial_command_journal_v1() > partial_before,
+        "Real split journal append was observed before its committing newline"
+    );
     let rows = commands(&session, &fixture);
     let child = i32::try_from(rows.last().unwrap()["pid"].as_u64().unwrap()).unwrap();
     assert_eq!(
@@ -525,11 +535,13 @@ fn remote_tree_v1_followup_mouse_raw_capture_exhaustion_no_hidden_probe() {
     raw_capture_loss(true);
 }
 #[test]
-fn remote_tree_v1_followup_keyboard_real_delayed_child_cancel_and_reap() {
+fn remote_tree_v1_followup_test_framework_command_journal_keyboard_real_delayed_child_cancel_and_reap(
+) {
     cancel_live_child(false);
 }
 #[test]
-fn remote_tree_v1_followup_mouse_real_delayed_child_cancel_and_reap() {
+fn remote_tree_v1_followup_test_framework_command_journal_mouse_real_delayed_child_cancel_and_reap()
+{
     cancel_live_child(true);
 }
 

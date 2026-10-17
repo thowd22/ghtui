@@ -85,7 +85,13 @@ fn preselect_local_search(session: &mut Session, fixture: &Fixture, mouse: bool)
     session.send_key(b"\x01");
     session.paste("dirty checkout");
     let before = session.completed_cells_end();
+    session.begin_search_completion_v1(
+        "dirty checkout",
+        "local/current @ working files",
+        "dirty界.txt:1",
+    );
     choose(session, mouse, "[Enter Search]", b"\r");
+    session.wait_search_completion_v1();
     let text = search_frame(
         session,
         before,
@@ -201,7 +207,13 @@ fn navigation(mouse: bool) {
     choose(&mut session, mouse, "[/ Query]", b"/");
     session.send_key(b"\x01");
     session.paste("dirty checkout");
+    session.begin_search_completion_v1(
+        "dirty checkout",
+        "local/current @ working files",
+        "dirty界.txt:1",
+    );
     choose(&mut session, mouse, "[Enter Search]", b"\r");
+    session.wait_search_completion_v1();
     session.wait_for_screen("1 results • Exact");
     session.wait_for_screen("dirty界.txt:1");
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
@@ -241,12 +253,12 @@ fn navigation(mouse: bool) {
     assert_read_only_git(&fixture);
 }
 #[test]
-fn scoped_actions_physical_slot_v65_keyboard_actual_actions_repository_search_discovery_normal_routing(
+fn scoped_actions_physical_slot_v65_test_framework_search_completion_keyboard_actual_actions_repository_search_discovery_normal_routing(
 ) {
     navigation(false);
 }
 #[test]
-fn scoped_actions_physical_slot_v65_mouse_actual_actions_repository_search_discovery_normal_routing(
+fn scoped_actions_physical_slot_v65_test_framework_search_completion_mouse_actual_actions_repository_search_discovery_normal_routing(
 ) {
     navigation(true);
 }

@@ -1,3 +1,7 @@
+#[path = "framework_contracts/command_journal_v1.rs"]
+mod framework_command_journal_v1;
+#[path = "framework_contracts/search_completion_v1.rs"]
+mod framework_search_completion_v1;
 mod support;
 
 const VERTICAL_TITLE_V4: &str = "Original repository run filters";

@@ -87,13 +87,24 @@ fn main() {
         json_string(&hex),
         std::process::id()
     );
-    OpenOptions::new()
+    let mut journal = OpenOptions::new()
         .create(true)
         .append(true)
         .open(fixture.join("commands.jsonl"))
-        .expect("journal")
-        .write_all(record.as_bytes())
-        .expect("journal write");
+        .expect("journal");
+    let prefix_delay = number(&file("journal-prefix-delay-ms"), 0);
+    assert!(prefix_delay <= 200, "bounded test-only journal prefix hold");
+    if prefix_delay > 0 {
+        // A real append can be observed before its newline. Deliberately split
+        // only an opted-in fixture record; argv/stdin/effects remain strict.
+        let split = record.len() / 2;
+        journal.write_all(&record.as_bytes()[..split]).expect("journal prefix");
+        journal.flush().expect("journal prefix flush");
+        thread::sleep(Duration::from_millis(prefix_delay));
+        journal.write_all(&record.as_bytes()[split..]).expect("journal commit");
+    } else {
+        journal.write_all(record.as_bytes()).expect("journal write");
+    }
     fs::remove_dir(&lock).expect("unlock");
     if !matched {
         eprintln!("Unexpected fixture command at step {step}: {args:?}; expected {expected:?}; stdin bytes {}",input.len());

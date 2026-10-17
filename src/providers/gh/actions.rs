@@ -382,6 +382,13 @@ impl GithubProvider {
         expected: &HostIdentity,
         cancel: &CancellationToken,
     ) -> GithubResult<()> {
+        self.actions_current_identity(expected, cancel).map(|_| ())
+    }
+    fn actions_current_identity(
+        &self,
+        expected: &HostIdentity,
+        cancel: &CancellationToken,
+    ) -> GithubResult<HostIdentity> {
         let current = self.identity(cancel)?;
         if !current.same_account(expected) {
             return Err(error(
@@ -389,7 +396,7 @@ impl GithubProvider {
                 "GitHub account changed; refresh the selected Actions scope before changing it",
             ));
         }
-        Ok(())
+        Ok(current)
     }
     pub fn run(
         &self,

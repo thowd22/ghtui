@@ -42,6 +42,7 @@ pub(crate) use metrics::{
 use metrics::{MembersVisibilityV48, MetadataMembersContextV48, PreparedMembersRequestV48};
 mod cli_requirements_v1;
 pub use cli_requirements_v1::*;
+mod cli_preflight_v1;
 mod thread_phase_issuer_v16;
 pub(crate) use thread_phase_issuer_v16::ThreadPhaseIssuerV16;
 mod repository_catalogue;

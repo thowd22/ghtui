@@ -16,6 +16,18 @@ pub struct CursorlessFrames {
 
 impl CursorlessFrames {
     pub fn process(&mut self, parser: &mut vt100::Parser, bytes: &[u8], base: usize) {
+        self.process_observed(parser, bytes, base, |_, _| {});
+    }
+
+    /// Opt-in observations see EVERY completed cell frame, including multiple
+    /// draws coalesced in one receiver chunk. No App state or input is used.
+    pub fn process_observed(
+        &mut self,
+        parser: &mut vt100::Parser,
+        bytes: &[u8],
+        base: usize,
+        mut observe: impl FnMut(&vt100::Screen, usize),
+    ) {
         let mut parsed = 0;
         for (index, byte) in bytes.iter().copied().enumerate() {
             let focused_cells_end = self.matched == END.len() - 1 && byte == b'h';
@@ -27,6 +39,7 @@ impl CursorlessFrames {
             if self.matched == END.len() || focused_cells_end {
                 parser.process(&bytes[parsed..=index]);
                 parsed = index + 1;
+                observe(parser.screen(), base + parsed);
                 self.last_cells = Some(parser.screen().clone());
                 self.cells_end = base + parsed;
                 if !focused_cells_end {

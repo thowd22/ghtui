@@ -2,7 +2,9 @@
 #![allow(dead_code)]
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+pub mod command_journal_v1;
 pub mod completed_navigation_controls_v1;
+pub mod completed_search_v1;
 pub mod cursorless_frames;
 pub mod fixture_shell_publication_v1;
 #[cfg(target_os = "linux")]
@@ -400,6 +402,8 @@ pub struct Session {
     exited: bool,
     owned_processes: owned_pty_processes_v1::OwnedPtySession,
     receiver_delivery_gate_v1: Option<receiver_delivery_gate_v1::ReceiverDeliveryGateV1>,
+    search_completion_v1: Option<completed_search_v1::SearchCompletionV1>,
+    partial_command_journal_v1: std::cell::Cell<usize>,
 }
 
 impl Session {
@@ -693,6 +697,8 @@ impl Session {
             exited: false,
             owned_processes,
             receiver_delivery_gate_v1: None,
+            search_completion_v1: None,
+            partial_command_journal_v1: std::cell::Cell::new(0),
         }
     }
 
@@ -718,6 +724,36 @@ impl Session {
     }
     pub fn completed_cells_end(&self) -> usize {
         self.cursorless_frames.cells_end
+    }
+
+    pub fn begin_search_completion_v1(&mut self, query: &str, source: &str, result: &str) {
+        assert!(self.search_completion_v1.is_none());
+        self.search_completion_v1 = Some(completed_search_v1::SearchCompletionV1::new(
+            self.transcript.len(),
+            query,
+            source,
+            result,
+        ));
+    }
+
+    pub fn wait_search_completion_v1(&mut self) -> (usize, usize) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some(completed) = self.search_completion_v1.as_ref().unwrap().completed() {
+                self.search_completion_v1 = None;
+                assert!(completed.1 > completed.0);
+                return completed;
+            }
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "Actual new search Loading-to-complete transition missing\n{}; artifacts: {}",
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
+        }
     }
 
     /// Explicit opt-in, completed PTY cells only. No App/renderer access or
@@ -1791,8 +1827,15 @@ impl Session {
     fn process_delivered_v1(&mut self, bytes: &[u8]) {
         let base = self.transcript.len();
         self.transcript.extend_from_slice(bytes);
-        self.cursorless_frames
-            .process(&mut self.parser, bytes, base);
+        if let Some(observer) = &mut self.search_completion_v1 {
+            self.cursorless_frames
+                .process_observed(&mut self.parser, bytes, base, |frame, end| {
+                    observer.observe(frame, end)
+                });
+        } else {
+            self.cursorless_frames
+                .process(&mut self.parser, bytes, base);
+        }
     }
 
     pub fn assert_focused_view(&mut self, view: &str) {
@@ -1813,7 +1856,22 @@ impl Session {
     }
 
     pub fn inspect_command_journal(&self, fixture: &Fixture) -> String {
-        fs::read_to_string(fixture.root.join("gh-fixture/commands.jsonl")).unwrap_or_default()
+        let bytes = match fs::read(fixture.root.join("gh-fixture/commands.jsonl")) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => panic!("Cannot observe strict fixture command journal: {error}"),
+        };
+        let prefix = command_journal_v1::committed_prefix(&bytes)
+            .expect("Committed fixture journal must be valid UTF8");
+        if prefix.len() < bytes.len() {
+            self.partial_command_journal_v1
+                .set(self.partial_command_journal_v1.get().saturating_add(1));
+        }
+        prefix.to_owned()
+    }
+
+    pub fn observed_partial_command_journal_v1(&self) -> usize {
+        self.partial_command_journal_v1.get()
     }
 
     pub fn wait_for_command_count(&mut self, fixture: &Fixture, count: usize) {

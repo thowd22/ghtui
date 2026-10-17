@@ -838,6 +838,25 @@ fn group_edit(values: &BTreeMap<String, String>) -> GithubResult<RunnerGroupEdit
 }
 
 impl ActionsPlan {
+    /// Only the private operation can require this conditional CLI flag.
+    /// This is local syntax checking, not current host/permission authority.
+    pub(crate) fn check_cli_syntax_v1(
+        &self,
+        gh: &GithubProvider,
+        current: &HostIdentity,
+    ) -> GithubResult<()> {
+        if let ActionsOperation::SetSecret { request, .. } = &self.operation {
+            if matches!(self.workspace.scope, ActionsScope::Organization { .. })
+                && request.policy.as_ref().is_some_and(|policy| {
+                    policy.visibility == ScopeVisibility::Selected
+                        && policy.selected_repositories.is_empty()
+                })
+            {
+                return gh.require_cli_syntax_v1(current, CliRequirement::SecretEmptySelection);
+            }
+        }
+        Ok(())
+    }
     /// Preparation gathers a typed effect; publishing requires execute(..., true, ...).
     pub fn prepare(
         workspace: &ActionsWorkspace,
@@ -1342,6 +1361,12 @@ impl ActionsPlan {
         ];
         if let Some(target) = &target {
             preview.push(format!("Exact affected target: {target:?}"));
+        }
+        if matches!(&operation, ActionsOperation::SetSecret { request, .. }
+            if matches!(workspace.scope, ActionsScope::Organization { .. })
+                && request.policy.as_ref().is_some_and(|policy| policy.visibility == ScopeVisibility::Selected && policy.selected_repositories.is_empty()))
+        {
+            preview.push("Selected repositories: none (explicit empty selection). The secret will be stored in this organization but available to no repositories.".into());
         }
         match &operation {
             ActionsOperation::Policy { observed, edit } => {

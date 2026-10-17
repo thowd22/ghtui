@@ -46,6 +46,8 @@ mod remote_bounded;
 mod repository_catalogue;
 #[path = "provider_contracts/repository_catalogue_access_v1.rs"]
 mod repository_catalogue_access_v1;
+#[path = "provider_contracts/secret_cli_preflight.rs"]
+mod secret_cli_preflight;
 #[path = "support/providers.rs"]
 mod support;
 use ghtui::providers::gh::{

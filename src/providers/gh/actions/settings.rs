@@ -252,7 +252,15 @@ impl GithubProvider {
             }
             (_, None) => {}
         }
-        self.actions_identity(identity, cancel)?;
+        let current_identity = self.actions_current_identity(identity, cancel)?;
+        if matches!(scope, ActionsScope::Organization { .. })
+            && policy.is_some_and(|policy| {
+                policy.visibility == ScopeVisibility::Selected
+                    && policy.selected_repositories.is_empty()
+            })
+        {
+            self.require_cli_syntax_v1(&current_identity, CliRequirement::SecretEmptySelection)?;
+        }
         let current = self.secret_metadata(scope, cancel)?;
         if current
             .iter()

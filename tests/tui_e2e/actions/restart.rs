@@ -487,9 +487,9 @@ fn unavailable_selection(mouse: bool) {
                 std::time::Duration::from_secs(8),
             )
             .unwrap();
+        let before_dialog = session.completed_cursorless_end();
         command(&mut session, mouse, "Delete selected cache");
-        session.wait_for_screen("Action unavailable");
-        session.wait_for_screen("Publication view unavailable");
+        wait_unavailable_dialog(&mut session, before_dialog);
         assert!(!session.screen().contains("ACTIONS INTENT"));
         choose(&mut session, mouse, "[Esc Close]", b"\x1b");
         session
@@ -529,10 +529,25 @@ fn unavailable_selection(mouse: bool) {
         0
     );
     session.resize(80, 24);
+    if mouse {
+        // Split genuine observed bytes immediately after the new dialog's
+        // footer text, before its completed-frame boundary. No synthetic frame
+        // or input is injected; require Close to wait for the actual full box.
+        session.hold_observed_output_after_literal_v1("[Esc Close]");
+    }
+    let before_dialog = session.completed_cursorless_end();
     command(&mut session, mouse, "Delete selected cache");
-    session.wait_for_screen("Action unavailable");
-    session.wait_for_screen("Publication view unavailable");
+    wait_unavailable_dialog(&mut session, before_dialog);
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+    if mouse {
+        let writes = session.finish_observed_output_hold_v1();
+        assert!(writes.len() >= 2);
+        let count = writes.len();
+        assert!(
+            writes[count - 1].completed_cells_end > writes[count - 2].completed_cells_end,
+            "Close input must follow a NEW complete dialog frame, not its partial footer text"
+        );
+    }
     session
         .try_wait_for_condition(
             |screen| !screen.contains("Action unavailable"),
@@ -544,4 +559,21 @@ fn unavailable_selection(mouse: bool) {
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), original_head);
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     session.quit_and_assert_restored_terminal(mouse);
+}
+
+fn wait_unavailable_dialog(session: &mut Session, after: usize) {
+    // A title or footer fragment is not a new completed overlay. In particular,
+    // do not let button() page the catalogue or click a partially painted Close.
+    session.wait_for_new_cursorless_condition(
+        after,
+        |frame| {
+            crate::support::overlay_body(frame, "Action unavailable").is_some_and(|body| {
+                body.contains("Delete selected cache:")
+                    && body.contains("Publication view unavailable")
+                    && body.contains("[Esc Close]")
+            })
+        },
+        "Fresh owned unavailable explanation and Close finish painting before input",
+        std::time::Duration::from_secs(8),
+    );
 }
