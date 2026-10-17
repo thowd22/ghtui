@@ -1720,8 +1720,11 @@ impl GithubProvider {
         if let Some(job) = job {
             args.extend(["--job".into(), job.to_string()]);
         }
-        self.execute(args, None, None, cancel)
-            .map(|v| super::runner::sanitize_terminal(&String::from_utf8_lossy(&v)))
+        self.execute(args, None, None, cancel).map(|v| {
+            super::runner::sanitize_terminal(&actions::readable_run_log(&String::from_utf8_lossy(
+                &v,
+            )))
+        })
     }
     pub fn run_control(
         &self,

@@ -546,7 +546,9 @@ impl GithubProvider {
         }
         self.execute(args, None, None, cancel).map(|v| {
             super::super::runner::redact(
-                &super::super::runner::sanitize_terminal(&String::from_utf8_lossy(&v)),
+                &super::super::runner::sanitize_terminal(&readable_run_log(
+                    &String::from_utf8_lossy(&v),
+                )),
                 &[],
             )
         })
@@ -729,5 +731,96 @@ impl GithubProvider {
             remaining,
             completed,
         })
+    }
+}
+
+/// `gh run view --log` prints `job<TAB>step<TAB>timestamp text` per line. Show
+/// the text, with a header whenever the job/step changes; gh's "UNKNOWN STEP"
+/// placeholder and GitHub's 28-character timestamp prefix are omitted.
+pub(crate) fn readable_run_log(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() / 2);
+    let mut current: Option<(&str, &str)> = None;
+    let jobs = raw
+        .lines()
+        .filter_map(|line| line.split_once('\t').map(|(job, _)| job))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    for line in raw.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(job), Some(step), Some(text)) = (parts.next(), parts.next(), parts.next()) else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+        if current != Some((job, step)) {
+            current = Some((job, step));
+            let step = (step != "UNKNOWN STEP").then_some(step);
+            let header = match (jobs > 1, step) {
+                (true, Some(step)) => Some(format!("── {job} › {step} ──")),
+                (true, None) => Some(format!("── {job} ──")),
+                (false, Some(step)) => Some(format!("── {step} ──")),
+                (false, None) => None,
+            };
+            if let Some(header) = header {
+                out.push_str(&header);
+                out.push('\n');
+            }
+        }
+        out.push_str(strip_log_timestamp(text));
+        out.push('\n');
+    }
+    out
+}
+fn strip_log_timestamp(text: &str) -> &str {
+    let bytes = text.as_bytes();
+    let stamped = bytes.len() >= 21
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[10] == b'T'
+        && bytes[13] == b':'
+        && bytes[..4].iter().all(u8::is_ascii_digit);
+    if !stamped {
+        return text;
+    }
+    match text.find(' ') {
+        Some(space) if text[..space].ends_with('Z') => &text[space + 1..],
+        _ => text,
+    }
+}
+
+#[cfg(test)]
+mod readable_run_log_tests {
+    use super::readable_run_log;
+
+    #[test]
+    fn actions_log_readable_lines_drop_repeated_job_unknown_step_and_timestamps() {
+        let raw =
+            "build\tUNKNOWN STEP\t2026-10-09T14:07:36.6164248Z Current runner version: '2.337.0'\n\
+build\tUNKNOWN STEP\t2026-10-09T14:07:36.6183919Z ##[group]Runner Image\n";
+        assert_eq!(
+            readable_run_log(raw),
+            "Current runner version: '2.337.0'\n##[group]Runner Image\n"
+        );
+    }
+
+    #[test]
+    fn actions_log_readable_headers_mark_step_and_job_changes() {
+        let one_job =
+            "build\tCheckout\t2026-10-09T14:07:36.1Z a\nbuild\tTest\t2026-10-09T14:07:37.1Z b\n";
+        assert_eq!(
+            readable_run_log(one_job),
+            "── Checkout ──\na\n── Test ──\nb\n"
+        );
+        let two_jobs = "lint\tRun\t2026-10-09T14:07:36.1Z x\ntest\tRun\t2026-10-09T14:07:37.1Z y\n";
+        assert_eq!(
+            readable_run_log(two_jobs),
+            "── lint › Run ──\nx\n── test › Run ──\ny\n"
+        );
+        // Lines without gh's columns, or text that merely looks dated, are kept.
+        assert_eq!(readable_run_log("plain\n"), "plain\n");
+        assert_eq!(
+            readable_run_log("j\ts\t2026-10-09 not a stamp\n"),
+            "── s ──\n2026-10-09 not a stamp\n"
+        );
     }
 }
