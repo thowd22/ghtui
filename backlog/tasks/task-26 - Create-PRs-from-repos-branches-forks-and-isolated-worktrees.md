@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-13 01:30'
+updated_date: '2026-10-18 00:06'
 labels:
   - review
   - e2e
@@ -73,4 +73,6 @@ Provider implementation is actively in progress in parallel under the authorized
 Provider checkpoint 2026-10-13: actual workspace provider_contracts selected 67 tests, all passed, zero ignored, using explicit shared-target jobs2/incremental0/debug0 environment and cargo test --offline --test provider_contracts. cargo fmt --check passed. Doc-10 records APIs, exact guards, primary sources, artifact/secret bounds and remaining integration gaps. Full-suite/clippy attempts after this checkpoint encountered concurrent Search Nucleo Config::Default compilation changes (owner corrected); current all-target rerun and native task-specific keyboard/mouse PTY remain outstanding. No AC/DoD or Done claim from these provider-only results.
 
 Actual verification checkpoint: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo check --offline --all-targets passed (4.54s); cargo test --offline --test provider_contracts passed 82 tests, zero failed/ignored (0.53s). New tests cover stable positive numeric account IDs and same-login reassignment guards, canonical merge queue enqueue/dequeue/auto-merge permission/readback, latest case-insensitive commit-status/pending semantics, PR failed post-write observation duplicate barriers, exact comment repository identity, and Actions inspect-then-ack recovery. Native ActionsWorkspace/actions_ui and typed shared-form plans now implemented and compiling, but task-specific real-binary keyboard/mouse Actions PTY journeys and final all-target test/fmt/clippy gates remain pending; no task completion or native parity is claimed.
+
+2026-10-18 a07: Repository Local operations 'Create pull request' (title/body/base/draft) for the checkout's GitHub origin: read-only preview (account, pushed head, duplicate open PR, compare commits/files; unpushed branch explains Push branch), confirm rechecks then one POST repos/{repo}/pulls; draft kept per branch. Gate: node scripts/test-task.mjs v1_pr_create -> 6 lib + 4 PTY (keyboard+mouse) passed; clippy/fmt clean. Gaps: fork/upstream target, reviewers, inbox refresh after create.
 <!-- SECTION:NOTES:END -->
