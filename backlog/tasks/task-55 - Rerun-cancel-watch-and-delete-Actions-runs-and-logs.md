@@ -6,7 +6,7 @@ assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-16 08:34'
+updated_date: '2026-10-17 23:56'
 labels:
   - actions
   - e2e
@@ -436,4 +436,6 @@ V144 actual final Controls54code16PTY andHistory40code18PTY ALLGREEN/bothinputs/
 2026-10-16 V147 two-old-fixture source-only corrective frozen: parallel-tree-actions-control-inventory-v148-handoff-v1-20261016.json SHA7222815ac38f85fd8fdef42b5990017d4b3ac28d068be935ccab314adc8f3dc3, patch8ed7926e/6330B. Exact Root1257c392ee20 before/copy/after and finalauth;2testpaths/1255unowned unchanged. Actual V147 library2709PASS2FAIL preservedSHA6984c0d5. Independent full9 Compose inventory, matched completed member501 has5supported/4disabled; explicitly chosen run-only nojob has4supported/5disabled and exact reason. Existing names/effect/SQL/Git/gh/queue/noIO remain, zero production changes. Formatting/apply checks only; uncompiled/unrun, Root sole verification.
 
 2026-10-16 actual V170 checked node scripts/test-task.mjs scoped_actions_publication_v3 PASS53code+16real-binaryPTY/0ignored/key+mouse/exact16positiveunique/allcleanup, plus direct3 existing complete-prose code tests PASS. Wrapped cancellation acknowledgement verifies WHOLE original message in SAME completed owned history body with exact controls; original78 reads/ONE POST/SQL ACK/raw receipt/noresend/Git/config/TTY retained. Report25f8e028/log06b1eed8/coverage3ff544ab; fmt/strictClippy/deps0. No production action or full task acceptance claim; full current suite still required.
+
+2026-10-17 a03 (7435360a): legacy Actions Watch now available on Runs list and open run, follows newest attempt, plain progress text, auto-stops when the run completes, keeps selected run on list refresh, explains itself outside watchable views. Gate: node scripts/test-task.mjs v1_actions_controls -> 5 code + 6 PTY passed (keyboard+mouse); filtered actions_contracts 19, tui_e2e actions:: 164, scoped_actions_read_v2 16, pr_checks_bridge 6 passed; clippy clean.
 <!-- SECTION:NOTES:END -->

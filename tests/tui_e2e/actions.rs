@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 mod approval_recovery;
 #[path = "actions/approvals.rs"]
 mod approvals;
+#[path = "actions/controls_v1.rs"]
+mod controls_v1;
 #[path = "actions/lease_selection.rs"]
 mod lease_selection;
 #[path = "actions/optional_attempt_v1.rs"]
@@ -556,7 +558,7 @@ fn run_control(mouse: bool) {
     }
     session.wait_for_screen("Run 123 • attempt 3");
     choose(&mut session, mouse, "[w Watch]", b"w");
-    session.wait_for_screen("watching: bounded polling");
+    session.wait_for_screen("Watching: refreshes every 5s");
     command(&mut session, mouse, "Cancel run");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
