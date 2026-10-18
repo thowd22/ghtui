@@ -873,6 +873,15 @@ impl ActionsWorkspace {
                 self.top = 0;
             }
             Logs(id) => {
+                // With no job opened, the highlighted job row is the target.
+                let highlighted = match self.rows.get(self.selected) {
+                    Some(ActionsRow {
+                        action: Some(OpenJob(job)),
+                        ..
+                    }) if matches!(self.view, ActionsView::Run | ActionsView::Jobs) => Some(*job),
+                    _ => None,
+                };
+                let id = &id.or(highlighted);
                 let page = self
                     .run
                     .as_mut()

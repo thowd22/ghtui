@@ -163,3 +163,61 @@ matrix test linux\tUNKNOWN STEP\t2026-10-13T12:00:04.0000000Z Post job cleanup\n
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     session.quit_and_assert_restored_terminal(mouse);
 }
+
+#[test]
+fn v1_actions_runs_keyboard_logs_open_at_highlighted_job() {
+    logs_at_highlighted_job(false)
+}
+#[test]
+fn v1_actions_runs_mouse_logs_open_at_highlighted_job() {
+    logs_at_highlighted_job(true)
+}
+
+/// Logs from the run page, before any job is opened, read the highlighted
+/// (first failed) job's log rather than the whole run's.
+fn logs_at_highlighted_job(mouse: bool) {
+    let fixture = fixture();
+    let mut steps = initial();
+    steps.push(read(
+        "repos/example/repo/actions/runs/123/attempts/2",
+        raw_run(),
+        false,
+    ));
+    steps.push(jobs_step());
+    // The strict fixture only answers the exact job-scoped log read.
+    steps.push(GhStep::read(
+        &[
+            "run",
+            "view",
+            "123",
+            "--repo",
+            "github.invalid/example/repo",
+            "--attempt",
+            "2",
+            "--log",
+            "--job",
+            "501",
+        ],
+        "matrix test linux\tUNKNOWN STEP\t2026-10-13T12:00:01.0000000Z Failed job first line\n",
+    ));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    session.wait_for_screen("example/repo run 123 attempt 2");
+    if mouse {
+        session.click_visible_action("example/repo run 123");
+    } else {
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Job 501");
+    wait_selected(&mut session, "Job 501");
+    choose(&mut session, mouse, "[l Logs]", b"l");
+    session.wait_for_screen("Failed job first line");
+    let records = journal(&mut session, &fixture, 6);
+    assert!(records.last().is_some_and(|row| row["args"]
+        .as_array()
+        .is_some_and(|args| args.iter().any(|arg| arg == "501"))));
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.quit_and_assert_restored_terminal(mouse);
+}
