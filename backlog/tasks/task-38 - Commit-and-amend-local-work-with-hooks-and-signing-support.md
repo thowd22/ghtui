@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 02:42'
+updated_date: '2026-10-18 00:26'
 labels:
   - localgit
   - e2e
@@ -70,4 +70,6 @@ Actual cargo test --offline --test tui_e2e local_commit -- --nocapture:2passed, 
 Operation-only progress now retains bounded terminal-safe multiline stdout/stderr with token and whole transport-URL redaction, including successful hooks. This does not redact source blobs/diffs. Added actual successful-hook contract asserting fake hook stdout/stderr secrets/credential URL are absent while saved source blob bytes (including token-looking text) remain exact. Existing failed-hook/recovery/amend/signing and bisect semantics remain. Coordinated rerun/full gates pending.
 
 Canonical diff parser repair verified by shared checked staging gate: 14 code/provider +6 actual keyboard/mouse PTY tests pass, zero ignored/failures, artifact /tmp/ghtui-test-coverage-8Avh5H. Added generated installed-Git core.quotePath=true/false new Unicode-space and quoted control-byte file header contract, alongside direction-aware neighboring partial unstage correctness. Native Japanese-space unstage no longer fails with Unterminated quoted Git path; full regression pending.
+
+2026-10-18 a11: K Commit key/control; Commit disabled with explanation while nothing is staged (Amend unaffected); commit form status explains Ctrl-P then Ctrl-S; stale preview-first error cleared once preview is ready. Gate: node scripts/test-task.mjs v1_local_staging -> 4 code + 2 PTY pass.
 <!-- SECTION:NOTES:END -->
