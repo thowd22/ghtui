@@ -1,6 +1,12 @@
 //! Installed Git is the semantics authority. Object browsing never checks out a revision.
 
 mod file_history;
+mod history_query_v1;
+pub use history_query_v1::{
+    history_next_match_v1, history_prev_match_v1, HistoryCommitV1, HistoryFilterModeV1,
+    HistoryFilterV1, HistoryOrderV1, HistoryPageV1, HistoryQueryV1, HistoryRefKindV1,
+    HistoryRefSnapshotV1, HistoryRefV1, HistoryScopeV1, HistorySessionV1,
+};
 mod stash_recovery_v1;
 pub use stash_recovery_v1::{FailedStashIntentV1, StashAttemptFailureV1, StashAttemptSuccessV2};
 pub(crate) mod original_comparison_sides_v1;
