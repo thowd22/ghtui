@@ -87,7 +87,7 @@ pub fn dispatch(app: &mut App, action: SearchAction) {
                 .as_ref()
                 .is_some_and(|search| search.mode == SearchMode::GitHub)
             {
-                app.dispatch(Action::Explain("GitHub repository scope comes from --repo, the selected saved repository set, or explicit mapped repositories. Provider indexing limits apply. Use Exact, Regex or Ranked to select local hidden/ignored files; remote scope is never broadened automatically.".into()));
+                app.dispatch(Action::Explain("GitHub repository scope comes from --repo, the selected saved repository set, the launch checkout's origin, or explicit mapped repositories; a typed repo:owner/name or org:name qualifier replaces it for that query. Provider indexing limits apply. Use Exact, Regex or Ranked to select local hidden/ignored files; remote scope is never broadened automatically.".into()));
                 return;
             }
             app.search_controls.corpus = !app.search_controls.corpus;
@@ -819,7 +819,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let Some(page) = &search.page else {
-        frame.render_widget(Paragraph::new(format!("{:?} mode • enter a query, then Search.\n{}\nFilters: repo: org: set: type: path: language: author: state: after: before: rev:\n{}",mode,search.context(),search.warnings.join("\n"))),body);
+        let notes = if mode == SearchMode::GitHub {
+            // Local-corpus warnings do not describe the remote scope.
+            format!("Types: type:file (default) type:pr type:issue • repo:owner/name or org:name searches outside {}",
+                if search.remote_repositories.is_empty() { "the default scope".into() } else { search.remote_repositories.join(", ") })
+        } else {
+            search.warnings.join("\n")
+        };
+        frame.render_widget(Paragraph::new(format!("{:?} mode • enter a query, then Search.\n{}\nFilters: repo: org: set: type: path: language: author: state: after: before: rev:\n{}",mode,search.context(),notes)),body);
         return;
     };
     let summary = page.coverage.summary();
@@ -893,7 +900,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .take(app.search_controls.visible)
         .map(|(index, hit)| RenderHit {
             index,
-            title: hit.document.title.clone(),
+            title: match hit.destination() {
+                // Discovery rows name their PR/issue number like GitHub does.
+                crate::search::model::Destination::PullRequest { number, .. }
+                | crate::search::model::Destination::Issue { number, .. }
+                    if hit.document.source == crate::search::model::SourceKind::GitHub
+                        && number > 0 =>
+                {
+                    format!("#{number} {}", hit.document.title)
+                }
+                _ => hit.document.title.clone(),
+            },
             repository: hit.document.key.repository.clone(),
             line: hit.line,
             column: hit.column,

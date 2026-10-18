@@ -279,7 +279,6 @@ fn query_modes_remote_adapter_rejects_unverified_empty_wrong_and_unsupported_sco
         "needle type:comment",
         "needle type:pr type:file",
         "needle rev:main",
-        "needle repo:other/app",
     ] {
         assert!(
             workspace
@@ -545,4 +544,129 @@ fn query_modes_remote_repository_discovery_requires_explicit_org_and_retains_own
     );
     assert_eq!(journal(&fixture).len(), 1);
     assert!(Query::parse("needle org:org type:repository", SearchMode::GitHub).is_ok());
+}
+
+fn v1_search_issue(number: u64, repository: &str) -> Value {
+    json!({"id":number,"node_id":format!("I{number}"),"number":number,"title":"Crash on empty input","repository_url":format!("https://api.github.invalid/repos/{repository}"),"html_url":format!("https://github.invalid/{repository}/issues/{number}"),"state":"open","body":"Steps to reproduce\nFULL ISSUE BODY LINE","user":{"login":"reporter","type":"User"},"text_matches":[{"fragment":"needle in the title","property":"title","object_type":"Issue","matches":[{"indices":[0,6]}]}]})
+}
+
+#[test]
+fn v1_search_github_typed_repo_and_org_qualifiers_replace_default_scope_once() {
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[
+        step(
+            "search/issues",
+            "needle repo:other/lib is:issue",
+            vec![v1_search_issue(7, "other/lib")],
+            1,
+            false,
+        ),
+        step("search/issues", "needle org:acme is:pr", vec![], 0, false),
+        step(
+            "search/issues",
+            "needle repo:org/app is:issue",
+            vec![v1_search_issue(3, "org/app")],
+            1,
+            false,
+        ),
+    ]);
+    let provider = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let mut workspace = remote_workspace();
+    workspace.remote_repositories = vec!["org/app".into()];
+    let default = vec!["org/app".to_string()];
+    workspace
+        .search_github(
+            "needle type:issue repo:other/lib",
+            &provider,
+            &identity(),
+            &default,
+            &cancel,
+        )
+        .unwrap();
+    assert_eq!(workspace.page.as_ref().unwrap().hits.len(), 1);
+    assert_eq!(
+        workspace.remote_repositories, default,
+        "Typed scope is per query"
+    );
+    workspace
+        .search_github(
+            "needle type:pr org:acme",
+            &provider,
+            &identity(),
+            &default,
+            &cancel,
+        )
+        .unwrap();
+    assert!(workspace.page.as_ref().unwrap().hits.is_empty());
+    workspace
+        .search_github(
+            "needle type:issue",
+            &provider,
+            &identity(),
+            &default,
+            &cancel,
+        )
+        .unwrap();
+    assert_eq!(workspace.remote_repositories, default);
+    let args = journal(&fixture)
+        .iter()
+        .map(|record| record["args"][9].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        args,
+        [
+            "q=needle repo:other/lib is:issue",
+            "q=needle org:acme is:pr",
+            "q=needle repo:org/app is:issue"
+        ]
+    );
+}
+
+#[test]
+fn v1_search_github_issue_open_shows_full_description_and_url_without_failing() {
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[step(
+        "search/issues",
+        "needle repo:org/app is:issue",
+        vec![v1_search_issue(3, "org/app")],
+        1,
+        false,
+    )]);
+    let mut workspace = remote_workspace();
+    workspace
+        .search_github(
+            "needle type:issue",
+            &provider(&fixture),
+            &identity(),
+            &["org/app".into()],
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    workspace.preview(0).unwrap();
+    let lines = workspace
+        .preview
+        .as_ref()
+        .unwrap()
+        .lines
+        .iter()
+        .map(|line| line.text.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(lines[0], "org/app#3 • open");
+    assert_eq!(lines[1], "https://github.invalid/org/app/issues/3");
+    assert!(lines.iter().any(|line| line == "FULL ISSUE BODY LINE"));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("needle in the title")));
+    let status = workspace.open_remote_overview(0).unwrap().unwrap();
+    assert!(
+        status.starts_with("Showing org/app#3 in the preview"),
+        "{status}"
+    );
+    assert!(status.contains("https://github.invalid/org/app/issues/3"));
+    assert_eq!(
+        journal(&fixture).len(),
+        1,
+        "Open makes no further gh request"
+    );
 }
