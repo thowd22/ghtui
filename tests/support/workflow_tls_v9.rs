@@ -276,7 +276,15 @@ impl WorkflowTlsRemoteV9 {
         let state = shared.clone();
         let worker = thread::Builder::new()
             .name("w9-owned-tls".into())
-            .spawn(move || service.run(listener, &state))
+            .spawn(move || {
+                // Surface the reason in captured test output; otherwise a
+                // stopped fixture only shows up as a fenced scope on screen.
+                let result = service.run(listener, &state);
+                if let Err(error) = &result {
+                    eprintln!("workflow TLS fixture stopped: {error}");
+                }
+                result
+            })
             .map_err(|_| "Owned TLS fixture worker failed to spawn")?;
         Ok(Self {
             directory: start_directory.directory.take(),
