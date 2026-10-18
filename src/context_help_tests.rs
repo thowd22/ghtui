@@ -51,6 +51,15 @@ fn navigation_help_inbox_preserves_independent_queue_membership_and_original_no_
     ));
 }
 #[test]
+fn v1_pr_threads_inbox_help_names_line_file_and_thread_comment_controls() {
+    let text = ContextHelp::prepare(View::Inbox, &bindings())
+        .unwrap()
+        .text();
+    assert!(text.contains("i Comment line"));
+    assert!(text.contains("K comments on the whole file"));
+    assert!(text.contains("T Threads replies to, resolves or reopens"));
+}
+#[test]
 fn navigation_help_repository_explains_saved_working_staged_directional_diff_and_git_relationships()
 {
     let text = ContextHelp::prepare(View::Repository, &bindings())
