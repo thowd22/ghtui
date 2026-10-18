@@ -640,6 +640,22 @@ impl GitRepository {
             read(directory, &["rev-parse", "--show-toplevel"])?
         };
         let root = PathBuf::from(OsString::from_vec(trim_line(&root_raw).to_vec()));
+        // A stale core.worktree (left by another tool) makes Git use an
+        // unrelated directory as this checkout's working tree. Say so instead
+        // of failing on the next read run from that directory.
+        if !bare {
+            let inside = std::fs::canonicalize(directory)
+                .ok()
+                .zip(std::fs::canonicalize(&root).ok())
+                .is_none_or(|(here, root)| here.starts_with(root));
+            if !inside {
+                return Err(GitError(format!(
+                    "This checkout's core.worktree points to {}, not this directory.\nGit uses that directory as the working tree (set in {}/config), so git status and ghtui read it instead.\nIf the setting is stale, run in this checkout:\n  git config --unset core.worktree",
+                    root.display(),
+                    String::from_utf8_lossy(trim_line(&output.stdout)),
+                )));
+            }
+        }
         if let Some(window) = &navigation_read_window {
             window
                 .observe_workflow_discovered_root_v9(&root, &cancellation)
@@ -3128,6 +3144,52 @@ pub fn bisect_reports_culprit(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn discovery_explains_stale_core_worktree_pointing_elsewhere() {
+        let checkout = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .args(args)
+                .current_dir(checkout.path())
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q"]);
+        git(&[
+            "config",
+            "core.worktree",
+            elsewhere.path().to_str().unwrap(),
+        ]);
+        let error = GitRepository::discover_with_cancellation(
+            checkout.path(),
+            CancellationToken::default(),
+        )
+        .unwrap_err()
+        .0;
+        assert!(
+            error
+                .lines()
+                .next()
+                .unwrap()
+                .contains("core.worktree points to"),
+            "{error}"
+        );
+        assert!(
+            error
+                .lines()
+                .any(|line| line.trim() == "git config --unset core.worktree"),
+            "{error}"
+        );
+        git(&["config", "--unset", "core.worktree"]);
+        assert!(GitRepository::discover_with_cancellation(
+            checkout.path(),
+            CancellationToken::default()
+        )
+        .unwrap()
+        .is_some());
+    }
     #[test]
     fn immutable_overrides_raw_replacement_base_does_not_fall_back_or_alias_unicode() {
         let raw = OsStr::from_bytes(b"refs/custom\xff///");

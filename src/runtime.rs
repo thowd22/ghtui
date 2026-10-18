@@ -2264,6 +2264,20 @@ impl Background {
                     if app.view == completion.view {
                         app.status = format!("Error: {error} • r Refresh to retry");
                     }
+                    // The status bar is one row; a view with nothing loaded
+                    // shows the whole (multi-line) error where it can wrap.
+                    let unloaded = match completion.view {
+                        View::Repository => app.workspace.is_none(),
+                        View::Search => app.search.is_none(),
+                        _ => false,
+                    };
+                    if unloaded {
+                        app.content[completion.view.index()] =
+                            std::iter::once("Could not open this view:".to_owned())
+                                .chain(error.lines().map(str::to_owned))
+                                .chain(["".into(), "r Refresh to retry".into()])
+                                .collect();
+                    }
                 }
             }
             changed = true;
