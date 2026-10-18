@@ -37,7 +37,7 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
             exit 1
           }
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.93.1
         with:
           targets: ${{ matrix.target }}
       # cargo-zigbuild uses zig as the musl C compiler and linker for the

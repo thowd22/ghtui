@@ -12,7 +12,7 @@ if (process.argv.length !== 2) {
 } else {
   try {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const result = spawnSync('cargo', ['test', '--locked', '--all-targets'], {
+    const result = spawnSync('cargo', ['test', '--locked', '--all-targets', '--no-fail-fast'], {
       cwd: root,
       env: testEnvironment(),
       stdio: 'inherit',

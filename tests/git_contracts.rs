@@ -2187,6 +2187,7 @@ fn guided_bisect_finds_culprit_and_restores_original_head() {
     );
     assert_eq!(fixture.repository.sequencer(), Some(Sequencer::Bisect));
     let mut found = false;
+    let mut outputs = Vec::new();
     for _ in 0..8 {
         let bad = std::fs::read(fixture.root.join("flag"))
             .map(|contents| contents == b"bad")
@@ -2196,13 +2197,17 @@ fn guided_bisect_finds_culprit_and_restores_original_head() {
             .plan(Operation::BisectMark { good: !bad })
             .unwrap();
         let output = fixture.repository.execute(&plan, true).unwrap();
+        outputs.push(output.clone());
         if output.contains("is the first bad commit") {
             assert!(output.contains(&culprit));
             found = true;
             break;
         }
     }
-    assert!(found, "Bisect must converge to the known culprit");
+    assert!(
+        found,
+        "Bisect must converge to the known culprit: {outputs:#?}"
+    );
     execute(&fixture, Operation::BisectReset);
     assert_eq!(fixture.head(), original);
     assert_eq!(

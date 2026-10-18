@@ -89,6 +89,7 @@ ghtui_fetch() {
         --output "$2" "$1" || ghtui_fail "download failed: $1"
 }
 
+# shellcheck disable=SC2317 # invoked by the EXIT trap below
 ghtui_cleanup() {
     if [ -n "${ghtui_stage:-}" ] && [ -d "$ghtui_stage" ]; then
         rm -rf -- "$ghtui_stage"
