@@ -153,6 +153,38 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 action: Action::RepositoryHunk,
             });
         }
+        x = x.saturating_add(rect.width + if area.width < 100 { 1 } else { 2 });
+    }
+    // Direct staging/commit controls; the keys work at every width and the
+    // command palette keeps the menu route, so only paint them when all fit.
+    let quick = crate::local_actions::QuickLocal::CONTROLS;
+    let quick_width = quick
+        .iter()
+        .map(|(_, label, _)| label.len() as u16 + 1)
+        .sum::<u16>();
+    if workspace.file_provenance.is_none()
+        && workspace.actor_profile.is_none()
+        && matches!(
+            workspace.mode,
+            RepositoryMode::Overview
+                | RepositoryMode::Working
+                | RepositoryMode::Staged
+                | RepositoryMode::Uncommitted
+        )
+        && x.saturating_add(quick_width) <= area.right()
+    {
+        for (quick, label, _) in quick {
+            let rect = Rect::new(x, area.y + 1, label.len() as u16, 1);
+            frame.render_widget(
+                Paragraph::new(label).style(theme.style(SemanticToken::Added)),
+                rect,
+            );
+            app.hits.push(HitRegion {
+                rect,
+                action: Action::LocalQuick(quick),
+            });
+            x = x.saturating_add(rect.width + 1);
+        }
     }
     if area.height >= 3 {
         let detail = workspace

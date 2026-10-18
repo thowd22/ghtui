@@ -86,6 +86,7 @@ pub enum Action {
     Form(crate::forms::FormAction),
     LocalMenu,
     LocalCommand(crate::local_actions::LocalCommand),
+    LocalQuick(crate::local_actions::QuickLocal),
     MenuScroll(i32),
     Search(crate::search::workspace::SearchAction),
     SearchBlend(crate::search::fusion::ui::BlendAction),
@@ -387,6 +388,8 @@ pub struct App {
     pub pr_reaction_rows: usize,
     pub color_mode: crate::theme::ColorMode,
     pub local_command: Option<crate::local_actions::LocalCommand>,
+    /// Prepare the staging preview with the form (direct + / - shortcuts).
+    pub local_command_preview: bool,
     pub local_action_index: usize,
     pub form_dismissed: bool,
     pub repository_reconcile_requested: bool,
@@ -602,6 +605,7 @@ impl Default for App {
             pr_reaction_rows: 8,
             color_mode: crate::theme::ColorMode::TrueColor,
             local_command: None,
+            local_command_preview: false,
             local_action_index: 0,
             form_dismissed: false,
             repository_reconcile_requested: false,
@@ -1679,7 +1683,7 @@ impl App {
                     self.repository_content_focused = true;
                     self.user_navigated = true;
                     self.status =
-                        "Selected change line • drag or Shift↑↓ for a range • h selects hunk"
+                        "Selected change line • + Stage / - Unstage this line • drag or Shift↑↓ for a range • h selects hunk"
                             .into();
                     return;
                 }
@@ -1994,6 +1998,7 @@ impl App {
             }
             Action::SearchSource(action) => crate::search_sources::ui::dispatch(self, action),
             Action::RepositoryHunk => self.select_repository_hunk(),
+            Action::LocalQuick(quick) => self.local_quick(quick),
             Action::Actions(action) => {
                 if crate::scoped_actions_native_v1::intercept(self,&action){return;}
                 if crate::pr_checks_native::scoped::choices::continuations_v2::intercept(
@@ -2904,6 +2909,13 @@ impl App {
                         self.dispatch(Action::LocalMenu);
                         return;
                     }
+                    if let Some((quick, _, _)) = crate::local_actions::QuickLocal::CONTROLS
+                        .iter()
+                        .find(|(_, _, shortcut)| key.code == KeyCode::Char(*shortcut))
+                    {
+                        self.dispatch(Action::LocalQuick(*quick));
+                        return;
+                    }
                     let identity_action = match key.code {
                         KeyCode::Char('l') => Some(crate::workspace::RowAction::Legend),
                         KeyCode::Char('a') => Some(crate::workspace::RowAction::Actor(
@@ -3369,11 +3381,47 @@ impl App {
             self.selected = index;
         }
         self.status = format!(
-            "Selected {} canonical lines • h selects hunk • m Local operations",
+            "Selected {} canonical lines • h selects hunk • + Stage • - Unstage • m Local operations",
             self.local_context()
                 .map_or(0, |context| context.selected_lines.len())
         );
         true
+    }
+    fn local_quick(&mut self, quick: crate::local_actions::QuickLocal) {
+        if self.workspace.is_none() {
+            return;
+        }
+        if quick != crate::local_actions::QuickLocal::Commit
+            && !self.repository_content_focused
+            && self.repository_selection.is_none()
+        {
+            // The row cursor is only painted while content has focus; never
+            // act on an invisible row.
+            self.status =
+                "Select a changed file, diff line or hunk first (arrows or click) • + Stage • - Unstage"
+                    .into();
+            return;
+        }
+        // A cursor on a diff line with no explicit range stages its whole hunk.
+        if quick != crate::local_actions::QuickLocal::Commit
+            && self.repository_selection.is_none()
+            && self.repository_anchor(self.selected).is_some()
+        {
+            self.select_repository_hunk();
+        }
+        let row = self
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.display_rows_v1().get(self.selected).cloned())
+            .and_then(|row| row.action);
+        match quick.command(row.as_ref(), self.repository_selection.is_some()) {
+            Ok(command) => {
+                self.dispatch(Action::LocalCommand(command));
+                self.local_command_preview = self.local_command.is_some()
+                    && crate::local_actions::QuickLocal::previews_immediately(command);
+            }
+            Err(reason) => self.status = reason.into(),
+        }
     }
     fn select_repository_hunk(&mut self) {
         let Some(anchor) = self.repository_anchor(self.selected) else {
@@ -3405,7 +3453,7 @@ impl App {
                 end: last.clone(),
             });
             self.status = format!(
-                "Selected hunk • {} canonical lines • m Local operations",
+                "Selected hunk • {} canonical lines • + Stage • - Unstage • m Local operations",
                 anchors.len()
             );
         }
@@ -3502,6 +3550,10 @@ impl App {
             self.dispatch(Action::Scroll(if down { 1 } else { -1 }));
             return;
         };
+        // A refreshed workspace can be shorter than the previous one.
+        self.selected = self
+            .selected
+            .min(workspace.display_rows_v1().len().saturating_sub(1));
         let next = if down {
             (self.selected + 1..workspace.display_rows_v1().len())
                 .find(|index| workspace.display_rows_v1()[*index].action.is_some())

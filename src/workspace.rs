@@ -911,7 +911,7 @@ impl Workspace {
                 // Retain the exact selection for the local operation menu; opening is read-only.
                 self.push(
                     &format!(
-                        "Selected working file: {}. Use Local operations to preview an action.",
+                        "Selected working file: {}. + Stage • - Unstage • K Commit • m Local operations.",
                         path.display()
                     ),
                     SemanticRole::Reference,
