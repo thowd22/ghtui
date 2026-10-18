@@ -68,6 +68,13 @@ jobs:
         run: node scripts/test-all.mjs
       # Targeted diagnosis of runner-only failures without the full suite.
       - if: ${{ inputs.pty_filter != '' }}
+        name: Runner environment (diagnostic)
+        run: |
+          env | cut -d= -f1 | sort | tr '\n' ' '; echo
+          git config --list --show-origin --system || true
+          git config --list --show-origin --global || true
+          id; ulimit -a | tr '\n' ';'; echo
+      - if: ${{ inputs.pty_filter != '' }}
         run: cargo test --locked --test tui_e2e -- "$FILTER"
         env:
           FILTER: ${{ inputs.pty_filter }}
