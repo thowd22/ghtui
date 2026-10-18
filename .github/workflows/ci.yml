@@ -66,6 +66,10 @@ jobs:
       # test-only Git environment (foreground automatic maintenance).
       - if: ${{ inputs.pty_filter == '' }}
         run: node scripts/test-all.mjs
+        env:
+          # Saturated hosted runners produce rare one-off PTY timing flakes;
+          # each failed test is retried once alone and listed in the log.
+          GHTUI_CI_RETRY_FAILED: "1"
       # Targeted diagnosis of runner-only failures without the full suite.
       - if: ${{ inputs.pty_filter != '' }}
         name: Runner environment (diagnostic)
