@@ -1,202 +1,213 @@
 # ghtui
 
-A fast Git and GitHub TUI being built in Rust and Ratatui for macOS and Linux. Required external tools: `gh` and `git`. GitHub authentication stays with `gh`.
+A fast Git and GitHub workspace for the terminal, written in Rust with Ratatui.
 
-The executable and real-terminal test framework now run locally. Local repository discovery, history, revision trees, working/staged/branch diffs, arbitrary saved-version comparisons, native Git operation forms and typed inventory pickers, navigation, persistent settings, cancellable workers, personal PR queues, native PR detail/metadata tabs, and persistent comment/review composers are integrated. Native PR comment creation/editing/deletion, reactions, requested subscription changes and explicit uncertain-write inspection/acknowledgement use durable publication guards. Local Exact/Regex/Ranked search has selected-corpus controls, highlighted previews, immutable saved-file destinations and saved queries across restart. Search's `[M Repositories]` manages explicit mapping/cloning/fetching and recoverable removal without automatic startup cloning. Scoped GitHub discovery opens verified immutable remote file contents or native PR conversations without inventing file coordinates or personal queue memberships. Native Actions catalogues, exact run/job/log viewers, artifact previews/exports, approvals/recovery, and guarded workflow/run/cache/secret/variable controls are integrated. Real avatars or honest fallbacks and semantic colors are supported. Remaining PR/search/management/Actions workflows and release verification are under active development; this is not yet a finished release.
+- **Inbox**: your pull requests across every repository, with review, comments, checks and merge.
+- **Repository**: history graph, diffs, trees at any revision, blame, staging and commits.
+- **Search**: exact, regex and ranked search over your checkouts, plus GitHub code, issue and PR search.
+- **Actions**: workflow runs, jobs, logs, artifacts, reruns, approvals and dispatch.
+- **Dashboard**: PR and CI metrics that link back to the records behind them.
 
-The latest verified Linux configuration/Git checkpoint passed 4,054 code/provider and 1,550 real-binary PTY tests—5,604 total—with zero failed or ignored tests, plus formatting, strict all-target Clippy and independent input/cleanup/integrity audits. TASK-79 stabilized the integrated baseline; TASK-3, TASK-4, TASK-5, TASK-6, TASK-7, TASK-11 and TASK-76 are accepted Linux foundation checkpoints. TASK-7 verifies preference defaults, validation, persistence, keyboard/mouse saves and restarts, and relevant account/scope boundaries. TASK-80 and TASK-81 separately verify explicit saved-tree retry feedback and completed history-navigation acknowledgements; they do not certify complete tree or PR product workflows. TASK-11 covers local discovery and immutable object access, including sparse-checkout preservation and bare-object reads, not complete bare-repository UI browsing; TASK-76 verifies raw-index preservation during read-only Git access. TASK-6 covers gh authentication/structured transport and the capability inventory, not completed native PR/Actions workflows or live-host parity. Its [28-row source and evidence ledger](<backlog/docs/doc-14 - PR-and-Actions-capability-sources-and-verified-Linux-inventory-evidence.md>) separates documented operations, executed fixture subsets, required guards and explicit product gaps. This README-only synchronization records the completed byte-identical code/test results and its exact documentation successor, not another full execution; implementation changes require their own verification. Development uses one coordinating agent, no sub-agents, and one feature at a time. See the [sequential delivery audit](<backlog/docs/doc-13 - Sequential-delivery-reset-and-current-state-audit.md>) and task notes for actual commands, counts, preserved failures and seven reviewed terminal screenshots. Tests run under fixed development-host limits with foreground Git maintenance in test children. Linux implementation readiness is separate from release acceptance: native macOS testing remains mandatory before release. Broader PR/Actions parity, performance, beginner UX, curl bootstrap and near-end CI/release verification remain open.
+Every control works with both the keyboard and the mouse. ghtui uses your installed
+`git` for local repositories and the GitHub CLI (`gh`) for GitHub, so it never asks
+for a token of its own.
 
-Scope-aware Actions browsing includes workflow YAML at its actually resolved revision, bounded artifact archive/text/image previews, and repository cache usage, secret names, variables, environments, policies and runners. Run pages and filters retain explicit partial-coverage labels; log search operates on captured text without another GitHub request. PR-check entry retains its original PR context and supports read-only Back. These read workflows do not enable every management operation: unavailable writes, export/extraction and unsupported scopes remain explicitly disabled until their genuine confirmation/recovery adapters are integrated. New screenshot examples are actual completed offline terminal frames, not live GitHub data or mockups.
+## Install
 
-Observed PR timelines distinguish comment authors from event generators and use the actual review author/submission time, with explicit bot/deleted/unknown fallbacks. The checked gate passed 10 code/provider tests and 10 real-terminal journeys across personal, scoped and related-PR views, including actual public avatar pixels, account-loss privacy and read-only Back. A local timeline display-limit refusal preserves the original related-PR section and viewport; provider/account failures still hide private content. These observations do not infer identity or grant mutation permission.
-
-Saved comparisons now expose `[f Changed files]`, `[O Open old]`, `[N Open new]` and `[u Back to comparison]` through matching keys and clicks. Old/new files retain their exact original commit, raw path, mode and blob; a proposed comparison distinguishes the requested base from its actual merge-base contents. Filtering, paging, source details, historical file navigation and Back preserve the checkout. The checked gate passed 46 code contracts and 12 real-terminal journeys, including distinct non-UTF-8 paths, missing sides, live child cancellation and queued cancellation. Richer native split/unified controls and mutable-side workflows remain under implementation.
-
-An in-progress native viewer opens with `[v Native diff]`/`v` or its source-specific Commands entry. It prepares bounded split/unified rows on the existing worker, supports scoped exact/regex patch search, wrapping, generated/context/whitespace controls and original hunk/range selection by keyboard or mouse. Narrow split views show the explicitly chosen Old/New side; hidden selected lines remain counted, and wider terminals retain an explicitly bounded, clickable 512-column pane. Syntax is honestly patch-local with visible plain/linear fallbacks. Saved new-commit roles use prepared local-Git avatar/identity fallbacks; Source details retain requested-base versus actual-content identities. Oversized selected files retain the genuine comparison catalogue so another file can be opened; complete no-change comparisons create no fake rows or selection authority. Superseded previews are labelled “NOT CURRENT” and have no row hits. The checked saved-view slice passed 53 code/provider tests and eight real-terminal journeys. This is not the completed diff task: broader PR-review integration, optional external viewers and native macOS verification remain open; selected staging and full-file context are described below. Saved comparisons cannot stage changes.
-
-Loaded Working and Staged comparisons use that same engine with distinct mutable sources. They distinguish index/working content from saved commits and label unsaved authors/committers as unknown. Worker preparation freshly checks original repository state before and after cached projections. The browsing gate passed 33 code/provider contracts and two actual keyboard/mouse journeys through both comparisons, ranges, search, resizing, Source identity and Close. Selected original lines or hunks now open an exact read-only patch preview; a separate explicit Confirm stages or unstages only that selection using the existing Git planner and writer. Both keys and clicks support preview Back, scrolling, confirmation and explicit reload/inspection. Tiny previews disable confirmation until useful geometry is restored; canceled, failed and completed attempts retire old rows and cannot automatically retry. The selected-write checked gate passed 21 meaningful code contracts and six real-terminal tests across both inputs, including preserved unselected lines, stale-state refusal, narrow Back/reflow, disabled controls and independent index/ref/worktree/config/storage checks. Native source fingerprints/catalogues use 8 MiB read caps; the shared legacy planner's fingerprint/status reads retain 32 MiB child defaults within the same original 30-second/64 MiB/128-read-child budget. The selected patch is capped at 2 MiB and preview at 8 MiB/50,000 rows. This remains an in-progress Linux-verified slice: combined-conflict sources, broader PR-review interactions, optional external viewers and native macOS verification remain open.
-
-Repository's `e` / All edits and Commands' “Show all tracked edits since saved HEAD (staged + unstaged)” now load the genuine combined comparison, including unborn repositories. This shows net tracked changes from the observed saved baseline to working files; untracked files remain separate and intermediate staged edits reverted in the working file do not appear as final changes. The same native viewer retains exact source, ranges and read-only navigation; selected-write preview is explicitly disabled because the combined view has no single index direction. The checked slice passed eight meaningful code contracts and two keyboard/mouse terminal tests across six wide, narrow and unborn sessions. This does not complete the other open diff work above.
-
-Native diffs offer `[F Full Old]` and `[V Full New]` for bounded full-file context, including unchanged lines outside patch hunks. `[b Back patch]` restores the original canonical patch selection and position with current search/display settings and terminal width. Saved views retain their actual comparison endpoints; Working, Staged and All edits distinguish saved HEAD, index and raw unsaved worktree bytes, including honest missing/unborn sides. Full-file rows are read-only display positions, never staging or review coordinates. Wrapped resize preserves the original text line rather than a display-row ordinal. The checked local gate passed 34 code/provider tests and four keyboard/mouse terminal tests, including exact-source replacement, child cancellation, special files and unchanged Git/index/config/storage checks. Native macOS verification remains open.
-
-Scoped PR Files and verified Images now open `[v Native diff]` through the same renderer, worker queue and range model. The selected file retains its genuine canonical patch, merge-base/head images, raw path and numeric repository/PR/account identities; it is not a synthetic local workspace. Split/unified search, wrapping, full Old/New context, Source details and pure Back preserve that original observation. PR-author labels explicitly do not claim line authorship, and Stage remains disabled. The checked gate passed 27 code/provider tests and eight keyboard/mouse terminal journeys, including direct Files open, retained-image navigation without new requests, wrapped resize, cancellation/reaped children, changed head/account refusal and unchanged Git/storage/configuration. Browsing does not grant publication permission; inline entry from this viewer, pending reviews, threads, optional external tools and native macOS verification remain open.
-
-Scoped PR Files offers `[T Threads]`: browse selected-file or all observed threads, expand discussion and inspect source details without guessing current locations for outdated comments. Reply, Resolve and Reopen use fresh source/account/permission checks, explicit Preview/Confirm, durable original-database protection and exact effect readback. Cancellation or uncertain publication never resends automatically; external draft replacement is preserved rather than overwritten or deleted. The initial checked thread gate passed 47 code/provider tests and 26 keyboard/mouse terminal journeys; separate metrics and publication-prerequisite gates also passed. Tests cover resize, disabled actions, pending cancellation, account-loss privacy, exact command/SQLite/Git effects and owned-child cleanup.
-
-Threads also open from the genuine PR Summary, Timeline and native diff. Current-code navigation uses a verified current location; historical inspection retains the original commits and file contents without presenting them as current placement. Review-comment edits, deletion and reactions use the same protected publication/recovery flow, with numeric actor identity and exact readback. The latest checked gates passed 32 reaction, 20 current-code/entry and 44 historical/timeline keyboard/mouse terminal tests. Interrupted reviews offer fresh inspection and a separate explicit local acknowledgement; starting a new review action never resends or changes the protected original. Recovery and new-action checked gates passed 2 and 14 terminal tests respectively. These are bounded verified workflows, not full review-thread parity: personal-entry integration, file-level comments, broader interaction matrices and native macOS verification remain open.
-
-Read-only Git commands disable automatic index-stat refreshing without modifying user configuration. Mutable changed-path observations are checked against the same canonical patch parser. The checked preservation gate passed 23 code/provider tests and six keyboard/mouse terminal tests, including genuine stat-cache-eligible repositories, read-only selected-patch previews, cancellation and stale-source refusal, with exact raw and semantic index checks.
-
-The full checkpoint includes 46 native Actions journeys (including actual crash/restart and SQL-failure recovery), 8 repository-management journeys, 12 native PR collaboration/recovery journeys and 2 viewed-file progress journeys, read-only Snapshot/Proposed comparisons with exact endpoint pickers and swaps, scoped remote search with verified blob/commit contents, explicit GitHub launch scope alongside local/unborn checkouts, ranked relevance and corrupt-index recovery, 8 private-cache journeys (including reused-username isolation, live authentication expiry, real legacy WAL permission repair and journal cleanup/restart), exact-target Git pickers and 6 staging journeys covering keyboard ranges, mouse drag, reverse unstage, full hunks and Unicode/untracked files. Checked focused gates verify nonzero selected code/PTY counts and actual input-path evidence. Private GitHub caches and drafts use verified numeric account IDs, not reusable usernames.
-
-Native PR collaboration and durable publication passed a checked 52-code/12-terminal gate, including live current/requested subscription distinction, null/denied states, all-actor reaction paging, account-loss privacy, cached conversation updates, restart uncertainty and explicit acknowledgement. The existing composer passed 6 code and 8 terminal tests after its journal migration. Repository management passed 27 code and 8 terminal tests covering all eight controls, cache-clear/restart persistence, cancellation, and child-lock/orphan recovery after abrupt app death. Actions approvals passed 10 code and 10 terminal tests, including account-reassignment privacy; settings passed 7 code and 4 terminal tests. Private-cache protection and consistency passed 35 code and 8 terminal tests, including child-only 0600 legacy-journal repair, preserved live SQLite locks, genuine journal cleanup/reopen, and independent existing-connection verification after Clear. New databases are published without overwrite only after their creation descriptor closes. A directory-only macOS preparation path replaces ordinary SQLite file descriptors; its shared POSIX policy and actual cross-process WAL writer-lock tests passed on Linux, but native Apple runtime/ABI verification remains an open release requirement. Blended discovery, advanced settings, remaining native PR/Actions workflows and macOS/release verification remain open; these tested slices do not complete the entire product.
-
-PR `[v Review progress]` reads account- and exact-head-bound viewed states, distinguishes changed-since-viewed files, and provides canonical selected-file mark/unmark confirmations. Its checked gate passed 10 code/provider contracts and 2 real-terminal journeys, including restart, changed-head progress, exact original-head receipts, and unchanged local Git/index/dirty bytes. Saved positions are navigation intent only, never restored server truth. Actions publications retain immutable original requests and typed receipts across real process death; viewing, refresh and restart do not resend them or release protection. The current 46-terminal Actions checkpoint includes failed receipt storage and unavailable journal views, retained disabled controls after selection/resizing, and explicit eligible acknowledgement. Broader workflow parity and additional failure-matrix coverage remain tracked.
-
-PR Checks exposes a clickable/key `[Enter Open check]` into the shared Actions run, exact attempt, job/steps and freshly admitted logs, with `[b Back to PR checks]` restoring its original source without requests. Its checked gate passed 35 code/provider contracts and 8 real-terminal journeys, including six new keyboard/mouse journeys, narrow layouts, scrolling, full SHA/actor labels, and account-reassignment/auth-expiry privacy. Run/job IDs come from genuine suite and exact-attempt observations, never check titles or human URLs; absent optional job-attempt JSON is explicitly endpoint-bound, not defaulted. Current GitHub resource access precedes private ledger capture, original local fences and operation deadlines reject stale results, and opening/logging/Back preserve actual Git/index/dirty bytes and claim no write. Broader non-scoped original-route polling/annotations/log search and complete rerun/cancel interaction coverage remain open; routes without the scoped continuation described below retain explicit disabled explanations instead of choosing a broader catalogue.
-
-The selected-repository scoped Checks route now reaches that same exact Actions viewer and freshly guarded matched-job logs. Its initial checked gate passed 25 code/provider/runtime tests and 4 keyboard/mouse terminal journeys; the existing Files/Images/Checks gate passed 12 code tests and 4 terminal tests after adding this bridge. Genuine original source, numeric repository/PR identities, full heads, actual selected CheckRun and producing runner remain bound through current-access and private-storage checks. Status contexts refuse without extra requests; account loss hides captured private pages. Paged controls and loaded-log scrolling use acknowledged visible transitions. Historical attempts, canonical file jumps, scoped publication and wider failure coverage remain required follow-ups; the read-only bridge grants no write permission.
-
-Scoped Checks now exposes `[C Candidates]` for positively observed runs and exact-attempt jobs, including partial or ambiguous catalogues. Explicit selection performs a fresh original-scoped read; other-job logs recheck actual exact-attempt membership and identity before capture. Unseen members remain unknown, and an exhausted visible list does not prove historical deletion. The expanded checked gate passed 51 code/provider/runtime tests and 12 keyboard/mouse terminal journeys, including 26 new contracts and 8 new terminal tests. Same-ID leaf renames preserve original saved targets; changed fork identities refuse. Selection cannot erase disabled-control explanations. Source/account loss hides private models, and navigation grants no write or automatic latest-attempt authority.
-
-Initial scoped Open now keeps the actual original Checks page and cached Inbox in place while queued or reading. The checked pending-open gate passed 4 genuine code/runtime contracts and 4 keyboard/mouse terminal journeys, including a saturated real worker queue, held/reaped live fixture processes, disabled Open explanations, Back without late reopening, and Cancel followed by an explicitly fresh Open. The expanded scoped Checks gate passed 55 code/provider/runtime tests and 16 terminal journeys. Original rows are retained rather than cloned into the worker; unchanged Git/storage/configuration and restored terminal state are independently checked. This retention does not renew remote access or grant publication authority.
-
-Original-scoped Actions now supports pinned-attempt status and selected-job log refresh, API-reported annotations and details, pure Exact/Regex search of the actual loaded log capture, and bounded Watch/Stop controls. Its main-workspace checked gate passed 51 code/provider tests and 26 keyboard/mouse terminal journeys. Global Refresh shares the same scoped action; Esc cancels pending work rather than navigating Back. A newer attempt is reported without silently adopting it, and source/account loss hides private results. Annotation locations are reported metadata, not canonical review anchors; a foreign check suite refuses before private guards or annotation pages. Selective step-log locators, historical/head comparisons and scoped mutations remain open.
-
-Loaded original-scoped jobs now expose clickable `[> Next failed step]` and `[< Previous failed step]` controls with matching `>`/`<` keys. Their checked gate passed 5 code tests and 6 terminal journeys, including sparse step numbers, unknown/noncompleted states, 40/80/120-column layouts and account-loss privacy. Only positively reported completed failures are selected; Enter still freshly opens the whole pinned job log. This does not implement selective step-log transport or standalone Actions parity.
-
-Saved files expose `[H History]` and `[Y Blame]`, with exact original commit/path/line navigation, bounded paging, and return-to-file context. The checked file-history gate passed 9 code contracts and 6 real-terminal journeys through both keyboard and mouse, including rename history, shallow-history limitations, and unchanged Git refs, index and dirty bytes. Wider workflow verification remains open.
-
-An original saved-commit Author or Committer profile now offers `[P Related PRs]` after `[R Choose repository]`. The choice is navigation intent, not an inferred local-to-GitHub mapping. Discovery freshly verifies the numeric account, original repository/owner IDs, actual local object and exact commit membership before reading original private storage or related PRs. `[O Open selected PR]` repeats verification and association membership, then opens the existing read-only PR viewer; observed Summary, Conversation, Commits, Files and Timeline tabs add no requests. Other reads and mutations retain keyboard/clickable explanations requiring their own explicit remote scope. Escape/Back returns to the actual retained local profile and original chosen-file/responsible-commit/raw-path/line context without changing Git or restoring host approvals. The original checked gate passed 21 code/provider contracts and 32 keyboard/mouse terminal journeys. Optional avatars for physically visible candidates and current observed page actors now passed a separate 8-code/12-terminal gate, including real decoded public image pixels, hidden-actor request refusal, held-image cancellation, account loss, resize without retry and disabled/no-color initials; no additional GitHub requests or new authentication client are introduced.
-
-Candidate rows use worker-prepared, terminal-safe bounded labels and the shared avatar/initials fallback alongside usernames, bots or unknown actors; full original titles remain available on fresh Open. Related discovery defaults to four pages of 50 rows under the original queued deadline and measured capture bounds. The [official commit-associated-PR endpoint](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit) reports an API subset: default-branch commits report the merged introducing PR, while other commits can report open or merged associations. Empty or exhausted pages are not complete-history or absence proof, association is not causality, and a PR's current head need not equal the responsible commit. Failed boundary checks immediately hide the original private repository label and bodies, retire host approvals, and leave only Back; retry requires a new explicit choice. Partial/error/cancelled reads never silently broaden to another repository, branch, account or authentication implementation.
-
-Nested local file/history/blame and responsible-commit Graph/Diff/Original-file navigation now retain the actual original Git source, full chosen versus responsible commit, raw path, line and actor role. Global Back restores exact saved destinations through fresh bounded worker reads, without repository rediscovery, a checkout-HEAD fallback or revived host reports. Its initial checked `original_saved_navigation` gate passed 31 code contracts and 6 terminal tests across 8 actual SHA-1/SHA-256 keyboard/mouse sessions. The expanded `original_saved` gate passed 38 code contracts and 36 terminal tests, including actual missing-object repair, symlink refusal, source replacement before any Git child, and cancellation both during a live read and before queued work starts. Unsupported attribution controls have clickable/key explanations that add no Git reads or invented targets. Ordinary repositories without remotes and genuinely unborn repositories remain usable. Graph/tree/diff completion, broader restore parity and macOS/release verification remain open.
-
-Graph Refresh preserves the original loaded pages, saved walk tip and exact position instead of rebuilding the whole walk. `[R Re-read original]` provides a bounded explicit Preview/Confirm for a fresh original-source read; Cancel and stale ownership cannot replace newer navigation. The main-workspace checked graph gate passed 70 code/provider tests and 26 keyboard/mouse terminal journeys, including actual 10,000-commit fixtures, resizing and retained Back navigation. Parent-path colors have redundant relationship labels and do not claim permanent branch identity. These functional tests are not a performance benchmark or native macOS verification.
-
-The saved-path picker now provides full path, raw-byte, saved-version and object detail fields, exact folder inspection, compact breadcrumbs and reachable Commands at 40 columns. Its checked gate passed 31 code tests and 10 keyboard/mouse terminal journeys, including 40→80→40 resizing, explicit queue-failure Retry, cancelled-child cleanup followed by a fresh original read, and distinct non-UTF-8 files verified through fresh raw Git arguments and blob identities. Close retires its exact current read even after a stale result was consumed; foreign queue owners remain untouched. Width changes cannot publish an obsolete detail or reopen a closed folder; browsing preserves the checkout. Wider comparison-side and diff workflows remain under development.
-
-Search's `[H Search sources]` explicitly loads bounded PR/issue bodies, conversation comments, reviews and inline threads, or opts into original local commit messages. Exact/Regex/Ranked share typed source contexts, honest cached/partial coverage, actual actor identities and separate Git author/committer roles. The checked discussion/commit gate passed 80 code/provider contracts and 12 real-terminal journeys covering both inputs, edited/deleted text, restart/removal, permission revocation, numeric account switching and recoverable offline failure. No automatic organization hydration, cloning or implicit history indexing occurs. Resource-bound generations and original-receipt read guards prevent stale text from reappearing after invalidation; additional cross-feature failure journeys remain open.
-
-Ranked search's `[B Blend controls]` explicitly combines local results with selected GitHub Code/PR/Issue providers, with independent page/result limits. Preferences alone never run a query; Exact/Regex remain local and standalone GitHub retains provider order. Canonical identities and current visibility proofs gate deduplication and result opening; unresolved parent provenance is suppressed rather than guessed. `[E Rank sources]` explains source ranks, loaded/admitted/hidden counts, limits and partial/unavailable coverage. The checked blend gate passed 6 code/provider contracts and 6 keyboard/mouse terminal journeys, including capped PR discovery, current-body presentation, exact opening, rate-limit retention, removed-source suppression and fresh recovery. A separate checked privacy gate passed 1 code contract and 10 keyboard/mouse journeys covering unselected genuine body authority, account changes, authentication expiry, changed retained proofs and a real confirmed publication followed by SQL visibility failure. Narrow recovery views retain visible no-resend warnings and hide old private breadcrumbs; fresh source loading recovers without resending the original write. Relevance-quality evaluation and broader product parity remain delivery work.
-
-Dashboard now has native current-snapshot cards, contributor/formula details, explicit all-or-one repository selection, seven/thirty-day UTC windows, exact PR opening and return navigation. Its checked gate passed 72 code/provider contracts and 10 real-terminal journeys through both input paths, including account-reassignment privacy, an actual Pending publication race, cancelled-child cleanup and refresh preserving the selected scope/window. Missing history/check/run data is labelled unavailable, not zero. Genuinely available-history producers, check/run source loading and unresolved/outdated-thread presentation remain under integration; the tested snapshot slice does not complete Dashboard coverage.
-
-Dashboard also supports one account-scoped default profile: reorder or hide the eight existing widgets, retain at least one, choose an explicit repository subset and save/restore the seven/thirty-day UTC window. `[L Layout]`, `[S Save dashboard]`, `[O Saved dashboard]` and `[D Defaults]` have matching keyboard and mouse paths. Restoring a profile freshly verifies its original account and repository scope; it restores layout intent, not cached metrics or access. The checked profile gate passed eight code tests and ten real-terminal tests, including restart, cancellation, malformed data and same-username/different-account refusal. Named profiles and broader dashboard widgets remain open.
-
-PR Metadata Title/Description/Base edits require a bounded, worker-prepared current/requested exact-effect Preview before explicit Confirm. Their expanded checked gate passed 74 code/provider tests and 24 real-terminal journeys. Base changes require a genuine indexed branch choice, show the full observed tip, and freshly validate that exact name/tip/account before any journal claim or PATCH. Partial known members are selectable; nullable tips, empty/unavailable catalogues, changed tips, raw-output overflow and account changes cannot grant a target. Choosing, filtering and Preview send no gh/Git requests. Cancel, editor handoff, editing and restart invalidate approval; drafts never restore source/selection authority.
-
-Ten additional native metadata actions add/remove labels, assignees, individual reviewers and team reviewers, and set/clear milestones. Their checked gate passed 37 code/provider contracts and 42 real-terminal journeys. Current-member removals preserve genuine indices; complete reviewer replacement preserves the opposite User/Team set. Nullable, incomplete, forbidden or changed facts cannot become an empty writable set. Exact receipts, account/permission loss, shared capture limits, cleanup/receipt SQL failure, process interruption and label-query cache repair are verified without automatic resend. Linked items, Projects and richer role/host coverage still remain open.
-
-The metadata gate includes confirmed Base receipt recovery after actual cleanup SQL failure and restart with a changed current head/edited draft. Original viewing reads a bounded exact stored reference before any new chooser or request validation, uses fresh account checks and never reloads branches, resends or acknowledges. New intent clears only the local reference, preserving durable protection. Exact field-only writes, current readback, scoped receipts/drafts/generations, narrow layouts, both input paths, editor/TTY restoration and unchanged real Git/index/dirty bytes are independently asserted.
-
-Remaining access boundary: current metadata draft/original OPEN checks fresh numeric account identity around private local reads; that does not independently prove fresh repository/PR access. A separate exact-parent access bracket is under development, including legacy composer opening. Do not interpret a cached scope, old receipt or matching username as current permission.
-
-Commands exposes a read-only capability inspector with bounded filtering, genuine indexed details, shared actor fallback, keyboard/mouse focus and scrolling. Its checked gate passed 15 code/runtime tests and 10 real-terminal journeys, including missing gh, denied authentication, limited hosts, same-login numeric-account changes and authentication expiry. Opening/filtering/closing adds zero gh or Git requests and preserves scoped data. The 33 inventory rows describe transports, permission requirements, target/concurrency guards and tasks; static flags do not prove current host support, permissions or native parity. Those capability/version audits remain open. A supported upstream Unix polling backend fixes a reproduced resize/input freeze; its checked gate passed 2 runtime tests and 4 keyboard/mouse journeys without changing vendor runtime sources.
-
-Commands now filters bounded contextual actions through their existing guarded handlers; scrollable Help describes each of the five views. Local `[Back]` (`alt+left`) and recent clickable breadcrumbs restore original repository sources and stable commit selections, with exact read-only worker loading when needed. The expanded checked navigation gate passed 113 code/provider tests and 32 real-terminal journeys across 36 actual sessions, including nested original-source navigation and its object/source/cancellation boundaries alongside Working/Graph/Search, Help/resize/capture, disabled explanations, real Preview/cancel without writes and the source-identity journeys below. History retains bounded identities and opaque source handles, not whole workspaces, private bodies or approvals. Private-page restore adapters, wider comparison restore parity, a complete history picker and broader native interaction coverage remain open; unavailable destinations never silently open a broader scope.
-
-Repository headers now distinguish full checkout `HEAD` from the `Saved` commit used by the displayed Git actors. Click `[Source identity]` or press `I` for the original prepared source, mutable working/index contents, exact comparison endpoints, and honest root/shallow/override limitations. Opening, paging, and closing this owned read-only explanation add no Git, gh, or SQL work. Its checked gate passed 21 code/runtime contracts and 2 keyboard/mouse terminal journeys across four actual SHA-1/SHA-256 sessions, with unchanged Git and storage bytes, narrow layouts, no-color mode, capture, and restored focus. File-provenance detail actions remain clickable at 80 columns; longer patches are navigable rather than silently truncated.
-
-Commands' `Discover repositories` opens a keyboard/mouse-owned inventory with explicit organization, authenticated-accessible, and public-user sources. Filtering, selecting, pinning, saving and explicitly activating account-scoped repository sets are integrated without cloning. Its checked gate passed 224 code/provider contracts and 86 real-terminal journeys, including 1,001 repositories across 11 pages, explicit larger reads, partial/rate-limit retry, non-destructive source changes, restart, reused-username privacy, explicit empty/unresolved scopes, exact selected-repository My PRs/Actions opening, manual scoped Inbox refresh, and optional public avatar images with honest fallbacks. Fresh numeric repository/owner identities and original storage guards bracket those selected reads; same-ID renames update presentation, not saved originals. An exhausted inventory is an observed API-visible subset, not an atomic organization snapshot. Discovery defaults to 20 pages/2,000 rows. Scoped Inbox refresh now shares measured raw stdout/stderr accounting, its original deadline and cancellation across up to 64 selected repositories, with a bounded 32MiB external-read pool and reserved closing-account capacity. Its checked gate passed 22 code contracts and 2 keyboard/mouse terminal journeys, including a strict actual 64-repository production-route test and a three-repository native refresh. Capture, request and duration limits can still refuse a large response; this is not unbounded organization hydration. Continuation, broader scoped PR/Actions/search/dashboard workflows, and richer terminal image protocols remain under implementation. Tagged empty, unresolved or fenced scopes never silently fall back to all repositories. Unsupported tagged workflows show an explanation while local Git stays independent.
-
-Discovery's `[l Limits]` edits five bounded request limits and Standard/Larger/Maximum presets locally, without requests or saves. `[m Load more]` previews an explicit fresh page-1 re-read, not a concatenation of stale pages. Its checked gate passed 35 code/provider contracts and 14 keyboard/mouse terminal journeys, including 2,050 observed repositories, original saved references/pins preserved byte-for-byte, missing transient choices explained rather than silently discarded, account loss, shared output caps, deadline and live cancellation. The original storage expectation is checked atomically before a new reservation; exact same-ID/node transient choices restore only from the new genuine source. Unsaved Close offers Back or explicit local Discard & Close. A genuinely closed endpoint failure hides prior rows/query/counts and retains one private original-scoped intent slot; generic Retry cannot use that stale source. Its explicit `[v Verify original source]` Preview/Verify recovery is now integrated; generic Retry still cannot revive a closed source. The checked recovery gate passed 13 code contracts and 16 keyboard/mouse terminal tests covering repeated failure, original-storage races, account loss, missing members, deadlines and real child cancellation. Saved originals remain unchanged; missing transient choices stay unresolved until explicitly handled. Maximum values are requested caps, not evidence of 100,000-repository coverage or a performance benchmark.
-
-Live `[r Retry]` and Discover for the same source now retain exact selected/pinned intent and filters through an original guarded fresh read, using current permission metadata rather than old observations. Changing sources with local choices or a filter offers Back, preserving the actual pending editor, or explicit Discard & Discover; saved sets, pins and drafts remain unchanged. Remote views are fenced before a new source reservation, and re-activation is explicit. Its checked gate passed 10 code contracts and 10 keyboard/mouse terminal journeys with resize, capture, reused-username refusal, hidden avatar rows and independent Git/storage/TTY effects. Invalid source text retains the same editor and choices, allowing correction in place before any new request.
-
-Activated repository scopes now support exact selected-PR initial Summary loading and pure return to the original cached Inbox. Its initial checked gate passed 13 code contracts and 2 keyboard/mouse terminal journeys, preserving unchanged Git, drafts and publication ledgers. Observed Summary/Conversation/Commits/Timeline switching adds no requests and passed 15 code contracts and 2 terminal tests across six fresh sessions. A shared comment payload prevents per-line body duplication; bounded preparation preserves the previous section, selected row, scroll and focus on display refusal. Stable Back cancels pending work and prevents late results from reopening the page, without claiming a fresh Inbox or active refresh. Optional search-result repository metadata must agree with actual current repository IDs/nodes; that checked gate passed 8 code contracts and 2 terminal journeys. Scoped Files and Checks now passed a checked 12-code/4-terminal gate across six fresh sessions. Current-head raw patches support file/hunk navigation, unified/split layout and bounded loaded-patch context without additional requests. Checks retain independent observed check/status coverage, honest actor fallbacks and unavailable required rules; a status context cannot open an Actions run without its own exact bridge. Parent or account drift hides private pages without a default fallback. Broader scoped Checks-to-Actions workflows, Metadata/Progress and mutations still need their own verified protocols; immutable file proof never authorizes publication. The active-view avatar gate passed 19 code contracts and 6 terminal journeys, including different images for same-username observations and cancellation on account loss; public image bytes never grant identity or repository access.
-
-Scoped PR `[O Old image]` now opens verified immutable old/new file contents and read-only ranges. Its checked gate passed 23 code/runtime tests and 8 keyboard/mouse terminal journeys, including actual divergent merge bases, CRLF/no-final-newline bytes, exact trees/blob digests, both-side range selection, scrolling, resizing, pure Back and owned Quit. Full M/H identities and stacked image metadata stay visible at 80 columns; empty-side selection cannot retain another side’s cursor or old range notice. Access loss resets retired private scroll so the explanation remains readable. Existing Files/Checks journeys retain all checks and independent effects after their verified-image migration. This proof does not authorize inline publication, signatures or future repository access; complete inline reviews and broader scoped Actions workflows remain open.
-
-The inline-comment publication foundation adds 24 verified source/plan contracts for exact original image ranges, fresh principal/source checks, durable drafts and single-attempt receipts. The composed image gate passed 47 code contracts and 8 real-terminal journeys; 13 strict inline provider contracts also passed. The integrated executable now exposes the shared inline composer from verified Images, with explicit Preview/Confirm and no restored approval. Eight real-terminal journeys in the full suite cover keyboard/mouse left/right ranges, changed-account refusal, cancellation after an actual POST, retained pending drafts and owned pending-preview input. Entry from the native diff viewer, broader pending reviews/thread management and historical recovery remain separate unfinished workflows.
-
-Active actor projections now preflight at most 128 borrowed observations, 4KiB per field and 64KiB total before copying display metadata. Their checked gate passed 13 code contracts and 2 keyboard/mouse terminal journeys, preserving oversized raw observations while showing an honest no-image fallback. Hidden reaction rosters and whole workspaces are not cloned merely to prepare avatars. Local Git-to-GitHub observations now require explicit repository choice and fresh exact-repository verification; names and emails never guess accounts.
-
-Local Git labels explicitly distinguish author and committer, including unknown names, unavailable emails and bounded Unicode initials. Their checked gate passed 10 code contracts and 2 keyboard/mouse terminal tests across four real SHA-1/SHA-256 sessions, with no GitHub/image requests and unchanged raw objects, checkout, index and user files. Graph labels preserve both roles; profiles keep the full selected saved-commit identity distinct from checkout HEAD. These local labels do not infer a GitHub account from a name or email.
-
-The original raw-commit reader and exact selected-repository GitHub association factory passed 25 focused code/provider contracts. Retained local-source and saved-SHA/role ownership passed 17 more, including same-path replacement refusal, linked worktrees and canonical symlink roots with actual Git child counts. Native repository choice, explicit verification, separate author/committer reports, prepared avatars, details and Clear passed a checked 28-code/10-terminal gate across 16 actual keyboard/mouse sessions. Verification uses the original request's cancellation and absolute deadline, closes source/storage checks before its final principal proof, and rejects retired or foreign reports before publishing any UI state. Tests verify real avatar pixels, null/denied/account-loss fallbacks, cancellation and child cleanup, and unchanged Git and saved data. Host observations do not prove a local mapping, signature or future permission. Original-source nested navigation has its separate verified slice above; complete actor/terminal-image parity remains open.
-
-Discovery's `[B Remote files]` opens a separate read-only browser without cloning or changing the active repository scope. Its checked initial gate passed 29 code/provider contracts and 8 keyboard/mouse terminal journeys: immutable saved trees and Unicode content, branches and annotated tags, partial-tree refusal and explicit reload, current-account loss, and confirmed matching local snapshot handoff. Complete immediate trees and raw blobs are independently hash-verified; name-only local mappings remain candidates, not verified remote associations. Exact revision/path survive the handoff without checkout or persistent binding. Wider special-content, cancellation and failure journeys, full navigation parity and release verification remain open.
-
-Remote-file follow-up coverage passed 9 code/provider tests and 18 keyboard/mouse terminal journeys. Tests first open actual private content, then verify its removal on account/source/repository changes, denied access, capture exhaustion and cancellation. Binary, LFS-pointer, symlink, gitlink and oversized-content handling remains read-only, with exact request, storage, Git and terminal effects checked. Full navigation parity and release verification remain open.
-
-## Planned capabilities
-
-- Cross-repository PR queues and complete review, comment, metadata, and merge workflows.
-- Local repository detection, commits, working/staged/branch diffs, conflicts, and useful Git management.
-- Understandable history graphs, trees at any revision, comparison, file history, and blame.
-- Ranked, exact, and regex search across selected code, repositories, PRs, comments, and commits.
-- Full Actions workflow/run support, indicators, logs, artifacts, dispatch, approvals, and supported settings.
-- Usernames and avatars throughout, semantic colors and legends, and complete mouse/keyboard interaction.
-- Dashboards with useful metrics and direct links to their underlying evidence.
-
-## Research and specifications
-
-- [Tool research and recommendations](<backlog/docs/doc-1 - Git-and-GitHub-tool-research-and-recommendations.md>)
-- [Product and architecture](<backlog/docs/doc-2 - ghtui-product-and-architecture-specification.md>)
-- [PR action coverage](<backlog/docs/doc-3 - PR-action-coverage-and-parity-contract.md>)
-- [Code and TUI end-to-end testing](<backlog/docs/doc-4 - Code-and-TUI-end-to-end-testing-contract.md>)
-- [Actions coverage](<backlog/docs/doc-5 - GitHub-Actions-coverage-contract.md>)
-- [Local Git operation coverage](<backlog/docs/doc-6 - Local-Git-workspace-and-operation-contract.md>)
-- [macOS/Linux curl bootstrap release contract](<backlog/docs/doc-12 - macOS-and-Linux-curl-bootstrap-release-contract.md>)
-
-## Install from source (Linux)
-
-Requires Rust 1.88+, plus `git` and an authenticated `gh` at runtime. Dependencies are vendored, so no network access is needed for the build:
+Linux (x86_64 and arm64):
 
 ```sh
+curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash
+```
+
+The installer downloads a static binary for your CPU and checks its SHA-256
+against the release's `SHA256SUMS`. It then installs a single file,
+`~/.local/bin/ghtui`. It doesn't use sudo or edit your shell profile. If
+`~/.local/bin` isn't on your `PATH`, add it:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # or ~/.zshrc
+```
+
+Installer options (each also has an environment variable):
+
+| Option | Environment | Default |
+| --- | --- | --- |
+| `--version vX.Y.Z` | `GHTUI_VERSION` | latest release |
+| `--install-dir DIR` | `GHTUI_INSTALL_DIR` | `~/.local/bin` |
+| `--uninstall` | | removes the binary only |
+
+Pass options through `bash -s --`, for example to pin a version:
+
+```sh
+curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --version v0.1.0
+```
+
+Running the installer again upgrades in place. Release binaries for macOS aren't
+published yet, so on macOS build from source (see below).
+
+### Requirements
+
+- `git`
+- [`gh`](https://cli.github.com/), signed in to your account:
+
+  ```sh
+  gh auth login
+  gh auth status   # confirm
+  ```
+
+ghtui sends every GitHub request through `gh`, so whichever account and host `gh`
+is signed in to is the one ghtui uses. For GitHub Enterprise, sign `gh` in to
+that host and start ghtui with `--host your.host`.
+
+### Build from source
+
+Requires Rust 1.88 or newer. All dependencies are vendored, so the build needs no
+network access after cloning:
+
+```sh
+git clone https://github.com/thowd22/ghtui
+cd ghtui
 cargo install --path . --locked --offline
 ```
 
-That puts `ghtui` in `~/.cargo/bin`. Run it inside a Git checkout. When the checkout's `origin` (or only remote) points at your GitHub host, Actions, Search and Dashboard default to that repository; the Inbox still shows your pull requests across all repositories. Use `--repo OWNER/NAME` to choose a different repository.
+That installs `ghtui` into `~/.cargo/bin`.
 
-## Planned installation
+## Getting started
 
-The primary installation path will be one curl-to-Bash script for macOS and Linux, selecting the matching Intel/ARM prebuilt binary. TASK-68 covers per-user installation without sudo, checksum verification, version pinning, safe upgrades/rollback, and uninstall that preserves user data. `gh` and `git` remain external dependencies. Native package installers and background auto-updates are not required.
+Run it from inside a Git checkout:
 
-The script and release artifacts are not published yet; the actual installation URL will be documented after a remote is configured and release verification passes. TASK-69 will test the script-installed executable through the shared keyboard/mouse PTY framework before publishing. See the release contract above for research, trust boundaries, and required tests.
+```sh
+cd ~/code/my-project
+ghtui
+```
 
-## Implementation backlog
+ghtui opens on that repository. If the checkout's `origin` points at GitHub, the
+Actions, Search and Dashboard views default to that repository. The Inbox
+always shows your pull requests from every repository.
 
-79 tasks have priorities, dependencies, acceptance criteria, testing steps, and testing Definition of Done. Every task requires code/provider verification and a real-binary PTY journey through mouse and keyboard paths. Status and verification evidence live in Backlog.md; prepared backend code alone does not make a task Done.
+```
+ghtui [--repo OWNER/NAME] [--host HOST] [--config-dir PATH] [--no-color]
+ghtui --help | --version
+```
 
-| Milestone | Scope | Tasks |
-| --- | --- | --- |
-| M0 | Foundation, testing, input, providers, identity, and colors | 1–11, 34–35 |
-| M1 | Personal PR inbox and read-only review | 12–15 |
-| M2 | Complete PR interactions | 16–27 |
-| M3 | Repository graph, comparison, tree, diff, and history | 28–33 |
-| M4 | Local Git workspace and management | 36–44 |
-| M5 | Fast search across selected repositories | 45–51 |
-| M6 | Full Actions workflows and supported settings | 52–60 |
-| M7 | Dashboards, coverage, performance, usability, script installation, and CI/CD | 61–69 |
-| Environment | Allowed dependency sources and standard local Git initialization | 70–71 |
-| Correctness | Original Git object visibility and readable long Git targets | 72, 74 |
-| Release integrity | Bundled SQLite upstream WAL-reset fix and cache compatibility | 73 |
-| Interaction correctness | File-level review comments, read-only Git preservation and completed-frame selection/focus/overlay input | 75–78 |
+| Flag | Effect |
+| --- | --- |
+| `--repo OWNER/NAME` | Use this GitHub repository instead of the checkout's origin |
+| `--host HOST` | GitHub host (default `github.com`); `gh` must be signed in to it |
+| `--config-dir PATH` | Keep config and cache somewhere else (also `GHTUI_CONFIG_DIR`) |
+| `--no-color` | Plain output with text labels instead of colors |
 
-Start with TASK-1, then TASK-2 to establish the shared test framework. Dependencies, rather than numeric IDs alone, determine what is ready. TASK-69 adds this project's GitHub CI/CD near the end; local tests run throughout development.
+## Using ghtui
 
-## Local development
+### Everywhere
+
+| Key | Action |
+| --- | --- |
+| `1`–`5` | Inbox, Repository, Search, Actions, Dashboard |
+| `?` | Help for the current view |
+| `:` | Command palette: every action for this view and its key |
+| `r` | Refresh |
+| `s` | Settings |
+| `Tab` / `Shift-Tab` | Move focus between the content and its controls |
+| `Enter` or click | Open or activate the selection |
+| `↑ ↓` / `j k`, wheel | Move and scroll; `PgUp`/`PgDn`, `Home`/`End` |
+| `b` | Back |
+| `Esc` | Close an overlay |
+| `q` | Quit (`Ctrl-C` always exits) |
+
+Every button on screen shows its key in brackets, for example `[l Logs]`. You can
+click it or press the key. If something is unavailable, its button stays visible
+and says what it needs first. When in doubt, press `:`.
+
+Nothing is written without your say-so. Comments, reviews, merges, commits,
+reruns and other changes first show a preview of the exact target and effect.
+They happen only when you confirm with `Ctrl-S` or the Confirm button. Drafts are
+saved locally, so closing a form or quitting doesn't lose your text.
+
+### 1 Inbox: pull requests
+
+- `r` loads your PRs. Filter the queues with `a` All, `c` Created by me,
+  `m` Assigned to me and `v` Needs my review.
+- `Enter` opens a PR, which has these tabs: Summary, Conversation, Commits,
+  Files, Checks, Timeline, Metadata and Review.
+- **Files:** select a diff line and press `i` to comment on it. `Shift-↑/↓` or a
+  mouse drag extends the selection to a range, and `P` opens the comment draft.
+  `K` comments on the whole file, and `T` opens threads to reply, resolve or
+  reopen.
+- **Checks:** opens the failing job's runs and logs in place.
+- `F8` shows notifications, `F9` your review history and `F10` your reviews.
+
+### 2 Repository: local Git
+
+- Commit graph, the working tree, staged changes and branch diffs for the
+  current checkout.
+- `C` compares any two saved versions; `H` shows a file's history and `Y` its
+  blame.
+- `+` and `-` stage or unstage the selected file, lines or hunk, and `K`
+  commits.
+- `m` opens local operations: branches, remotes, stash, worktrees, rebase,
+  merge and cherry-pick. Each shows a preview and needs confirmation.
+- Browsing never changes your working files.
+
+### 3 Search
+
+- Choose a mode with `e` Exact, `x` Regex, `n` Ranked or `h` GitHub. Type the
+  query, then open a result with `Enter` and its file or PR with `o`.
+- Local modes search your working files, including uncommitted changes. You can
+  also search an exact saved version.
+- GitHub mode searches code, issues and PRs, scoped to the checkout's
+  repository unless you choose another scope.
+- `c` Corpus chooses which local repositories to search. Use **Map existing**
+  to add a checkout you already have; nothing is cloned unless you ask.
+
+### 4 Actions
+
+- `R` lists runs and `W` lists workflows. `Enter` opens a run on its first
+  failed job.
+- `l` opens the highlighted job's logs. `>` and `<` jump between failures in
+  jobs, steps or log lines, and `/` searches the logs.
+- `a` lists artifacts, `j` lists jobs and `G` shows approval gates. Rerun,
+  cancel, dispatch and the other changes go through preview and confirmation.
+
+### 5 Dashboard
+
+PR and CI metrics for the selected repositories over 7 or 30 days. Opening a
+card lists the PRs, runs and reviews behind its number. If a value is partial
+or unknown, the dashboard says so instead of showing zero.
+
+## Files and privacy
+
+- Configuration and the local cache live in `~/.config/ghtui/` (or
+  `$XDG_CONFIG_HOME/ghtui`): `config.toml`, `cache.sqlite3`, the search
+  `index/` and `avatars/`. Delete that directory to reset ghtui.
+- Private cached data is tied to the signed-in `gh` account. If you switch
+  accounts or lose access, ghtui hides it again.
+- Avatars come from GitHub's public avatar URLs without credentials, and
+  initials are shown when no avatar is available. To turn avatars off, set
+  `avatars = false` in `config.toml`.
+
+## Uninstall
+
+```sh
+curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --uninstall
+```
+
+This removes the binary only. To remove your settings and cache too, delete
+`~/.config/ghtui`.
+
+## Development
 
 ```sh
 cargo run -- --help
-cargo run
-CARGO_NET_OFFLINE=true node scripts/test-all.mjs
-node scripts/test-task.mjs test_framework
+node scripts/test-all.mjs                 # full suite: unit, provider and real-terminal tests
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```
 
-The whole-suite entrypoint executes unfiltered `cargo test --locked --all-targets`; the task entrypoint checks nonzero code/provider and real keyboard/mouse PTY coverage. Both append test-child-only `maintenance.autoDetach=false` and `gc.autoDetach=false` settings while preserving existing indexed Git configuration. Maintenance still runs, in the foreground: detached maintenance otherwise escapes PTY-session cleanup and accumulates adopted Git zombies in the Linux test subreaper. No user/repository configuration or installed application policy is changed. This behavior follows Git's [foreground maintenance configuration](https://git-scm.com/docs/git-config#Documentation/git-config.txt-maintenanceautoDetach). On the shared development host, run these commands inside the resource-limited, locked verification scope described in [AGENTS.md](AGENTS.md); the portable scripts do not require systemd.
-
-For screenshots, set `GHTUI_TEST_SCREENSHOT_DIR` to an existing absolute directory before running the relevant terminal tests. Capture points in Actions, PR reviews, native diffs and local history export the actual completed terminal cells as SVG, with ANSI, raw transcript and JSON provenance alongside them. These are offline fixture sessions, not live GitHub content or mockups; RGB colors are preserved and indexed/default colors use the xterm palette. Optional local SVG-to-PNG tools are development utilities, not application dependencies. Screenshot export does not replace the tests' independent command, storage and Git-effect assertions.
-
-Run inside a Git checkout to open the local workspace automatically. Configuration lives under the platform's application configuration directory; `--config-dir PATH`, `--host HOST`, `--repo OWNER/NAME`, and `--no-color` override launch context. The in-app Help and Commands menus list keyboard actions; visible controls also accept mouse clicks.
-
-Long local paths keep an identifying context suffix with an explicit ellipsis; `[Source identity]`/`I` opens the full escaped original repository path, raw branch name and saved IDs. Inventory pickers expose clickable `[F2 Details]` for the selected exact typed target, with paging, scrolling and Back. Worktree removal also exposes `[F2 Full input]` for the complete escaped entered intent. These read-only observations do not choose a target or verify current Git state: return to the picker to Choose, then use the existing fresh Preview and explicit Confirm. Disabled choices remain disabled, and raw-byte, Unicode and literal-backslash paths remain distinct.
-
-After a genuine failed/refused stash apply or pop, the old confirmation is retired. Click `[F3 Inspect stash result]` or press F3 for a fresh, bounded read of the original checkout, exact stash SHA and unmerged stage objects. A retained or absent stash is an observation, not proof of why the operation failed. `[C First conflict]` opens the existing read-only Base/Ours/Theirs viewer on the freshly checked original source, retiring any previous native diff. These are current index-stage labels, not proof of stash/branch provenance or a merge-abort grant. Back cancels only that inspection. Inspection never retries, drops a stash, reconciles an unknown write, authenticates with GitHub or changes files.
-
-If Git reports success but the repository view cannot refresh, the form says so and keeps the same genuine original stash witness for read-only inspection. A refusal before a witness was captured does not advertise F3. Refresh checks the original source before and after loading and requires the freshly observed source and actual runner to match; a repository recreated at the same path cannot replace the original result. Neither case reuses the old confirmation or treats refresh failure as proof that the command had no effects.
-
-Scoped immutable PR images now offer an initial top-level inline-comment workflow: explicitly select a line/range, verify it with `[R Range]`, then choose `[P Comment]`. The shared editor provides full original anchor details, fresh Preview and explicit Confirm. LEFT ranges must end on a deleted line; context requires an explicit RIGHT selection. Current original-source/account checks and durable draft/publication protection precede POST. Cancellation after invocation reports an unknown outcome rather than rollback, retains recovery records and never resends. Successful publication retires the old private snapshot; explicitly refresh before viewing more private content. The checked gate passed 59 code/provider tests and eight keyboard/mouse terminal tests, including held-preview paste refusal and original-source/stash ownership isolation. Outdated-anchor jumps, file-level comments, pending review batching and suggestions remain separate unfinished workflows; initial replies are available through Threads as described above.
-
-The shared PTY framework now cleans exact owned session descendants after failure, including providers in separate process groups. Deliberate app-only termination still leaves them alive until recovery assertions finish and the session is dropped. Its checked gate passed 15 code tests and 7 terminal journeys; failed cleanup cannot count as positive coverage, and deliberate panic records remain excluded.
-
-PR selection and nested catalogue-close journeys now observe completed visible frames before choosing their next input. An already-selected file does not receive an extra arrow, and a focused filter's completed cell frame is distinct from the original cursorless-frame proof. The checked regression gate passed 10 observer contracts and 4 keyboard/mouse terminal tests across 10 actual sessions; original publication targets, Git/storage checks and cleanup assertions remain enforced.
-
-Relative, pinned official sources and checksum-verified registry packages are vendored inside the project, so offline resolution does not depend on `/tmp` checkouts or an existing Cargo cache. [Source provenance and integrity](vendor/README.md) documents the pins, retained licenses, and manifest-only platform adaptations. Run `node scripts/audit-dependencies.mjs` to verify them. The bundled SQLite update passed 4 runtime contracts and 2 keyboard/mouse terminal journeys across six actual cache/composer/restart sessions, plus the existing cache, composer and selected-corpus gates. A fresh Git-index source snapshot passed the full dependency audit, offline/locked all-target compilation with an empty Cargo home and build directory, and independent 4-code/2-terminal SQLite and 26-code/15-terminal framework gates. Deliberate panic records are not positive completion evidence. Release packaging and native macOS verification remain delivery gates.
-
-Use the installed Backlog.md CLI:
-
-```sh
-backlog board
-backlog task list --status 'To Do' --plain
-backlog task view TASK-1 --plain
-backlog task view TASK-69 --plain
-```
-
-The project now has standard local `.git` metadata on the `main` branch. Backlog Git integration is enabled; its remote operations and automatic commits remain disabled. The user supplied `git@github.com:thowd22/ghtui.git` for the verified publishing checkpoint. It is reachable, but no local remote is configured and no work has been pushed yet. Initialization and read-only project/subdirectory discovery are tracked in TASK-71.
+The terminal tests drive the real binary in a pseudo-terminal, using both the
+keyboard and the mouse. They run against temporary Git repositories and an
+offline fake `gh`, so they never touch your accounts. Contributor and agent
+rules are in [AGENTS.md](AGENTS.md). Planned work is tracked with
+[Backlog.md](https://github.com/MrLesk/Backlog.md): run `backlog board`.
+The product specifications are in [backlog/docs](backlog/docs).
