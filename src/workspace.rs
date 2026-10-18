@@ -909,6 +909,11 @@ impl Workspace {
             }
             RowAction::WorkingFile(path) => {
                 // Retain the exact selection for the local operation menu; opening is read-only.
+                // Only the latest selection note is kept, not one per Enter/click.
+                self.rows.retain(|row| {
+                    !(matches!(row.action, Some(RowAction::WorkingFile(_)))
+                        && row.label.starts_with("Selected working file: "))
+                });
                 self.push(
                     &format!(
                         "Selected working file: {}. + Stage • - Unstage • K Commit • m Local operations.",

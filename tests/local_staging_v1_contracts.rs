@@ -206,3 +206,22 @@ fn v1_local_staging_new_file_preview_has_no_phantom_trailing_line() {
         assert_eq!(fixture.git(&["ls-files", "--", name]), "");
     }
 }
+
+#[test]
+fn v1_local_staging_commit_is_disabled_until_something_is_staged() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("a.txt", b"old\n", "saved");
+    fs::write(fixture.repo().join("a.txt"), b"new\n").unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    assert!(LocalCommand::Commit
+        .disabled_reason(&context)
+        .is_some_and(|reason| reason.starts_with("Nothing is staged yet")));
+    // Amend can still reword the latest commit with nothing staged.
+    assert_eq!(LocalCommand::Amend.disabled_reason(&context), None);
+    fixture.git(&["add", "a.txt"]);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    assert_eq!(LocalCommand::Commit.disabled_reason(&context), None);
+}

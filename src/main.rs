@@ -1299,6 +1299,13 @@ fn run() -> Result<()> {
                         status: if quick_preview {
                             "Preview ready • Ctrl-S confirm • Esc keep and close; nothing changed yet"
                                 .into()
+                        } else if matches!(
+                            command,
+                            ghtui::local_actions::LocalCommand::Commit
+                                | ghtui::local_actions::LocalCommand::Amend
+                        ) {
+                            "Write the message • Ctrl-P previews the staged changes • then Ctrl-S commits"
+                                .into()
                         } else {
                             "Local intent ready • Preview first; nothing changed".into()
                         },

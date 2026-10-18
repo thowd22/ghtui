@@ -36,6 +36,26 @@ fn journey(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
 
+    // Nothing is staged yet: Commit explains instead of opening a form.
+    press(&mut session, mouse, "[K Commit]", b"K");
+    session.wait_for_screen("Nothing is staged yet");
+    assert!(!session.screen().contains("LOCAL INTENT"));
+    // Repeated file selection keeps one selection note, not one per activation.
+    if mouse {
+        session.click_visible_action("new.txt");
+        session.wait_for_screen("Selected working file: new.txt");
+        session.click_visible_action("Untracked [untracked] new.txt");
+    } else {
+        session.send_key(b"\x1b[B\x1b[B\r");
+        session.wait_for_screen("Selected working file: new.txt");
+        session.send_key(b"\r");
+    }
+    session.poll_output(std::time::Duration::from_millis(300));
+    assert_eq!(
+        session.screen().matches("Selected working file:").count(),
+        1
+    );
+
     // Working diff: stage the whole first hunk.
     press(&mut session, mouse, "[w Working]", b"w");
     session.wait_for_screen("+first");

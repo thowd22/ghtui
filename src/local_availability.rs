@@ -95,6 +95,12 @@ impl<'a> LocalAvailability<'a> {
             UnstageSelection if !matches!(self.comparison, Some(Comparison::Staged)) => {
                 Some("Select a staged change in Staged diff; saved history is read-only.".into())
             }
+            Commit
+                if self.status.operation.is_none()
+                    && !self.status.entries.iter().any(|entry| entry.staged()) =>
+            {
+                Some("Nothing is staged yet • + Stage a file, hunk or line first (r Refresh if staged outside ghtui).".into())
+            }
             Continue | Skip | Abort if self.status.operation.is_none() => {
                 Some("There is no paused Git operation.".into())
             }
