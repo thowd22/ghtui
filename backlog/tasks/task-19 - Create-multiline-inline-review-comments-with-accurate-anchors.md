@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 23:20'
+updated_date: '2026-10-18 00:41'
 labels:
   - review
   - e2e
@@ -174,4 +174,6 @@ Immutable Native inline V1 source-only handoff: target/build/parallel-tree-nativ
 Root actual Native canonical entry13code now PASS0failed/ignored10.04s, source879freeze0dd3d33c, after genuine first-run12/1 failure revealed retained Native frame at confirmed source retirement. Immediate original-source O1 retirement fixed production; real post/readback/journal assertion preserved. New both-input10PTY plus existing Files/Images inline regression are currently executing under Root sole caps; not yet declared successful. No Task19/AC/DoD/macOS completion inferred.
 
 V10 corrective gate ACTUAL GREEN: manifest root-form-preview-v10-inline-scroll-checked-20261015.json SHAd450f32c1c64f74c6a2676d4e301d1fd1764a9d03183efb07b27c090347e4592. One fixture path changed: initial owned Preview header first, real mouse wheel/PageDown only when original body below viewport, NEW completed owned phase/body/fullcontrols required, all pending-paste/child/SQL/exact83reads0writes/Git/config/TTY assertions retained. Checked inline_comments135code22PTY and form_preview_visible23code8PTY allPASS0failed0ignored,40positiveactualsessions/20mouse allcleanup; strict Clippy0, actual3422registration. Scope peak905601024bytes/tasks42,0OOM0tasklimit. Source929freeze a23afa425adca98eacda3328bf8016793f0976e7a54a4d51844f28bfc3eaeeda. Original failed full V9 remains FAILED; no new whole-green/Done claim. Next integration uses focused gates then aggregate full checkpoint.
+
+2026-10-18 a05: Files diff gets [i Comment line] (selected diff line opens images at that side/line with range verified; Shift+arrows/drag extends; P auto-verifies range). Files list now loads for PRs whose 100-file page exceeds 128 KiB (cap 1 MiB). Gate: agent-run.sh a05 node scripts/test-task.mjs v1_pr_threads -> 5 code + 2 PTY (keyboard+mouse) passed; filtered inline_comments 24, file_comment 52, immutable_images lib 239 passed.
 <!-- SECTION:NOTES:END -->
