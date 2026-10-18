@@ -244,7 +244,12 @@ pub fn fields(command: LocalCommand, context: &LocalContext) -> Vec<LocalField> 
             choice(
                 "set_upstream",
                 "Set tracking branch?",
-                "false",
+                // A branch without upstream is usually being published for the first time.
+                if context.status.upstream.is_none() && !branch.is_empty() {
+                    "true"
+                } else {
+                    "false"
+                },
                 &["false", "true"],
             ),
         ],
@@ -836,6 +841,11 @@ impl LocalPlan {
             Operation::ApplyPatch { .. } => append_selected_patch_preview_v2(&mut preview,&mutation),
             _ => {}
         }
+        preview.extend(branch_sync_preview_v1(
+            &repo,
+            &mutation.operation,
+            &current_status,
+        ));
         if let Some(staged) = staged {
             preview.push("Exact staged content for the next commit:".into());
             if staged.diff.files.is_empty() {
@@ -900,7 +910,13 @@ impl LocalPlan {
         cancellation: CancellationToken,
     ) -> Result<LocalOutcome, String> {
         let repo = repository(&self.context.directory, cancellation.clone())?;
-        let output = repo.execute(&self.mutation, confirmed).map_err(|error| format!("{error}\nRefresh repository state before another write; do not retry an uncertain operation blindly."))?;
+        let output = repo.execute(&self.mutation, confirmed).map_err(|error| {
+            let error = error.to_string();
+            let summary = explain_git_failure_v1(self.command, &error)
+                .map(|summary| format!("{summary}\n"))
+                .unwrap_or_default();
+            format!("{summary}{error}\nRefresh repository state before another write; do not retry an uncertain operation blindly.")
+        })?;
         let mut workspace = Workspace::load_with_cancellation(
             &self.context.directory,
             RepositoryMode::Overview,
@@ -1038,6 +1054,228 @@ impl LocalInventory {
         }));
         rows
     }
+}
+
+/// Plain-language branch/remote state for branch and sync previews. Reads only local refs:
+/// counts describe the last fetch, never an implicit network probe.
+pub(crate) fn branch_sync_preview_v1(
+    repo: &GitRepository,
+    operation: &Operation,
+    status: &RepoStatus,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let exists = |name: &str| repo.resolve(name).ok();
+    let counts = |base: &str, head: &str| repo.ahead_behind(base, head).ok();
+    let plural = |count: usize| if count == 1 { "" } else { "s" };
+    let upstream_line = |branch: &str| {
+        let reference = repo.references().ok().and_then(|references| {
+            references
+                .into_iter()
+                .find(|reference| reference.raw_name == format!("refs/heads/{branch}").as_bytes())
+        });
+        match reference.and_then(|reference| reference.upstream) {
+            Some(upstream) => format!(
+                "Local branch {branch} tracks {}",
+                upstream.trim_start_matches("refs/remotes/")
+            ),
+            None => format!("Local branch {branch} has no upstream (tracking branch) yet"),
+        }
+    };
+    match operation {
+        Operation::Fetch { remote } => {
+            lines.push(format!("Fetch downloads new commits from {remote} and updates only {remote}/* tracking refs. Your branches and working files do not change."));
+            if let (Some(branch), Some(upstream)) = (&status.branch, &status.upstream) {
+                lines.push(format!(
+                    "Before fetch: {branch} is {} ahead and {} behind {upstream} (as of the last fetch).",
+                    status.ahead, status.behind
+                ));
+            }
+        }
+        Operation::Pull { remote, branch } | Operation::PullWithStrategy { remote, branch, .. } => {
+            let strategy = match operation {
+                Operation::PullWithStrategy { strategy, .. } => *strategy,
+                _ => PullStrategy::FastForwardOnly,
+            };
+            let current = status.branch.as_deref().unwrap_or("(detached HEAD)");
+            let tracking = format!("refs/remotes/{remote}/{branch}");
+            lines.push(format!(
+                "Pull fetches {remote} {branch}, then updates the current branch {current} and its working files."
+            ));
+            match exists(&tracking).and_then(|_| counts(&tracking, "HEAD")) {
+                Some((ahead, behind)) => {
+                    lines.push(format!("As of the last fetch: {ahead} local commit{} not on {remote}/{branch}; {behind} commit{} on {remote}/{branch} not here.", plural(ahead), plural(behind)));
+                    if ahead > 0 && behind > 0 {
+                        lines.push(format!("DIVERGED: {current} and {remote}/{branch} each have commits the other lacks."));
+                        lines.push(match strategy {
+                            PullStrategy::FastForwardOnly => "Fast-forward only will refuse this pull and change nothing. Choose merge (adds a merge commit) or rebase (replays your local commits on top).".into(),
+                            PullStrategy::Merge => "Merge combines both sides in a new merge commit. Conflicts stop the merge for resolution; then Continue operation or Abort operation.".into(),
+                            PullStrategy::Rebase => format!("Rebase replays your {ahead} local commit{} on top of {remote}/{branch}. Conflicts stop for resolution; then Continue, Skip or Abort operation.", plural(ahead)),
+                        });
+                    } else if behind > 0 {
+                        lines.push(format!("BEHIND: pull brings in {behind} commit{} as a fast-forward.", plural(behind)));
+                    } else {
+                        lines.push("Up to date with the last fetch; pull may still bring in newer remote commits.".into());
+                    }
+                }
+                None => lines.push(format!(
+                    "No local copy of {remote}/{branch} yet; pull fetches it first. Ahead/behind is unknown until then."
+                )),
+            }
+        }
+        Operation::Push {
+            remote,
+            branch,
+            set_upstream,
+        } => {
+            let tracking = format!("refs/remotes/{remote}/{branch}");
+            lines.push(upstream_line(branch));
+            match exists(&tracking).and_then(|_| counts(&tracking, &format!("refs/heads/{branch}")))
+            {
+                None => {
+                    lines.push(format!("FIRST PUSH: creates branch {branch} on {remote}."));
+                    if !set_upstream {
+                        lines.push(format!("Set tracking branch? true is recommended so later pull/push and ahead/behind use {remote}/{branch}."));
+                    }
+                }
+                Some((ahead, behind)) => {
+                    lines.push(format!("As of the last fetch: sends {ahead} commit{}; {remote}/{branch} has {behind} commit{} not in {branch}.", plural(ahead), plural(behind)));
+                    if behind > 0 {
+                        lines.push(format!("REMOTE AHEAD: a normal push will be rejected and change nothing. Pull {remote} {branch} (merge or rebase) first. This push never forces."));
+                    } else if ahead == 0 {
+                        lines.push(format!(
+                            "Nothing new to send: {remote}/{branch} already has {branch}."
+                        ));
+                    }
+                }
+            }
+        }
+        Operation::ForcePushLease { remote, branch, .. } => {
+            let tracking = format!("refs/remotes/{remote}/{branch}");
+            if let Some((ahead, behind)) =
+                exists(&tracking).and_then(|_| counts(&tracking, &format!("refs/heads/{branch}")))
+            {
+                lines.push(format!("REPLACES remote history: {behind} commit{} on {remote}/{branch} (as of the last fetch) will no longer be on the remote branch; {ahead} local commit{} are sent.", plural(behind), plural(ahead)));
+            }
+        }
+        Operation::SetUpstream { branch, upstream } => {
+            lines.push(upstream_line(branch));
+            if let Some((ahead, behind)) = counts(upstream, &format!("refs/heads/{branch}")) {
+                lines.push(format!("After this change: {branch} is {ahead} ahead and {behind} behind {upstream}. Only configuration changes; no commits or files move."));
+            }
+        }
+        Operation::SwitchBranch(name) => {
+            if exists(&format!("refs/heads/{name}")).is_some() {
+                lines.push(upstream_line(name));
+            } else if let Some(remote) = repo.remotes().ok().and_then(|remotes| {
+                remotes.into_iter().find(|remote| {
+                    exists(&format!("refs/remotes/{}/{name}", remote.name)).is_some()
+                })
+            }) {
+                lines.push(format!("No local branch {name}: Git creates it from {}/{name} and sets it as upstream.", remote.name));
+            }
+        }
+        Operation::DeleteBranch { name, force } => {
+            if let Some(id) = exists(&format!("refs/heads/{name}")) {
+                lines.push(format!("Recovery: branch {name} currently points at {id}. Create branch or Create rescue branch with this saved version restores it."));
+                if let Some((unmerged, _)) = counts("HEAD", &format!("refs/heads/{name}")) {
+                    // Git also allows a normal delete when the branch is contained in its upstream.
+                    let saved_upstream = repo
+                        .references()
+                        .ok()
+                        .and_then(|references| {
+                            references.into_iter().find(|reference| {
+                                reference.raw_name == format!("refs/heads/{name}").as_bytes()
+                            })
+                        })
+                        .and_then(|reference| reference.upstream)
+                        .filter(|upstream| {
+                            counts(upstream, &format!("refs/heads/{name}"))
+                                .is_some_and(|(ahead, _)| ahead == 0)
+                        });
+                    if unmerged > 0 {
+                        let effect = if *force {
+                            " Forced delete removes the branch anyway; keep the recovery SHA above."
+                                .to_owned()
+                        } else if let Some(upstream) = saved_upstream {
+                            format!(" They are saved on its upstream {}, so a normal delete is allowed.", upstream.trim_start_matches("refs/remotes/"))
+                        } else {
+                            " A normal delete will refuse; choose Delete unmerged history? true only after saving that work.".to_owned()
+                        };
+                        lines.push(format!("UNMERGED: {name} has {unmerged} commit{} not in the current branch.{effect}", plural(unmerged)));
+                    } else {
+                        lines.push(format!("{name} is fully contained in the current branch."));
+                    }
+                }
+            }
+            if status.branch.as_deref() == Some(name.as_str()) {
+                lines.push(format!(
+                    "{name} is the current branch; switch to another branch before deleting it."
+                ));
+            }
+            if let Some(tree) = repo.worktrees().ok().and_then(|trees| {
+                trees.into_iter().skip(1).find(|tree| {
+                    tree.branch.as_deref() == Some(format!("refs/heads/{name}").as_str())
+                })
+            }) {
+                lines.push(format!(
+                    "{name} is checked out in linked worktree {}; Git will refuse to delete it.",
+                    sanitize_terminal(&tree.path.to_string_lossy())
+                ));
+            }
+        }
+        _ => {}
+    }
+    lines
+        .into_iter()
+        .map(|line| sanitize_terminal(&line))
+        .collect()
+}
+
+/// A short plain-language reason placed above the raw Git output for common failures.
+pub(crate) fn explain_git_failure_v1(command: LocalCommand, error: &str) -> Option<&'static str> {
+    let has = |needle: &str| error.contains(needle);
+    Some(if has("Previous write outcome is unknown") {
+        "An earlier Git write in this session failed or was interrupted. Press r Refresh to re-read the repository, then preview again."
+    } else if has("Committer identity unknown") || has("Please tell me who you are") {
+        "Git does not know your name and email. Set user.name and user.email with git config; if an operation is now in progress, Continue operation or Abort operation afterwards."
+    } else if has("CONFLICT") || has("Merge conflict") || has("could not apply") {
+        "CONFLICT: the operation stopped on conflicting changes. Your work is kept: open the conflicted files, choose versions and stage them, then Continue operation, or Abort operation to return to the previous state."
+    } else if has("Diverging branches can't be fast-forwarded")
+        || has("Not possible to fast-forward")
+        || (has("fatal:") && has("fast-forward"))
+    {
+        "Pull refused: local and remote histories have diverged, and fast-forward only changes nothing. Pull again with the merge or rebase strategy."
+    } else if has("[rejected]") || has("non-fast-forward") || has("fetch first") {
+        "Push rejected: the remote branch has commits you do not have. The remote was not changed. Pull (merge or rebase), then push again."
+    } else if has("stale info") {
+        "Force push refused: the remote branch no longer matches the expected commit. Fetch and review it first."
+    } else if has("Authentication failed")
+        || has("Permission denied")
+        || has("could not read Username")
+    {
+        "The remote refused the credentials. Nothing was changed by this command; check your Git credentials for this remote."
+    } else if has("does not appear to be a git repository")
+        || has("Could not read from remote")
+        || has("Could not resolve host")
+    {
+        "The remote could not be reached. Nothing was changed by this command; check the remote URL and network."
+    } else if has("couldn't find remote ref") {
+        "That branch does not exist on the remote. Check the remote branch name, or push it first."
+    } else if has("not fully merged") {
+        "Branch not deleted: it has commits not merged into the current branch. Choose Delete unmerged history? true only after saving that work."
+    } else if has("checked out at") || has("used by worktree") {
+        "Branch is checked out in this or another worktree. Switch that worktree to another branch first."
+    } else if has("already exists") {
+        "That name is already used. Choose a different name; nothing was changed."
+    } else if has("would be overwritten") {
+        "Local changes would be overwritten. Commit or stash them first; your files were not changed."
+    } else if has("invalid upstream")
+        || (has("does not exist") && command == LocalCommand::SetUpstream)
+    {
+        "That tracking branch does not exist locally. Fetch the remote first, then set upstream."
+    } else {
+        return None;
+    })
 }
 
 fn repository(directory: &Path, cancellation: CancellationToken) -> Result<GitRepository, String> {

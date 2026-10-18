@@ -550,3 +550,195 @@ fn guided_bisect_native_classification_progress_and_reset_restore_original_branc
     assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
 }
+
+/// Local main and the bare remote's main each gain one commit; `topic` holds the remote-only commit.
+fn v1_local_branches_diverged_fixture() -> (Fixture, std::path::PathBuf, String, String) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved\n", "initial");
+    let remote = fixture.root.join("remote.git");
+    assert!(Command::new("git")
+        .args(["init", "--bare", "--initial-branch=main"])
+        .arg(&remote)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    fixture.git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+    fixture.git(&["push", "-u", "origin", "main"]);
+    fixture.git(&["switch", "-c", "side"]);
+    fixture.commit_file("remote.txt", b"remote side\n", "remote side");
+    let remote_head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["push", "origin", "side:main"]);
+    fixture.git(&["switch", "main"]);
+    fixture.git(&["branch", "-D", "side"]);
+    fixture.commit_file("local.txt", b"local side\n", "local side");
+    let local_head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["fetch", "origin"]);
+    fixture.git(&["branch", "--no-track", "topic", "origin/main"]);
+    (fixture, remote, local_head, remote_head)
+}
+fn v1_remote_main(remote: &std::path::Path) -> String {
+    let output = Command::new("git")
+        .arg("--git-dir")
+        .arg(remote)
+        .args(["rev-parse", "refs/heads/main"])
+        .output()
+        .unwrap();
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+fn v1_has(plan: &LocalPlan, needle: &str) -> bool {
+    plan.preview.iter().any(|line| line.contains(needle))
+}
+
+#[test]
+fn v1_local_branches_diverged_pull_push_previews_explain_and_failures_preserve_refs() {
+    let (fixture, remote, local_head, remote_head) = v1_local_branches_diverged_fixture();
+    let overview = workspace(&fixture, RepositoryMode::Overview);
+    assert!(overview.rows.iter().any(|row| row
+        .label
+        .contains("1 commits to send, 1 commits to receive • DIVERGED")));
+    let context = LocalContext::from_workspace(&overview, None, None);
+
+    let pull = prepare(
+        LocalCommand::Pull,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("strategy", "ff-only"),
+        ],
+    );
+    assert!(
+        v1_has(&pull, "DIVERGED: main and origin/main"),
+        "{:?}",
+        pull.preview
+    );
+    assert!(v1_has(&pull, "Fast-forward only will refuse"));
+    let error = pull
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(
+        error.starts_with("Pull refused: local and remote histories have diverged"),
+        "{error}"
+    );
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), local_head);
+
+    let push = prepare(
+        LocalCommand::Push,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("set_upstream", "false"),
+        ],
+    );
+    assert!(v1_has(&push, "REMOTE AHEAD"), "{:?}", push.preview);
+    assert!(v1_has(&push, "Local branch main tracks origin/main"));
+    // A failed write requires an explicit refresh before the next write.
+    let error = push
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(error.starts_with("An earlier Git write"), "{error}");
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+    let error = push
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(
+        error.starts_with("Push rejected: the remote branch has commits"),
+        "{error}"
+    );
+    assert_eq!(v1_remote_main(&remote), remote_head);
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    let rebase = prepare(
+        LocalCommand::Pull,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("strategy", "rebase"),
+        ],
+    );
+    assert!(v1_has(&rebase, "Rebase replays your 1 local commit on top"));
+    execute(&rebase);
+    assert_eq!(fixture.git(&["rev-parse", "HEAD~1"]).trim(), remote_head);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let push = prepare(
+        LocalCommand::Push,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("set_upstream", "false"),
+        ],
+    );
+    assert!(v1_has(&push, "sends 1 commit;"), "{:?}", push.preview);
+    assert!(!v1_has(&push, "REMOTE AHEAD"));
+    execute(&push);
+    assert_eq!(
+        v1_remote_main(&remote),
+        fixture.git(&["rev-parse", "HEAD"]).trim()
+    );
+}
+
+#[test]
+fn v1_local_branches_first_push_defaults_tracking_and_unmerged_delete_shows_recovery() {
+    let (fixture, remote, _, remote_head) = v1_local_branches_diverged_fixture();
+    fixture.git(&["switch", "-c", "feature"]);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    assert!(workspace(&fixture, RepositoryMode::Overview)
+        .rows
+        .iter()
+        .any(|row| row.label.contains("Branch: feature") && row.label.contains("no upstream")));
+    let defaults = ghtui::local_actions::fields(LocalCommand::Push, &context);
+    assert_eq!(
+        defaults
+            .iter()
+            .find(|field| field.key == "set_upstream")
+            .unwrap()
+            .value,
+        "true"
+    );
+    let push = prepare(
+        LocalCommand::Push,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "feature"),
+            ("set_upstream", "true"),
+        ],
+    );
+    assert!(
+        v1_has(&push, "FIRST PUSH: creates branch feature on origin."),
+        "{:?}",
+        push.preview
+    );
+    assert!(v1_has(&push, "Local branch feature has no upstream"));
+    execute(&push);
+    assert_eq!(
+        fixture.git(&["rev-parse", "--abbrev-ref", "@{upstream}"]),
+        "origin/feature\n"
+    );
+    let delete = prepare(
+        LocalCommand::DeleteBranch,
+        &context,
+        &[("name", "topic"), ("force", "false")],
+    );
+    assert!(v1_has(
+        &delete,
+        &format!("Recovery: branch topic currently points at {remote_head}")
+    ));
+    assert!(v1_has(
+        &delete,
+        "UNMERGED: topic has 1 commit not in the current branch"
+    ));
+    let error = delete
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(error.starts_with("Branch not deleted"), "{error}");
+    assert_eq!(fixture.git(&["rev-parse", "topic"]).trim(), remote_head);
+    assert_eq!(v1_remote_main(&remote), remote_head);
+}
