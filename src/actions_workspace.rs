@@ -20,6 +20,8 @@ mod lease_snapshot;
 #[cfg(test)]
 mod runs_focus_v1_tests;
 pub use lease_snapshot::ActionsPublicationLeaseSnapshot;
+#[cfg(test)]
+mod workflow_usability_v1_tests;
 
 pub const NEXT_FAILURE: &str = "> Next failure";
 pub const PREVIOUS_FAILURE: &str = "< Previous failure";
@@ -1085,8 +1087,10 @@ impl ActionsWorkspace {
             self.controls.push(command(ActionsCommand::SearchLogs));
         }
         if self.view == Workflow {
-            self.controls
-                .push(command(ActionsCommand::WorkflowRevision));
+            self.controls.push(add(
+                workflow_control_label(ActionsCommand::WorkflowRevision),
+                ActionsAction::Compose(ActionsCommand::WorkflowRevision),
+            ));
         }
         if self.reconciliation_target.is_some() {
             self.controls
@@ -1126,7 +1130,10 @@ impl ActionsWorkspace {
                     ActionsRow::clickable(
                         format!(
                             "{} • {} • {} • #{}",
-                            workflow.name, workflow.state, workflow.path, workflow.id
+                            workflow.name,
+                            workflow_state_label(&workflow.state),
+                            workflow.path,
+                            workflow.id
                         ),
                         ActionsAction::OpenWorkflow {
                             id: workflow.id,
@@ -1362,8 +1369,11 @@ impl ActionsWorkspace {
             }
             Workflow => {
                 self.controls.push(ActionsControl {
-                    label: "[E Edit YAML locally]".into(), action: ActionsAction::EditWorkflowLocalV9,
-                    disabled_reason: Some("Requires an actual source-bound workflow Definition; no legacy/local-name fallback".into()),
+                    label: "[E Edit YAML locally]".into(),
+                    action: ActionsAction::EditWorkflowLocalV9,
+                    disabled_reason: Some(
+                        "open Actions from the repository catalogue to edit YAML".into(),
+                    ),
                 });
                 self.controls.extend(
                     [
@@ -1372,34 +1382,15 @@ impl ActionsWorkspace {
                         ActionsCommand::DispatchWorkflow,
                     ]
                     .into_iter()
-                    .map(command),
+                    .map(|value| add(workflow_control_label(value), ActionsAction::Compose(value))),
                 );
                 let mut rows = vec![];
                 if let Some(definition) = &self.definition {
-                    rows.push(ActionsRow::text(format!(
-                        "{} • revision {} • exact commit {}",
-                        definition.workflow.name, definition.revision, definition.commit_sha
-                    )));
-                    rows.push(ActionsRow::text(format!(
-                        "Triggers: {}",
-                        definition.triggers.join(", ")
-                    )));
-                    for input in &definition.dispatch_inputs {
-                        rows.push(ActionsRow::text(format!(
-                            "Input {} • {:?} • required {} • {}",
-                            input.name, input.input_type, input.required, input.description
-                        )));
-                    }
-                    for job in &definition.jobs {
-                        rows.push(ActionsRow::text(format!(
-                            "Definition job {} • needs {} • matrix {} • reusable {}",
-                            job.id,
-                            job.needs.join(", "),
-                            job.matrix,
-                            job.reusable_workflow.as_deref().unwrap_or("none")
-                        )));
-                    }
-                    rows.push(ActionsRow::text("YAML edits use the mapped local checkout and normal Git preview/commit/PR flow; no workflow is executed locally."));
+                    rows.extend(
+                        workflow_summary_rows(definition)
+                            .into_iter()
+                            .map(ActionsRow::text),
+                    );
                     rows.extend(
                         definition.yaml.lines().enumerate().map(|(index, line)| {
                             ActionsRow::text(format!("{:4} {line}", index + 1))
@@ -1766,7 +1757,7 @@ impl ActionsWorkspace {
                     .any(|trigger| trigger == "workflow_dispatch")
             })
         {
-            return Some("This definition does not expose workflow_dispatch".into());
+            return Some("This workflow has no workflow_dispatch trigger, so it cannot be started by hand at this revision".into());
         }
         if command == EnableWorkflow
             && self
@@ -1776,14 +1767,134 @@ impl ActionsWorkspace {
         {
             return Some("Workflow already enabled".into());
         }
-        if matches!(command, DisableWorkflow | DispatchWorkflow)
+        if command == DisableWorkflow
             && self
                 .definition
                 .as_ref()
                 .is_some_and(|definition| definition.workflow.state != "active")
         {
-            return Some("Enable this workflow before dispatching or disabling it".into());
+            return Some("Workflow already disabled".into());
+        }
+        if command == DispatchWorkflow
+            && self
+                .definition
+                .as_ref()
+                .is_some_and(|definition| definition.workflow.state != "active")
+        {
+            return Some("Enable this workflow (X) before dispatching it".into());
         }
         None
     }
+}
+
+/// Workflow definition controls carry the same key the keyboard map uses.
+pub(crate) fn workflow_control_label(command: ActionsCommand) -> &'static str {
+    match command {
+        ActionsCommand::WorkflowRevision => "V Choose workflow revision",
+        ActionsCommand::EnableWorkflow => "X Enable workflow",
+        ActionsCommand::DisableWorkflow => "X Disable workflow",
+        ActionsCommand::DispatchWorkflow => "D Dispatch workflow",
+        other => other.label(),
+    }
+}
+
+/// Plain-language GitHub workflow state (`disabled_manually` -> `disabled manually`).
+pub(crate) fn workflow_state_label(state: &str) -> String {
+    match state {
+        "disabled_inactivity" => "disabled after inactivity".into(),
+        "disabled_fork" => "disabled in fork".into(),
+        other => other.replace('_', " "),
+    }
+}
+
+/// Readable definition header shown above the read-only YAML.
+pub(crate) fn workflow_summary_rows(definition: &WorkflowDefinition) -> Vec<String> {
+    let mut rows = vec![
+        format!(
+            "{} • {} • revision {} • exact commit {}",
+            definition.workflow.name,
+            workflow_state_label(&definition.workflow.state),
+            definition.revision,
+            definition.commit_sha
+        ),
+        format!(
+            "Triggers: {}",
+            if definition.triggers.is_empty() {
+                "none found".into()
+            } else {
+                definition.triggers.join(", ")
+            }
+        ),
+    ];
+    let manual = definition
+        .triggers
+        .iter()
+        .any(|trigger| trigger == "workflow_dispatch");
+    rows.push(if !manual {
+        "Manual runs: not available (no workflow_dispatch trigger)".into()
+    } else if definition.workflow.state != "active" {
+        "Manual runs: enable the workflow first (X)".into()
+    } else if definition.dispatch_inputs.is_empty() {
+        format!(
+            "Manual runs: press D to dispatch on {}; this workflow takes no inputs",
+            definition.revision
+        )
+    } else {
+        format!(
+            "Manual runs: press D to dispatch on {} with the {} input(s) below",
+            definition.revision,
+            definition.dispatch_inputs.len()
+        )
+    });
+    for input in &definition.dispatch_inputs {
+        let kind = match input.input_type {
+            DispatchInputType::String => "text".to_owned(),
+            DispatchInputType::Boolean => "true/false".to_owned(),
+            DispatchInputType::Number => "number".to_owned(),
+            DispatchInputType::Environment => "environment".to_owned(),
+            DispatchInputType::Choice => format!("one of {}", input.options.join(", ")),
+        };
+        let default = input
+            .default
+            .as_ref()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| value.to_string())
+            })
+            .map(|value| format!(" • default {value}"))
+            .unwrap_or_default();
+        rows.push(format!(
+            "Input {} • {kind} • {}{default}{}",
+            input.name,
+            if input.required {
+                "required"
+            } else {
+                "optional"
+            },
+            if input.description.is_empty() {
+                String::new()
+            } else {
+                format!(" • {}", input.description)
+            }
+        ));
+    }
+    for job in &definition.jobs {
+        let mut line = format!("Definition job {}", job.id);
+        if !job.needs.is_empty() {
+            line.push_str(&format!(" • needs {}", job.needs.join(", ")));
+        }
+        if !job.matrix.is_null() {
+            line.push_str(&format!(" • matrix {}", job.matrix));
+        }
+        if let Some(reusable) = &job.reusable_workflow {
+            line.push_str(&format!(" • calls {reusable}"));
+        }
+        rows.push(line);
+    }
+    rows.push(
+        "YAML below is read-only here; this tab never runs or edits workflows locally.".into(),
+    );
+    rows
 }

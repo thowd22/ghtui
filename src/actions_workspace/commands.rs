@@ -281,7 +281,7 @@ impl ActionsWorkspace {
                     .ok_or_else(|| plain_error("Inspect workflow definition first"))?;
                 let mut fields = vec![field(
                     "revision",
-                    "Dispatch this inspected ref",
+                    "Branch or tag to run (V on the workflow page inspects another)",
                     &definition.revision,
                 )];
                 for input in &definition.dispatch_inputs {
@@ -993,7 +993,7 @@ impl ActionsPlan {
                     .clone();
                 if value(values, "revision") != definition.revision {
                     return Err(plain_error(
-                        "Choose and inspect the new workflow revision before dispatching it",
+                        "To run a different branch or tag, close this form, press V on the workflow page and inspect that revision first",
                     ));
                 }
                 let mut inputs = BTreeMap::new();
@@ -1354,13 +1354,15 @@ impl ActionsPlan {
                 ActionsOperation::CreateGroup { org, request }
             }
         };
-        let mut preview = vec![
-            command.label().into(),
-            workspace.context(),
-            format!("Settings scope: {:?}", workspace.scope),
-        ];
-        if let Some(target) = &target {
-            preview.push(format!("Exact affected target: {target:?}"));
+        let workflow_preview = workflow_preview_lines(command, &operation, &repo);
+        let mut preview = vec![command.label().into(), workspace.context()];
+        if let Some(lines) = &workflow_preview {
+            preview.extend(lines.iter().cloned());
+        } else {
+            preview.push(format!("Settings scope: {:?}", workspace.scope));
+            if let Some(target) = &target {
+                preview.push(format!("Exact affected target: {target:?}"));
+            }
         }
         if matches!(&operation, ActionsOperation::SetSecret { request, .. }
             if matches!(workspace.scope, ActionsScope::Organization { .. })
@@ -1412,7 +1414,7 @@ impl ActionsPlan {
             }
         }
         let fields = workspace.fields(command)?;
-        for (key, entered) in values {
+        for (key, entered) in values.iter().filter(|_| workflow_preview.is_none()) {
             if fields.iter().any(|field| field.key == *key && field.secret) {
                 preview.push(format!("{key}: [masked transient input; never stored]"));
             } else {
@@ -1553,7 +1555,11 @@ impl ActionsPlan {
                         *item = updated.clone();
                     }
                 }
-                format!("Workflow {} state confirmed: {}", updated.id, updated.state)
+                format!(
+                    "Workflow {} is now {} (GitHub confirmed)",
+                    updated.name,
+                    crate::actions_workspace::workflow_state_label(&updated.state)
+                )
             }
             ActionsOperation::Dispatch { definition, inputs } => {
                 let outcome = gh.dispatch_workflow(identity, &repo, definition, inputs, cancel)?;
@@ -1850,4 +1856,63 @@ fn policy_edit(
             days: id_input(values, "days")?,
         },
     })
+}
+
+/// Plain-language preview for workflow enable/disable/dispatch: names the
+/// workflow, file, branch/tag and every input value GitHub will receive.
+fn workflow_preview_lines(
+    command: ActionsCommand,
+    operation: &ActionsOperation,
+    repo: &str,
+) -> Option<Vec<String>> {
+    let sanitize = crate::providers::runner::sanitize_terminal;
+    match (command, operation) {
+        (_, ActionsOperation::WorkflowState { workflow, enabled }) => Some(vec![
+            format!(
+                "Workflow: {} ({}) in {repo}",
+                sanitize(&workflow.name),
+                sanitize(&workflow.path)
+            ),
+            format!(
+                "Effect: {}",
+                if *enabled {
+                    "GitHub starts running this workflow again on its triggers"
+                } else {
+                    "GitHub stops starting new runs of this workflow until it is enabled again; existing runs and history are kept"
+                }
+            ),
+        ]),
+        (ActionsCommand::DispatchWorkflow, ActionsOperation::Dispatch { definition, inputs }) => {
+            let mut lines = vec![
+                format!(
+                    "Workflow: {} ({}) in {repo}",
+                    sanitize(&definition.workflow.name),
+                    sanitize(&definition.workflow.path)
+                ),
+                format!(
+                    "Branch or tag: {} (commit {})",
+                    sanitize(&definition.revision),
+                    definition.commit_sha
+                ),
+                "Effect: GitHub starts one new workflow_dispatch run of this workflow".into(),
+            ];
+            if definition.dispatch_inputs.is_empty() {
+                lines.push("Inputs: none".into());
+            }
+            for input in &definition.dispatch_inputs {
+                lines.push(match inputs.get(&input.name) {
+                    Some(Value::String(text)) => {
+                        format!("Input {}: {}", input.name, sanitize(text))
+                    }
+                    Some(value) => format!("Input {}: {value}", input.name),
+                    None => format!(
+                        "Input {}: (not sent; GitHub uses the workflow default)",
+                        input.name
+                    ),
+                });
+            }
+            Some(lines)
+        }
+        _ => None,
+    }
 }

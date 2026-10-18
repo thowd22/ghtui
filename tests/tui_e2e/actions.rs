@@ -25,6 +25,8 @@ mod runs_focus_v1;
 mod secret_cli_preflight;
 #[path = "actions/settings.rs"]
 mod settings;
+#[path = "actions/workflow_usability_v1.rs"]
+mod workflow_usability_v1;
 
 fn fixture() -> Fixture {
     let fixture = Fixture::new();
@@ -945,7 +947,7 @@ fn workflow_controls(mouse: bool) {
         session.send_key(b"\x1b[Z\x1b[Z");
     }
     confirm(&mut session, mouse, 3);
-    session.wait_for_screen("Exact workflow run ID, event and selected commit confirmed");
+    session.wait_for_screen("Workflow run #200 started on main");
     journal(&mut session, &fixture, dispatch_count);
     let accepted =
         publication_support::durable_rows(&fixture.root.join("config/ghtui/cache.sqlite3"));
@@ -969,7 +971,7 @@ fn workflow_controls(mouse: bool) {
     }
     session.wait_for_screen("revision main");
     for (label, state, count) in [
-        ("Disable workflow", "disabled_manually", state_counts[0]),
+        ("Disable workflow", "disabled manually", state_counts[0]),
         ("Enable workflow", "active", state_counts[1]),
     ] {
         command(&mut session, mouse, label);
@@ -982,7 +984,7 @@ fn workflow_controls(mouse: bool) {
         choose(&mut session, mouse, "[Preview]", b"\x10");
         session.wait_for_screen("READ-ONLY PREVIEW");
         confirm(&mut session, mouse, 0);
-        session.wait_for_screen(&format!("Workflow 7 state confirmed: {state}"));
+        session.wait_for_screen(&format!("Workflow Build dispatch is now {state}"));
         journal(&mut session, &fixture, count);
     }
     choose(&mut session, mouse, "Runs", b"R");
