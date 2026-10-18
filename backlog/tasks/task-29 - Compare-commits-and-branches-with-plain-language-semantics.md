@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-13 03:48'
+updated_date: '2026-10-18 00:50'
 labels:
   - repository
   - e2e
@@ -78,4 +78,6 @@ Checked compare_commits runner now passed9 code/controller/Git/Form tests and2 a
 Implemented dedicated read-only ComparisonPlan/CompareIntent, exact typed ref/commit picker, Snapshot versus Proposed questions, endpoint swaps and native preview/open without Git write confirmation. Checked CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 node scripts/test-task.mjs compare_commits passed9 code tests (Form1/controller6/Git2) +2 real keyboard/mouse PTY, zero ignored. Artifact /tmp/ghtui-test-coverage-uo3112; log target/build/compare-commits-checked.log. Independent Git fixtures verify directional snapshot patches, merge-base-to-target proposed patches, canonical base/head anchors, ahead/behind, root/no-change, stale typed refs, unrelated roots, shallow available-history notices/no implicit fetch, and multiple best bases with exact chosen diff base. Native paths verify exactA/B choices, Preview/cancel/draft restore, Snapshot content,80x24 swap and distinct Proposed content/file count while HEAD/index/refs/dirty/untracked bytes and GH journal remain unchanged. All-target cargo check passed; current strict clippy needs4 newly added Git-contract clone-to-slice assertions fixed by owner. Whole-project final regression/platform and native multibase/shallow edge journeys remain open; not Done.
 
 Fresh full Linux checkpoint passed: CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test --offline --locked --all-targets: 288 meaningful code/provider contracts (including 90 strict provider contracts) and 114 actual compiled-binary PTY journeys, zero failures/ignored. cargo fmt --check passed; cargo clippy --offline --locked --all-targets -- -D warnings passed (8.07s). Logs target/build/root-all-targets-checkpoint.log, root-fmt-checkpoint.log, root-clippy-checkpoint.log. Node task-runner negative self-tests passed3/3; dependency integrity audit passed86 upstream roots/10300 files/108 manifest patches/117 registry packages; Backlog doctor clean72tasks. This includes new comparison2, remote-search2, raw-ref identity2, explicit-repo local/unborn2, Actions recovery2 and artifact2 PTY;18 native Actions journeys total. README reflects this actual green evidence only. Native macOS/live disposable-host/release and remaining product acceptance stay open; full product not Done.
+
+2026-10-18 a12: Compare form labels A/B as from/to (branch, tag or commit) and explains snapshot vs proposed. Existing comparison PTY + comparison_contracts pass.
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-14 23:05'
+updated_date: '2026-10-18 00:50'
 labels:
   - repository
   - e2e
@@ -170,4 +170,6 @@ Root V3 exact24-file admission completed via apply_patch in four bounded complet
 Root independent V3 Main checkedRelated terminalGREEN20code/32realPTY0failed/ignored2.31s completed keyboard/mouse journal JVGo80. Followup agentfull1814code/598PTYgreen85.89s does NOT resolve prior3 native negatives: actualNavigation captured3072-byte partial repaint after lastcompleteSearch; Tree completedcollapse then freshcrumbexpanded, causeunproven; Checks seconddisabledWatch explanation absent afterrealpage6, inputcauseunproven. Source+artifacts retained. Main nowcoherentlycomposing reviewedB37 and Graphhelper3; Root actualnewgenuine Related/Diff mixedproducer code contract and reciprocal completedintent cases added, finalcombined focused/whole/fmt/strict required. Task34 freshavatar agent on immutableactualGitTREE2197df7e... exactRelated24/support plusunchangedvendor; Task73 agent isolateddde, Tree agent nativeC sameBowner/result. All4slotsactive/noTaskDone/fullproduct/Macclaim.
 
 Root independent combinedMain Related+Diff+Graph wholeterminalGREEN1865code/provider+610realPTY0failed/ignored82.32s; fmt0 strictClippy0, actualfrozenSource704bytechecks exact. CheckedRelated21/32 SqSvp0 includes newrealcrossproducer mixedfacet rejection, originalSaved38/36 andexactBackposition preserved. MainREADME records truecounts and explicitRelatedfreshimage gap. FullLinuxgreen is notfullTask32/dependency/Mac/PRmutation/supportcompletion; olderisolated3negative artifacts retained for actualcompletedinputaudit, no rerun-as-resolution. Preparing explicitfirstparty commit; remote remainsabsent.
+
+2026-10-18 a12: file history rows show author/date and modified/added/renamed words. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass; existing file_history PTY tests pass.
 <!-- SECTION:NOTES:END -->

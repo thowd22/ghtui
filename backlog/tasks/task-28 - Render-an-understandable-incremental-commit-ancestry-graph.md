@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-14 22:53'
+updated_date: '2026-10-18 00:50'
 labels:
   - repository
   - e2e
@@ -152,4 +152,6 @@ Latest coherent main whole checkpoint remains negative but genuine progress:1727
 Root-approved compact native selector implemented only graph_compact_v2.rs plus newprivate graph_compact_selection_v1 helper and codecontracts. Actual failed full111s transcript replay via real vt100 completedcursorless markers proved frame609 exactHome09999, frame648 target09800 visible but inversecursor offscreen (PageDown viewport only), then332 genuine alternating parent/commit Down actions through inverse09833 at unchanged8s; no old-frame/direction/Back-source bug observed. New strict source/page/subject planner preserves398 realDown actions as25 batches <=16, rejecting ambiguous/noncommit/wrongdirection/outsideoriginal200/mismatchedfullSHA; every nextbatch waits a strictlyNEW completed frame with exact predictedsubject actuallyinverted. Same final independently resolved full targetSHA/Enter/readcompletion, mousepath/all10000/all50pages/8s/Git/SQL/GH/config/TTY oracles unchanged. Actual checked node scripts/test-task.mjs commit_graph_v2 GREEN23code(18existinggenuineGraph+5newplanner)/6realPTY0failed/ignored20.31s; independent k8xAAd journeys6 exactrecords all exited/cleanup/notpanicking,3keyboard+3mouse. Current strengthened pure5code final0, fmt0 and strictalltargetClippy0; fresh1846code/576PTY wholegate live, not countedgreen. Shared support/mod.rs and generic file_history unchanged; Tree frozenhelper fullyread but not needed/consumed in this lane. No product/performance/Mac/TaskDone/dependency/AC claim.
 
 Frozen Graph compact selector threefile handoff: target/build/provider-parallel-graph-compact-selection-v1-20261014.patch SHAddfbaf236e2eebc28ab33e169d4799aa02206d550ad28138650a1a49a42b0e62; JSON1867cc36015a91afec4005d5455f350a5b375c2d8c7e15b5e137f410f9a6f0c9; actualMainapplycheck0. Exact baselineGraph a7268b9f to48797606, newhelper909edef1/newcontract01d2cd94. Whole terminal101 addendum nowseparate immutable provider-parallel-graph-compact-selection-v1-whole-addendum-20261014.json:1846codeALLPASS1298lib+295strictGH+253other incl5newplanner,576PTY575pass1fail0ignored84.07s. ALL6Graphcompact journeys passed in focusedandwhole. Sole older-copy legacy nestedBlame102 Down selector failure, actual145 completed body, artifact target/parallel-github-c1.fPIo9a/target/tui-artifacts/835907-1792018233096236627; Tree completeBackhelper3 not consumed inthiscopy and separatelyParentadmitted, no sharedsourceedit/compensatingseek/timeout/retry/causalclaim. Originalmanifestpending remainsfrozen unchanged; addendumactualfullnegative notcurrentMaingreen. NoDone/AC/dependency/nativeMac/benchmark claim.
+
+2026-10-18 a12: graph shows one row per linear commit (connector rows only for merges/forks/outside-walk parents), short ref names, single actor name + UTC date, 2 heading rows; Details readable times. Gate: node scripts/test-task.mjs v1_repo_views -> 6 code + 2 PTY pass (keyboard+mouse).
 <!-- SECTION:NOTES:END -->

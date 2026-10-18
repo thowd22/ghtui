@@ -4,7 +4,7 @@ title: Build polished native split and unified diff exploration
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 11:42'
+updated_date: '2026-10-18 00:50'
 labels:
   - repository
   - e2e
@@ -296,4 +296,6 @@ Root implemented two genuine source/controller contracts (48external code total 
 Root actual bounded V6 session52587 terminal1, freeze879 SHA1f414f92fefb65dc83ed32bfc798af0f20015567196506fa93f48d67c43eff78: external48codePASS0failed/ignored14.58s;10actualPTY8PASS2FAIL0ignored24.79s. Genuine Working/Staged/All-edits structural and saved resize/Return paths now PASS; remaining paired held-renderer40x24 failures reveal actual canceled-preparation status hidden below static explanatory prose. Keep strict observed cancellation/no-replay/PID/temp/TTY/effect requirements, preserve failed manifests/screens. Next promote current status before source/explanatory text, extend genuine original pending-resize code contract with40x24 TestBackend visible status/source/controls and no-Git draw, and use existing owned-box extraction +whitespace normalization for actual completed-frame wrapped cancellation sentence. Do not relax source lifecycle/control/PID assertions. Re-freeze/rerun48code10PTY then impacted gates; no full/Done claim.
 
 Root V7 actual session39844 terminal0 on exact879source freeze14b322c25f9c88f5351371c9d2307485b2be84ea0e2a89866ebcb365ef0c8188. Checked native_external_diff48code/10PTY GREEN; native_inline_comments14/10 GREEN; impacted scoped_pr_native_diff27/20, native_full_side34/4, inline_comments73/18 GREEN. Counts overlap by task filters; do not sum as unique additions. All0failed/ignored and independent actual keyboard+mouse/exited/cleanup_completed evidence, fmtcheck/dependency/backlog/diff0. Direct genuine SHA1/SHA2566mode regression1PASS5.70s records actual original-pool Working94/Staged102/Uncommitted96 children (each format), exacttraceequality and no Git/index/worktree/config effects. Narrow canceledstatus promoted above statichelp; strict owned completed-box whitespace normalization handles real wraps without relaxing cancellation sentence/no-replay/identity/temp/TTY oracles. NewNativecohort62code20PTY (14+48) nowfocusedGREEN. Manifest target/build/root-native-combined-v7-checked-20261015.json; memoryPeak2758828032bytes, peakTasks63,0OOM/limit events. Full unfiltered/strict stagedcommentconsumer/cold/MSRV/nativeMac/real-tool gates still required; no TaskDone/AC.
+
+2026-10-18 a12: commit/branch/working/compare diffs use plain file headings (path, Added:, Deleted:, Renamed: a -> b) and hide raw index/rename/mode lines; native patch view unchanged. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass.
 <!-- SECTION:NOTES:END -->
