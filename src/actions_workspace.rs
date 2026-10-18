@@ -1228,12 +1228,18 @@ impl ActionsWorkspace {
                     .iter()
                     .map(|item| ActionsRow {
                         label: format!(
-                            "{} run {} attempt {} • {} • {} / {} • {} • {}",
+                            "{} run {} attempt {} • {} • {}{}{} • {} • {}",
                             item.repository,
                             item.run.id,
                             item.run.attempt,
                             item.run.name,
                             item.run.status,
+                            // Unfinished runs have no conclusion yet.
+                            if item.run.conclusion.is_empty() {
+                                ""
+                            } else {
+                                " / "
+                            },
                             item.run.conclusion,
                             item.run.head_branch,
                             item.run.head_sha
