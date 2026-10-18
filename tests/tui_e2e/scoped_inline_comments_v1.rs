@@ -3,6 +3,8 @@
 use super::*;
 #[path = "form_preview_visible_inline_v1.rs"]
 mod form_preview_visible_v1;
+#[path = "pr_line_comment_v19.rs"]
+mod line_comment_v19;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};
 pub(super) const BODY: &str = "Native exact inline body 界\nsecond line";
 pub(super) fn source_phase(h: &history::GitImagesV1, two_parents: bool) -> Vec<GhStep> {
@@ -443,13 +445,11 @@ fn refusal_journey(mouse: bool) {
     );
     let journal = git_commands(&fixture);
     let sql_before = sql_state(&fixture);
+    // P verifies the current LEFT 1–1 selection itself, then refuses it.
     choose(&mut session, mouse, "[P Comment]", b"P");
     ready(
         &mut session,
-        &[
-            "Choose R Range on the original image first",
-            "old-no-newline",
-        ],
+        &["LEFT endpoint must be deleted", "old-no-newline"],
     );
     assert_eq!(commands(&session, &fixture).len(), 58);
     session.resize_owned_modal(

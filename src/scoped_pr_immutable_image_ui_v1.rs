@@ -233,6 +233,34 @@ impl PrImageViewerV1 {
             self.anchor.max(self.cursor),
         )
     }
+    /// Diff "Comment line": show the chosen side, select that one line and
+    /// verify it through the same canonical Range check as `R`.
+    pub(crate) fn focus_line_v19(&mut self, side: PrImageSideV1, line: u32) -> bool {
+        if line == 0 || line as usize > self.lines(side).len() {
+            return false;
+        }
+        self.visible = if side == PrImageSideV1::Old {
+            ImageVisibleSideV1::Old
+        } else {
+            ImageVisibleSideV1::New
+        };
+        self.point(side, line, false);
+        self.scroll = (line as usize - 1).saturating_sub(5);
+        self.clear_layout();
+        self.apply(PrImageUiActionV1::Range);
+        if self.range.is_some() {
+            self.notice = format!(
+                "P Comment on {} line {line} • Shift+↑/↓ or drag extends the range • {}",
+                if side == PrImageSideV1::Old {
+                    "LEFT"
+                } else {
+                    "RIGHT"
+                },
+                self.notice
+            );
+        }
+        true
+    }
     pub fn clear_layout(&mut self) {
         self.hits.clear();
         self.geometry = None;
@@ -285,6 +313,11 @@ impl PrImageViewerV1 {
         let before_scroll = self.scroll;
         let layout_changes = matches!(action, Old | New | Both | Layout | Context | Scroll(_));
         match action {
+            // An unverified selection is checked first, so P alone comments.
+            Comment if self.range.is_none() => {
+                self.apply(Range);
+                return self.range.is_some().then_some(Comment);
+            }
             Close | Back | Quit | Comment | NativeDiff | Batch => return Some(action),
             Old | New | Both => {
                 self.visible = match action {

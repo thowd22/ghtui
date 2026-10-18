@@ -18,7 +18,9 @@ impl Default for PrResourceReadLimitsV1 {
         Self {
             max_pages_per_source: 2,
             max_rows_per_source: 3000,
-            max_document_bytes: 128 * 1024,
+            // One 100-file page carries per-file patches; ordinary PRs exceed
+            // 128 KiB, which previously left the canonical file list unloaded.
+            max_document_bytes: 1024 * 1024,
             max_patch_bytes: 1024 * 1024,
             max_pool_bytes: 8 * 1024 * 1024,
         }

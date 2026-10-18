@@ -5,7 +5,7 @@ use crate::app::{Action, App};
 use crate::github_workspace::GithubAction;
 
 impl PrResourceUiActionV1 {
-    pub const CONTROLS: [(Self, &'static str, char); 7] = [
+    pub const CONTROLS: [(Self, &'static str, char); 8] = [
         (Self::NativeDiff, "Native diff", 'v'),
         (Self::Threads, "Threads", 'T'),
         (Self::NextFile, "Next file", 'N'),
@@ -13,6 +13,7 @@ impl PrResourceUiActionV1 {
         (Self::Layout, "Layout", 'L'),
         (Self::PatchContext, "Patch context", 'X'),
         (Self::OldImage, "Old image", 'O'),
+        (Self::CommentLine, "Comment line", 'i'),
     ];
     pub fn from_key(key: char) -> Option<Self> {
         Self::CONTROLS
@@ -236,7 +237,9 @@ pub(crate) fn prepare_loaded_view_v13(
         PrResourceUiActionV1::NextFile | PrResourceUiActionV1::NextHunk
     );
     match action {
-        PrResourceUiActionV1::NativeDiff | PrResourceUiActionV1::Threads => {
+        PrResourceUiActionV1::NativeDiff
+        | PrResourceUiActionV1::Threads
+        | PrResourceUiActionV1::CommentLine => {
             return Err(ObservedPrTabFailureV1::SelectedPageUnavailable)
         }
         PrResourceUiActionV1::NextFile | PrResourceUiActionV1::NextHunk => {

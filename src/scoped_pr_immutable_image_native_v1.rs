@@ -52,6 +52,14 @@ pub fn action(app: &mut App, action: ui::PrImageUiActionV1) {
         return;
     }
     if action == ui::PrImageUiActionV1::Comment {
+        // An unverified selection is range-checked first; a refusal explains.
+        if app
+            .pr_file_images
+            .as_mut()
+            .is_some_and(|view| view.apply(action).is_none())
+        {
+            return;
+        }
         super::inline_v1::native_v1::open(app);
         return;
     }
@@ -124,6 +132,7 @@ pub fn install(
     let (viewer, limited) = install_images(app, result)?;
     if !limited && app.view == View::Inbox && app.overlay.is_none() {
         app.pr_file_images = viewer;
+        super::line_comment_v19::apply_pending(app);
         app.overlay = Some(Overlay::PrFileImages);
         app.hits.clear();
     }

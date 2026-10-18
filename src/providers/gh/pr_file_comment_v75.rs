@@ -425,6 +425,8 @@ impl GithubProvider {
         }
         let issuer = bounded_issuer(self)?;
         let repository = bounded_repository(current.repository())?;
+        // Parent documents stay small; the file list page carries patches.
+        let files_limits = limits;
         let mut limits = limits.clone();
         limits.max_document_bytes = limits.max_document_bytes.min(FILE_COMMENT_DOCUMENT_CAP_V75);
         let endpoint = format!(
@@ -443,7 +445,7 @@ impl GithubProvider {
         }
         after_opening(&opening)?;
         phase(cancel, deadline)?;
-        let (files, coverage) = collect_files(self, &opening, &limits, cancel)?;
+        let (files, coverage) = collect_files(self, &opening, files_limits, cancel)?;
         if !coverage.complete_observed() {
             return Err(safe(GithubErrorKind::Unsupported));
         }
