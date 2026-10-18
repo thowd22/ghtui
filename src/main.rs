@@ -692,6 +692,8 @@ fn run() -> Result<()> {
                             &intent.selections,
                             cancel.clone(),
                         )?);
+                        // A ready preview retires an earlier "preview first" refusal.
+                        form.error.clear();
                     }
                     ghtui::forms::FormPurpose::Actions(intent) => {
                         let provider = GithubProvider::new(intent.workspace.identity.host.clone())
@@ -1144,8 +1146,9 @@ fn run() -> Result<()> {
                         }
                     } else { plan.execute(true, cancel)? };
                     let status = format!(
-                        "Completed • {}{}",
+                        "Completed • {}{}{}",
                         intent.command.label(),
+                        ghtui::local_actions::completion_target(intent.command, &intent.context),
                         if outcome.output.is_empty() {
                             String::new()
                         } else {
@@ -1325,13 +1328,14 @@ fn run() -> Result<()> {
             }
         }
         if let Some(command) = app.local_command.take() {
+            let quick_preview = std::mem::take(&mut app.local_command_preview);
             if let Some(context) = app.local_context() {
                 let database = paths.database.clone();
                 let original_stash_source_v1 = app
                     .workspace
                     .as_ref()
                     .and_then(|workspace| workspace.actor_origin.clone());
-                background.submit(&mut app, ghtui::app::View::Repository, move |_cancel| {
+                background.submit(&mut app, ghtui::app::View::Repository, move |cancel| {
                     let mut form = ghtui::forms::Form::local(command, context)?;
                     if let Some(draft) = ghtui::storage::Cache::open(&database)
                         .map_err(|error| error.to_string())?
@@ -1343,10 +1347,25 @@ fn run() -> Result<()> {
                     if let ghtui::forms::FormPurpose::Local(intent) = &mut form.purpose {
                         intent.original_stash_source_v1 = original_stash_source_v1;
                     }
+                    if quick_preview {
+                        ghtui::local_actions::preview_form(&mut form, cancel)?;
+                    }
                     Ok(PreparedView {
                         lines: vec![],
                         context: None,
-                        status: "Local intent ready • Preview first; nothing changed".into(),
+                        status: if quick_preview {
+                            "Preview ready • Ctrl-S confirm • Esc keep and close; nothing changed yet"
+                                .into()
+                        } else if matches!(
+                            command,
+                            ghtui::local_actions::LocalCommand::Commit
+                                | ghtui::local_actions::LocalCommand::Amend
+                        ) {
+                            "Write the message • Ctrl-P previews the staged changes • then Ctrl-S commits"
+                                .into()
+                        } else {
+                            "Local intent ready • Preview first; nothing changed".into()
+                        },
                         workspace: None,
                         github: None,
                         form: Some(form),

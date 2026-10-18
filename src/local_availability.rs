@@ -103,6 +103,12 @@ impl<'a> LocalAvailability<'a> {
             CreatePullRequest if self.status.detached || self.status.branch.is_none() => Some(
                 "Switch to a named local branch first; a pull request needs a head branch.".into(),
             ),
+            Commit
+                if self.status.operation.is_none()
+                    && !self.status.entries.iter().any(|entry| entry.staged()) =>
+            {
+                Some("Nothing is staged yet • + Stage a file, hunk or line first (r Refresh if staged outside ghtui).".into())
+            }
             Continue | Skip | Abort if self.status.operation.is_none() => {
                 Some("There is no paused Git operation.".into())
             }

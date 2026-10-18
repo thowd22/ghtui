@@ -115,6 +115,121 @@ impl LocalCommand {
     }
 }
 
+/// Direct staging/commit shortcuts. They open the same Local intent as the
+/// menu, but staging arrives with its read-only preview already prepared, so
+/// one confirmation (Ctrl-S or [Confirm action]) remains the only write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuickLocal {
+    Stage,
+    Unstage,
+    Commit,
+}
+impl QuickLocal {
+    pub const CONTROLS: [(Self, &'static str, char); 3] = [
+        (Self::Stage, "[+ Stage]", '+'),
+        (Self::Unstage, "[- Unstage]", '-'),
+        (Self::Commit, "[K Commit]", 'K'),
+    ];
+    /// Chooses the exact command for the current row or explicit line/hunk
+    /// selection. Nothing is guessed from labels.
+    pub fn command(
+        self,
+        row: Option<&RowAction>,
+        line_selection: bool,
+    ) -> Result<LocalCommand, &'static str> {
+        let stage = match self {
+            Self::Commit => return Ok(LocalCommand::Commit),
+            Self::Stage => true,
+            Self::Unstage => false,
+        };
+        if line_selection {
+            return Ok(if stage {
+                LocalCommand::StageSelection
+            } else {
+                LocalCommand::UnstageSelection
+            });
+        }
+        match row {
+            Some(RowAction::WorkingFile(_) | RowAction::Conflict(_) | RowAction::File(_)) => {
+                Ok(if stage {
+                    LocalCommand::StageFile
+                } else {
+                    LocalCommand::UnstageFile
+                })
+            }
+            _ => Err("Select a changed file, diff line or hunk first • + Stage • - Unstage"),
+        }
+    }
+    /// Staging previews have no fields, so they are prepared immediately.
+    pub fn previews_immediately(command: LocalCommand) -> bool {
+        matches!(
+            command,
+            LocalCommand::StageFile
+                | LocalCommand::UnstageFile
+                | LocalCommand::StageSelection
+                | LocalCommand::UnstageSelection
+        )
+    }
+}
+
+/// Prepares the read-only plan for a fieldless Local form so its preview is
+/// visible at once. Confirmation still re-checks state before writing.
+pub fn preview_form(
+    form: &mut crate::forms::Form,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let values = form.values();
+    let crate::forms::FormPurpose::Local(intent) = &mut form.purpose else {
+        return Err("Only Local intents have a staging preview".into());
+    };
+    intent.plan = Some(LocalPlan::prepare_selected(
+        intent.command,
+        &intent.context,
+        &values,
+        &intent.selections,
+        cancellation,
+    )?);
+    form.preview = true;
+    form.preview_scroll = 0;
+    form.error.clear();
+    Ok(())
+}
+
+/// Names what a completed staging operation touched, for the status line.
+pub fn completion_target(command: LocalCommand, context: &LocalContext) -> String {
+    let path = context
+        .selected_path
+        .as_ref()
+        .map(|path| path.display().to_string());
+    match (command, path) {
+        (
+            LocalCommand::StageFile | LocalCommand::UnstageFile | LocalCommand::DiscardFile,
+            Some(path),
+        ) => format!(" • {path}"),
+        (LocalCommand::StageSelection | LocalCommand::UnstageSelection, Some(path)) => {
+            let lines = context.selected_lines.len();
+            format!(
+                " • {lines} line{} in {path}",
+                if lines == 1 { "" } else { "s" }
+            )
+        }
+        _ => String::new(),
+    }
+}
+
+/// Staging keeps the user in the diff they were working through.
+pub fn refreshed_mode(command: LocalCommand, context: &LocalContext) -> RepositoryMode {
+    if !QuickLocal::previews_immediately(command) {
+        return RepositoryMode::Overview;
+    }
+    match context.comparison.as_ref().map(|result| &result.comparison) {
+        Some(Comparison::Working) => RepositoryMode::Working,
+        Some(Comparison::Staged) => RepositoryMode::Staged,
+        Some(Comparison::Uncommitted) => RepositoryMode::Uncommitted,
+        _ => RepositoryMode::Overview,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LocalContext {
     pub directory: PathBuf,
@@ -832,8 +947,15 @@ impl LocalPlan {
                 match crate::workspace::read_working_file(&repo.root, path, 2 * 1024 * 1024) {
                     Ok(content) if content.contains(&0) || std::str::from_utf8(&content).is_err() => preview.push(format!("Binary new file: {} bytes; complete file will be staged", content.len())),
                     Ok(content) => {
-                        preview.extend(content.split(|byte| *byte == b'\n').take(120).enumerate().map(|(index, line)| format!("{:>5} {}", index + 1, crate::git::display_bytes(line))));
-                        if content.split(|byte| *byte == b'\n').count() > 120 { preview.push("Content preview stops after 120 lines; the complete file is staged.".into()); }
+                        // A final newline ends the last line; it is not an extra empty line.
+                        let body = content.strip_suffix(b"\n").unwrap_or(&content);
+                        if content.is_empty() {
+                            preview.push("Empty new file: 0 bytes".into());
+                        } else {
+                            preview.extend(body.split(|byte| *byte == b'\n').take(120).enumerate().map(|(index, line)| format!("{:>5} {}", index + 1, crate::git::display_bytes(line))));
+                            if body.split(|byte| *byte == b'\n').count() > 120 { preview.push("Content preview stops after 120 lines; the complete file is staged.".into()); }
+                            if body.len() == content.len() { preview.push("\\ No newline at end of file".into()); }
+                        }
                     }
                     Err(error) if error == "Search file viewer limit is 2 MiB; file was not read" => preview.push(format!("Large new file: {} bytes. Content exceeds the 2 MiB viewer limit; complete file will be staged only after confirmation.", metadata.len())),
                     Err(error) => return Err(error),
@@ -935,7 +1057,7 @@ impl LocalPlan {
         })?;
         let mut workspace = Workspace::load_with_cancellation(
             &self.context.directory,
-            RepositoryMode::Overview,
+            refreshed_mode(self.command, &self.context),
             "HEAD",
             None,
             cancellation,

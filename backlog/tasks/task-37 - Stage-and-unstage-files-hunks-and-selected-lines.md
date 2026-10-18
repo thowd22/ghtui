@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-15 03:50'
+updated_date: '2026-10-18 00:26'
 labels:
   - localgit
   - e2e
@@ -101,4 +101,6 @@ Final coherent full Linux checkpoint passed956code/provider+294actualPTY0failed/
 Root integrated inline/normal/readonly candidate Stage regression actualGREEN21meaningfulcode+6realPTY0failed/ignored,25.66s code/8.01s native; checked native_mutable_plan log target/build/root-stage-inline-combined-regression-first.log, journal6RnVWo SHA63f074fe2c0ceb5a230388fdd84080163eb53807df433836fb91430f3fab47b3. Actual10positive/10cleanup7key5mouse records. Full candidate source70 unchanged before selection10 admission. New current Main all-target/strict after selection admission stillpending; noTask37/nativeMac completion.
 
 2026-10-15 Root verified combined Main checkpoint: cargo test --offline --locked --all-targets terminal0 with2141code/provider (318strictGH)+690realbinaryPTY0failed/ignored, native98.71s; cargo fmt--all--check0, cargo clippy --offline --locked --all-targets -- -D warnings0(58.59s). Frozen76-path root-inline-normal-readonly-selection-freeze-v1-20261015.json source hashes held unchanged across gates; subsequent README-only documentation updates actual counts. Checked inline59/8, selectedplan21/6, readonly23/6, normal8/2, stash15/12, completedframe19/8, corrective18/8 and18continuationPTY all independently passed. Full/quality/focused exact logs and SHA are recorded in root-inline-normal-readonly-selection-final-gates-v1-20261015.json. Dependency audit86roots/10300files/108adaptations/117registry0, current backlog78valid0 after CLI correction. Cache-journal candidate and full-side WIP are NOT admitted. Earlier Main8negative and isolated candidate negatives remain explicit; TASK78 owns controlled generic focus/scroll/overlay diagnosis. This verified Linux feature checkpoint is not full task/dependency/native-macOS/release completion.
+
+2026-10-18 a11: direct + Stage / - Unstage keys and controls (hunk under cursor, selected line/range, or file) open with the read-only preview ready, Ctrl-S confirms; staging reloads the same Working/Staged diff, cursor clamped (fixed index panic), completion names target, new-file preview drops phantom last line. Gate: node scripts/test-task.mjs v1_local_staging -> 4 code + 2 PTY (keyboard+mouse) pass; related tui_e2e staging/local_/untracked/identity/workflow_edit_v9 236 pass.
 <!-- SECTION:NOTES:END -->

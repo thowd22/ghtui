@@ -1861,6 +1861,12 @@ impl Background {
                                 app.scroll = app.selected + 1 - visible;
                             }
                         }
+                        if app.view == View::Repository {
+                            // Keep the cursor inside a refreshed (often shorter) diff.
+                            let rows = workspace.display_rows_v1().len();
+                            app.selected = app.selected.min(rows.saturating_sub(1));
+                            app.scroll = app.scroll.min(app.selected);
+                        }
                         let _ = app.local_commit_actors.install(&workspace);
                         app.local_actor_layout.clear();
                         app.workspace = Some(workspace);

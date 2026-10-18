@@ -157,7 +157,7 @@ fn topics(view: View) -> &'static [(HelpLineKind, &'static str)] {
             (G, "Compare saved versions compares the complete snapshots at A and B. Changes proposed by this branch compares the common starting point with B."),
             (L, "Proposed comparison is directional: swapping A and B changes its meaning. A commit-list range is not the same thing as a snapshot diff."),
             (G, "A saved tree/file is read without checkout. History follows a file's versions; Blame identifies the saved version responsible for a line."),
-            (S, "Current repository controls: C Compare; H History; Y Blame; u File back; m Local operations. Their availability depends on the selected exact source."),
+            (S, "Current repository controls: C Compare; H History; Y Blame; u File back; m Local operations; + Stage and - Unstage the selected file, lines or the hunk under the cursor (preview shown, Ctrl-S confirms); K Commit. Their availability depends on the selected exact source."),
             (G, "Local operations show an explicit target/effect. Staging changes the index; commits/branches/remotes/sequencers have their own confirmations and recovery."),
             (L, "Shallow history, missing objects, rewritten ancestry, binary files and LFS pointers have visible limitations. They are not fabricated text or missing commits equal to zero."),
             (G, "Author wrote the change; committer recorded it. Preserve both roles and exact paths, including renamed or non-UTF8 names."),
