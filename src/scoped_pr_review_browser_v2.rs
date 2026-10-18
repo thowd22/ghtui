@@ -776,9 +776,8 @@ pub fn draw(
         .paint(frame, Rect::new(inner.x, inner.y, 4, 1), avatars, theme);
     frame.render_widget(
         Paragraph::new(format!(
-            "{} • requester UID {:?} • {} reviews • coverage {}",
+            "{} (you) • {} reviews • coverage {}",
             view.requester_v7.label(),
-            view.draft.identity().account_id,
             view.rows.len(),
             if view.draft.catalogue().complete() {
                 "complete"

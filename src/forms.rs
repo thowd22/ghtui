@@ -66,6 +66,62 @@ pub struct PrIntent {
     pub target: PrSummary,
     pub identity: HostIdentity,
 }
+impl PrFormKind {
+    pub fn is_review(self) -> bool {
+        matches!(
+            self,
+            Self::Approve | Self::RequestChanges | Self::ReviewComment
+        )
+    }
+    /// Loaded-state refusal for review decisions; publication re-checks.
+    pub fn review_disabled_reason(self, target: &PrSummary, viewer: &str) -> Option<String> {
+        if !self.is_review() {
+            return None;
+        }
+        if matches!(self, Self::Approve | Self::RequestChanges)
+            && !viewer.is_empty()
+            && target.pr.author.login.eq_ignore_ascii_case(viewer)
+        {
+            return Some("You cannot approve or request changes on your own PR.".into());
+        }
+        if target.merged || target.pr.state != "open" {
+            return Some("Reviews can only be submitted on an open PR.".into());
+        }
+        None
+    }
+}
+impl PrIntent {
+    /// One plain sentence naming the exact review effect, shown in the form.
+    pub fn review_effect(&self) -> Option<String> {
+        let what = match self.kind {
+            PrFormKind::Approve => "Approve",
+            PrFormKind::RequestChanges => "Request changes on",
+            PrFormKind::ReviewComment => "Comment on",
+            _ => return None,
+        };
+        let author = &self.target.pr.author.login;
+        Some(format!(
+            "{what} {}#{}{} at head {} as @{} • summary {}",
+            self.target.pr.repository,
+            self.target.pr.number,
+            if author.is_empty() {
+                String::new()
+            } else {
+                format!(" by @{author}")
+            },
+            self.target
+                .head_sha
+                .get(..7)
+                .unwrap_or(&self.target.head_sha),
+            self.identity.login,
+            if self.kind == PrFormKind::Approve {
+                "optional"
+            } else {
+                "required"
+            }
+        ))
+    }
+}
 #[derive(Clone, Debug)]
 pub struct LocalIntent {
     pub original_stash_source_v1: Option<std::sync::Arc<crate::git::OriginalLocalActorOriginV1>>,
@@ -311,6 +367,7 @@ impl Form {
             PrFormKind::Title => ("Title", intent.target.pr.title.clone(), false),
             PrFormKind::Description => ("Description", intent.target.pr.body.clone(), true),
             PrFormKind::Base => ("Base branch", intent.target.base_ref.clone(), false),
+            kind if kind.is_review() => ("Review summary", String::new(), true),
             _ => ("Body", String::new(), true),
         };
         let title = format!(
@@ -3078,6 +3135,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         Rect::new(inner.x, y, inner.width, 1),
     );
     y += 1;
+    if let Some(effect) = match &form.purpose {
+        FormPurpose::Pr(intent) => intent.review_effect(),
+        _ => None,
+    } {
+        frame.render_widget(
+            Paragraph::new(effect).style(theme.style(SemanticToken::Normal)),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+        y += 1;
+    }
     if matches!(form.purpose, FormPurpose::PrInline(_)) {
         let area = Rect::new(inner.x, y, inner.width.min(26), 1);
         frame.render_widget(

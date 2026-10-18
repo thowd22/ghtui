@@ -18,6 +18,8 @@ mod pr_merge_v1;
 mod pr_metadata;
 #[path = "pr_progress.rs"]
 mod pr_progress;
+#[path = "pr_reviews_v1.rs"]
+mod pr_reviews_v1;
 
 fn configured() -> Fixture {
     let fixture = Fixture::new();

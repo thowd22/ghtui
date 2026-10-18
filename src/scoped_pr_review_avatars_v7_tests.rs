@@ -163,7 +163,7 @@ fn pending_reviews_v2_avatars_v7_actual_bot_deleted_unknown_labels_and_numeric_a
         let painted = text(&buffer);
         assert!(painted.contains(label));
         assert!(painted.contains("UID Some(43)"));
-        assert!(painted.contains("requester UID Some(42)"));
+        assert!(painted.contains("(you) • "));
         assert!(!buffer.content().iter().any(|cell| cell.symbol() == "▀"));
         assert_eq!(commands(&s.fixture).len(), calls);
         assert_eq!(sql_state(&s.fixture), sql_before);

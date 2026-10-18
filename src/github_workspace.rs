@@ -185,6 +185,44 @@ impl PrRow {
         self
     }
 }
+/// Latest decision per reviewer, in first-review order. A later plain
+/// comment does not replace an approval or change request (GitHub semantics).
+pub fn review_decisions(reviews: &[serde_json::Value]) -> String {
+    let mut latest: Vec<(String, &str)> = Vec::new();
+    for review in reviews {
+        let login = review["user"]["login"].as_str().unwrap_or("unknown");
+        let state = review["state"].as_str().unwrap_or("");
+        let word = match state {
+            "APPROVED" => "approved",
+            "CHANGES_REQUESTED" => "requested changes",
+            "COMMENTED" => "commented",
+            "DISMISSED" => "review dismissed",
+            "PENDING" => "pending review (not submitted)",
+            _ => continue,
+        };
+        match latest
+            .iter_mut()
+            .find(|(who, _)| who.eq_ignore_ascii_case(login))
+        {
+            Some(entry)
+                if matches!(state, "COMMENTED" | "PENDING")
+                    && matches!(
+                        entry.1,
+                        "approved" | "requested changes" | "review dismissed"
+                    ) => {}
+            Some(entry) => entry.1 = word,
+            None => latest.push((login.to_owned(), word)),
+        }
+    }
+    if latest.is_empty() {
+        return "Reviews: none yet".into();
+    }
+    let parts: Vec<String> = latest
+        .iter()
+        .map(|(who, word)| format!("@{who} {word}"))
+        .collect();
+    format!("Reviews: {}", parts.join(" • "))
+}
 impl PrPage {
     /// Checks rows are prepared one-to-one from this exact original vector.
     /// A display label or details URL is never parsed into a target identity.
@@ -233,6 +271,7 @@ impl PrPage {
                         self.details.reviews.len(),
                         self.details.commits.len()
                     )),
+                    PrRow::text(review_decisions(&self.details.reviews)),
                     PrRow::text(format!("Source: {}", summary.pr.url)),
                     PrRow::text(""),
                 ];
@@ -1484,3 +1523,80 @@ mod tests {
 #[cfg(test)]
 #[path = "github_exact_scope_tests.rs"]
 mod exact_scope_tests;
+
+#[cfg(test)]
+mod v1_pr_reviews_tests {
+    use super::review_decisions;
+    use crate::forms::{PrFormKind, PrIntent};
+    use crate::providers::gh::{HostIdentity, PrSummary};
+    use serde_json::json;
+
+    fn summary(author: &str, state: &str, merged: bool) -> PrSummary {
+        serde_json::from_value(json!({"pr":{"host":"github.invalid","id":"PR_7","repository":"example/repo","number":7,"title":"T","body":"","url":"https://github.invalid/example/repo/pull/7","author":{"login":author,"actor_type":"User"},"state":state,"draft":false,"created_at":"t0","updated_at":"t0","queues":[]},"head_sha":"a".repeat(40),"base_sha":"b".repeat(40),"head_ref":"feature","base_ref":"main","merged":merged,"auto_merge":false,"merge_commit_sha":null,"mergeable":true,"mergeable_state":"clean","additions":0,"deletions":0,"changed_files":0})).unwrap()
+    }
+    fn review(login: &str, state: &str) -> serde_json::Value {
+        json!({"user":{"login":login},"state":state})
+    }
+
+    #[test]
+    fn v1_pr_reviews_decisions_keep_latest_decision_per_reviewer() {
+        assert_eq!(review_decisions(&[]), "Reviews: none yet");
+        let reviews = [
+            review("hubot", "CHANGES_REQUESTED"),
+            review("octocat", "COMMENTED"),
+            review("hubot", "APPROVED"),
+            review("hubot", "COMMENTED"),
+            review("monalisa", "PENDING"),
+            review("octocat", "CHANGES_REQUESTED"),
+        ];
+        assert_eq!(
+            review_decisions(&reviews),
+            "Reviews: @hubot approved • @octocat requested changes • @monalisa pending review (not submitted)"
+        );
+    }
+
+    #[test]
+    fn v1_pr_reviews_disabled_reasons_and_effect_sentence() {
+        let other = summary("hubot", "open", false);
+        let own = summary("octocat", "open", false);
+        assert_eq!(
+            PrFormKind::Approve.review_disabled_reason(&other, "octocat"),
+            None
+        );
+        assert_eq!(
+            PrFormKind::RequestChanges.review_disabled_reason(&own, "OctoCat"),
+            Some("You cannot approve or request changes on your own PR.".into())
+        );
+        // A comment review on your own PR is allowed.
+        assert_eq!(
+            PrFormKind::ReviewComment.review_disabled_reason(&own, "octocat"),
+            None
+        );
+        assert!(PrFormKind::ReviewComment
+            .review_disabled_reason(&summary("hubot", "closed", true), "octocat")
+            .is_some());
+        assert_eq!(
+            PrFormKind::Title.review_disabled_reason(&own, "octocat"),
+            None
+        );
+        let intent = |kind| PrIntent {
+            kind,
+            target: other.clone(),
+            identity: HostIdentity {
+                host: "github.invalid".into(),
+                login: "octocat".into(),
+                account_id: Some(42),
+                gh_version: "2.101.0".into(),
+            },
+        };
+        assert_eq!(
+            intent(PrFormKind::Approve).review_effect().unwrap(),
+            "Approve example/repo#7 by @hubot at head aaaaaaa as @octocat • summary optional"
+        );
+        assert!(intent(PrFormKind::RequestChanges)
+            .review_effect()
+            .unwrap()
+            .starts_with("Request changes on example/repo#7 by @hubot"));
+        assert!(intent(PrFormKind::Title).review_effect().is_none());
+    }
+}
