@@ -665,3 +665,47 @@ fn navigation_catalogue_oversized_private_publication_diagnostic_is_not_repeated
         .starts_with("PRIVATE_PENDING_DIAGNOSTIC_CANARY"));
     assert!(app.pr_action.is_none() && app.form.is_none());
 }
+
+#[test]
+fn v1_navigation_catalogue_offers_notifications_only_from_loaded_queues_with_key_hints() {
+    let unloaded = PreparedCatalogue::prepare(&App::default(), 1).unwrap();
+    assert!(matches!(
+        &entry(&unloaded, "inbox.notifications").action,
+        Action::Explain(reason) if reason.contains("Refresh the Inbox (r) first")
+    ));
+    let app = App {
+        github: Some(GithubWorkspace::empty(
+            identity(Some(42)),
+            vec!["octo/repo".into()],
+            Default::default(),
+        )),
+        ..Default::default()
+    };
+    let loaded = PreparedCatalogue::prepare(&app, 1).unwrap();
+    assert_eq!(
+        entry(&loaded, "inbox.notifications").action,
+        Action::NotificationsV63(crate::notifications_ui_v63::NotificationActionV63::Open)
+    );
+    assert_eq!(
+        entry(&loaded, "inbox.notifications").label,
+        "Open notifications inbox"
+    );
+    let hints = shortcut_hints(&app);
+    for (id, key) in [
+        ("global.open.inbox", "1"),
+        ("global.open.dashboard", "5"),
+        ("global.help", "?"),
+        ("global.refresh", "r"),
+        ("inbox.filter.3", "v"),
+        ("inbox.notifications", "F8"),
+    ] {
+        assert!(
+            hints.iter().any(|(hint, value)| hint == id && value == key),
+            "{id} {key}"
+        );
+    }
+    // Every hint targets an actual catalogue command identity.
+    assert!(hints
+        .iter()
+        .all(|(id, _)| loaded.entries.iter().any(|entry| &entry.id == id)));
+}

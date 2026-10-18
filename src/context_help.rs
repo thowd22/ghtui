@@ -137,6 +137,9 @@ fn topics(view: View) -> &'static [(HelpLineKind, &'static str)] {
     match view {
         View::Inbox => &[
             (H, "Personal queues and PRs"),
+            (S, "Inbox controls: Refresh loads your PRs. a All; c Created by me; m Assigned to me; v Needs my review; x Clear cache. Enter or click opens the selected PR; b Back returns to the queues."),
+            (S, "F8 Notifications opens unread GitHub notifications from the loaded queues (a include read, p participating, Enter details, f follow PR). F9 Review history; F10 Reviews."),
+            (G, "Commands lists every action for this view with its key. Unavailable ones stay listed below and explain what they need first."),
             (G, "Created by me, Assigned to me and Needs my review are separate queues. The same PR can appear in several; All deduplicates without erasing membership."),
             (G, "The current authenticated host defines the personal inbox. A local checkout is not automatically the whole PR scope; selected repositories and exclusions stay explicit."),
             (L, "Partial means only some matching PRs/pages were observed. Empty is not proof that unseen repositories or capped search results have no PRs."),

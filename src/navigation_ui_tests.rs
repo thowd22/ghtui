@@ -339,3 +339,96 @@ fn navigation_ui_emergency_quit_is_retained_for_both_new_overlays() {
         assert!(app.local_command.is_none() && app.pr_action.is_none());
     }
 }
+
+#[test]
+fn v1_navigation_help_wrap_keeps_words_whole_and_splits_only_overlong_words() {
+    let rows = help_wrap_v1("Enter or click opens the selected PR quickly", 16);
+    assert_eq!(
+        rows,
+        ["Enter or click", "opens the", "selected PR", "quickly"]
+    );
+    assert!(rows
+        .iter()
+        .all(|row| crate::editor::display_width(row) <= 16));
+    let long = help_wrap_v1("see abcdefghijklmnopqrstuvwxyz end", 10);
+    assert_eq!(long, ["see", "abcdefghij", "klmnopqrst", "uvwxyz end"]);
+    assert_eq!(help_wrap_v1("", 10), [""]);
+}
+
+#[test]
+fn v1_navigation_inbox_queue_summary_counts_and_empty_queue_points_to_populated_queue() {
+    use crate::github_workspace::{empty_queue_hint_v1, queue_summary_v1, InboxFilter};
+    assert_eq!(
+        queue_summary_v1("Needs my review", [3, 2, 2, 0]),
+        "Queue: Needs my review • All 3 · Created by me 2 · Assigned to me 2 · Needs my review 0"
+    );
+    assert_eq!(
+        empty_queue_hint_v1(InboxFilter::ReviewRequested, [3, 2, 2, 0]),
+        "No pull requests in this queue / scope. All has 3: press a or click All above."
+    );
+    assert_eq!(
+        empty_queue_hint_v1(InboxFilter::All, [0, 0, 0, 0]),
+        "No pull requests in this queue / scope. Press r to refresh."
+    );
+    assert_eq!(
+        empty_queue_hint_v1(InboxFilter::Assigned, [0, 0, 0, 0]),
+        "No pull requests in this queue / scope. Press r to refresh."
+    );
+}
+
+#[test]
+fn v1_navigation_inbox_f8_before_load_explains_refresh_instead_of_doing_nothing() {
+    let mut app = App::default();
+    assert_eq!(app.view, View::Inbox);
+    app.handle_event(Event::Key(KeyEvent::from(KeyCode::F(8))));
+    assert!(
+        app.status.contains("Refresh the Inbox (r) first"),
+        "{}",
+        app.status
+    );
+    assert!(app.overlay.is_none());
+    assert!(app.notifications_v63.is_none());
+}
+
+#[test]
+fn v1_navigation_inbox_mouse_palette_explains_notifications_before_load() {
+    let mut app = App::default();
+    let screen = draw(&mut app, 120, 40);
+    let row = screen
+        .lines()
+        .position(|line| line.contains("[: Commands]"))
+        .unwrap();
+    let column = screen
+        .lines()
+        .nth(row)
+        .unwrap()
+        .find("[: Commands]")
+        .unwrap();
+    click(&mut app, Rect::new(column as u16, row as u16, 1, 1));
+    assert_eq!(app.overlay, Some(Overlay::Palette), "{}", app.status);
+    app.handle_event(Event::Paste("notif".into()));
+    let screen = draw(&mut app, 120, 40);
+    assert!(
+        screen.contains("> Open notifications inbox [why unavailable]"),
+        "{screen}"
+    );
+    let rect = app
+        .hits
+        .iter()
+        .find(|hit| {
+            matches!(
+                &hit.action,
+                Action::PaletteInput(PaletteAction::Activate(_))
+            )
+        })
+        .unwrap()
+        .rect;
+    click(&mut app, rect);
+    assert_eq!(app.overlay, Some(Overlay::Notice));
+    assert!(
+        app.notice.contains("Refresh the Inbox (r) first"),
+        "{}",
+        app.notice
+    );
+    assert!(app.notifications_v63.is_none());
+}

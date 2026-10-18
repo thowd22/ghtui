@@ -318,6 +318,21 @@ impl Builder {
                 if verified.is_some() { Action::Github(GithubAction::Filter(filter)) } else { Action::Explain("Load the authenticated personal inbox before selecting a queue. A cached username is not a numeric account.".into()) }, true,
             )?;
         }
+        let inbox_list = verified
+            .is_some_and(|github| github.pr.is_none() && github.scoped_pr_navigation.is_none());
+        self.push(
+            "inbox.notifications".into(),
+            "Open notifications inbox".into(),
+            &["notifications", "unread", "mentions", "activity", "inbox"],
+            if inbox_list {
+                Action::NotificationsV63(crate::notifications_ui_v63::NotificationActionV63::Open)
+            } else if verified.is_some() {
+                Action::Explain("Return to the personal PR queues (b) before opening notifications.".into())
+            } else {
+                Action::Explain("Refresh the Inbox (r) first. Notifications open from the loaded personal PR queues.".into())
+            },
+            true,
+        )?;
         for (index, (tab, label, _)) in PrTab::ALL.into_iter().enumerate() {
             self.push(
                 format!("pr.tab.{index}"),
@@ -523,6 +538,27 @@ impl Builder {
         )?;
         self.push("dashboard.selected".into(), "Inspect selected Dashboard record".into(), &["metrics", "card", "contributors", "evidence"], app.metrics.as_ref().and_then(|metrics|metrics.selected_action()).map_or_else(||Action::Explain("Select a genuinely available metric/contributor first. Unknown or unretained history cannot supply an invented target.".into()), Action::Metrics), true)
     }
+}
+/// Display-only key hints for palette rows, resolved from the current keymap.
+pub fn shortcut_hints(app: &App) -> Vec<(String, String)> {
+    let mut hints = View::ALL
+        .into_iter()
+        .map(|view| {
+            (
+                format!("global.open.{}", view_key(view)),
+                app.shortcut(view_key(view)).to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for name in ["help", "settings", "refresh", "quit"] {
+        hints.push((format!("global.{name}"), app.shortcut(name).to_string()));
+    }
+    for (index, (_, _, key)) in InboxFilter::ALL.into_iter().enumerate() {
+        hints.push((format!("inbox.filter.{index}"), key.to_string()));
+    }
+    hints.push(("inbox.notifications".into(), "F8".into()));
+    hints.push(("inbox.selected".into(), "Enter".into()));
+    hints
 }
 fn view_key(view: View) -> &'static str {
     match view {

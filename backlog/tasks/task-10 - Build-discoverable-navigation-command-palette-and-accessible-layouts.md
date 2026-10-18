@@ -6,7 +6,7 @@ assignee:
   - '@root'
   - '@local_git_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-14 21:21'
+updated_date: '2026-10-18 00:42'
 labels:
   - foundation
   - e2e
@@ -128,4 +128,6 @@ Isolated parallel tree lane actual navigation_local_palette8/8 realPTY green0ign
 User-requested true parallel implementation now delivers early verified merges: Graph geometry/native8-file baseline patchSHA14df5f38b408885b8f94b5e8a8445b05b046183aa0942049b60c1bf617239a21 fully reviewed/applied Root via apply_patch, preserving Tree narrow toolbar test/spacing and independent SearchIndex changes. Graph frame adjusts selected member into actual resized body only when geometry changes, preserving deliberate same-geometry scroll; status shares available control row. Shared Graph selection uses real completed frame/actual cells, original First completion and exact SavedSHA plus selected member, not old row numbers/Unicode char counts. Agent actor_identity actual8/8PTY green0ignored0.61s includes wide/combining prefix. Root also fully reviewed/applied39-line3-file Tree canonical-helper migration, agent navigation_local_palette8/8 actualPTY green0ignored3.05s, preserving all independent effects. Current main full/fmt/strictClippy next; V3/GH/TreeV2 wider code remains isolated/not main active yet; no Task10/dependency acceptance.
 
 Tree V2 existing-palette contribution verified in isolated production copy: actual terminal40 yields inset inner34, all existing row/detail/Choose/Close controls retained; bounded selected detail current/prior width Arcs prepared at input, not draw, SAME catalogue indices/context/actions reused across40-to80-to40. Genuine field/source retained and full disabled reason suffix reconstructed from ALL actually visible wrapped fragments including final n. New code2 plus actual keyboard/mouse native2 are included in checked original_tree_viewport29code/10PTY allgreen and final full1677code/498PTY0ignored, fmt0/strictClippy0 (Task30 handoff artifacts). Both source busy/missing-context vetoes strengthened for added3 Tree commands. Root integration and Task10 wider AC/dependencies remain OPEN; no Done claim.
+
+2026-10-18 a14: palette lists runnable commands first, ranks label over explanation-only matches, shows key hints, adds Open notifications inbox; Help Inbox keys + word-wrapped rows. Gate: node scripts/test-task.mjs v1_navigation -> 8 code + 2 PTY (keyboard+mouse) pass.
 <!-- SECTION:NOTES:END -->

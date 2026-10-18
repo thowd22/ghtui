@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 23:23'
+updated_date: '2026-10-18 00:42'
 labels:
   - inbox
   - e2e
@@ -105,4 +105,6 @@ READ-ONLY V115 finite-source decision supplement /home/admin2/CODE/ghtui/target/
 READ-ONLY V116 fast-org policy alternative /home/admin2/CODE/ghtui/target/build/provider-pr-state-v116-fast-org-policy-20261016.json SHA2d70be81ee917c2a94b02aaeb373315b054639bb999da5da3ccb4703147fd478. Exact V1141506 production remains exact latestV117. Recommend distinct OrgQueryObservation tracking plus lazy genuine selected-PR Core; paginated org inventory remains separate, never searchDTO->Source/DefaultPersonal nor completeState watermark. Proposed9empty/36maxchildren capsum752/3992KiB versus finite4096empty390children; arithmetic only, no approved policy/cap/I/heap/runtime guarantee. Official Search1000results/4000matchingrepos/30perminute and omitted inaccessible resources mean allpages/incomplete=false not universe completeness; loaded/partial/Unknown explicit. D1intent/coverage/CAS,D2closed genuine readorigin,D3actual allocation/profile,D4separate knownState reconciliation require Root review before implementation. CurrentR2/Exact64/config512/source2048/raw32keys512rows64KiB/wholeheap remainOPEN. ZERO product source/build/PTY/tests/remote mutations; fullTask12/25 and dependencies remainopen.
 
 READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/build/provider-org-tracking-v121-material-plan-20261016.json SHA7e15edd69e4613eaf97773c4994cdf5daace63cca1461f2678bbb329b104af47. Explicit DELIVERY HOLD after user fix/retest concern: NO Org product code/newarchitecture until coherent current candidate full/strict stable. Exact64KiB savedintent/shortstablekey/existing persistent reservation-ClearCAS/new observation-only records (completeFALSE)/genuine lazy sameCore/noDTOcast/callmap/preGrowth/oldmapVecsort+SQL overlaps/testmatrix recorded. Tracking9..36/752..3992KiB arithmetic and proposed lazy16/4936KiB not heap or runtime proof. Fullorg/defaultHost/finite4096/StateD4 remainOPEN; D4 UNAPPROVED. Existing V120 oneTESTmodel correction separate; Root owns all builds. ZERO sourcecopies/edits/Cargo/rustc/PTY/tests/API mutations.
+
+2026-10-18 a14: Inbox shows refresh prompt, per-queue counts on the Queue line and an empty-queue hint pointing at a populated queue. Gate: test-task v1_navigation 8 code + 2 PTY pass.
 <!-- SECTION:NOTES:END -->

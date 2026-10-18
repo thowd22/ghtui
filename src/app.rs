@@ -478,6 +478,8 @@ impl Default for App {
                     "Your pull requests across repositories".into(),
                     "Created by me • Assigned to me • Needs my review".into(),
                     "Use Refresh to load your authenticated GitHub inbox.".into(),
+                    "Press r (or click Refresh below) to load your PRs • : all commands • ? help"
+                        .into(),
                 ],
                 vec![
                     "Repository workspace".into(),
@@ -3273,6 +3275,10 @@ impl App {
                         self.dispatch(Action::Github(
                             crate::github_workspace::GithubAction::ActionsHistoryV5,
                         ))
+                    }
+                    KeyCode::F(8) if self.view == View::Inbox && self.github.is_none() => {
+                        self.status =
+                            "Refresh the Inbox (r) first, then F8 opens notifications.".into()
                     }
                     KeyCode::F(9) if self.view == View::Inbox => self.dispatch(Action::Github(
                         crate::github_workspace::GithubAction::ReviewOperationHistoryV3,

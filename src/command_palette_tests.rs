@@ -669,3 +669,88 @@ fn navigation_palette_explanation_preparation_is_bounded_and_invalidation_drops_
     assert!(!text.contains("original requirement"));
     assert!(palette.entries.is_empty() && palette.query().is_empty());
 }
+
+#[test]
+fn v1_navigation_palette_lists_runnable_commands_before_unavailable_ones() {
+    let entries = || {
+        vec![
+            entry(
+                "blocked.a",
+                "Merge pull request",
+                &[],
+                Action::Explain("Open a PR first".into()),
+            ),
+            entry("open.inbox", "Open Inbox", &[], Action::View(View::Inbox)),
+            entry(
+                "blocked.b",
+                "Notify reviewers",
+                &[],
+                Action::Explain("Open a PR first".into()),
+            ),
+            entry(
+                "open.notifications",
+                "Open notifications inbox",
+                &[],
+                Action::Help,
+            ),
+            entry(
+                "blocked.c",
+                "Rerun",
+                &[],
+                Action::Explain("Explains notifications".into()),
+            ),
+        ]
+    };
+    let mut palette = CommandPalette::new(entries()).unwrap();
+    assert_eq!(palette.visible_indices(), &[1, 3, 0, 2, 4]);
+    assert_eq!(palette.selected_id(), Some("open.inbox"));
+    // A label match ranks above an explanation-only match; runnable first.
+    palette.dispatch(PaletteAction::Insert("notif".into()));
+    assert_eq!(palette.visible_indices()[0], 3);
+    assert_eq!(palette.visible_indices().last(), Some(&4));
+    assert_eq!(
+        choose(palette.dispatch(PaletteAction::Choose)),
+        (3, Action::Help)
+    );
+    // Explanations stay searchable when nothing else matches.
+    let mut only = CommandPalette::new(entries()).unwrap();
+    only.dispatch(PaletteAction::Insert("explains".into()));
+    assert_eq!(only.visible_indices(), &[4]);
+}
+
+#[test]
+fn v1_navigation_palette_shows_key_hints_only_for_runnable_commands() {
+    let mut palette = CommandPalette::new(vec![
+        entry("open.inbox", "Open Inbox", &[], Action::View(View::Inbox)),
+        entry(
+            "blocked",
+            "Merge pull request",
+            &[],
+            Action::Explain(
+                "The app rechecks the current target and permissions before anything is written to GitHub."
+                    .into(),
+            ),
+        ),
+    ])
+    .unwrap();
+    palette.set_shortcut("open.inbox", "1");
+    palette.set_shortcut("blocked", "M");
+    palette.set_shortcut("missing", "x");
+    palette.set_shortcut("open.inbox", "\u{1b}");
+    assert_eq!(palette.shortcut("open.inbox"), Some("1"));
+    assert_eq!(palette.shortcut("missing"), None);
+    let (_, _, text) = render(&mut palette, 100, 30, theme());
+    let row = text
+        .lines()
+        .find(|line| line.contains("> Open Inbox"))
+        .unwrap();
+    assert!(row.trim_end_matches(['│', ' ']).ends_with('1'), "{row}");
+    let blocked = text
+        .lines()
+        .find(|line| line.contains("Merge pull request [why"))
+        .unwrap();
+    assert!(
+        !blocked.trim_end_matches(['│', ' ']).ends_with('M'),
+        "{blocked}"
+    );
+}

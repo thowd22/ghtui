@@ -219,3 +219,22 @@ fn navigation_help_raw_unicode_byte_limits_controls_and_bidi_overrides_refuse_be
         .collect();
     assert!(ContextHelp::prepare(View::Actions, &aggregate).is_err());
 }
+#[test]
+fn v1_navigation_help_inbox_documents_queue_keys_notifications_and_commands() {
+    let text = ContextHelp::prepare(View::Inbox, &bindings())
+        .unwrap()
+        .text();
+    for phrase in [
+        "a All; c Created by me; m Assigned to me; v Needs my review",
+        "b Back returns to the queues",
+        "F8 Notifications opens unread GitHub notifications",
+        "F9 Review history; F10 Reviews",
+        "Commands lists every action for this view with its key",
+    ] {
+        assert!(text.contains(phrase), "Missing Inbox help: {phrase}");
+    }
+    let repository = ContextHelp::prepare(View::Repository, &bindings())
+        .unwrap()
+        .text();
+    assert!(!repository.contains("F8 Notifications"));
+}
