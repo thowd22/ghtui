@@ -130,6 +130,8 @@ pub struct LocalIntent {
     pub context: crate::local_actions::LocalContext,
     pub plan: Option<crate::local_actions::LocalPlan>,
     pub selections: BTreeMap<String, crate::local_picker::LocalValue>,
+    /// GitHub preview for `LocalCommand::CreatePullRequest` (no Git plan).
+    pub pr_create_v1: Option<crate::pr_create_v1::PrCreatePlanV1>,
 }
 #[derive(Clone, Debug)]
 pub struct ActionsIntent {
@@ -437,6 +439,7 @@ impl Form {
                 context,
                 plan: None,
                 selections: BTreeMap::new(),
+                pr_create_v1: None,
             })),
             fields,
             focus: 0,
@@ -869,7 +872,10 @@ impl Form {
             FormPurpose::PrInline(state) => state.invalidate(),
             FormPurpose::PrReviewV2(state) => state.invalidate(),
             FormPurpose::PrReviewOperationV3(state) => state.invalidate(),
-            FormPurpose::Local(intent) => intent.plan = None,
+            FormPurpose::Local(intent) => {
+                intent.plan = None;
+                intent.pr_create_v1 = None;
+            }
             FormPurpose::Actions(intent) => intent.plan = None,
             FormPurpose::Compare(intent) => intent.plan = None,
             FormPurpose::PrAction(intent) => intent.plan = None,
@@ -897,7 +903,7 @@ impl Form {
             FormPurpose::PrInline(state) => state.ready(),
             FormPurpose::PrReviewV2(state) => state.ready(),
             FormPurpose::PrReviewOperationV3(state) => state.ready(),
-            FormPurpose::Local(intent) => intent.plan.is_some(),
+            FormPurpose::Local(intent) => intent.plan.is_some() || intent.pr_create_v1.is_some(),
             FormPurpose::Actions(intent) => intent.plan.is_some(),
             FormPurpose::Pr(_) => {
                 !self.uses_prepared_preview()
@@ -941,10 +947,13 @@ impl Form {
             FormPurpose::PrInline(state) => state.plan_lines(),
             FormPurpose::PrReviewV2(state) => state.plan_lines(),
             FormPurpose::PrReviewOperationV3(state) => state.plan_lines(),
-            FormPurpose::Local(intent) => intent
-                .plan
-                .as_ref()
-                .map_or(&[], |plan| plan.preview.as_slice()),
+            FormPurpose::Local(intent) => match &intent.pr_create_v1 {
+                Some(plan) => plan.preview.as_slice(),
+                None => intent
+                    .plan
+                    .as_ref()
+                    .map_or(&[], |plan| plan.preview.as_slice()),
+            },
             FormPurpose::Actions(intent) => intent
                 .plan
                 .as_ref()
@@ -1187,7 +1196,18 @@ impl Form {
                     .iter()
                     .map(|byte| format!("{byte:02x}"))
                     .collect::<String>();
-                format!("local/{path}/operation/{}", intent.command.key())
+                // A PR draft belongs to its head branch, not the whole checkout.
+                let branch = match intent.command {
+                    crate::local_actions::LocalCommand::CreatePullRequest => intent
+                        .context
+                        .status
+                        .branch
+                        .as_deref()
+                        .map(|branch| format!("/{branch}"))
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                };
+                format!("local/{path}/operation/{}{branch}", intent.command.key())
             }
             FormPurpose::Actions(intent) => intent.resource.clone(),
             FormPurpose::Corpus(intent) => intent.resource(),
@@ -3044,7 +3064,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         Paragraph::new(if matches!(form.purpose, FormPurpose::Compare(_)) {
             "READ-ONLY COMPARISON • No checkout, fetch, index or working-file writes"
         } else if form.is_local() {
-            if form.preview {
+            if form.preview
+                && matches!(&form.purpose, FormPurpose::Local(intent) if intent.pr_create_v1.is_some())
+            {
+                "READ-ONLY PREVIEW • Confirm action only creates the pull request on GitHub"
+            } else if form.preview {
                 "READ-ONLY PREVIEW • Confirm action is the only Git write"
             } else {
                 "LOCAL INTENT • Preview first, then explicitly confirm"

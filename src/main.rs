@@ -615,6 +615,7 @@ fn run() -> Result<()> {
             let database = paths.database.clone();
             let draft_client = draft_writer.client();
             let waiting_corpus = corpus_fence.is_some();
+            let pr_create_host = config.host.clone();
             background.submit(&mut app, view, move |cancel| {
                 if let ghtui::forms::FormPurpose::PrMetadata(intent)=&form.purpose {
                     if form.publication.is_some() {
@@ -670,6 +671,17 @@ fn run() -> Result<()> {
                         comparison.plan = Some(ghtui::comparison::ComparisonPlan::prepare(
                             &comparison.intent,
                             cancel.clone(),
+                        )?);
+                    }
+                    ghtui::forms::FormPurpose::Local(intent) if intent.command == ghtui::local_actions::LocalCommand::CreatePullRequest => {
+                        let provider = GithubProvider::new(&pr_create_host)
+                            .map_err(|error| error.to_string())?
+                            .with_runner(runner);
+                        intent.pr_create_v1 = Some(ghtui::pr_create_v1::PrCreatePlanV1::prepare(
+                            &intent.context,
+                            &values,
+                            &provider,
+                            &cancel,
                         )?);
                     }
                     ghtui::forms::FormPurpose::Local(intent) => {
@@ -1056,6 +1068,48 @@ fn run() -> Result<()> {
                         &draft_client,
                         &cancel,
                     );
+                }
+                let pr_create = match &form.purpose {
+                    FormPurpose::Local(intent) => intent.pr_create_v1.clone(),
+                    _ => None,
+                };
+                if let Some(plan) = pr_create {
+                    let provider = GithubProvider::new(&plan.host)
+                        .map_err(|error| error.to_string())?
+                        .with_runner(runner);
+                    match plan.submit(&provider, &cancel) {
+                        Ok(created) => {
+                            let draft_result = draft_client.remove(form.scope(), form.resource());
+                            form.submitted = true;
+                            form.dirty = false;
+                            return Ok(PreparedView {
+                                status: format!(
+                                    "Created pull request {}#{}{} • {}{}",
+                                    created.repository,
+                                    created.number,
+                                    if created.draft { " (draft)" } else { "" },
+                                    created.url,
+                                    draft_result.err().map_or(String::new(), |error| format!(
+                                        " • draft cleanup failed: {error}"
+                                    ))
+                                ),
+                                form: Some(form),
+                                ..PreparedView::default()
+                            });
+                        }
+                        Err(error) => {
+                            if let FormPurpose::Local(intent) = &mut form.purpose {
+                                intent.pr_create_v1 = None;
+                            }
+                            form.preview = false;
+                            form.error = error;
+                            return Ok(PreparedView {
+                                status: "Pull request not created • draft kept locally".into(),
+                                form: Some(form),
+                                ..PreparedView::default()
+                            });
+                        }
+                    }
                 }
                 if let FormPurpose::Local(intent) = &mut form.purpose {
                     let plan = intent

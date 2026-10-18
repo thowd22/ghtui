@@ -4,6 +4,8 @@ use crate::support::{Fixture, Session};
 mod form_preview_visible_v1;
 #[path = "local_confirm_shortcut_v1.rs"]
 mod local_confirm_shortcut_v1;
+#[path = "pr_create_v1.rs"]
+mod pr_create_v1;
 
 #[test]
 fn local_workspace_keyboard_explicit_github_repo_keeps_local_dirty_and_unborn_checkouts_accessible()
