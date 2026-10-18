@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 01:45'
+updated_date: '2026-10-18 00:34'
 labels:
   - localgit
   - e2e
@@ -60,4 +60,6 @@ Added explicit PullWithStrategy with fast-forward-only, merge and rebase, plus F
 Native LocalCommand Fetch/Pull/Push/ForcePushLease forms use explicit configured remotes and branches, typed ff-only/merge/rebase strategy, current state gates and an exact expected remote SHA for force-with-lease. Actual full-crate local_actions_contracts passed 10/10; two real-binary PTY remote_git journeys passed for keyboard and mouse at wide/narrow sizes, independently verifying local bare remote main SHA, upstream/tracking refs, clean working tree and zero fake-gh commands. Full pull/divergence/auth/ambiguous-push UI coverage and full-project final gates remain open; not Done.
 
 Actual checked node scripts/test-task.mjs remote_git passed 5 code/provider + 2 real-binary PTY tests, zero ignored, with shared offline target/jobs2/incremental0. Keyboard/mouse coverage artifact /tmp/ghtui-test-coverage-jRaPCM. Code includes exact lease, changed-target rejection and divergent pull merge/rebase against real local bare remotes; native PTY verifies explicit push/upstream/fetch and independent remote/tracking SHA effects at both sizes. Batch log target/build/native-management-checked.log. Broader native divergent/auth/ambiguous-push recovery remains open; no full task completion claimed.
+
+2026-10-18 a09: sync previews show upstream/ahead/behind and predict diverged/remote-ahead/first-push outcomes; plain-language failure summaries; push defaults tracking for unpublished branches. Gate: node scripts/test-task.mjs v1_local_branches passed 2 code + 2 PTY (keyboard+mouse), 0 ignored; local_management PTY group 14/14 and local_actions_contracts 13/13.
 <!-- SECTION:NOTES:END -->

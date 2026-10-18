@@ -743,8 +743,13 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
     let mut rows = vec![WorkspaceRow {
         path: None,
         label: format!(
-            "Branch: {branch} | saved version: {}",
-            status.head.as_deref().map(short_id).unwrap_or("none yet")
+            "Branch: {branch} | saved version: {}{}",
+            status.head.as_deref().map(short_id).unwrap_or("none yet"),
+            if status.branch.is_some() && status.upstream.is_none() && status.head.is_some() {
+                " | no upstream: Push with Set tracking branch to publish"
+            } else {
+                ""
+            }
         ),
         role: SemanticRole::Head,
     }];
@@ -776,8 +781,15 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
                 )
             } else {
                 format!(
-                    "Upstream {upstream}: {} commits to send, {} commits to receive",
-                    status.ahead, status.behind
+                    "Upstream {upstream}: {} commits to send, {} commits to receive{}",
+                    status.ahead,
+                    status.behind,
+                    match (status.ahead, status.behind) {
+                        (0, 0) => " • up to date as of last fetch",
+                        (_, 0) => " • push to share",
+                        (0, _) => " • behind: pull to update",
+                        _ => " • DIVERGED: pull with merge or rebase before pushing",
+                    }
                 )
             },
             role: SemanticRole::Reference,

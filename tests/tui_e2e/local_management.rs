@@ -379,12 +379,24 @@ fn sequencer(mouse: bool) {
     fill(&mut session, mouse, &[("Saved version", &theirs)]);
     local::preview(&mut session, mouse);
     local::confirm(&mut session, mouse, 1);
-    session.wait_for_screen("CONFLICT");
+    session.wait_for_screen("CONFLICT: the operation stopped");
     session.wait_for_screen("[F8 Error↓]");
-    if mouse {
-        session.click_visible_action("[F8 Error↓]");
-    } else {
-        session.send_key(b"\x1b[19~");
+    // The plain-language summary precedes raw Git output; scroll to the recovery advice.
+    for _ in 0..4 {
+        if mouse {
+            session.click_visible_action("[F8 Error↓]");
+        } else {
+            session.send_key(b"\x1b[19~");
+        }
+        if session
+            .try_wait_for(
+                "Refresh repository state",
+                std::time::Duration::from_secs(2),
+            )
+            .is_ok()
+        {
+            break;
+        }
     }
     session.wait_for_screen("Refresh repository state");
     assert!(fixture
@@ -548,5 +560,158 @@ fn bisect(mouse: bool) {
     assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     assert!(!fixture.repo().join(".git/BISECT_LOG").exists());
+    finish(&mut session, &fixture, mouse);
+}
+
+/// Local main and the bare remote's main each gain one commit.
+fn v1_local_branches_diverged(fixture: &Fixture) -> (std::path::PathBuf, String) {
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved\n", "initial");
+    let bare = fixture.root.join("remote.git");
+    assert!(Command::new("git")
+        .args(["init", "--bare", "--initial-branch=main"])
+        .arg(&bare)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    fixture.git(&["remote", "add", "origin", bare.to_str().unwrap()]);
+    fixture.git(&["push", "-u", "origin", "main"]);
+    fixture.git(&["switch", "-c", "side"]);
+    fixture.commit_file("remote.txt", b"remote side\n", "remote side");
+    let remote_head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["push", "origin", "side:main"]);
+    fixture.git(&["switch", "main"]);
+    fixture.git(&["branch", "-D", "side"]);
+    fixture.commit_file("local.txt", b"local side\n", "local side");
+    fixture.git(&["fetch", "origin"]);
+    (bare, remote_head)
+}
+fn v1_bare_main(bare: &std::path::Path) -> String {
+    let output = Command::new("git")
+        .arg("--git-dir")
+        .arg(bare)
+        .args(["rev-parse", "refs/heads/main"])
+        .output()
+        .unwrap();
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+fn v1_confirm(session: &mut Session, mouse: bool) {
+    if mouse {
+        session.click_visible_action("[Confirm action]");
+    } else {
+        session.send_key(b"\x13");
+    }
+}
+
+#[test]
+fn v1_local_branches_keyboard_diverged_sync_rejected_push_rebase_and_first_push() {
+    v1_sync(false);
+}
+#[test]
+fn v1_local_branches_mouse_diverged_sync_rejected_push_rebase_and_first_push() {
+    v1_sync(true);
+}
+fn v1_sync(mouse: bool) {
+    let fixture = Fixture::new();
+    let (bare, remote_head) = v1_local_branches_diverged(&fixture);
+    let local_head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let mut session = launch(&fixture);
+    session.wait_for_screen("DIVERGED: pull with merge or rebase");
+
+    // A normal push is predicted and then reported as rejected; the remote is unchanged.
+    operation(&mut session, mouse, LocalCommand::Push);
+    fill(
+        &mut session,
+        mouse,
+        &[
+            ("Configured remote", "origin"),
+            ("Local branch", "main"),
+            ("Set tracking branch?", "false"),
+        ],
+    );
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("REMOTE AHEAD: a normal push will be rejected");
+    v1_confirm(&mut session, mouse);
+    session.wait_for_screen("Error: Push rejected: the remote branch has commits");
+    assert_eq!(v1_bare_main(&bare), remote_head);
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), local_head);
+    local::close(&mut session, mouse);
+    refresh(&mut session, mouse);
+
+    // Rebase pull explains the divergence and replays the local commit on the remote one.
+    operation(&mut session, mouse, LocalCommand::Pull);
+    fill(
+        &mut session,
+        mouse,
+        &[
+            ("Configured remote", "origin"),
+            ("Remote branch", "main"),
+            ("Pull strategy", "rebase"),
+        ],
+    );
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("DIVERGED: main and origin/main");
+    session.wait_for_screen("Rebase replays your 1 local commit");
+    v1_confirm(&mut session, mouse);
+    session.wait_for_screen("Completed • Pull remote branch");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD~1"]).trim(), remote_head);
+    session.wait_for_screen("1 commits to send, 0 commits to receive • push to share");
+    run(
+        &mut session,
+        mouse,
+        LocalCommand::Push,
+        &[
+            ("Configured remote", "origin"),
+            ("Local branch", "main"),
+            ("Set tracking branch?", "false"),
+        ],
+    );
+    let pushed = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    assert_eq!(v1_bare_main(&bare), pushed);
+
+    // An unmerged branch deletion shows its recovery SHA; cancelling keeps it.
+    let topic = fixture
+        .git(&[
+            "commit-tree",
+            "HEAD^{tree}",
+            "-p",
+            "HEAD",
+            "-m",
+            "topic only",
+        ])
+        .trim()
+        .to_string();
+    fixture.git(&["branch", "topic", &topic]);
+    session.resize(80, 24);
+    operation(&mut session, mouse, LocalCommand::DeleteBranch);
+    fill(
+        &mut session,
+        mouse,
+        &[
+            ("Existing branch", "topic"),
+            ("Delete unmerged history?", "false"),
+        ],
+    );
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("UNMERGED: topic has");
+    local::close(&mut session, mouse);
+    assert_eq!(fixture.git(&["rev-parse", "topic"]).trim(), topic);
+
+    // A new branch defaults to publishing with tracking on its first push.
+    fixture.git(&["switch", "-c", "feature"]);
+    refresh(&mut session, mouse);
+    session.wait_for_screen("no upstream");
+    operation(&mut session, mouse, LocalCommand::Push);
+    session.wait_for_screen("feature");
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("FIRST PUSH: creates branch feature");
+    v1_confirm(&mut session, mouse);
+    session.wait_for_screen("Completed • Push branch");
+    assert_eq!(
+        fixture.git(&["rev-parse", "--abbrev-ref", "@{upstream}"]),
+        "origin/feature\n"
+    );
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     finish(&mut session, &fixture, mouse);
 }
