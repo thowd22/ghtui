@@ -379,13 +379,13 @@ fn origin_issue_journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
+    // SSH origin names the explicit mapping step instead of a dead end.
+    session.wait_for_screen("origin org/app is not mapped");
     choose(&mut session, mouse, "[h GitHub]", b"h");
     session.wait_for_screen("GitHub scope verified");
     session.wait_for_screen("GitHub remote discovery / org/app");
     session.wait_for_screen("searches outside org/app");
-    assert!(!session
-        .screen()
-        .contains("no verified GitHub repository mapping"));
+    assert!(!session.screen().contains("is not mapped"));
     journal(&mut session, &fixture, 4);
     query(&mut session, mouse, "BUG type:issue");
     session.wait_for_screen("1 results • GitHub");

@@ -177,13 +177,20 @@ impl SearchWorkspace {
                 GitRepository::discover_with_cancellation(current_directory, cancellation.clone())
                     .map_err(|error| QueryError(error.to_string()))?
             {
+                // The origin is a hint for the explicit Corpus mapping step,
+                // never an inferred mapping of this checkout.
+                workspace.warnings.push(
+                    match crate::origin_repository::detect(&repository.root, &config.host) {
+                        Some(origin) => format!("Current checkout labelled local/current; origin {origin} is not mapped. Press c Corpus, then Map existing, to search it as {origin}"),
+                        None => "Current checkout labelled local/current; it has no GitHub origin mapping. Press c Corpus to map it".into(),
+                    },
+                );
                 workspace.selections.push(RepositorySelection {
                     repository: "local/current".into(),
                     directory: repository.root,
                     source: LocalSource::Worktree,
                     sets: Vec::new(),
                 });
-                workspace.warnings.push("Current local checkout has no verified GitHub repository mapping; labelled local/current".into());
             }
         }
         if let Some(active) = active {
