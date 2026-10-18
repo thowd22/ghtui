@@ -303,7 +303,7 @@ pub fn draw(
         }
     }
     if area.height > 0 {
-        frame.render_widget(Paragraph::new("↑/↓ select • Enter open • Tab buttons • r refresh • b back • R runs • W workflows • [] controls").style(theme.style(SemanticToken::Muted)),Rect::new(area.x,area.bottom()-1,area.width,1));
+        frame.render_widget(Paragraph::new("↑/↓ select • Enter open • >/< failures • Tab buttons • r refresh • b back • R runs • W workflows • [] controls").style(theme.style(SemanticToken::Muted)),Rect::new(area.x,area.bottom()-1,area.width,1));
     }
     output
 }
@@ -363,7 +363,11 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         KeyCode::End => Some(ActionsAction::Select(
             workspace.rows.len().saturating_sub(1),
         )),
-        KeyCode::Enter => workspace.selected_action(),
+        // An information row (run header, actor, log line) has nothing to
+        // open; keep Enter here instead of activating an unrelated global hit.
+        KeyCode::Enter => workspace
+            .selected_action()
+            .or(Some(ActionsAction::Select(workspace.selected))),
         KeyCode::Esc | KeyCode::Char('b') => Some(ActionsAction::Back),
         KeyCode::Char('r') => Some(ActionsAction::Refresh),
         KeyCode::Char('P') => Some(ActionsAction::PublicationList),
@@ -386,6 +390,21 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
                 .then_some(action)
         }
         KeyCode::Char('W') => Some(ActionsAction::View(ActionsView::Workflows)),
+        KeyCode::Char(key @ ('>' | '<')) => {
+            let label = if key == '>' {
+                crate::actions_workspace::NEXT_FAILURE
+            } else {
+                crate::actions_workspace::PREVIOUS_FAILURE
+            };
+            let control = workspace
+                .controls
+                .iter()
+                .find(|control| control.label == label)?;
+            Some(control.disabled_reason.as_ref().map_or_else(
+                || control.action.clone(),
+                |reason| ActionsAction::Unavailable(format!("{}: {reason}", control.label)),
+            ))
+        }
         KeyCode::Char('[') => Some(ActionsAction::ControlsPage(-1)),
         KeyCode::Char(']') => Some(ActionsAction::ControlsPage(1)),
         KeyCode::Char('{') if !workspace.repositories.is_empty() => {

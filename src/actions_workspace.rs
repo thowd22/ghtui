@@ -17,7 +17,12 @@ mod publications;
 mod settings;
 pub use publications::*;
 mod lease_snapshot;
+#[cfg(test)]
+mod runs_focus_v1_tests;
 pub use lease_snapshot::ActionsPublicationLeaseSnapshot;
+
+pub const NEXT_FAILURE: &str = "> Next failure";
+pub const PREVIOUS_FAILURE: &str = "< Previous failure";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ActionsView {
@@ -310,6 +315,24 @@ pub fn status_role(status: &str, conclusion: &str) -> SemanticToken {
         },
     }
 }
+/// Step rows show how long a completed step took; unparsed or still-running
+/// timestamps are shown as reported.
+fn step_timing(started: &str, completed: &str) -> String {
+    use crate::github_workspace::timestamp_seconds;
+    match (timestamp_seconds(started), timestamp_seconds(completed)) {
+        (Some(start), Some(end)) if end >= start => {
+            let seconds = end - start;
+            match seconds {
+                0..60 => format!("{seconds}s"),
+                60..3600 => format!("{}m {:02}s", seconds / 60, seconds % 60),
+                _ => format!("{}h {:02}m", seconds / 3600, seconds % 3600 / 60),
+            }
+        }
+        _ if started.is_empty() => "not started".into(),
+        _ if completed.is_empty() => format!("started {started}"),
+        _ => format!("{started} → {completed}"),
+    }
+}
 fn plain_error(message: impl Into<String>) -> GithubError {
     GithubError {
         kind: GithubErrorKind::InvalidTarget,
@@ -432,8 +455,92 @@ impl ActionsWorkspace {
             .map(crate::actor_avatar_projection_v1::distinct)
             .unwrap_or_default()
     }
+    /// Run and Jobs pages open on a job row rather than the run header: the
+    /// opened job, else the first failed job, else the first job. The header
+    /// rows stay above it and remain reachable with Up/Home.
+    pub fn focus_job_row(&mut self) {
+        if !matches!(self.view, ActionsView::Run | ActionsView::Jobs) {
+            return;
+        }
+        let Some(page) = &self.run else {
+            return;
+        };
+        let row_of = |id: u64| {
+            self.rows
+                .iter()
+                .position(|row| row.action == Some(ActionsAction::OpenJob(id)))
+        };
+        let target = page
+            .selected_job
+            .and_then(row_of)
+            .or_else(|| {
+                page.attempt
+                    .jobs
+                    .iter()
+                    .find(|job| status_role(&job.status, &job.conclusion) == SemanticToken::Failure)
+                    .and_then(|job| row_of(job.id))
+            })
+            .or_else(|| {
+                self.rows
+                    .iter()
+                    .position(|row| matches!(row.action, Some(ActionsAction::OpenJob(_))))
+            });
+        if let Some(index) = target {
+            self.select(index);
+        }
+    }
+    fn jump_target(view: ActionsView, row: &ActionsRow) -> bool {
+        match view {
+            ActionsView::Logs => {
+                matches!(row.role, SemanticToken::Failure | SemanticToken::Changed)
+            }
+            _ => row.role == SemanticToken::Failure && row.action.is_some(),
+        }
+    }
+    /// The next (or previous) failed job/step row, or in Logs the next
+    /// `##[error]` line or search match, relative to the selected row.
+    pub fn failure_row(&self, forward: bool) -> Option<usize> {
+        if !matches!(
+            self.view,
+            ActionsView::Run | ActionsView::Jobs | ActionsView::Logs
+        ) {
+            return None;
+        }
+        let hit = |index: &usize| Self::jump_target(self.view, &self.rows[*index]);
+        if forward {
+            (self.selected + 1..self.rows.len()).find(hit)
+        } else {
+            (0..self.selected.min(self.rows.len())).rev().find(hit)
+        }
+    }
+    /// Original-scoped routes carry their own failed-step controls and policy.
+    pub(crate) fn drop_failure_jumps(&mut self) {
+        self.controls
+            .retain(|control| !matches!(control.label.as_str(), NEXT_FAILURE | PREVIOUS_FAILURE));
+    }
+    fn refresh_failure_jumps(&mut self) {
+        for index in 0..self.controls.len() {
+            let forward = match self.controls[index].label.as_str() {
+                NEXT_FAILURE => true,
+                PREVIOUS_FAILURE => false,
+                _ => continue,
+            };
+            let target = self.failure_row(forward);
+            let control = &mut self.controls[index];
+            control.action = ActionsAction::Select(target.unwrap_or(self.selected));
+            control.disabled_reason = target.is_none().then(|| {
+                if forward {
+                    "none later"
+                } else {
+                    "none earlier"
+                }
+                .into()
+            });
+        }
+    }
     pub fn select(&mut self, index: usize) {
         self.selected = index.min(self.rows.len().saturating_sub(1));
+        self.refresh_failure_jumps();
         for index in 0..self.controls.len() {
             if let ActionsAction::Compose(command) = self.controls[index].action {
                 self.controls[index].disabled_reason = self.disabled_reason(command);
@@ -713,6 +820,8 @@ impl ActionsWorkspace {
             }
             Artifacts => {
                 self.view = ActionsView::Artifacts;
+                self.selected = 0;
+                self.top = 0;
             }
             OpenArtifact(id) => {
                 let artifact = self
@@ -824,6 +933,9 @@ impl ActionsWorkspace {
         }
         self.fetched_at = Some(now());
         self.prepare_rows();
+        if matches!(action, OpenRun { .. } | OpenJob(_) | Back) {
+            self.focus_job_row();
+        }
         Ok(())
     }
     fn load_view(&mut self, gh: &GithubProvider, cancel: &CancellationToken) -> GithubResult<()> {
@@ -1099,13 +1211,12 @@ impl ActionsWorkspace {
                             for step in &job.steps {
                                 rows.push(ActionsRow {
                                     label: format!(
-                                        "  Step {} • {} • {} / {} • {} → {}",
+                                        "  Step {} • {} • {} / {} • {}",
                                         step.number,
                                         step.name,
                                         step.status,
                                         step.conclusion,
-                                        step.started_at,
-                                        step.completed_at
+                                        step_timing(&step.started_at, &step.completed_at)
                                     ),
                                     role: status_role(&step.status, &step.conclusion),
                                     actor: None,
@@ -1121,7 +1232,19 @@ impl ActionsWorkspace {
                 .run
                 .as_ref()
                 .and_then(|page| page.logs.as_ref())
-                .map(|logs| logs.lines().map(ActionsRow::text).collect())
+                .map(|logs| {
+                    logs.lines()
+                        .map(|line| ActionsRow {
+                            // Runner error markers stand out and are jump targets.
+                            role: if line.contains("##[error]") {
+                                SemanticToken::Failure
+                            } else {
+                                SemanticToken::Normal
+                            },
+                            ..ActionsRow::text(line)
+                        })
+                        .collect()
+                })
                 .unwrap_or_default(),
             Annotations => self
                 .run
@@ -1506,11 +1629,23 @@ impl ActionsWorkspace {
         }
         self.selected = self.selected.min(self.rows.len().saturating_sub(1));
         self.top = self.top.min(self.rows.len().saturating_sub(1));
+        if matches!(self.view, Run | Jobs | Logs)
+            && self
+                .rows
+                .iter()
+                .any(|row| Self::jump_target(self.view, row))
+        {
+            for label in [PREVIOUS_FAILURE, NEXT_FAILURE] {
+                self.controls
+                    .push(add(label, ActionsAction::Select(self.selected)));
+            }
+        }
         for index in 0..self.controls.len() {
             if let ActionsAction::Compose(command) = self.controls[index].action {
                 self.controls[index].disabled_reason = self.disabled_reason(command);
             }
         }
+        self.refresh_failure_jumps();
     }
     fn catalog_controls() -> Vec<ActionsControl> {
         ActionsView::CATALOGS

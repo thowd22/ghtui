@@ -70,6 +70,7 @@ impl PreparedPrCheckActions {
         }
         workspace.warnings.push("Read-only correlation is not rerun/cancel permission. Shared Actions publication must prepare and confirm the fresh exact target; opening or going Back never releases a pending write.".into());
         workspace.prepare_rows();
+        workspace.drop_failure_jumps();
         let provenance = match link.job_attempt_origin(link.selected_job()) {
             Some(PrCheckJobAttemptOrigin::JsonObserved) => "Attempt source: supplied job JSON",
             Some(PrCheckJobAttemptOrigin::ExactEndpointBound) => {

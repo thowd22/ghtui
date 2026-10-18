@@ -772,6 +772,8 @@ pub(crate) fn readable_run_log(raw: &str) -> String {
     out
 }
 fn strip_log_timestamp(text: &str) -> &str {
+    // GitHub's log files begin with a UTF-8 byte-order mark before the first stamp.
+    let text = text.trim_start_matches('\u{feff}');
     let bytes = text.as_bytes();
     let stamped = bytes.len() >= 21
         && bytes[4] == b'-'
@@ -800,6 +802,16 @@ build\tUNKNOWN STEP\t2026-10-09T14:07:36.6183919Z ##[group]Runner Image\n";
         assert_eq!(
             readable_run_log(raw),
             "Current runner version: '2.337.0'\n##[group]Runner Image\n"
+        );
+    }
+
+    #[test]
+    fn v1_actions_runs_log_first_line_byte_order_mark_does_not_keep_timestamp() {
+        assert_eq!(
+            readable_run_log(
+                "b\tUNKNOWN STEP\t\u{feff}2026-10-09T14:22:28.9271118Z Current runner\nb\tUNKNOWN STEP\t2026-10-09T14:22:29.1Z next\n"
+            ),
+            "Current runner\nnext\n"
         );
     }
 

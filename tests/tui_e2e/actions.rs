@@ -19,6 +19,8 @@ mod principal_freshness;
 mod publication_support;
 #[path = "actions/restart.rs"]
 mod restart;
+#[path = "actions/runs_focus_v1.rs"]
+mod runs_focus_v1;
 #[path = "actions/secret_cli_preflight.rs"]
 mod secret_cli_preflight;
 #[path = "actions/settings.rs"]
