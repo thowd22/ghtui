@@ -199,7 +199,7 @@ fn fresh<T>(
         return Err(source(()));
     }
     let window = session
-        .reserve_measured_external_reads(6, 128 * 1024, 8 * 1024 * 1024, 2, cancel)
+        .reserve_measured_external_reads(6, 1024 * 1024, 8 * 1024 * 1024, 2, cancel)
         .map_err(source)?;
     let measured = provider
         .clone()
@@ -649,7 +649,7 @@ impl FileCommentPreviewV75 {
             .reserve_postwrite_capture_v2(&FILE_COMMENT_POSTWRITE_CAPS_V75, 2, cancel)
             .map_err(source)?;
         let window = session
-            .reserve_measured_external_reads(6, 128 * 1024, 8 * 1024 * 1024, 2, cancel)
+            .reserve_measured_external_reads(6, 1024 * 1024, 8 * 1024 * 1024, 2, cancel)
             .map_err(source)?;
         let measured = provider
             .clone()

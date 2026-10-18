@@ -39,6 +39,8 @@ pub enum PrResourceUiActionV1 {
     Layout,
     PatchContext,
     OldImage,
+    /// Open the canonical images at the selected diff line, ready to comment.
+    CommentLine,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrResourceRowV1 {

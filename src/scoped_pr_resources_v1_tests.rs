@@ -333,6 +333,33 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             KeyCode::Char(key),
             KeyModifiers::NONE,
         )));
+        if action == PrResourceUiActionV1::CommentLine {
+            // Comment line reuses Old image for a selected diff line, or explains.
+            let line = |app: &mut App| {
+                match app.github_action.take() {
+                Some(queued) => {
+                    assert_eq!(
+                        queued,
+                        GithubAction::Resource(PrResourceUiActionV1::OldImage)
+                    );
+                    assert!(app.pr_line_comment_target_v19.take().is_some());
+                }
+                None => assert_eq!(
+                    app.status,
+                    crate::scoped_pr_observed_tabs_v1::resources::immutable_images::line_comment_v19::CHOOSE_LINE
+                ),
+            }
+            };
+            line(&mut app);
+            app.handle_event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: rect.x,
+                row: rect.y,
+                modifiers: KeyModifiers::NONE,
+            }));
+            line(&mut app);
+            continue;
+        }
         if action == PrResourceUiActionV1::Threads {
             assert!(app.github_action.is_none());
             assert_eq!(app.overlay, Some(crate::app::Overlay::PrThreadsV1));
@@ -659,6 +686,39 @@ fn scoped_pr_resource_missing_coverage_unknown_and_genuine_observed_empty_are_di
             .contains("unavailable"));
         effects(&fixture, &before, &git, &steps);
     }
+}
+#[test]
+fn v1_pr_threads_files_page_over_128kib_of_patches_still_lists_changed_files() {
+    // Ordinary PRs exceed 128 KiB per 100-file page; that left the canonical
+    // file list unloaded, so no inline, range or FILE comment could start.
+    let mut op = resource_steps(PrResourceKindV1::Files, REPO);
+    let patch = format!(
+        "@@ -1,2 +1,2 @@\n context\n-old\n+{}",
+        "n".repeat(200 * 1024)
+    );
+    op[4] = get(
+        &op[4].args[1],
+        json!([{"filename":"src/view.rs","status":"modified","additions":1,"deletions":1,"patch":patch}]),
+    );
+    let steps = script(&op);
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&steps);
+    let (source, scope, mut workspace) = opened(&fixture);
+    let before = sql_state(&fixture);
+    let git = git_state_resource(&fixture);
+    let result = run_resource(
+        &fixture,
+        source,
+        scope,
+        &mut workspace,
+        PrResourceKindV1::Files,
+        &Default::default(),
+    )
+    .unwrap();
+    let observed = result.view.as_ref().unwrap().observed();
+    assert_eq!(observed.files().len(), 1);
+    assert!(observed.file_coverage().complete_observed());
+    effects(&fixture, &before, &git, &steps);
 }
 #[test]
 fn scoped_pr_resource_fixed_page_cap_and_repeated_context_no_invented_complete_or_success() {

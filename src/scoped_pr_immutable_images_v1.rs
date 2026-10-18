@@ -6,6 +6,8 @@ use crate::providers::gh::{
 };
 #[path = "scoped_pr_inline_intent_v1.rs"]
 pub mod inline_v1;
+#[path = "scoped_pr_line_comment_v19.rs"]
+pub mod line_comment_v19;
 #[path = "scoped_pr_immutable_image_native_v1.rs"]
 pub mod native;
 #[path = "scoped_pr_personal_images_v13.rs"]

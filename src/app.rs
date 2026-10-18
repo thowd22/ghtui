@@ -381,6 +381,9 @@ pub struct App {
     pub pr_pending_message: String,
     pub pr_file_images:
         Option<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::ui::PrImageViewerV1>,
+    pub pr_line_comment_target_v19: Option<
+        crate::scoped_pr_observed_tabs_v1::resources::immutable_images::line_comment_v19::LineCommentTargetV19,
+    >,
     pub pr_reactions: Option<crate::pr_actions::PrReactionPage>,
     pub pr_reaction_display: Vec<crate::pr_ui::PrReactionDisplayRow>,
     pub pr_reaction_scroll: usize,
@@ -596,6 +599,7 @@ impl Default for App {
             pr_inspection: None,
             pr_pending_message: String::new(),
             pr_file_images: None,
+            pr_line_comment_target_v19: None,
             pr_reactions: None,
             pr_reaction_display: Vec::new(),
             pr_reaction_scroll: 0,
@@ -972,6 +976,19 @@ impl App {
                 }
             }
             return;
+        }
+        if action
+            == Action::Github(crate::github_workspace::GithubAction::Resource(
+                crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::CommentLine,
+            ))
+        {
+            crate::scoped_pr_observed_tabs_v1::resources::immutable_images::line_comment_v19::start(
+                self,
+            );
+            return;
+        }
+        if let Action::Github(crate::github_workspace::GithubAction::Resource(_)) = action {
+            self.pr_line_comment_target_v19 = None;
         }
         if crate::personal_pr_entry_v13::intercept_action(self, &action) {
             return;

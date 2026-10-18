@@ -597,3 +597,54 @@ fn immutable_images_actual_factory_display_row_bound_preserves_existing_files_vi
     assert_eq!(git_state_resource(&s.fixture), s.git_before);
     exact(&s.fixture, &s.steps);
 }
+#[test]
+fn v1_pr_threads_line_comment_focuses_diff_line_and_p_verifies_extended_range() {
+    use images::line_comment_v19::{apply, LineCommentTargetV19};
+    use ui::PrImageUiActionV1 as A;
+    let mut s = setup(false, |_| {});
+    let result = read(&mut s, &Default::default(), &Default::default()).unwrap();
+    let mut view = result.viewer.unwrap();
+    let path = result
+        .proof
+        .observed()
+        .image(PrImageSideV1::New)
+        .path()
+        .to_vec();
+    let other = LineCommentTargetV19 {
+        path: b"another/file.rs".to_vec(),
+        side: PrImageSideV1::New,
+        line: 2,
+    };
+    assert!(
+        !apply(&mut view, &other),
+        "A different file is never guessed"
+    );
+    let beyond = LineCommentTargetV19 {
+        path: path.clone(),
+        side: PrImageSideV1::New,
+        line: 100_000,
+    };
+    assert!(!apply(&mut view, &beyond));
+    let target = LineCommentTargetV19 {
+        path,
+        side: PrImageSideV1::New,
+        line: 2,
+    };
+    assert!(apply(&mut view, &target));
+    assert_eq!(view.selected(), (PrImageSideV1::New, 2, 2));
+    assert_eq!(view.visible, ui::ImageVisibleSideV1::New);
+    assert_eq!(view.canonical_range().unwrap().end(), 2);
+    let frame = image_frame(&mut view);
+    assert!(frame.contains("P Comment on RIGHT line 2"), "{frame}");
+    // Extending the selection drops the verified range; P alone re-verifies it.
+    view.apply(A::Move {
+        delta: -1,
+        extend: true,
+    });
+    assert!(view.canonical_range().is_none());
+    assert_eq!(view.apply(A::Comment), Some(A::Comment));
+    let range = view.canonical_range().unwrap();
+    assert_eq!((range.side(), range.end()), (PrImageSideV1::New, 2));
+    assert_eq!(view.selected(), (PrImageSideV1::New, 1, 2));
+    intact(&s);
+}

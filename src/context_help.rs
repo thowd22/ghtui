@@ -142,6 +142,7 @@ fn topics(view: View) -> &'static [(HelpLineKind, &'static str)] {
             (L, "Partial means only some matching PRs/pages were observed. Empty is not proof that unseen repositories or capped search results have no PRs."),
             (G, "Open a PR to inspect Summary, Conversation, Commits, Files, Checks, Timeline, Metadata and Review progress. Available controls explain their current prerequisites."),
             (G, "A review is feedback on an exact PR head. Changed files retain canonical old/new paths and line coordinates; outdated anchors cannot be reused as new ones."),
+            (S, "PR Files: select a diff line, then i Comment line (or click it); Shift+↑/↓ or drag extends the range and P opens the comment draft. K comments on the whole file; T Threads replies to, resolves or reopens review threads."),
             (G, "Draft text is local. Preview shows the exact target/effect before explicit confirmation. Editing, changing source or restarting never restores approval."),
             (L, "An interrupted publication may already have reached GitHub. Inspect the original result; Refresh and New intent never resend or acknowledge it automatically."),
             (L, "Merged, queued, auto-merge enabled and request accepted are different outcomes. Checks/rules/permissions may make an operation unavailable."),

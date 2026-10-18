@@ -612,6 +612,7 @@ pub(crate) fn publish(app: &mut App, result: PreparedPrNativeV1) -> bool {
                     return false;
                 };
                 app.pr_file_images = viewer;
+                immutable_images::line_comment_v19::apply_pending(app);
                 if let Some(state) = state {
                     if !state.owns(app) {
                         return false;
