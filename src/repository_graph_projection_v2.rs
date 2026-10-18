@@ -35,9 +35,11 @@ impl GraphPresentationV1 {
             limit: MAX_RETAINED.saturating_sub(state.retained_bytes),
             ..Default::default()
         };
+        // Two compact heading rows: where you are, and what the selection is.
+        // Lane meaning and paging details stay in the Legend (l).
         builder.push(
             format!(
-                "Visible commits {}–{} • {} saved versions loaded /10000",
+                "Visible commits {}–{} of {} loaded (limit 10000) • < > page • N load more",
                 start + 1,
                 end,
                 state.loaded()
@@ -46,26 +48,6 @@ impl GraphPresentationV1 {
             None,
             Vec::new(),
         )?;
-        builder.push(
-            format!("Original walk tip: {}", state.walk_tip()),
-            SemanticRole::Reference,
-            None,
-            Vec::new(),
-        )?;
-        builder.push(
-            "● commit • lines connect each commit to its parents".into(),
-            SemanticRole::Reference,
-            None,
-            Vec::new(),
-        )?;
-        builder.push(
-            "Showing up to 200 commits at a time • < > page through loaded history".into(),
-            SemanticRole::Boundary,
-            None,
-            Vec::new(),
-        )?;
-        builder.push("Colors trace parent paths, never permanent branches. Branch names are as of graph load".into(),
-            SemanticRole::Normal,None,Vec::new())?;
         builder.push(
             graph_explanation_v1(selected),
             SemanticRole::Reference,
@@ -102,18 +84,12 @@ impl GraphPresentationV1 {
                 })
                 .collect::<Vec<_>>();
             let label = format!(
-                "{}{} {} • {}{}",
-                if is_selected {
-                    "▶ selected "
-                } else if related {
-                    "↑ ancestor "
-                } else {
-                    "  "
-                },
+                "{}{} {}{} • {}",
+                if is_selected { "▶ selected " } else { "" },
                 &commit.id[..8],
                 commit.subject,
+                short_names_v1(commit),
                 crate::git_actor_labels_v1::commit_summary(commit),
-                bounded_names_v1(commit)
             );
             paint.push(GraphSpanV1 {
                 text: label.clone(),
@@ -142,6 +118,15 @@ impl GraphPresentationV1 {
                 }
                 let from = usize::from(edge.from);
                 let to = usize::from(edge.to);
+                // A single loaded parent continuing straight down its own lane is
+                // already shown by the lane itself (as in `git log --graph`); a
+                // separate connector row would only halve the visible history.
+                if commit.parents.len() == 1
+                    && from == to
+                    && state.selected_commit(parent).is_some()
+                {
+                    continue;
+                }
                 let columns = state
                     .topology
                     .before(node)

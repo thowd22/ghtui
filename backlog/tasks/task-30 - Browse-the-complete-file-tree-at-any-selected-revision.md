@@ -4,7 +4,7 @@ title: Browse the complete file tree at any selected revision
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-14 22:28'
+updated_date: '2026-10-18 00:50'
 labels:
   - repository
   - e2e
@@ -154,4 +154,6 @@ Current strict Clippy first terminal62171exit101 retained root-tree-fixture-shel
 Corrected resulting Main counted gate terminal50211exit0 is genuinelyGREEN: node scripts/test-task.mjs original_tree_viewport PASS31 meaningful code1.06s and10actualkeyboard/mousePTY5.01s,0failed/ignored; root-tree-logical-close-checked-first.log, wDbamK/journeys.jsonl independently completed both inputs. Includes actual completed-vetoed Close success/error/caughtpanic, admitted logical release, four foreign/mixed owner cases BEFORE physical-slot removal, metadata cancellation refusing actual unrelated generation/both tokens, and both native owned-child reaping→no-loading footer→NEW original Jump/fullSHA/rawpath/blobOID read with unchanged Git/SQL/config/strictgh/TTY. Current wholefmt46157exit0; strictClippy13252exit0(29.31s), root-tree-fixture-shell-{fmt-current,clippy-second}.log. Whole all-target and impacted original_saved/framework/identity gates now running, no whole/AC/Done/dependency/Mac inference.
 
 New coherent resulting MAIN whole checkpoint independentlyGREEN: taskenv cargo test --offline --locked --all-targets38948exit0 PASS1794 meaningful code/provider=1247lib+295strictGH+252others,566realbinaryPTY0failed/ignored96.22s, root-tree-fixture-shell-whole-first.log. Wholefmt46157exit0; strictalltargetClippy13252exit0(29.31s). Current counted Tree31code/10native wDbamK, original_saved38code/36native12.18s YD2hS2, test_framework19code/9native1.36s HG9tbP, actor_identity12code/8native0.73s pTq730 and fixture-shell4code/2native1CcTx1 allPASS actualcompletedbothinputs0ignored. Audit73tasksvalid0errors/doctor0cycles/dependency86sources10300files108patches117registrypackagesPASS, remotesEMPTY, firstparty gitdiffcheck0. Native Close proof is actual live-child close/reap then new read; deterministic code covers exact completed-before-poll/newClose boundary. No borrowed older-copy full green and no historical failure attribution. README advanced only after wholeterminal; fullTask30/31/relatedPR/macOS/performance/release/AC/DoD completion remainsOPEN.
+
+2026-10-18 a12: Esc/u/[u Back to tree] from a saved-tree file (also after History/Blame) returns to the tree with that file selected; folders listed first with children under their folder. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass.
 <!-- SECTION:NOTES:END -->

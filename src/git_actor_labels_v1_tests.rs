@@ -138,7 +138,7 @@ fn git_actor_roles_commit_summary_and_graph_show_both_actual_roles_not_implicit_
     );
     assert_eq!(
         commit_summary(&source),
-        "author Writer <author@example.invalid> • committer Recorder <committer@example.invalid>"
+        "author Writer • committer Recorder • 2023-11-14"
     );
     let row = GraphRow {
         commit: source.clone(),
@@ -247,4 +247,21 @@ fn git_actor_roles_real_sha1_and_sha256_commit_objects_preserve_missing_fields()
             raw.trim()
         );
     }
+}
+#[test]
+fn v1_repo_views_commit_byline_names_one_actor_once_with_a_readable_date() {
+    let same = commit(
+        actor("Writer", "author@example.invalid"),
+        actor("Writer", "author@example.invalid"),
+    );
+    assert_eq!(commit_summary(&same), "Writer • 2023-11-14");
+    let unnamed = commit(actor("", ""), actor("", ""));
+    assert_eq!(
+        commit_summary(&unnamed),
+        "unknown name [email unavailable] • 2023-11-14"
+    );
+    assert_eq!(utc_date(0), "1970-01-01");
+    assert_eq!(utc_date(951_782_400), "2000-02-29");
+    assert_eq!(utc_date(-86_400), "1969-12-31");
+    assert_eq!(utc_datetime(1_700_000_000), "2023-11-14 22:13 UTC");
 }

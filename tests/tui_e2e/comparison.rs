@@ -25,9 +25,9 @@ fn endpoint(session: &mut Session, mouse: bool, index: usize, reference: &str) {
     let field = if index == 0 { "base" } else { "head" };
     if mouse {
         let label = if index == 0 {
-            "A: starting saved version"
+            "A: from (branch, tag or commit)"
         } else {
-            "B: target saved version"
+            "B: to (branch, tag or commit)"
         };
         session.wait_for_screen(label);
         let (_, row) = session.locate(label).unwrap();

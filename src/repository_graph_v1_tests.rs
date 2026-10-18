@@ -268,7 +268,8 @@ fn commit_graph_v1_projection_spans_keep_role_symbols_color_slots_and_current_in
         assert!(projected
             .rows()
             .iter()
-            .any(|row| row.label.starts_with("↑ ancestor")
+            .any(|row| row.role == SemanticRole::Reference
+                && row.label.starts_with(&parent[..8])
                 && row.action == Some(RowAction::Commit(parent.clone()))));
     }
     for mode in [

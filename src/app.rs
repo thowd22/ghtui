@@ -2913,6 +2913,18 @@ impl App {
                         crate::repository_native_diff_native_v1::open(self);
                         return;
                     }
+                    if matches!(key.code, KeyCode::Char('u') | KeyCode::Esc)
+                        && !self.loading[View::Repository.index()]
+                        && self
+                            .workspace
+                            .as_ref()
+                            .is_some_and(|workspace| workspace.tree_file_return_v1().is_some())
+                    {
+                        self.dispatch(Action::RepositoryMode(
+                            crate::workspace::RepositoryMode::Tree,
+                        ));
+                        return;
+                    }
                     if key.code == KeyCode::Char('u') {
                         if let Some(ticket) = self
                             .workspace

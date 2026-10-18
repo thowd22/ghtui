@@ -41,7 +41,7 @@ fn ordinary10000() -> NativeGraph {
     native
 }
 fn ready_loaded(session: &mut Session, loaded: usize, start: usize) {
-    let count = format!("{loaded} saved versions loaded /10000");
+    let count = format!("of {loaded} loaded (limit 10000)");
     let range = format!(
         "Visible commits {}–{}",
         start + 1,
@@ -85,7 +85,7 @@ fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
             .is_some_and(|args| args.iter().any(|arg| arg.as_str() == Some(skip.as_str())))));
     }
     // This is FULL actual loaded history, not a truncated/censored known page.
-    session.wait_for_screen("10000 saved versions loaded /10000");
+    session.wait_for_screen("of 10000 loaded (limit 10000)");
     body_to(
         session,
         mouse,
@@ -167,7 +167,7 @@ fn visible_page(session: &mut Session, loaded: usize, start: usize) {
                 "Visible commits {}–{}",
                 start + 1,
                 (start + 200).min(loaded)
-            )) && screen.contains(&format!("{loaded} saved versions loaded /10000"))
+            )) && screen.contains(&format!("of {loaded} loaded (limit 10000)"))
                 && !screen.contains("[Esc Cancel]")
         },
         "Actual newer/older projection has completed",
@@ -353,7 +353,7 @@ fn restore_cancel(mouse: bool) {
     session.wait_for_screen("Cancelled");
     session.wait_for_main_frame();
     session.wait_for_screen("Saved file tree");
-    assert!(!session.screen().contains("10000 saved versions loaded"));
+    assert!(!session.screen().contains("of 10000 loaded"));
     effects(&native, &session, None);
     session.quit_and_assert_restored_terminal(mouse);
 }

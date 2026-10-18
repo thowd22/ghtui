@@ -321,7 +321,7 @@ fn effects(n: &NativeGraph, s: &Session, original: Option<&Path>) {
 fn graph(n: &NativeGraph, s: &mut Session, mouse: bool, count: usize) {
     s.wait_for_screen("Recent commits");
     choose(s, mouse, "[g Graph]", b"g");
-    s.wait_for_screen(&format!("{count} saved versions loaded"));
+    s.wait_for_screen(&format!("of {count} loaded"));
     s.wait_for_screen("[N More history]");
     s.wait_for_screen(&n.tip);
 }
@@ -359,8 +359,8 @@ fn paging(mouse: bool) {
     )
     .unwrap();
     choose(&mut s, mouse, "[N More history]", b"N");
-    s.wait_for_screen("361 saved versions loaded");
-    s.wait_for_screen(&format!("Original walk tip: {}", n.tip));
+    s.wait_for_screen("of 361 loaded");
+    s.wait_for_screen(&n.tip[..8]);
     s.wait_for_screen(&parent);
     let walks = trace(&n)
         .into_iter()
@@ -406,7 +406,7 @@ fn octopus(mouse: bool) {
         s.wait_for_screen(&n.parents[index]);
         s.wait_for_screen(&n.tip);
         choose(&mut s, mouse, "[u Graph back]", b"u");
-        s.wait_for_screen("6 saved versions loaded");
+        s.wait_for_screen("of 6 loaded");
         assert_eq!(
             n.fixture
                 .git(&["cat-file", "commit", &n.tip])
@@ -464,7 +464,7 @@ fn root_detached(mouse: bool) {
     s.wait_for_screen("Root commit • no parents");
     assert!(!s.screen().contains("Parent 1:"));
     choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("1 saved versions loaded");
+    s.wait_for_screen("of 1 loaded");
     choose(&mut s, mouse, "[D Details]", b"D");
     s.wait_for_screen(&format!("Saved commit: {}", n.tip));
     s.wait_for_screen("refs/tags/actual-graph-name");
@@ -498,13 +498,13 @@ fn prepared_views(mouse: bool) {
     s.wait_for_screen("Original commit message");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("6 saved versions loaded");
+    s.wait_for_screen("of 6 loaded");
     choose(&mut s, mouse, "[l Legend]", b"l");
     s.wait_for_screen("never permanent branch identities");
-    body_to(&mut s, mouse, "ordered parent links keep exact IDs");
+    body_to(&mut s, mouse, "↳ rows: merge or branch parents");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("6 saved versions loaded");
+    s.wait_for_screen("of 6 loaded");
     s.resize(80, 24);
     s.wait_for_screen("[Graph →]");
     choose(&mut s, mouse, "[Graph →]", b"\x1b[C");
@@ -519,7 +519,7 @@ fn prepared_views(mouse: bool) {
     s.resize(120, 40);
     s.wait_for_screen("[u Graph back]");
     choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("6 saved versions loaded");
+    s.wait_for_screen("of 6 loaded");
     effects(&n, &s, None);
     s.quit_and_assert_restored_terminal(mouse);
 }
@@ -615,7 +615,7 @@ fn source_and_cancel(mouse: bool) {
                 "Original continuation child did not exit",
             );
             assert!(!s.screen().contains("REPLACEMENT GRAPH MUST NOT APPEAR"));
-            assert!(!s.screen().contains("361 saved versions loaded"));
+            assert!(!s.screen().contains("of 361 loaded"));
         } else {
             s.wait_for_screen("[Esc Cancel]");
             choose(&mut s, mouse, "[Esc Cancel]", b"\x1b");
@@ -625,7 +625,7 @@ fn source_and_cancel(mouse: bool) {
                 "Actual original read group survived cancellation",
             );
             s.wait_for_screen("Cancelled");
-            assert!(!s.screen().contains("361 saved versions loaded"));
+            assert!(!s.screen().contains("of 361 loaded"));
         }
         s.wait_for_main_frame();
         effects(&n, &s, original.as_deref());

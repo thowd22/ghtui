@@ -261,10 +261,13 @@ impl GraphPresentationV1 {
                         "Committer: {}",
                         crate::repository_view::actor_label(&selected.committer)
                     ),
-                    format!("Author Unix UTC seconds: {}", selected.author.timestamp),
                     format!(
-                        "Committer Unix UTC seconds: {}",
-                        selected.committer.timestamp
+                        "Authored: {}",
+                        crate::git_actor_labels_v1::utc_datetime(selected.author.timestamp)
+                    ),
+                    format!(
+                        "Committed: {}",
+                        crate::git_actor_labels_v1::utc_datetime(selected.committer.timestamp)
                     ),
                 ] {
                     if line.len() > 120 {
@@ -327,7 +330,7 @@ impl GraphPresentationV1 {
                     builder.push(line, SemanticRole::Reference, None, Vec::new())?;
                 }
                 builder.push(
-                    "▶ selected • ↑ loaded ancestor • ordered parent links keep exact IDs".into(),
+                    "▶ selected • highlighted: ancestors of the selection • ↳ rows: merge or branch parents".into(),
                     SemanticRole::Reference,
                     None,
                     Vec::new(),
@@ -366,10 +369,13 @@ fn graph_explanation_v1(commit: &Commit) -> String {
                 .join(", ")
         ),
     };
-    format!(
-        "{history}{} Graph colors trace parent paths; a lane is not a permanent branch.",
-        bounded_names_v1(commit)
-    )
+    let names = short_names_v1(commit);
+    let names = names.trim().trim_start_matches('(').trim_end_matches(')');
+    if names.is_empty() {
+        history
+    } else {
+        format!("{history} Branches and tags here: {names}.")
+    }
 }
 fn wrap_graph_line_v1(line: &str, width: usize) -> Vec<String> {
     use unicode_segmentation::UnicodeSegmentation;
@@ -390,7 +396,9 @@ fn wrap_graph_line_v1(line: &str, width: usize) -> Vec<String> {
     }
     rows
 }
-fn bounded_names_v1(commit: &Commit) -> String {
+/// Compact `git log --decorate` style names for one graph row, e.g.
+/// ` (HEAD, main, origin/main)`. Full names stay in Details.
+pub(crate) fn short_names_v1(commit: &Commit) -> String {
     if commit.refs.is_empty() {
         return String::new();
     }
@@ -398,17 +406,27 @@ fn bounded_names_v1(commit: &Commit) -> String {
         .refs
         .iter()
         .take(3)
-        .map(|name| name.chars().take(256).collect::<String>())
+        .map(|name| {
+            let short = if name == "HEAD at graph load" {
+                "HEAD".to_owned()
+            } else if let Some(tag) = name.strip_prefix("refs/tags/") {
+                format!("tag {tag}")
+            } else {
+                name.strip_prefix("refs/heads/")
+                    .or_else(|| name.strip_prefix("refs/remotes/"))
+                    .unwrap_or(name)
+                    .to_owned()
+            };
+            short.chars().take(64).collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        " • Names at graph load: {names}{}",
-        if commit.refs.len() > 3 {
-            " • more in Details"
-        } else {
-            ""
-        }
-    )
+    let more = commit.refs.len().saturating_sub(3);
+    if more > 0 {
+        format!(" ({names}, +{more})")
+    } else {
+        format!(" ({names})")
+    }
 }
 #[derive(Default)]
 struct ProjectionBuilderV1 {

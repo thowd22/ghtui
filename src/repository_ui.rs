@@ -4,6 +4,9 @@
 mod diff_header_v1_tests;
 mod file_history;
 #[cfg(test)]
+#[path = "repository_views_v1_tests.rs"]
+mod repository_views_v1_tests;
+#[cfg(test)]
 #[path = "repository_toolbar_v2_tests.rs"]
 mod toolbar_v2_tests;
 use crate::{

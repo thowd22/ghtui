@@ -264,7 +264,7 @@ fn source_journey(mouse: bool) {
         );
         session.wait_for_screen("Recent commits");
         command(&mut session, mouse, "Show Graph");
-        session.wait_for_screen("● commit • lines connect");
+        session.wait_for_screen("loaded (limit 10000)");
         session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
         session.wait_for_screen(&format!("Saved: {}", local.original));
         session.wait_for_screen(&format!("HEAD: {}", local.before.head.trim()));

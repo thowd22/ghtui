@@ -224,7 +224,7 @@ fn effects(native: &Native, session: &Session) {
 fn saved_file(native: &Native, session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "[g Graph]", b"g");
-    session.wait_for_screen("● commit • lines connect");
+    session.wait_for_screen("loaded (limit 10000)");
     session.open_saved_graph_subject(mouse, "Chosen immutable rename", &native.chosen);
     session.wait_for_screen(&native.chosen);
     choose(session, mouse, "[t Tree]", b"t");
@@ -352,15 +352,15 @@ fn happy(mouse: bool) {
         provenance_row(&mut session, mouse, "saved nested line 102");
         choose(&mut session, mouse, "[G Responsible graph]", b"G");
         session.wait_for_screen(&native.responsible);
-        session.wait_for_screen("● commit • lines connect");
+        session.wait_for_screen("loaded (limit 10000)");
         fresh_crumb_restore(
             &native,
             &mut session,
             mouse,
             "[Repository • Source graph]",
-            "● commit • lines connect",
+            "loaded (limit 10000)",
         );
-        session.wait_for_screen("● commit • lines connect");
+        session.wait_for_screen("loaded (limit 10000)");
         session.wait_for_screen(&native.responsible);
         exact_blame_back(&native, &mut session, mouse);
         provenance_row(&mut session, mouse, "saved nested line 102");

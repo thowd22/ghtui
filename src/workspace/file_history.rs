@@ -101,6 +101,31 @@ impl Workspace {
         };
         Some(row.unwrap_or(0))
     }
+    /// The saved-tree file currently previewed, when Back can simply return to
+    /// that same tree (expansion kept, file row selected).
+    pub fn tree_file_return_v1(&self) -> Option<&RawPath> {
+        let state = self.file_provenance.as_ref()?;
+        let tree = self.tree.as_ref()?;
+        (self.mode == RepositoryMode::Tree
+            && state.view == ProvenanceView::File
+            && self.preview.is_some()
+            && tree.revision == self.revision
+            && tree.focus.as_ref() == Some(&state.path))
+        .then_some(&state.path)
+    }
+    /// Plain saved tree row of the file or directory last opened from it.
+    pub fn tree_focus_row_v1(&self) -> Option<usize> {
+        if self.mode != RepositoryMode::Tree
+            || self.file_provenance.is_some()
+            || self.preview.is_some()
+        {
+            return None;
+        }
+        let focus = self.tree.as_ref()?.focus.as_ref()?;
+        self.display_rows_v1().iter().position(|row| {
+            matches!(&row.action, Some(RowAction::File(path) | RowAction::Directory(path)) if path == focus)
+        })
+    }
     pub fn provenance_available(&self, action: &FileAction) -> Result<(), String> {
         let state = self.file_provenance.as_ref();
         if state.is_none()
@@ -419,10 +444,11 @@ impl Workspace {
                 .as_ref()
                 .map_or_else(|| "historical path unavailable".into(), RawPath::display);
             let label = format!(
-                "{} {} • {} • {}",
+                "{} {} • {} • {} • {}",
                 &entry.commit.id[..8],
                 short(&entry.commit.subject, 100),
-                entry.change,
+                crate::git_actor_labels_v1::commit_summary(&entry.commit),
+                change_word_v1(&entry.change),
                 path
             );
             self.push(
@@ -733,12 +759,31 @@ impl Workspace {
         if let Some(side) = retained_side {
             fresh.carry_original_diff_side_v1(side)?;
         }
+        // Keep the plain saved tree this file was opened from, so Back to tree
+        // still works after History/Blame.
+        if let Some(tree) = self.tree.take().filter(|tree| {
+            tree.revision == state.revision && tree.focus.as_ref() == Some(&state.path)
+        }) {
+            fresh.tree = Some(tree);
+        }
         *self = fresh;
         Ok(())
     }
 }
 fn short(value: &str, characters: usize) -> String {
     value.chars().take(characters).collect()
+}
+/// Plain word for a Git name-status letter (`M` → `modified`, `R100` → `renamed`).
+pub fn change_word_v1(change: &str) -> String {
+    match change.as_bytes().first() {
+        Some(b'A') => "added".into(),
+        Some(b'M') => "modified".into(),
+        Some(b'D') => "deleted".into(),
+        Some(b'R') => "renamed".into(),
+        Some(b'C') => "copied".into(),
+        Some(b'T') => "type changed".into(),
+        _ => change.into(),
+    }
 }
 fn change_role(entry: &FileHistoryEntry) -> SemanticRole {
     match entry.change.as_bytes().first() {

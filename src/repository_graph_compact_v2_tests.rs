@@ -58,7 +58,7 @@ fn commit_graph_v2_ordinary10000_full_loaded_raw_and_compact_fit_unchanged8mib()
         )));
         assert!(shown.rows()[0]
             .label
-            .contains("10000 saved versions loaded /10000"));
+            .contains("of 10000 loaded (limit 10000)"));
     }
     assert_eq!(real.snapshot(), baseline);
 }

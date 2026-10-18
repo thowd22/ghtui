@@ -5,7 +5,7 @@ use super::*;
 fn tree_before_file(native: &Native, session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "[g Graph]", b"g");
-    session.wait_for_screen("● commit • lines connect");
+    session.wait_for_screen("loaded (limit 10000)");
     session.open_saved_graph_subject(mouse, "Chosen immutable rename", &native.chosen);
     session.wait_for_screen(&native.chosen);
     choose(session, mouse, "[t Tree]", b"t");
@@ -264,7 +264,7 @@ fn object_type(mouse: bool) {
     let mut session = launch(&native, mouse);
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "[g Graph]", b"g");
-    session.wait_for_screen("● commit • lines connect");
+    session.wait_for_screen("loaded (limit 10000)");
     session.open_saved_graph_subject(mouse, "Special object saved source", &native.chosen);
     choose(&mut session, mouse, "[D Details]", b"D");
     session.wait_for_screen("This saved version follows parent");

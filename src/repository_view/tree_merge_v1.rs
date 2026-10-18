@@ -45,7 +45,7 @@ impl TreeBrowser {
                 .into_iter()
                 .filter(|entry| existing.insert(entry.path.0.clone())),
         );
-        self.entries.sort_by(|a, b| a.path.0.cmp(&b.path.0));
+        self.entries.sort_by(super::tree_order_v1);
         Ok(())
     }
     pub fn expanded_v1(&self, path: &RawPath) -> bool {
