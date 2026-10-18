@@ -38,6 +38,31 @@ fn steps() -> Vec<GhStep> {
     steps.push(read(api(&format!("repos/{REPO}/pulls/7")), pr_value()));
     steps
 }
+/// No row ends or starts inside a body word: a visible token never is a
+/// strict fragment of one (e.g. `obs|erve`).
+fn assert_word_boundaries(screen: &str) {
+    let words = [
+        "words",
+        "that",
+        "keep",
+        "going",
+        "past",
+        "the",
+        "edge",
+        "edgewords",
+        TAIL,
+    ];
+    for token in screen
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        // Key hints and short UI words are not body fragments.
+        .filter(|token| token.len() >= 3)
+    {
+        assert!(
+            words.contains(&token) || !words.iter().any(|word| word.contains(token)),
+            "body split inside a word at {token:?}\n{screen}"
+        );
+    }
+}
 fn tail_visible(session: &mut Session) {
     if let Err(error) = session.try_wait_for_condition(
         |screen| screen.contains("Long description") && screen.contains(TAIL),
@@ -69,6 +94,7 @@ fn journey(mouse: bool) {
         !session.screen().lines().any(|line| line.contains(&body)),
         "the body is wider than the pane, so it must span rows"
     );
+    assert_word_boundaries(&session.screen());
     session.resize(80, 24);
     // The small pane shows the body's beginning, then scrolls to its tail.
     session.wait_for_screen("words that keep going past the edge");
@@ -84,6 +110,7 @@ fn journey(mouse: bool) {
         session.poll_output(Duration::from_millis(100));
     }
     tail_visible(&mut session);
+    assert_word_boundaries(&session.screen());
     journal(&mut session, &fixture, steps.len());
     session.quit_and_assert_restored_terminal(mouse);
     assert_eq!(

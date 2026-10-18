@@ -445,20 +445,44 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     });
 }
 
-/// Splits display text into rows of at most `width` terminal cells.
+/// Splits display text into rows of at most `width` visible cells, breaking
+/// after the last whitespace when a word would cross the edge. Overlong words
+/// still hard-wrap, and every character is kept (rows concatenate to `text`).
 fn wrap_cells(text: &str, width: usize) -> Vec<String> {
     use unicode_segmentation::UnicodeSegmentation;
     let mut rows = Vec::new();
     let mut current = String::new();
     let mut cells = 0usize;
+    // Byte offset just after the row's last whitespace, and its cell count.
+    let mut boundary: Option<(usize, usize)> = None;
     for glyph in text.graphemes(true) {
         let count = crate::editor::grapheme_width(glyph);
-        if cells.saturating_add(count) > width && !current.is_empty() {
-            rows.push(std::mem::take(&mut current));
-            cells = 0;
+        let space = glyph.chars().all(char::is_whitespace);
+        // Trailing whitespace may pass the edge (it is invisible); the next
+        // word then starts a row instead of a stray leading space.
+        if !space && cells.saturating_add(count) > width && !current.is_empty() {
+            match boundary {
+                Some((at, before)) if at < current.len() => {
+                    let word = current.split_off(at);
+                    rows.push(std::mem::replace(&mut current, word));
+                    cells -= before;
+                }
+                _ => {
+                    rows.push(std::mem::take(&mut current));
+                    cells = 0;
+                }
+            }
+            boundary = None;
+            if cells.saturating_add(count) > width && !current.is_empty() {
+                rows.push(std::mem::take(&mut current));
+                cells = 0;
+            }
         }
         current.push_str(glyph);
         cells += count;
+        if space {
+            boundary = Some((current.len(), cells));
+        }
     }
     if !current.is_empty() || rows.is_empty() {
         rows.push(current);
@@ -476,9 +500,17 @@ mod pr_body_wrap_tests {
         let rows = wrap_cells(text, 4);
         assert!(rows
             .iter()
-            .all(|row| crate::editor::display_width(row) <= 4));
+            .all(|row| crate::editor::display_width(row.trim_end()) <= 4));
         assert_eq!(rows.concat(), text);
         assert_eq!(wrap_cells("", 10), vec![String::new()]);
+        assert_eq!(
+            wrap_cells("we observe the run", 10),
+            ["we observe ", "the run"].map(str::to_owned)
+        );
+        assert_eq!(
+            wrap_cells("a verylongtokenhere b", 6),
+            ["a ", "verylo", "ngtoke", "nhere ", "b"].map(str::to_owned)
+        );
         assert_eq!(wrap_cells("exact", 5), vec!["exact".to_owned()]);
         // A glyph wider than the pane still makes progress on its own row.
         assert_eq!(wrap_cells("界", 1), vec!["界".to_owned()]);
