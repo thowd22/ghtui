@@ -58,6 +58,8 @@ mod pr_actions;
 mod project;
 #[path = "support/raw_git_argv_v1.rs"]
 mod raw_git_argv_v1;
+#[path = "tui_e2e/release_install_v1.rs"]
+mod release_install_v1;
 #[path = "tui_e2e/relevance.rs"]
 mod relevance;
 #[path = "tui_e2e/remote_search.rs"]

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # The suite includes real-binary PTY journeys; keep parallelism modest so
+  # timing-sensitive terminal tests stay reliable on shared runners.
+  RUST_TEST_THREADS: "2"
+  RAYON_NUM_THREADS: "2"
+
+jobs:
+  lint:
+    name: fmt and clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+
+  installer:
+    name: installer scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/install.sh && bash -n scripts/package-release.sh
+      - run: shellcheck scripts/install.sh scripts/package-release.sh
+
+  test:
+    name: cargo test (code, provider and PTY suites)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # PTY tests run headless: portable-pty allocates its own pseudo-terminal
+      # and the tests use an offline fake gh, so no TTY or GitHub login is
+      # needed. test-all.mjs runs `cargo test --locked --all-targets` with the
+      # test-only Git environment (foreground automatic maintenance).
+      - run: node scripts/test-all.mjs
+      - name: Node script tests
+        run: node --test tests/test_env.test.mjs tests/test_task_runner.test.mjs
