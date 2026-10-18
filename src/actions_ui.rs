@@ -303,7 +303,10 @@ pub fn draw(
         }
     }
     if area.height > 0 {
-        frame.render_widget(Paragraph::new("↑/↓ select • Enter open • Tab buttons • r refresh • b back • R runs • W workflows • [] controls").style(theme.style(SemanticToken::Muted)),Rect::new(area.x,area.bottom()-1,area.width,1));
+        frame.render_widget(
+            Paragraph::new(footer_hint(workspace)).style(theme.style(SemanticToken::Muted)),
+            Rect::new(area.x, area.bottom() - 1, area.width, 1),
+        );
     }
     output
 }
@@ -346,6 +349,45 @@ fn button(
     }
     *x = x.saturating_add(width).saturating_add(1);
 }
+/// Workflow definition keys resolve to the same visible control a click
+/// activates, including its exact "unavailable" explanation when disabled.
+fn workflow_key_action(key: char, workspace: &ActionsWorkspace) -> Option<ActionsAction> {
+    use crate::actions_workspace::ActionsCommand::*;
+    let commands: &[_] = match key {
+        'D' => &[DispatchWorkflow],
+        // One toggle key: whichever of Disable/Enable currently applies.
+        'X' => &[DisableWorkflow, EnableWorkflow],
+        _ => &[WorkflowRevision],
+    };
+    let controls = commands
+        .iter()
+        .filter_map(|command| {
+            workspace
+                .controls
+                .iter()
+                .find(|control| control.action == ActionsAction::Compose(*command))
+        })
+        .collect::<Vec<_>>();
+    let control = controls
+        .iter()
+        .find(|control| control.disabled_reason.is_none())
+        .or_else(|| controls.first())?;
+    Some(control.disabled_reason.as_ref().map_or_else(
+        || control.action.clone(),
+        |reason| ActionsAction::Unavailable(format!("{}: {reason}", control.label)),
+    ))
+}
+fn footer_hint(workspace: &ActionsWorkspace) -> &'static str {
+    match workspace.view {
+        ActionsView::Workflows => {
+            "↑/↓ select • Enter/click open workflow • r refresh • R runs • b back • [] controls"
+        }
+        ActionsView::Workflow => {
+            "D dispatch • X enable/disable • V revision • ↑/↓ scroll YAML • b back • W workflows"
+        }
+        _ => "↑/↓ select • Enter open • Tab buttons • r refresh • b back • R runs • W workflows • [] controls",
+    }
+}
 pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<ActionsAction> {
     if event.kind != KeyEventKind::Press
         || event
@@ -386,6 +428,9 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
                 .then_some(action)
         }
         KeyCode::Char('W') => Some(ActionsAction::View(ActionsView::Workflows)),
+        KeyCode::Char(key @ ('D' | 'X' | 'V')) if workspace.view == ActionsView::Workflow => {
+            workflow_key_action(key, workspace)
+        }
         KeyCode::Char('[') => Some(ActionsAction::ControlsPage(-1)),
         KeyCode::Char(']') => Some(ActionsAction::ControlsPage(1)),
         KeyCode::Char('{') if !workspace.repositories.is_empty() => {

@@ -289,7 +289,7 @@ impl GithubProvider {
             if !value.is_null() {
                 return Err(self.actions_ambiguous(&resource,"Dispatch returned an unusable run identity; refresh matching runs without redispatching"));
             }
-            return Ok(DispatchOutcome{accepted:true,run:None,explanation:"Dispatch accepted; this host did not return a workflow run ID. Correlation by matching event/ref/actor is only a candidate, not proof; refresh without redispatching.".into()});
+            return Ok(DispatchOutcome{accepted:true,run:None,explanation:"GitHub accepted the dispatch but did not say which run it started. Press R to find the new run; do not dispatch again.".into()});
         }
         let run = boundary.receipt(self, repo, id, &resource, cancel)?;
         if run.workflow_id != definition.workflow.id
@@ -301,10 +301,16 @@ impl GithubProvider {
                 "Dispatch run does not match the selected workflow/ref commit/event; reconcile",
             ));
         }
+        let explanation = format!(
+            "Workflow run #{} started on {} (commit {}); press R to follow it",
+            run.id,
+            definition.revision,
+            run.head_sha.get(..8).unwrap_or(&run.head_sha)
+        );
         Ok(DispatchOutcome {
             accepted: true,
             run: Some(run),
-            explanation: "Exact workflow run ID, event and selected commit confirmed".into(),
+            explanation,
         })
     }
     pub(super) fn dispatch_workflow_legacy_v7(
