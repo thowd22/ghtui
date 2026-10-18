@@ -738,7 +738,12 @@ fn cancel_metadata(mouse: bool) {
             let gone = match process_identity(pid) {
                 Ok(None) => true,
                 Ok(Some(now)) => {
-                    assert!(!now.zombie, "Canceled exact child must be reaped");
+                    // An exited child is briefly a zombie until the app reaps
+                    // it; only one that outlives the deadline is a leak.
+                    assert!(
+                        !now.zombie || Instant::now() < until,
+                        "Canceled exact child must be reaped"
+                    );
                     assert_eq!(
                         (now.uid, now.birth, now.session),
                         (original.uid, original.birth, original.session)
