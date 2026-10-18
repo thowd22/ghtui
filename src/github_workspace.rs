@@ -557,6 +557,25 @@ pub(crate) fn metadata_rows_v51(
             }
         }
     }
+    // Say "none" for an observed empty set so users can tell it apart from a
+    // section that failed to load (reported as unavailable above).
+    let empty = |key: &str| {
+        context.issue_metadata[key]
+            .as_array()
+            .is_some_and(|items| items.is_empty())
+    };
+    if empty("labels") && observed.is_none_or(|f| f.labels_available()) {
+        rows.push(PrRow::text("Labels: none"));
+    }
+    if empty("assignees") && observed.is_none_or(|f| f.assignees_available()) {
+        rows.push(PrRow::text("Assignees: none"));
+    }
+    if context.requested_reviewers.is_empty()
+        && context.requested_teams.is_empty()
+        && observed.is_none_or(|f| f.reviewers_available() && f.teams_available())
+    {
+        rows.push(PrRow::text("Requested reviewers: none"));
+    }
     for label in context.issue_metadata["labels"]
         .as_array()
         .into_iter()
@@ -587,7 +606,27 @@ pub(crate) fn metadata_rows_v51(
     for url in &context.source_urls {
         rows.push(PrRow::text(format!("Source: {url}")));
     }
+    rows.push(PrRow::text(metadata_access_v1(permission_flags.unwrap_or(
+        [
+            Some(permissions.pull),
+            Some(permissions.push),
+            Some(permissions.maintain),
+            Some(permissions.admin),
+        ],
+    ))));
     rows
+}
+/// Plain-language summary of what the observed repository permissions allow
+/// for PR metadata. GitHub still checks access when a change is previewed.
+pub(crate) fn metadata_access_v1(flags: [Option<bool>; 4]) -> &'static str {
+    let [_, push, maintain, admin] = flags;
+    if [push, maintain, admin].contains(&Some(true)) {
+        "You can change labels, assignees, reviewers and the milestone here."
+    } else if [push, maintain, admin].iter().all(|v| *v == Some(false)) {
+        "View only: changing labels, assignees, reviewers or the milestone needs triage or write access."
+    } else {
+        "Edit access unknown: GitHub checks it when you preview a change."
+    }
 }
 fn value_actor(value: &serde_json::Value) -> crate::providers::gh::Actor {
     crate::providers::gh::Actor {

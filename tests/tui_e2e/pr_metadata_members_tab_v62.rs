@@ -4,6 +4,8 @@
 use super::*;
 #[path = "pr_metadata_members_negative_v71.rs"]
 mod negative_v71;
+#[path = "pr_metadata_quick_v1.rs"]
+mod quick_v1;
 fn context_four(value: &Value) -> Vec<GhStep> {
     vec![
         get(&format!("repos/{FIRST}/pulls/7"), value.clone()),

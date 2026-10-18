@@ -2657,7 +2657,7 @@ pub(crate) fn publish(
             app.status = if let Some(command) = issue {
                 format!("Original manual development links • {command} opened • choose actual Issue then fresh Preview")
             } else if let Some(command) = members {
-                format!("Original PR metadata • {command} opened • fresh Preview + explicit Confirm required")
+                format!("{command} • choose a value, then Preview and Confirm • nothing changes before Confirm")
             } else if let Some(field) = metadata {
                 format!("Original PR {field} opened • fresh Preview + explicit Confirm required")
             } else {

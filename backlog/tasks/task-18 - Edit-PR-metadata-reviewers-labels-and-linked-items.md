@@ -6,7 +6,7 @@ assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 23:33'
+updated_date: '2026-10-18 00:36'
 labels:
   - review
   - e2e
@@ -1041,4 +1041,6 @@ V304 TERMINAL negative actual original98136 closed exit1, scope verifiedinactive
 V306 TERMINAL staging refusal before Cargo/app tests, original44744 closed1 andscopeinactive/dead. Actual source1508 bytes/auth proofs0 and tool8/7PASS, but4incoming Tree TEST files mode0664 caused strict stager unsafe regular file refusal during INPUT verification. Canonical V304inventory SHAa0fdc14b960d2b9195b9b067170127a636caf079291d8cc49d7cb5e75eac810c unchanged/pendingfalse. No app compile/test pass claimed. V307 SAME frozeninput49809530 uses established caller-only fresh1508copy with group/other-write bits removed perfile, hashes exact, 0600manifestbridge; originals/stager untouched. Samecappedsharedlock/expected3311/1524/C6/2/Base46/28/label2/providers4/fmt, no full/strictclaim. PriorRootV304 genuine fullnegative reportSHA8316ec1e0eccbdeb856cad87bcb0e3b95e3d8f1f4b854066ae63affea0220285 had memory4455440384 peak/tasks73/OOM0/pids0.
 
 2026-10-16 USER SEQUENTIAL RESET: all three active sub-agents interrupted; exact owned ghtui-verify-coherent-feedback-v307-20261016.scope stopped with SIGTERM, original exec 1330 exit143 and scope inactive/dead. V307 stopped during test-inventory compilation: no completed application tests or PTY result; unfinished report/log/source preserved. Autonomous goal paused. See backlog doc-13 (Sequential delivery reset and current-state audit) for actual backlog counts, V304 failing evidence, private-source preservation inventory and one-worker/one-feature/testing-after-implementation policy. No task criteria/status changed and no product completion claimed; do not restart agents or discard target private source. First sequential workstream is consolidation/stabilization of one existing baseline, not another new feature/design branch.
+
+2026-10-18 a08: Metadata tab gains clickable/keyboard quick controls (l/L label, a/A assignee, w/W reviewer, g/G team, m/M milestone) reusing the exact p-menu actions; empty sets show 'none'; plain access line/statuses; picker header drops byte/cap diagnostics; p-menu Home/End. Gate: node scripts/test-task.mjs v1_pr_metadata -> 3 lib + 10 PTY passed; filtered tui_e2e 'metadata' 221/222 (1 pre-existing failure pr_metadata_base_v32_metadata_tab_v51_mouse_actual_nochange..., fails without these changes); lib 'metadata' 442 passed, 'picker' 36 passed; clippy -D warnings clean.
 <!-- SECTION:NOTES:END -->
