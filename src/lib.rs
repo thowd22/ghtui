@@ -26,6 +26,7 @@ pub mod git;
 pub mod git_actor_labels_v1;
 pub mod github_ui;
 pub mod github_workspace;
+pub mod history;
 pub mod identity;
 pub mod local_actions;
 pub mod local_availability;
