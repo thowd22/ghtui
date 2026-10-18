@@ -1705,15 +1705,17 @@ fn rename_noclobber(source: &Path, target: &Path) -> Result<(), QueryError> {
     check_components(target)?;
     let source = CString::new(source.as_os_str().as_bytes()).map_err(error)?;
     let target = CString::new(target.as_os_str().as_bytes()).map_err(error)?;
+    // Raw syscall: musl (static release builds) has no renameat2 wrapper.
     #[cfg(target_os = "linux")]
     let result = unsafe {
-        libc::renameat2(
+        libc::syscall(
+            libc::SYS_renameat2,
             libc::AT_FDCWD,
             source.as_ptr(),
             libc::AT_FDCWD,
             target.as_ptr(),
             libc::RENAME_NOREPLACE,
-        )
+        ) as libc::c_int
     };
     #[cfg(target_os = "macos")]
     let result = unsafe { libc::renamex_np(source.as_ptr(), target.as_ptr(), libc::RENAME_EXCL) };
