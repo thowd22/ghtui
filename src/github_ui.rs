@@ -322,8 +322,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .find(|(filter, _, _)| *filter == github.filter)
         .map_or("All", |(_, label, _)| *label);
+    let queue_line = if github.state_membership_unavailable_v68() {
+        format!("Queue: {filter_label}")
+    } else {
+        crate::github_workspace::queue_summary_v1(filter_label, github.queue_counts())
+    };
     frame.render_widget(
-        Paragraph::new(format!("Queue: {filter_label}")).style(theme.style(SemanticToken::Head)),
+        Paragraph::new(queue_line).style(theme.style(SemanticToken::Head)),
         Rect::new(area.x, y, area.width, 1),
     );
     y += 1;
@@ -357,9 +362,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if visible.is_empty() {
         frame.render_widget(
             Paragraph::new(if github.state_membership_unavailable_v68() {
-                "Queue membership unavailable • use a genuine fresh scope read."
+                "Queue membership unavailable • use a genuine fresh scope read.".to_string()
             } else {
-                "No pull requests in this queue / scope."
+                crate::github_workspace::empty_queue_hint_v1(github.filter, github.queue_counts())
             }),
             Rect::new(area.x, y, area.width, 1),
         );

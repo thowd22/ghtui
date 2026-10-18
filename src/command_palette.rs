@@ -150,6 +150,7 @@ struct PreparedEntry {
     detail: Vec<String>,
     explanation: bool,
     action: Option<Action>,
+    shortcut: String,
 }
 /// Intentionally no Clone/serde: this is transient discovery state, not a
 /// serializable/restored authorization or an approval to execute an operation.
@@ -282,12 +283,12 @@ impl CommandPalette {
                 detail,
                 explanation,
                 action: Some(entry.action),
+                shortcut: String::new(),
             });
         }
-        let visible = (0..prepared.len()).collect();
-        Ok(Self {
+        let mut palette = Self {
             entries: prepared,
-            visible,
+            visible: vec![],
             selected: 0,
             list_top: 0,
             detail_top: 0,
@@ -304,7 +305,25 @@ impl CommandPalette {
             detail_width_v2: 64,
             detail_current_v2: None,
             detail_prior_v2: None,
-        })
+        };
+        palette.filter();
+        Ok(palette)
+    }
+    /// Display-only key hint shown beside a runnable command. It is never
+    /// searched or dispatched; the existing key handler owns that shortcut.
+    pub fn set_shortcut(&mut self, id: &str, key: &str) {
+        if key.is_empty() || key.len() > 32 || !safe_line(key) {
+            return;
+        }
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            entry.shortcut = key.into();
+        }
+    }
+    pub fn shortcut(&self, id: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|entry| entry.id == id && !entry.shortcut.is_empty())
+            .map(|entry| entry.shortcut.as_str())
     }
     pub fn visible_indices(&self) -> &[usize] {
         &self.visible
@@ -432,7 +451,11 @@ impl CommandPalette {
     fn filter(&mut self) {
         let query = self.query.text.trim();
         if query.is_empty() {
-            self.visible = (0..self.entries.len()).collect();
+            // Runnable commands first; unavailable ones keep their original
+            // relative order below so "[why unavailable]" stays discoverable.
+            let (available, unavailable): (Vec<usize>, Vec<usize>) =
+                (0..self.entries.len()).partition(|index| !self.entries[*index].explanation);
+            self.visible = available.into_iter().chain(unavailable).collect();
         } else {
             let folded = query.to_lowercase();
             let pattern = Pattern::new(
@@ -451,7 +474,19 @@ impl CommandPalette {
                     let exact = entry.exact_keywords.iter().any(|word| word == &folded);
                     let score =
                         pattern.score(Utf32Str::new(&entry.search, &mut buffer), &mut matcher);
-                    (exact || score.is_some()).then_some((index, exact, score.unwrap_or(0)))
+                    // A match in the label/keywords/ID outranks one found only
+                    // in an unavailable command's explanation text.
+                    let primary = exact
+                        || entry.exact_keywords.iter().any(|word| {
+                            pattern
+                                .score(Utf32Str::new(word, &mut buffer), &mut matcher)
+                                .is_some()
+                        });
+                    (exact || score.is_some()).then_some((
+                        index,
+                        (exact, primary, !entry.explanation),
+                        score.unwrap_or(0),
+                    ))
                 })
                 .collect::<Vec<_>>();
             scores.sort_by(|left, right| {
@@ -891,6 +926,17 @@ impl CommandPalette {
                 .style(style),
                 rect,
             );
+            let key_width = display_width(&entry.shortcut) as u16;
+            if !entry.explanation
+                && key_width > 0
+                && usize::from(rect.width)
+                    > display_width(&entry.label) + usize::from(key_width) + 6
+            {
+                frame.render_widget(
+                    Paragraph::new(entry.shortcut.as_str()).style(style),
+                    Rect::new(rect.right() - key_width - 1, rect.y, key_width, 1),
+                );
+            }
             hits.push(PaletteHit {
                 rect,
                 action: PaletteAction::Activate(*index),

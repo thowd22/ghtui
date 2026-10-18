@@ -47,6 +47,9 @@ pub fn open_palette(app: &mut App) {
     let prepared =
         PreparedCatalogue::prepare(app, app.command_source_epoch).and_then(|catalogue| {
             CommandPalette::new(catalogue.entries).and_then(|mut palette| {
+                for (id, key) in crate::navigation_catalogue::shortcut_hints(app) {
+                    palette.set_shortcut(&id, &key);
+                }
                 if app.original_tree_viewport_v2.width.saturating_sub(6) >= 20 {
                     palette.prepare_width_v2(
                         app.original_tree_viewport_v2
@@ -297,9 +300,9 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
                 HelpLineKind::Limitation => SemanticToken::Muted,
             };
             lines.extend(
-                crate::ui::notice_lines(&row.text, body.width)
+                help_wrap_v1(&row.text, body.width)
                     .into_iter()
-                    .map(|line| line.style(theme.style(role))),
+                    .map(|line| Line::from(line).style(theme.style(role))),
             );
         }
     }
@@ -367,3 +370,35 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
 #[cfg(test)]
 #[path = "navigation_ui_tests.rs"]
 mod tests;
+
+/// Word-wrapped help rows. Words wider than the row fall back to the shared
+/// grapheme wrapping so nothing is clipped.
+pub(crate) fn help_wrap_v1(text: &str, width: u16) -> Vec<String> {
+    use crate::editor::display_width;
+    let limit = usize::from(width.max(1));
+    let mut rows = Vec::new();
+    let mut row = String::new();
+    for word in text.split(' ').filter(|word| !word.is_empty()) {
+        let needed = display_width(word) + usize::from(!row.is_empty());
+        if !row.is_empty() && display_width(&row) + needed > limit {
+            rows.push(std::mem::take(&mut row));
+        }
+        if row.is_empty() && display_width(word) > limit {
+            let mut pieces = crate::ui::notice_lines(word, width)
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>();
+            row = pieces.pop().unwrap_or_default();
+            rows.extend(pieces);
+            continue;
+        }
+        if !row.is_empty() {
+            row.push(' ');
+        }
+        row.push_str(word);
+    }
+    if !row.is_empty() || rows.is_empty() {
+        rows.push(row);
+    }
+    rows
+}

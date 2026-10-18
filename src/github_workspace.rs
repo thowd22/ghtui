@@ -66,6 +66,33 @@ impl InboxFilter {
     }
 }
 
+/// "Queue: <current> • All N · Created by me N · ..." for the loaded inbox.
+pub fn queue_summary_v1(current: &str, counts: [usize; 4]) -> String {
+    let counts = InboxFilter::ALL
+        .iter()
+        .zip(counts)
+        .map(|((_, label, _), count)| format!("{label} {count}"))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    format!("Queue: {current} • {counts}")
+}
+/// Empty-queue text that points at a populated queue instead of a dead end.
+pub fn empty_queue_hint_v1(filter: InboxFilter, counts: [usize; 4]) -> String {
+    let base = "No pull requests in this queue / scope.";
+    if filter == InboxFilter::All {
+        return format!("{base} Press r to refresh.");
+    }
+    match InboxFilter::ALL
+        .iter()
+        .zip(counts)
+        .find(|((_, _, _), count)| *count > 0)
+    {
+        Some(((_, label, key), count)) => {
+            format!("{base} {label} has {count}: press {key} or click {label} above.")
+        }
+        None => format!("{base} Press r to refresh."),
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PrTab {
     #[default]
@@ -752,6 +779,16 @@ impl GithubWorkspace {
             .iter()
             .filter(|pr| self.filter.accepts(pr) && !self.exclusions.contains(&pr.repository))
             .collect()
+    }
+    /// Loaded PRs per queue (same order as `InboxFilter::ALL`), after exclusions.
+    pub fn queue_counts(&self) -> [usize; 4] {
+        InboxFilter::ALL.map(|(filter, _, _)| {
+            self.inbox
+                .pull_requests
+                .iter()
+                .filter(|pr| filter.accepts(pr) && !self.exclusions.contains(&pr.repository))
+                .count()
+        })
     }
     pub fn selected_index(&self) -> usize {
         self.visible()
