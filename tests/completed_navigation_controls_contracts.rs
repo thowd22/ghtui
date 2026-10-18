@@ -1,7 +1,9 @@
-#[path = "support/completed_navigation_controls_v1.rs"]
+#[path = "support/controls.rs"]
 mod controls;
 #[path = "support/cursorless_frames.rs"]
 mod cursorless_frames;
+#[path = "support/completed_navigation_controls_v1.rs"]
+mod navigation;
 use cursorless_frames::CursorlessFrames;
 
 const SHA: &str = "1234567890123456789012345678901234567890";
@@ -42,8 +44,8 @@ fn detail_bytes(height: u16, width: u16, offset: usize) -> Vec<u8> {
     }
     bytes
 }
-fn observe_details(frame: &vt100::Screen) -> Option<controls::OwnedDetailsV1> {
-    controls::owned_details_v1(frame, CATALOGUE, DETAIL_ROW)
+fn observe_details(frame: &vt100::Screen) -> Option<navigation::OwnedDetailsV1> {
+    navigation::owned_details_v1(frame, CATALOGUE, DETAIL_ROW)
 }
 #[test]
 fn owned_input_frames_v1_detail_goal_and_real_field_movement_are_observed() {
@@ -144,11 +146,11 @@ fn owned_input_frames_v1_catalogue_close_underlined_owner_not_unrelated_body_foc
     let mut parser = vt100::Parser::new(24, 80, 0);
     let mut frames = CursorlessFrames::default();
     let observe = |screen: &vt100::Screen| {
-        controls::owned_focus_v1(
+        navigation::owned_focus_v1(
             screen,
             CATALOGUE,
             "[Esc Close]",
-            controls::FocusAttributeV1::Underline,
+            navigation::FocusAttributeV1::Underline,
             &["[Esc Close]", "[q Quit]"],
             &[],
         )
@@ -191,12 +193,12 @@ fn form_focus_bytes(height: u16, width: u16, selected: Option<usize>) -> Vec<u8>
     }
     bytes
 }
-fn form_focus(frame: &vt100::Screen) -> Option<controls::OwnedFocusV1> {
-    controls::owned_focus_v1(
+fn form_focus(frame: &vt100::Screen) -> Option<navigation::OwnedFocusV1> {
+    navigation::owned_focus_v1(
         frame,
         FORM,
         "[Confirm action]",
-        controls::FocusAttributeV1::Inverse,
+        navigation::FocusAttributeV1::Inverse,
         FORM_CONTROLS,
         &[],
     )
@@ -258,12 +260,12 @@ fn review_focus_bytes(height: u16, width: u16, selected: usize) -> Vec<u8> {
     }
     bytes
 }
-fn review_focus(frame: &vt100::Screen) -> Option<controls::OwnedFocusV1> {
-    controls::owned_focus_v1(
+fn review_focus(frame: &vt100::Screen) -> Option<navigation::OwnedFocusV1> {
+    navigation::owned_focus_v1(
         frame,
         "Scoped reviews",
         "[> Right]",
-        controls::FocusAttributeV1::Inverse,
+        navigation::FocusAttributeV1::Inverse,
         &REVIEW_FOCUS_CONTROLS,
         &[],
     )
@@ -315,11 +317,11 @@ fn test_framework_review_focus_anchor_budget_is_thirty_two_including_notices() {
     complete(&mut parser, &mut frames, &bytes);
     let frame = frames.last_cells.as_ref().unwrap();
     let observe = |declared: &[&str], notices: &[&str]| {
-        controls::owned_focus_v1(
+        navigation::owned_focus_v1(
             frame,
             "Bounded focus",
             "[K31]",
-            controls::FocusAttributeV1::Inverse,
+            navigation::FocusAttributeV1::Inverse,
             declared,
             notices,
         )
@@ -468,11 +470,11 @@ fn owned_input_frames_v1_picker_query_rows_and_choose_are_explicit_unique_focus_
     let mut parser = vt100::Parser::new(24, 80, 0);
     let mut frames = CursorlessFrames::default();
     let observe = |frame: &vt100::Screen| {
-        controls::owned_focus_v1(
+        navigation::owned_focus_v1(
             frame,
             PICKER,
             "[Enter Choose]",
-            controls::FocusAttributeV1::Inverse,
+            navigation::FocusAttributeV1::Inverse,
             &["[Enter Choose]", "[Esc Back]"],
             &["Filter focused:", "· Rows focused"],
         )
@@ -507,14 +509,14 @@ fn completed_frame_actions_explicit_actions_owner_not_inbox_title_guess() {
         bytes.extend_from_slice(b"\x1b[12;2H> Reported exact test");
         complete(&mut parser, &mut frames, &bytes);
         let screen = frames.last.as_ref().unwrap();
-        assert!(controls::progress_selection(screen, "Reported exact test").is_none());
-        assert!(controls::progress_selection_in(
+        assert!(navigation::progress_selection(screen, "Reported exact test").is_none());
+        assert!(navigation::progress_selection_in(
             screen,
             "Repository • focused view",
             "Reported exact test"
         )
         .is_none());
-        let selection = controls::progress_selection_in(
+        let selection = navigation::progress_selection_in(
             screen,
             "Actions • focused view",
             "Reported exact test",
@@ -523,7 +525,7 @@ fn completed_frame_actions_explicit_actions_owner_not_inbox_title_guess() {
         assert_eq!(selection.selected_row, Some(selection.target.1));
         bytes.extend_from_slice(b"\x1b[14;2HReported exact test");
         complete(&mut parser, &mut frames, &bytes);
-        assert!(controls::progress_selection_in(
+        assert!(navigation::progress_selection_in(
             frames.last.as_ref().unwrap(),
             "Actions • focused view",
             "Reported exact test"
@@ -543,12 +545,13 @@ fn completed_frame_actions_none_to_none_is_not_an_arrow_acknowledgement() {
         frames.end > before,
         "A genuinely new completed frame is still not selection evidence"
     );
-    let none = controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+    let none =
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
     assert!(!none.acknowledges_change_from(None));
     assert!(!none.acknowledges_change_from(Some(5)));
     complete(&mut parser, &mut frames, &progress_bytes(Some(9)));
     let selected =
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
     assert!(selected.acknowledges_change_from(None));
     assert!(selected.acknowledges_change_from(Some(5)));
     assert!(!selected.acknowledges_change_from(selected.selected_row));
@@ -564,7 +567,7 @@ fn completed_frame_actions_explicit_owner_partial_selected_frame_cannot_acknowle
     let before = frames.end;
     let partial = b"\x1b[12;2H> Reported exact test";
     frames.process(&mut parser, partial, before);
-    let position = controls::progress_selection_in(
+    let position = navigation::progress_selection_in(
         frames.last.as_ref().unwrap(),
         "Actions • focused view",
         "Reported exact test",
@@ -573,7 +576,7 @@ fn completed_frame_actions_explicit_owner_partial_selected_frame_cannot_acknowle
     assert!(!position.acknowledges_change_from(None));
     assert_eq!(frames.end, before);
     frames.process(&mut parser, b"\x1b[?25l", before + partial.len());
-    let position = controls::progress_selection_in(
+    let position = navigation::progress_selection_in(
         frames.last.as_ref().unwrap(),
         "Actions • focused view",
         "Reported exact test",
@@ -601,7 +604,7 @@ fn completed_frame_actions_scoped_checks_v1_overshot_status_requires_up_to_genui
             &scoped_check_bytes(height, width, 13),
         );
         let selection =
-            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).unwrap();
+            navigation::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).unwrap();
         assert_eq!(selection.target.1, 11);
         assert_eq!(selection.selected_row, Some(12));
         assert!(
@@ -623,7 +626,7 @@ fn completed_frame_actions_scoped_checks_v1_already_selected_and_duplicate_label
             &scoped_check_bytes(height, width, 12),
         );
         let selection =
-            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).unwrap();
+            navigation::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).unwrap();
         assert_eq!(
             selection.selected_row,
             Some(selection.target.1),
@@ -633,7 +636,7 @@ fn completed_frame_actions_scoped_checks_v1_already_selected_and_duplicate_label
         duplicate.extend_from_slice(format!("\x1b[15;3H{SCOPED_CHECK}").as_bytes());
         complete(&mut parser, &mut frames, &duplicate);
         assert!(
-            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).is_none()
+            navigation::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK).is_none()
         );
     }
 }
@@ -652,13 +655,13 @@ fn completed_frame_actions_scoped_checks_v1_partial_selection_and_resize_cannot_
         let next = scoped_check_bytes(height, width, 12);
         frames.process(&mut parser, &next, old_end);
         assert_eq!(
-            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK)
+            navigation::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK)
                 .unwrap()
                 .selected_row,
             Some(12)
         );
         assert_eq!(
-            controls::progress_selection(parser.screen(), SCOPED_CHECK)
+            navigation::progress_selection(parser.screen(), SCOPED_CHECK)
                 .unwrap()
                 .selected_row,
             Some(11)
@@ -667,7 +670,7 @@ fn completed_frame_actions_scoped_checks_v1_partial_selection_and_resize_cannot_
         frames.process(&mut parser, b"\x1b[?25l", old_end + next.len());
         assert!(frames.end > old_end);
         assert_eq!(
-            controls::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK)
+            navigation::progress_selection(frames.last.as_ref().unwrap(), SCOPED_CHECK)
                 .unwrap()
                 .selected_row,
             Some(11)
@@ -702,7 +705,7 @@ fn completed_frame_actions_focused_cell_marker_all_splits_keep_cursorless_proof_
             .contains("old cursorless source"));
         assert_eq!(frames.cells_end, old.len() + parent.len());
         assert_eq!(
-            controls::owned_action_position(
+            navigation::owned_action_position(
                 frames.last_cells.as_ref().unwrap(),
                 CATALOGUE,
                 "[Esc Close]",
@@ -726,7 +729,7 @@ fn completed_frame_actions_partial_focused_marker_and_cursor_placement_do_not_fo
     let end = frames.cells_end;
     assert!(frames.last.is_none());
     assert_eq!(
-        controls::owned_action_position(
+        navigation::owned_action_position(
             frames.last_cells.as_ref().unwrap(),
             CATALOGUE,
             "[Esc Close]",
@@ -763,7 +766,7 @@ fn completed_frame_actions_observer_already_selected_target_needs_no_next_arrow(
     bytes.extend_from_slice(format!("\x1b[8;2H> {PROGRESS_FILE}").as_bytes());
     complete(&mut parser, &mut frames, &bytes);
     let position =
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
     assert_eq!(position.selected_row, Some(position.target.1));
 }
 
@@ -773,7 +776,7 @@ fn completed_frame_actions_observer_target_above_selected_row_requires_up_not_mo
     let mut frames = CursorlessFrames::default();
     complete(&mut parser, &mut frames, &progress_bytes(Some(9)));
     let position =
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
     assert!(position.selected_row.unwrap() > position.target.1);
 }
 
@@ -783,7 +786,7 @@ fn completed_frame_actions_observer_target_below_current_row_has_one_unambiguous
     let mut frames = CursorlessFrames::default();
     complete(&mut parser, &mut frames, &progress_bytes(Some(6)));
     let position =
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
     assert!(position.selected_row.unwrap() < position.target.1);
 }
 
@@ -793,7 +796,7 @@ fn completed_frame_actions_observer_no_selected_row_is_not_a_fabricated_selected
     let mut frames = CursorlessFrames::default();
     complete(&mut parser, &mut frames, &progress_bytes(None));
     let position =
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).unwrap();
     assert_eq!(position.selected_row, None);
     assert_eq!(position.target, (2, 7));
 }
@@ -814,7 +817,7 @@ fn completed_frame_actions_observer_duplicate_target_or_selected_rows_refuse_geo
         );
         complete(&mut parser, &mut frames, &bytes);
         assert!(
-            controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).is_none()
+            navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE).is_none()
         );
     }
 }
@@ -828,13 +831,13 @@ fn completed_frame_actions_observer_partial_new_selection_cannot_satisfy_complet
     let next = progress_bytes(Some(9));
     frames.process(&mut parser, &next, before);
     assert_eq!(
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE)
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE)
             .unwrap()
             .selected_row,
         Some(5)
     );
     assert_eq!(
-        controls::progress_selection(parser.screen(), PROGRESS_FILE)
+        navigation::progress_selection(parser.screen(), PROGRESS_FILE)
             .unwrap()
             .selected_row,
         Some(8)
@@ -842,7 +845,7 @@ fn completed_frame_actions_observer_partial_new_selection_cannot_satisfy_complet
     frames.process(&mut parser, b"\x1b[?25l", before + next.len());
     assert!(frames.end > before);
     assert_eq!(
-        controls::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE)
+        navigation::progress_selection(frames.last.as_ref().unwrap(), PROGRESS_FILE)
             .unwrap()
             .selected_row,
         Some(8)
@@ -861,7 +864,7 @@ fn completed_frame_actions_observer_nested_overlay_cannot_supply_parent_close_co
         bytes.extend_from_slice(b"\x1b[21;55H[Esc Close]");
         bytes.extend_from_slice(format!("\x1b[10;5H{nested}").as_bytes());
         complete(&mut parser, &mut frames, &bytes);
-        assert!(controls::owned_action_position(
+        assert!(navigation::owned_action_position(
             frames.last.as_ref().unwrap(),
             CATALOGUE,
             "[Esc Close]",
@@ -884,7 +887,7 @@ fn completed_frame_actions_observer_new_parent_close_uses_complete_current_geome
         let mut parent = box_bytes(CATALOGUE, height, width);
         parent.extend_from_slice(format!("\x1b[{};{x}H[Esc Close]", height - 3).as_bytes());
         frames.process(&mut parser, &parent, after);
-        assert!(controls::owned_action_position(
+        assert!(navigation::owned_action_position(
             frames.last.as_ref().unwrap(),
             CATALOGUE,
             "[Esc Close]",
@@ -893,7 +896,7 @@ fn completed_frame_actions_observer_new_parent_close_uses_complete_current_geome
         .is_none());
         frames.process(&mut parser, b"\x1b[?25l", after + parent.len());
         assert_eq!(
-            controls::owned_action_position(
+            navigation::owned_action_position(
                 frames.last.as_ref().unwrap(),
                 CATALOGUE,
                 "[Esc Close]",
@@ -972,21 +975,21 @@ fn scoped_actions_test_framework_ready_control_rejects_pending_decorated_caption
         .contents()
         .contains("[) Next runs]"));
     assert!(
-        controls::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]").is_none()
+        navigation::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]").is_none()
     );
     let before = frames.end;
     let ready = scoped_actions_ready_bytes_v4();
     frames.process(&mut parser, &ready, before);
     assert!(
-        controls::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]")
+        navigation::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]")
             .is_none()
     );
     frames.process(&mut parser, b"\x1b[?25l", before + ready.len());
     assert_eq!(
-        controls::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]"),
+        navigation::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]"),
         Some((1, 6))
     );
-    assert!(controls::scoped_actions_ready_control_position_v4(
+    assert!(navigation::scoped_actions_ready_control_position_v4(
         &frames,
         frames.end,
         "[) Next runs]"
@@ -1006,7 +1009,7 @@ fn scoped_actions_test_framework_ready_control_refuses_wrong_page_ghost_body_and
         bytes.extend_from_slice(suffix.as_bytes());
         complete(&mut parser, &mut frames, &bytes);
         assert!(
-            controls::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]")
+            navigation::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]")
                 .is_none()
         );
     }
@@ -1018,19 +1021,19 @@ fn scoped_actions_test_framework_jobs_wait_rejects_old_shared_labels_and_partial
     let mut frames = CursorlessFrames::default();
     complete(&mut parser, &mut frames, &scoped_actions_layout_v2(false));
     assert!(frames.last.as_ref().unwrap().contents().contains("Job 501"));
-    assert!(controls::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", SHA).is_none());
+    assert!(navigation::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", SHA).is_none());
     let before = frames.end;
     let bytes = scoped_actions_layout_v2(true);
     frames.process(&mut parser, &bytes, before);
     assert!(parser.screen().contents().contains("/ Jobs and steps /"));
-    assert!(controls::scoped_actions_jobs_position_v2(&frames, before, "Job 501", SHA).is_none());
+    assert!(navigation::scoped_actions_jobs_position_v2(&frames, before, "Job 501", SHA).is_none());
     frames.process(&mut parser, b"\x1b[?25l", before + bytes.len());
     assert_eq!(
-        controls::scoped_actions_jobs_position_v2(&frames, before, "Job 501", SHA),
+        navigation::scoped_actions_jobs_position_v2(&frames, before, "Job 501", SHA),
         Some((1, 17))
     );
     assert!(
-        controls::scoped_actions_jobs_position_v2(&frames, frames.end, "Job 501", SHA).is_none()
+        navigation::scoped_actions_jobs_position_v2(&frames, frames.end, "Job 501", SHA).is_none()
     );
 }
 
@@ -1046,13 +1049,14 @@ fn scoped_actions_test_framework_jobs_refuses_duplicate_wrong_head_pending_or_mo
         let mut bytes = scoped_actions_layout_v2(true);
         bytes.extend_from_slice(suffix.as_bytes());
         complete(&mut parser, &mut frames, &bytes);
-        assert!(controls::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", SHA).is_none());
+        assert!(navigation::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", SHA).is_none());
     }
     let mut parser = vt100::Parser::new(24, 80, 0);
     let mut frames = CursorlessFrames::default();
     complete(&mut parser, &mut frames, &scoped_actions_layout_v2(true));
     assert!(
-        controls::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", &"a".repeat(40)).is_none()
+        navigation::scoped_actions_jobs_position_v2(&frames, 0, "Job 501", &"a".repeat(40))
+            .is_none()
     );
 }
 
@@ -1063,12 +1067,12 @@ fn scoped_actions_test_framework_focus_observes_header_to_current_disabled_contr
     let mut bytes = actions_bytes(24, 80, 3);
     bytes.extend_from_slice(b"\x1b[1;1H\x1b[4m[Back]\x1b[0m\x1b[8;2H[Rerun all jobs unavailable: original source required]");
     complete(&mut parser, &mut frames, &bytes);
-    let page = controls::actions_page(&frames, 0).unwrap();
-    let before = controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
+    let page = navigation::actions_page(&frames, 0).unwrap();
+    let before = navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
     assert!(!before.target_focused);
     assert!(before.underlined.contains(&(0, 0)));
     complete(&mut parser, &mut frames, b"\x1b[1;1H\x1b[0m[Back]\x1b[8;2H\x1b[4m[Rerun all jobs unavailable: original source required]\x1b[0m");
-    let after = controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
+    let after = navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
     assert!(after.target_focused);
     assert_ne!(after.underlined, before.underlined);
 }
@@ -1080,17 +1084,17 @@ fn scoped_actions_test_framework_focus_repaint_foreign_page_or_duplicate_cannot_
     let mut bytes = actions_bytes(24, 80, 3);
     bytes.extend_from_slice(b"\x1b[8;2H[Rerun all jobs unavailable: original source required]");
     complete(&mut parser, &mut frames, &bytes);
-    let page = controls::actions_page(&frames, 0).unwrap();
-    let before = controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
+    let page = navigation::actions_page(&frames, 0).unwrap();
+    let before = navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
     complete(&mut parser, &mut frames, &bytes);
     assert_eq!(
-        controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap(),
+        navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap(),
         before
     );
     complete(&mut parser, &mut frames, b"\x1b[9;2HRerun all jobs");
-    assert!(controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
+    assert!(navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
     complete(&mut parser, &mut frames, &actions_bytes(24, 80, 4));
-    assert!(controls::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
+    assert!(navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
 }
 
 #[test]
@@ -1107,7 +1111,7 @@ fn navigation_local_palette_test_framework_new_completed_graph_not_partial_saved
         assert!(parser.screen().contents().contains(SHA));
         assert!(parser.screen().contents().contains("[g Graph]"));
         assert!(!parser.screen().contents().contains("Search • focused view"));
-        assert!(controls::saved_graph_position(&frames, before, SHA, SUBJECT, STATUS).is_none());
+        assert!(navigation::saved_graph_position(&frames, before, SHA, SUBJECT, STATUS).is_none());
         assert!(frames
             .last
             .as_ref()
@@ -1116,11 +1120,11 @@ fn navigation_local_palette_test_framework_new_completed_graph_not_partial_saved
             .contains("Search • focused view"));
         frames.process(&mut parser, b"\x1b[?25l", before + repaint.len());
         assert_eq!(
-            controls::saved_graph_position(&frames, before, SHA, SUBJECT, STATUS),
+            navigation::saved_graph_position(&frames, before, SHA, SUBJECT, STATUS),
             Some((2, 14))
         );
         assert!(
-            controls::saved_graph_position(&frames, frames.end, SHA, SUBJECT, STATUS).is_none(),
+            navigation::saved_graph_position(&frames, frames.end, SHA, SUBJECT, STATUS).is_none(),
             "A previous completed return cannot satisfy another user intent"
         );
     }
@@ -1143,7 +1147,7 @@ fn navigation_local_palette_test_framework_exact_full_source_inverse_and_owned_g
         bytes.extend_from_slice(wrong.as_bytes());
         complete(&mut parser, &mut frames, &bytes);
         assert!(
-            controls::saved_graph_position(&frames, 0, SHA, SUBJECT, STATUS).is_none(),
+            navigation::saved_graph_position(&frames, 0, SHA, SUBJECT, STATUS).is_none(),
             "Rejected malformed source/focus/owned box: {wrong:?}"
         );
     }
@@ -1155,33 +1159,33 @@ fn pr_checks_bridge_test_framework_actions_page_requires_new_completed_exact_geo
         let mut parser = vt100::Parser::new(height, width, 0);
         let mut frames = CursorlessFrames::default();
         complete(&mut parser, &mut frames, &actions_bytes(height, width, 1));
-        let old = controls::actions_page(&frames, 0).unwrap();
+        let old = navigation::actions_page(&frames, 0).unwrap();
         assert_eq!((old.current, old.total), (1, 6));
         assert_eq!(old.previous, (1, 5));
         assert_eq!(old.next, (14, 5));
         assert_eq!(
-            controls::actions_control_position(&frames, &old, WATCH),
+            navigation::actions_control_position(&frames, &old, WATCH),
             Some((1, 6))
         );
         let before = frames.end;
         let partial = actions_bytes(height, width, 2);
         frames.process(&mut parser, &partial, before);
         assert!(parser.screen().contents().contains("2/6"));
-        assert!(controls::actions_page(&frames, before).is_none());
-        assert_eq!(controls::actions_page(&frames, 0).unwrap().current, 1);
+        assert!(navigation::actions_page(&frames, before).is_none());
+        assert_eq!(navigation::actions_page(&frames, 0).unwrap().current, 1);
         frames.process(&mut parser, b"\x1b[?25l", before + partial.len());
-        let new = controls::actions_page(&frames, before).unwrap();
+        let new = navigation::actions_page(&frames, before).unwrap();
         assert_eq!((new.current, new.total), (2, 6));
         assert!(
-            controls::actions_control_position(&frames, &old, WATCH).is_none(),
+            navigation::actions_control_position(&frames, &old, WATCH).is_none(),
             "Never reuse a prior control-page coordinate lease"
         );
         assert_eq!(
-            controls::actions_control_position(&frames, &new, WATCH),
+            navigation::actions_control_position(&frames, &new, WATCH),
             Some((1, 6))
         );
         frames.invalidate_size();
-        assert!(controls::actions_page(&frames, 0).is_none());
+        assert!(navigation::actions_page(&frames, 0).is_none());
     }
 }
 
@@ -1199,8 +1203,8 @@ fn pr_checks_bridge_test_framework_actions_control_refuses_ghost_rows_notice_and
         bytes.extend_from_slice(extra.as_bytes());
         complete(&mut parser, &mut frames, &bytes);
         assert!(
-            controls::actions_page(&frames, 0).is_none_or(|page| {
-                controls::actions_control_position(&frames, &page, WATCH).is_none()
+            navigation::actions_page(&frames, 0).is_none_or(|page| {
+                navigation::actions_control_position(&frames, &page, WATCH).is_none()
             }),
             "Ambiguous/covered/incomplete control must refuse: {extra:?}"
         );
@@ -1210,9 +1214,9 @@ fn pr_checks_bridge_test_framework_actions_control_refuses_ghost_rows_notice_and
     let mut bytes = actions_bytes(40, 120, 1);
     bytes.extend_from_slice(format!("\x1b[7;2H\x1b[2K│\x1b[7;120H│\x1b[30;2H{WATCH} user log body]\x1b[2;1H{WATCH} underlying header]\x1b[40;1H{WATCH} footer]").as_bytes());
     complete(&mut parser, &mut frames, &bytes);
-    let page = controls::actions_page(&frames, 0).unwrap();
+    let page = navigation::actions_page(&frames, 0).unwrap();
     assert!(
-        controls::actions_control_position(&frames, &page, WATCH).is_none(),
+        navigation::actions_control_position(&frames, &page, WATCH).is_none(),
         "Only actually rendered control rows, not body/header/footer strings"
     );
 }
@@ -1226,7 +1230,7 @@ fn pr_checks_bridge_test_framework_actions_page_numbers_are_positive_bounded_and
         bytes.extend_from_slice(format!("\x1b[6;2H\x1b[2K[← Controls] [Controls →] {page} • [] change control page\x1b[6;120H│").as_bytes());
         complete(&mut parser, &mut frames, &bytes);
         assert!(
-            controls::actions_page(&frames, 0).is_none(),
+            navigation::actions_page(&frames, 0).is_none(),
             "Never guess malformed page metadata: {page}"
         );
     }
@@ -1237,5 +1241,59 @@ fn pr_checks_bridge_test_framework_actions_page_numbers_are_positive_bounded_and
         &mut frames,
         &box_bytes("Inbox • focused view", 40, 120),
     );
-    assert!(controls::actions_page(&frames, 0).is_none());
+    assert!(navigation::actions_page(&frames, 0).is_none());
+}
+
+fn rounded_bytes(bytes: Vec<u8>) -> Vec<u8> {
+    String::from_utf8(bytes)
+        .unwrap()
+        .replace('┌', "╭")
+        .replace('┐', "╮")
+        .replace('└', "╰")
+        .replace('┘', "╯")
+        .into_bytes()
+}
+
+#[test]
+fn completed_frame_actions_rounded_owned_box_and_nested_overlay_match_square_geometry() {
+    for (height, width) in [(24, 80), (42, 140)] {
+        let mut square_bytes = box_bytes(CATALOGUE, height, width);
+        square_bytes.extend_from_slice(b"\x1b[12;55H[Esc Close]");
+        let mut observed = Vec::new();
+        for bytes in [square_bytes.clone(), rounded_bytes(square_bytes.clone())] {
+            let mut parser = vt100::Parser::new(height, width, 0);
+            let mut frames = CursorlessFrames::default();
+            complete(&mut parser, &mut frames, &bytes);
+            observed.push(navigation::owned_action_position(
+                frames.last.as_ref().unwrap(),
+                CATALOGUE,
+                "[Esc Close]",
+                &[],
+            ));
+        }
+        assert_eq!(observed, [Some((54, 11)), Some((54, 11))]);
+        // A rounded nested complete overlay still owns input over its parent.
+        let focus = |bytes: &[u8]| {
+            let mut parser = vt100::Parser::new(height, width, 0);
+            let mut frames = CursorlessFrames::default();
+            complete(&mut parser, &mut frames, bytes);
+            navigation::owned_focus_v1(
+                frames.last.as_ref().unwrap(),
+                CATALOGUE,
+                "[Esc Close]",
+                navigation::FocusAttributeV1::Underline,
+                &["[Esc Close]"],
+                &[],
+            )
+            .map(|focus| focus.target)
+        };
+        assert_eq!(focus(&rounded_bytes(square_bytes.clone())), Some((54, 11)));
+        let mut nested = rounded_bytes(square_bytes);
+        nested.extend_from_slice("\x1b[7;5H╭ Nested ╮\x1b[9;5H╰\x1b[9;14H╯".as_bytes());
+        assert_eq!(focus(&nested), None);
+        assert_eq!(
+            controls::view_title("Repository"),
+            "Repository • focused view"
+        );
+    }
 }

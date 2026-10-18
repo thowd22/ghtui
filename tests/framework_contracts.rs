@@ -735,3 +735,239 @@ fn test_framework_real_git_builder_preserves_unusual_paths_and_merge_ancestry() 
         .verify_git_effect(&["rev-parse", "HEAD"], "incorrect expected object\n")
         .is_err());
 }
+
+#[test]
+fn test_framework_controls_parse_bracketed_and_footer_labels_with_terminal_key_bytes() {
+    use support::Control;
+    let logs = Control::parse("[l Logs]");
+    assert_eq!(logs.key.as_deref(), Some("l"));
+    assert_eq!(logs.text, "Logs");
+    assert!(logs.bracketed);
+    assert_eq!(logs.footer_form(), "l Logs");
+    assert_eq!(logs.key_bytes().as_deref(), Some(&b"l"[..]));
+    let footer = Control::parse("3 Search");
+    assert!(!footer.bracketed);
+    assert_eq!(footer.key.as_deref(), Some("3"));
+    assert_eq!(footer.text, "Search");
+    for (label, bytes) in [
+        ("[Esc Close editor]", &b"\x1b"[..]),
+        ("[Enter Choose]", b"\r"),
+        ("[F4 Edit]", b"\x1bOS"),
+        ("[F8 Notifications]", b"\x1b[19~"),
+        ("[F11 Preview]", b"\x1b[23~"),
+        ("[PgUp Page]", b"\x1b[5~"),
+        ("[PgDn Page]", b"\x1b[6~"),
+        ("[Space Toggle]", b" "),
+        ("[? Help]", b"?"),
+        ("[: Commands]", b":"),
+        ("[/ Query]", b"/"),
+        ("[Home First]", b"\x1b[H"),
+        ("[Ctrl-U Clear]", b"\x15"),
+        ("[Ctrl-PgDn Detail]", b"\x1b[6;5~"),
+        ("[Ctrl-Enter Submit]", b"\x1b[13;5u"),
+        ("[← Controls]", b"\x1b[D"),
+        ("[Shift-Tab Previous]", b"\x1b[Z"),
+    ] {
+        assert_eq!(
+            Control::parse(label).key_bytes().as_deref(),
+            Some(bytes),
+            "{label}"
+        );
+    }
+    for label in [
+        "[Confirm action]",
+        "[Keep draft / Close]",
+        "[Preview]",
+        "[Controls →]",
+        "Saved: ",
+    ] {
+        let control = Control::parse(label);
+        assert_eq!(control.key, None, "{label} names no key");
+        assert_eq!(control.key_bytes(), None);
+    }
+    assert_eq!(Control::parse("[Confirm action]").text, "Confirm action");
+    assert!(!Control::parse("[Esc] [Close]").bracketed);
+    assert!(!Control::parse("[]").bracketed);
+}
+
+#[test]
+fn test_framework_controls_corners_accept_square_and_rounded_only() {
+    use support::controls::{is_corner, Corner};
+    for (corner, square, rounded) in [
+        (Corner::TopLeft, "┌", "╭"),
+        (Corner::TopRight, "┐", "╮"),
+        (Corner::BottomLeft, "└", "╰"),
+        (Corner::BottomRight, "┘", "╯"),
+    ] {
+        assert!(is_corner(square, corner) && is_corner(rounded, corner));
+        for other in ["─", "│", "+", "", "╋"] {
+            assert!(!is_corner(other, corner));
+        }
+    }
+    assert!(!is_corner("┐", Corner::TopLeft) && !is_corner("╯", Corner::BottomLeft));
+}
+
+fn rounded(frame: &str) -> String {
+    frame
+        .replace('┌', "╭")
+        .replace('┐', "╮")
+        .replace('└', "╰")
+        .replace('┘', "╯")
+}
+
+#[test]
+fn test_framework_controls_rounded_boxes_satisfy_every_border_predicate() {
+    use support::{owned_resize_controls_ready_v1 as ready, ResizeToolbarV1};
+    // Vertical editor, control block, header and bottom toolbars.
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    parser.process(format!("\x1b[1;1H╭ {VERTICAL_TITLE_V4}\x1b[1;80H╮").as_bytes());
+    for row in 2..24 {
+        parser.process(format!("\x1b[{row};1H│\x1b[{row};80H│").as_bytes());
+    }
+    for (i, action) in VERTICAL_ACTIONS_V4.iter().enumerate() {
+        parser.process(format!("\x1b[{};2H{action}", 13 + i).as_bytes());
+    }
+    parser.process(b"\x1b[24;1H\xe2\x95\xb0\x1b[24;80H\xe2\x95\xaf");
+    assert!(support::owned_vertical_controls_ready_v4(
+        parser.screen(),
+        VERTICAL_TITLE_V4,
+        12,
+        &VERTICAL_ACTIONS_V4
+    ));
+    let title = "PR review threads • read only";
+    let actions = ["[Esc Back]", "[q Quit]"];
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    parser.process(format!("\x1b[1;1H╭ {title}\x1b[2;2H[Esc Back] [q Quit]").as_bytes());
+    parser.process(b"\x1b[24;1H\xe2\x95\xb0\x1b[24;80H\xe2\x95\xaf");
+    assert!(ready(
+        parser.screen(),
+        title,
+        &actions,
+        ResizeToolbarV1::Header
+    ));
+    let mut parser = vt100::Parser::new(12, 40, 0);
+    parser.process(
+        rounded("\x1b[1;1H┌ Owned block\x1b[1;40H┐\x1b[11;1H│[A First] [B Second]\x1b[11;40H│\x1b[12;1H└\x1b[12;40H┘")
+            .as_bytes(),
+    );
+    assert!(support::owned_control_block_ready_v3(
+        parser.screen(),
+        "Owned block",
+        &["[A First]", "[B Second]"]
+    ));
+    // Overlay body and the owned PR menu stop at a rounded bottom border.
+    let mut terminal = vt100::Parser::new(8, 80, 0);
+    terminal.process(
+        rounded(
+            "\x1b[1;1H┌Source • detail──┐\x1b[2;1H│ body text       │\x1b[3;1H└─────────────────┘",
+        )
+        .as_bytes(),
+    );
+    assert_eq!(
+        support::overlay_body(terminal.screen(), "Source • detail").as_deref(),
+        Some(" body text       \n")
+    );
+    let menu = rounded(
+        "┌ PR actions • native workflows ┐\n│ > Add label │\n└─────┘\n│ > Remove label │\n",
+    );
+    assert_eq!(
+        support::selected_pr_menu_row(&menu).as_deref(),
+        Some("Add label")
+    );
+}
+
+fn footer_frame(rows: u16, cols: u16, body: &str, footer: &str) -> vt100::Parser {
+    let mut parser = vt100::Parser::new(rows, cols, 0);
+    parser.process(format!("\x1b[2;3H{body}\x1b[{rows};1H{footer}").as_bytes());
+    parser
+}
+
+#[test]
+fn test_framework_locate_control_prefers_exact_brackets_and_reads_tokens_only_in_key_bar() {
+    use support::locate_control;
+    let footer = "enter open job  l logs  R rerun failed  : commands  ? Help  q Quit";
+    for (rows, cols) in [(24, 80), (42, 140)] {
+        let parser = footer_frame(rows, cols, "Read l Logs here [x Cancel]", footer);
+        let screen = parser.screen();
+        assert_eq!(locate_control(screen, "[x Cancel]"), Some((19, 1)));
+        assert_eq!(
+            locate_control(screen, "[l Logs]"),
+            Some((16, rows - 1)),
+            "body prose with the same words is not a target"
+        );
+        assert_eq!(
+            locate_control(screen, "[R Rerun failed]"),
+            Some((24, rows - 1))
+        );
+        assert_eq!(locate_control(screen, "[q Quit]"), Some((60, rows - 1)));
+        assert_eq!(
+            locate_control(screen, "[Enter Open job]"),
+            Some((0, rows - 1))
+        );
+        assert_eq!(
+            locate_control(screen, "[R Rerun]"),
+            None,
+            "a token prefix is not a whole control"
+        );
+        assert_eq!(locate_control(screen, "[g Logs]"), None);
+        assert_eq!(locate_control(screen, "[x Cancel job]"), None);
+        // Unbracketed labels keep plain text semantics anywhere.
+        assert_eq!(locate_control(screen, "l Logs"), Some((7, 1)));
+        let bracketed = footer_frame(rows, cols, "Read l Logs here", "[l Logs] [? Help]");
+        assert_eq!(
+            locate_control(bracketed.screen(), "[l Logs]"),
+            Some((0, rows - 1))
+        );
+    }
+    let parser = footer_frame(24, 80, "", "all Logs");
+    assert_eq!(locate_control(parser.screen(), "[l Logs]"), None);
+}
+
+#[test]
+fn test_framework_main_footer_accepts_bracketed_or_token_form_in_last_row_only() {
+    for (rows, cols) in [(24, 80), (42, 140)] {
+        let token = footer_frame(rows, cols, "", "r refresh  : commands  ? Help  q Quit");
+        assert!(support::main_footer_visible(token.screen()));
+        let lower = footer_frame(rows, cols, "", "r refresh  ? help  q quit");
+        assert!(support::main_footer_visible(lower.screen()));
+        let partial = footer_frame(rows, cols, "? Help  q Quit", "r refresh  ? Help");
+        assert!(
+            !support::main_footer_visible(partial.screen()),
+            "body tokens cannot complete a partially painted key bar"
+        );
+        let glued = footer_frame(rows, cols, "", "x? Help  q Quitting");
+        assert!(!support::main_footer_visible(glued.screen()));
+        let bracketed = footer_frame(rows, cols, "", "[? Help] [q Quit]");
+        assert!(support::main_footer_visible(bracketed.screen()));
+    }
+}
+
+#[test]
+fn test_framework_footer_resize_requires_declared_subset_in_actual_last_row() {
+    use support::{owned_resize_controls_ready_v1 as ready, ResizeToolbarV1};
+    const REQUIRED: &[&str] = &["[l Logs]", "[? Help]", "[q Quit]"];
+    let footer = ResizeToolbarV1::Footer { required: REQUIRED };
+    for (rows, cols) in [(24, 80), (42, 140)] {
+        let title = support::view_title("Actions");
+        let parser = footer_frame(rows, cols, &title, "l logs  x cancel  ? Help  q Quit");
+        assert!(ready(parser.screen(), &title, &[], footer));
+        assert!(!ready(parser.screen(), "Inbox • focused view", &[], footer));
+        let missing = footer_frame(rows, cols, &title, "x cancel  ? Help  q Quit");
+        assert!(!ready(missing.screen(), &title, &[], footer));
+        let above = footer_frame(rows, cols, &format!("{title} l Logs"), "? Help  q Quit");
+        assert!(
+            !ready(above.screen(), &title, &[], footer),
+            "a required control above the key bar is not in the footer"
+        );
+        let bracketed = footer_frame(rows, cols, &title, "[l Logs] [? Help] [q Quit]");
+        assert!(ready(bracketed.screen(), &title, &[], footer));
+        let none = ResizeToolbarV1::Footer { required: &[] };
+        assert!(!ready(parser.screen(), &title, &[], none));
+    }
+}
+
+#[test]
+fn test_framework_view_title_is_the_single_focused_view_source() {
+    assert_eq!(support::view_title("Inbox"), "Inbox • focused view");
+    assert_eq!(support::view_title("Actions"), "Actions • focused view");
+}

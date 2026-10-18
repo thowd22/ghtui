@@ -5,6 +5,10 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 pub mod command_journal_v1;
 pub mod completed_navigation_controls_v1;
 pub mod completed_search_v1;
+pub mod controls;
+pub use controls::{
+    cell_is_corner, locate_control, main_footer_visible, view_title, Control, Corner,
+};
 pub mod cursorless_frames;
 pub mod fixture_shell_publication_v1;
 #[cfg(target_os = "linux")]
@@ -227,7 +231,30 @@ pub enum ResizeToolbarV1 {
     Bottom,
     Header,
     ControlBlock,
-    VerticalControls { first_row: u16 },
+    VerticalControls {
+        first_row: u16,
+    },
+    /// The key bar in the actual last row. Narrow widths may move actions to
+    /// overflow, so only the declared required subset must be painted there.
+    Footer {
+        required: &'static [&'static str],
+    },
+}
+
+/// Every required control is in the actual last row, bracketed or as its
+/// `key text` token, and the owning title is painted somewhere above it.
+pub fn owned_footer_ready_v1(screen: &vt100::Screen, title: &str, required: &[&str]) -> bool {
+    let row = controls::footer_row(screen);
+    let in_footer = |label: &str| {
+        let control = Control::parse(label);
+        controls::row_text(screen, row).is_some_and(|(line, _)| line.contains(label))
+            || control.bracketed && controls::footer_control(screen, &control).is_some()
+    };
+    !required.is_empty()
+        && (title.is_empty() || screen.contents().contains(title))
+        && required
+            .iter()
+            .all(|label| !label.is_empty() && in_footer(label))
 }
 
 pub fn owned_vertical_controls_ready_v4(
@@ -244,10 +271,10 @@ pub fn owned_vertical_controls_ready_v4(
         return false;
     };
     if end > usize::from(rows - 1)
-        || screen.cell(0, 0).unwrap().contents() != "┌"
-        || screen.cell(0, cols - 1).unwrap().contents() != "┐"
-        || screen.cell(rows - 1, 0).unwrap().contents() != "└"
-        || screen.cell(rows - 1, cols - 1).unwrap().contents() != "┘"
+        || !cell_is_corner(screen, 0, 0, Corner::TopLeft)
+        || !cell_is_corner(screen, 0, cols - 1, Corner::TopRight)
+        || !cell_is_corner(screen, rows - 1, 0, Corner::BottomLeft)
+        || !cell_is_corner(screen, rows - 1, cols - 1, Corner::BottomRight)
     {
         return false;
     }
@@ -282,6 +309,9 @@ pub fn owned_resize_controls_ready_v1(
     if let ResizeToolbarV1::VerticalControls { first_row } = placement {
         return owned_vertical_controls_ready_v4(screen, title, first_row, actions);
     }
+    if let ResizeToolbarV1::Footer { required } = placement {
+        return owned_footer_ready_v1(screen, title, required);
+    }
     let (rows, cols) = screen.size();
     let bottom = screen.rows(0, cols).last().unwrap_or_default();
     let controls = match placement {
@@ -295,7 +325,9 @@ pub fn owned_resize_controls_ready_v1(
             .take(3)
             .collect::<Vec<_>>()
             .join("\n"),
-        ResizeToolbarV1::ControlBlock | ResizeToolbarV1::VerticalControls { .. } => unreachable!(),
+        ResizeToolbarV1::ControlBlock
+        | ResizeToolbarV1::VerticalControls { .. }
+        | ResizeToolbarV1::Footer { .. } => unreachable!(),
     };
     let title_ready = match placement {
         ResizeToolbarV1::Bottom => screen.contents().contains(title),
@@ -303,12 +335,18 @@ pub fn owned_resize_controls_ready_v1(
             .rows(0, cols)
             .next()
             .is_some_and(|row| row.contains(title)),
-        ResizeToolbarV1::ControlBlock | ResizeToolbarV1::VerticalControls { .. } => unreachable!(),
+        ResizeToolbarV1::ControlBlock
+        | ResizeToolbarV1::VerticalControls { .. }
+        | ResizeToolbarV1::Footer { .. } => unreachable!(),
     };
     title_ready
         && actions.iter().all(|action| controls.contains(action))
-        && bottom.contains('└')
-        && bottom.contains('┘')
+        && bottom
+            .chars()
+            .any(|c| controls::char_is_corner(c, Corner::BottomLeft))
+        && bottom
+            .chars()
+            .any(|c| controls::char_is_corner(c, Corner::BottomRight))
 }
 
 /// A distinct, strictly owned WRAPPED toolbar, not a relaxed single-row wait.
@@ -358,11 +396,21 @@ pub fn owned_control_block_ready_v3(screen: &vt100::Screen, title: &str, actions
     let Some(bottom) = lines.get(end) else {
         return false;
     };
-    if !header.starts_with('┌')
-        || !header.ends_with('┐')
+    let starts = |line: &str, corner| {
+        line.chars()
+            .next()
+            .is_some_and(|c| controls::char_is_corner(c, corner))
+    };
+    let ends = |line: &str, corner| {
+        line.chars()
+            .next_back()
+            .is_some_and(|c| controls::char_is_corner(c, corner))
+    };
+    if !starts(header, Corner::TopLeft)
+        || !ends(header, Corner::TopRight)
         || !header.contains(title)
-        || !bottom.starts_with('└')
-        || !bottom.ends_with('┘')
+        || !starts(bottom, Corner::BottomLeft)
+        || !ends(bottom, Corner::BottomRight)
         || !lines[end - 1].contains(actions.last().unwrap())
     {
         return false;
@@ -1259,10 +1307,108 @@ impl Session {
         }
     }
 
+    /// Strict: the control must be painted, bracketed anywhere or as its
+    /// `key text` token in the key bar. There is no palette fallback.
     pub fn click_visible_action(&mut self, label: &str) {
-        self.wait_for_screen(label);
-        let (column, row) = self.locate(label).unwrap();
+        let (column, row) = self.wait_for_control(label);
         self.click(column, row);
+    }
+
+    /// Wait until `label` is a visible control (see `locate_control`).
+    pub fn wait_for_control(&mut self, label: &str) -> (u16, u16) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            while let Ok(bytes) = self.observed_try_recv_v1() {
+                self.process(&bytes);
+            }
+            if let Some(position) = locate_control(self.parser.screen(), label) {
+                return position;
+            }
+            let remaining = deadline.checked_duration_since(Instant::now());
+            let closed = remaining.is_some_and(|remaining| {
+                match self.observed_recv_timeout_v1(remaining.min(Duration::from_millis(50))) {
+                    Ok(bytes) => {
+                        self.process(&bytes);
+                        false
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => false,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => true,
+                }
+            });
+            if remaining.is_none() || closed {
+                self.save_artifacts();
+                panic!(
+                    "Control {label:?} was not painted\n{}; artifacts: {}",
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
+        }
+    }
+
+    /// The same action by mouse (click its painted control) or keyboard
+    /// (send `key`), a drop-in for the journeys' identical local helpers.
+    pub fn choose(&mut self, mouse: bool, label: &str, key: &[u8]) {
+        if mouse {
+            self.click_visible_action(label);
+        } else {
+            self.send_key(key);
+        }
+    }
+
+    /// `choose` with the key taken from the label itself, e.g. `[l Logs]`.
+    pub fn choose_control(&mut self, mouse: bool, label: &str) {
+        let key = Control::parse(label)
+            .key_bytes()
+            .unwrap_or_else(|| panic!("Control {label:?} names no key; pass one to choose"));
+        self.choose(mouse, label, &key);
+    }
+
+    /// Explicit opt-in for actions that live only in the command palette:
+    /// open it, filter by the label text, then pick the selected result.
+    pub fn invoke_via_palette(&mut self, mouse: bool, label: &str) {
+        let text = Control::parse(label).text;
+        self.choose(mouse, "[: Commands]", b":");
+        self.wait_for_overlay_body(PALETTE_TITLE);
+        self.send_key(b"\x01");
+        self.paste(&text);
+        let selected = format!("> {text}");
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !self
+            .visible_overlay_body(PALETTE_TITLE)
+            .is_some_and(|body| body.contains(&selected))
+        {
+            self.poll_output(Duration::from_millis(10));
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "Palette never selected {text:?}\n{}; artifacts: {}",
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
+        }
+        self.choose(mouse, &selected, b"\r");
+        self.wait_for_overlay_close(PALETTE_TITLE);
+    }
+
+    /// The control is neither bracketed anywhere nor a key-bar token.
+    pub fn assert_control_absent(&mut self, label: &str) {
+        self.poll_output(Duration::from_millis(50));
+        if let Some(position) = locate_control(self.parser.screen(), label) {
+            self.save_artifacts();
+            panic!(
+                "Control {label:?} is still painted at {position:?}\n{}",
+                self.screen()
+            );
+        }
+    }
+
+    /// A disabled action's key still answers, with its visible reason.
+    pub fn press_disabled_key(&mut self, key: &[u8], reason: &str) {
+        assert!(!reason.is_empty(), "A disabled key must explain itself");
+        self.send_key(key);
+        self.wait_for_screen(reason);
     }
 
     pub fn click_owned_form_field(&mut self, phase: &str, label: &str) {
@@ -1465,8 +1611,17 @@ impl Session {
     }
 
     /// Legacy callers are not silently assigned a guessed owning title.
+    /// Key-bar items are not Tab-focusable: when the label is painted only as
+    /// a footer token, its key is sent instead, which activates the action.
     pub fn focus_visible_action(&mut self, label: &str) {
-        self.wait_for_screen(label);
+        self.wait_for_control(label);
+        if self.locate(label).is_none() {
+            let key = Control::parse(label)
+                .key_bytes()
+                .unwrap_or_else(|| panic!("Footer control {label:?} names no key"));
+            self.send_key(&key);
+            return;
+        }
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
             self.poll_output(Duration::from_millis(1));
@@ -1673,6 +1828,7 @@ impl Session {
                 owned_resize_controls_ready_v1(self.parser.screen(), title, actions, placement)
             } else {
                 footer.contains("Help") && footer.contains("Quit")
+                    || main_footer_visible(self.parser.screen())
             };
             let completed = match owned {
                 Some((title, actions, ResizeToolbarV1::ControlBlock)) => {
@@ -1839,7 +1995,7 @@ impl Session {
     }
 
     pub fn assert_focused_view(&mut self, view: &str) {
-        self.wait_for_screen(&format!("{view} • focused view"));
+        self.wait_for_screen(&view_title(view));
     }
 
     pub fn assert_cells(&self, row: u16, col: u16, text: &str) {
@@ -2099,15 +2255,8 @@ pub fn append_journey_record(path: &Path, record: &serde_json::Value) -> std::io
     file.write_all(&bytes)
 }
 
-/// Locate text using decoded terminal cells, not Unicode scalar counts. Wide
-/// glyph continuation cells and combining marks must not shift mouse targets.
-pub fn main_footer_visible(screen: &vt100::Screen) -> bool {
-    let (rows, cols) = screen.size();
-    screen
-        .rows(0, cols)
-        .nth(usize::from(rows.saturating_sub(1)))
-        .is_some_and(|row| row.contains("Help]") && row.contains("Quit]"))
-}
+/// The command palette's actual prepared title.
+pub const PALETTE_TITLE: &str = "Commands · current context";
 
 /// Observe only the owned PR action menu, not a selected conversation row
 /// behind it. Two markers during an incomplete repaint are not an acknowledgement.
@@ -2116,7 +2265,12 @@ pub fn selected_pr_menu_row(screen: &str) -> Option<String> {
         .lines()
         .skip_while(|line| !line.contains("PR actions • native workflows"))
         .skip(1)
-        .take_while(|line| !line.contains("[Esc Close]") && !line.contains('└'))
+        .take_while(|line| {
+            !line.contains("[Esc Close]")
+                && !line
+                    .chars()
+                    .any(|c| controls::char_is_corner(c, Corner::BottomLeft))
+        })
         .filter_map(|line| {
             line.split_once("│ > ")
                 .and_then(|(_, text)| text.split_once('│'))
@@ -2179,33 +2333,10 @@ pub fn form_field_value_position(
     None
 }
 
+/// Locate text using decoded terminal cells, not Unicode scalar counts. Wide
+/// glyph continuation cells and combining marks must not shift mouse targets.
 pub fn locate_screen(screen: &vt100::Screen, text: &str) -> Option<(u16, u16)> {
-    let (rows, columns) = screen.size();
-    for row in 0..rows {
-        let mut line = String::new();
-        let mut starts = Vec::new();
-        for column in 0..columns {
-            let cell = screen.cell(row, column)?;
-            if cell.is_wide_continuation() {
-                continue;
-            }
-            starts.push((line.len(), column));
-            let contents = cell.contents();
-            if contents.is_empty() {
-                line.push(' ');
-            } else {
-                line.push_str(&contents);
-            }
-        }
-        if let Some(byte) = line.find(text) {
-            return starts
-                .iter()
-                .rev()
-                .find(|(start, _)| *start <= byte)
-                .map(|(_, column)| (*column, row));
-        }
-    }
-    None
+    controls::locate_text(screen, text)
 }
 
 /// A terminal's erased cell is a visible space, not absent text. Cursor motion
@@ -2213,16 +2344,13 @@ pub fn locate_screen(screen: &vt100::Screen, text: &str) -> Option<(u16, u16)> {
 pub fn overlay_body(screen: &vt100::Screen, title: &str) -> Option<String> {
     let (title_column, top) = locate_screen(screen, title)?;
     let (rows, columns) = screen.size();
-    let has = |row, column, text| {
-        screen
-            .cell(row, column)
-            .is_some_and(|cell| cell.contents() == text)
-    };
+    let has = |row, column, corner| cell_is_corner(screen, row, column, corner);
     let left = (0..title_column)
         .rev()
-        .find(|column| has(top, *column, "┌"))?;
-    let right = (title_column..columns).find(|column| has(top, *column, "┐"))?;
-    let bottom = (top + 1..rows).find(|row| has(*row, left, "└") && has(*row, right, "┘"))?;
+        .find(|column| has(top, *column, Corner::TopLeft))?;
+    let right = (title_column..columns).find(|column| has(top, *column, Corner::TopRight))?;
+    let bottom = (top + 1..rows)
+        .find(|row| has(*row, left, Corner::BottomLeft) && has(*row, right, Corner::BottomRight))?;
     let mut body = String::new();
     for row in top + 1..bottom {
         for column in left + 1..right {

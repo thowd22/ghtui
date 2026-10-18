@@ -1,5 +1,6 @@
 //! Test-only observations of actual completed cursorless frames. Geometry and
 //! labels are input hints, not Git/resource identity or permission authority.
+use super::controls::{cell_is_corner, view_title, Corner};
 use super::cursorless_frames::CursorlessFrames;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,12 +73,11 @@ fn owned_box(frame: &vt100::Screen, title: &str) -> Option<OwnedBox> {
     let (label_x, top) = unique_position(frame, title, 0..height, 0..width)?;
     let left = (0..label_x)
         .rev()
-        .find(|x| frame.cell(top, *x).is_some_and(|c| c.contents() == "┌"))?;
-    let right =
-        (label_x..width).find(|x| frame.cell(top, *x).is_some_and(|c| c.contents() == "┐"))?;
+        .find(|x| cell_is_corner(frame, top, *x, Corner::TopLeft))?;
+    let right = (label_x..width).find(|x| cell_is_corner(frame, top, *x, Corner::TopRight))?;
     let bottom = (top + 1..height).find(|y| {
-        frame.cell(*y, left).is_some_and(|c| c.contents() == "└")
-            && frame.cell(*y, right).is_some_and(|c| c.contents() == "┘")
+        cell_is_corner(frame, *y, left, Corner::BottomLeft)
+            && cell_is_corner(frame, *y, right, Corner::BottomRight)
     })?;
     Some(OwnedBox {
         left,
@@ -110,7 +110,7 @@ pub fn saved_graph_position(
     {
         return None;
     }
-    let bounds = owned_box(frame, "Repository • focused view")?;
+    let bounds = owned_box(frame, &view_title("Repository"))?;
     let mut saved = text.lines().filter_map(|line| {
         line.trim_start_matches('│')
             .trim_start()
@@ -149,7 +149,7 @@ pub fn actions_page(completed: &CursorlessFrames, after: usize) -> Option<Action
     if frame.contents().contains("Action unavailable") {
         return None;
     }
-    let bounds = owned_box(frame, "Actions • focused view")?;
+    let bounds = owned_box(frame, &view_title("Actions"))?;
     let ys = bounds.top + 1..bounds.bottom;
     let xs = bounds.left + 1..bounds.right;
     let (_, page_y) = unique_position(frame, " • [] change control page", ys.clone(), xs.clone())?;
@@ -309,7 +309,7 @@ impl ProgressSelection {
 /// Observe the actual selected row before deciding whether another arrow is
 /// needed. A missing selection is allowed initially, ambiguity is never guessed.
 pub fn progress_selection(frame: &vt100::Screen, label: &str) -> Option<ProgressSelection> {
-    progress_selection_in(frame, "Inbox • focused view", label)
+    progress_selection_in(frame, &view_title("Inbox"), label)
 }
 /// One observer/parser, with an explicit owning view, never title guessing.
 pub fn progress_selection_in(
@@ -425,21 +425,15 @@ fn topmost_box_v1(frame: &vt100::Screen, title: &str) -> Option<OwnedBox> {
     // A genuine nested complete overlay owns input instead of this underlay.
     for y in owner.top + 1..owner.bottom {
         for x in owner.left + 1..owner.right {
-            if frame.cell(y, x).is_none_or(|cell| cell.contents() != "┌") {
+            if !cell_is_corner(frame, y, x, Corner::TopLeft) {
                 continue;
             }
-            if let Some(right) = (x + 1..owner.right).find(|right| {
-                frame
-                    .cell(y, *right)
-                    .is_some_and(|cell| cell.contents() == "┐")
-            }) {
+            if let Some(right) = (x + 1..owner.right)
+                .find(|right| cell_is_corner(frame, y, *right, Corner::TopRight))
+            {
                 if (y + 1..owner.bottom).any(|bottom| {
-                    frame
-                        .cell(bottom, x)
-                        .is_some_and(|cell| cell.contents() == "└")
-                        && frame
-                            .cell(bottom, right)
-                            .is_some_and(|cell| cell.contents() == "┘")
+                    cell_is_corner(frame, bottom, x, Corner::BottomLeft)
+                        && cell_is_corner(frame, bottom, right, Corner::BottomRight)
                 }) {
                     return None;
                 }
