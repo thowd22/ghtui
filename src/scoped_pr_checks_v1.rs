@@ -643,6 +643,7 @@ fn decorate_scoped_v1(
 /// Selection refreshes ordinary Actions form availability. Restore only this
 /// route's prepared control policy afterward, without SQL or body preparation.
 pub(crate) fn preserve_controls_v1(route: &PrChecksRoute, workspace: &mut ActionsWorkspace) {
+    workspace.drop_failure_jumps();
     if route.scoped_v1() {
         preserve_scoped_controls_v1(workspace, &route.observation);
         // SAME single scoped policy survives generic selection. Do not enable

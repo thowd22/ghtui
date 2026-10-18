@@ -5,6 +5,7 @@ use std::mem::size_of;
 pub(crate) const UNAVAILABLE: &str = "This catalogue-source Actions operation needs its own current-ID adapter; no legacy/name fallback, draft, permission or write was inferred";
 
 pub(crate) fn prepare_policy(workspace: &mut ActionsWorkspace, pending: bool) {
+    workspace.drop_failure_jumps();
     if workspace.run.is_some() {
         for (label, view) in [
             ("[t Run]", ActionsView::Run),
