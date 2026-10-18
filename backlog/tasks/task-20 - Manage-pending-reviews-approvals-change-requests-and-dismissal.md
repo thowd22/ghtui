@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 19:24'
+updated_date: '2026-10-18 00:19'
 labels:
   - review
   - e2e
@@ -383,4 +383,6 @@ Coherent W4+C15+V19 actually APPLIED via9 apply_patch groups0–8, every57 posti
 V73 fixes actual history40x14/120x40 footer ownership using existing single-action/pair observers, with full new-size border+completed frame and separately required Inspect current on its actual penultimate control row. All8priorrestart/SQL/protectedbody/ACK/noresend/TTYeffects retained; native current rerun pending. V72history failures preserved; no Task20 completion from Summary foundation.
 
 Root V74 restart fixture correction VERIFIED ACTUALLY: Personal queue Refresh now waits a NEW completed Fresh/fetched original queue result and exact commands-7 preOpen journal, not restored cached rows. Earlier V73 selected PR GET wrongly raced explicit refresh before user34; no endpoint/fixture-count or assertion relaxation. node scripts/test-task.mjs personal_pr_entry_v13 ACTUAL47code12PTY pass0failed0ignored including both personal_pr_summary_v15 keyboard/mouse restart protected-history fresh-inspect explicitACK no-resend tests. Independent journal22positive12unique/key16mouse11cleanup22. Current report target/build/root-pr-actions-v74-checked-20261015.json SHA f0e01cf1137b93a697bd162d55c7fbc07f3ce602ebc84e6ed543edc037023ea1 and freeze1088 SHA7601a50eeeccddad2554582e83040691e4bf84c7f8904ae4777704337958d8a9; fmt/strict alltargets0, broaderActions239code82PTY/framework49code21PTY0. Actual registered4085=2991code1094PTY is compilation/listing, not whole-pass; fresh V75 unfiltered node scripts/test-all.mjs RUNNING. No taskDone/AC/dependency/nativeMac/liveMutation acceptance, full PR workflows remain open.
+
+2026-10-18 a04: PR actions menu reviews usable daily: own-PR/closed-PR review refusal shown before opening a form, review form states exact effect + 'Review summary' field, Summary shows latest decision per reviewer after refresh, menu entry points to Files->F10 Reviews for pending/dismiss/re-request. Gate: node scripts/test-task.mjs v1_pr_reviews passed (2 code + 6 PTY, keyboard+mouse); related pending_reviews_v2_avatars_v7 ready (2), personal_pr_common_v14 pending (2), pr_merge (4), lib avatars_v7 (12), forms (20), pr_legacy_contract (8) passed.
 <!-- SECTION:NOTES:END -->
