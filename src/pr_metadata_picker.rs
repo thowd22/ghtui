@@ -347,15 +347,13 @@ impl PickerState {
         } else {
             "Partial catalogue: observed choices only; unseen membership is unknown"
         };
-        // Each summary is one bounded readable line. Full source text is also
-        // available in the prepared, scrollable detail panel below.
+        // Each summary is one bounded readable line. Request/byte accounting
+        // and read caps are diagnostics: they stay in the scrollable detail
+        // panel below instead of crowding the choices.
         self.header = vec![
             single_line(&header.scope),
             availability.into(),
             single_line(&header.counts),
-            single_line(&header.accounting),
-            single_line(&header.captures),
-            single_line(&header.limits),
         ];
         let mut detail = DetailRows::default();
         for text in [

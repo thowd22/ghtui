@@ -317,13 +317,13 @@ fn pr_metadata_picker_widget_full_branch_tips_counts_caps_hit_regions_and_no_col
         ] {
             let (terminal, hits, text) = render(&mut state, &choices, width, height, style);
             assert!(text.contains(&format!("Tip: {}", "c".repeat(length))));
+            // Transport accounting/caps are detail-panel diagnostics only.
+            assert!(state.header.iter().all(|line| !line.contains("charged")
+                && !line.starts_with("Caps:")
+                && !line.starts_with("Captured stdout")));
             for expected in [
                 "release/雪",
                 "Complete catalogue",
-                "Requests 8",
-                "charged 2048 bytes",
-                "Caps: pages 10",
-                "rows 1000",
                 "[Enter Choose]",
                 "[Esc Back]",
                 "[Ctrl-U Clear]",

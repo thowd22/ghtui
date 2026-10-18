@@ -2678,6 +2678,10 @@ impl App {
                                 (self.pr_action_index + self.pr_controls().len() - 1)
                                     % self.pr_controls().len();
                         }
+                        KeyCode::Home if overlay == Overlay::PrActions => self.pr_action_index = 0,
+                        KeyCode::End if overlay == Overlay::PrActions => {
+                            self.pr_action_index = self.pr_controls().len().saturating_sub(1)
+                        }
                         KeyCode::Enter if overlay == Overlay::PrActions => {
                             if let Some((_, action)) = self.pr_controls().get(self.pr_action_index)
                             {
@@ -3044,6 +3048,9 @@ impl App {
                                 self.dispatch(Action::Github(GithubAction::Resource(action)));
                                 return;
                             }
+                        }
+                        if crate::pr_metadata_quick_v1::key(self, character) {
+                            return;
                         }
                         let action = if pr_open {
                             PrTab::ALL

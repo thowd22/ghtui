@@ -12,12 +12,7 @@ use ratatui::{
     Frame,
 };
 
-fn buttons(
-    frame: &mut Frame,
-    app: &mut App,
-    area: Rect,
-    buttons: Vec<(String, GithubAction)>,
-) -> u16 {
+fn buttons(frame: &mut Frame, app: &mut App, area: Rect, buttons: Vec<(String, Action)>) -> u16 {
     let theme = app.theme();
     let mut x = area.x;
     let mut y = area.y;
@@ -38,10 +33,7 @@ fn buttons(
             style = style.add_modifier(Modifier::UNDERLINED);
         }
         frame.render_widget(Paragraph::new(label).style(style), rect);
-        app.hits.push(HitRegion {
-            rect,
-            action: Action::Github(action),
-        });
+        app.hits.push(HitRegion { rect, action });
         x += width + 1;
     }
     y.saturating_sub(area.y) + 1
@@ -160,6 +152,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .collect()
     };
     let notifications_available = github.pr.is_none() && !scoped;
+    let mut tabs: Vec<(String, Action)> = tabs
+        .into_iter()
+        .map(|(label, action)| (label, Action::Github(action)))
+        .collect();
+    // Metadata tab: one-step label/assignee/reviewer/milestone controls.
+    tabs.extend(crate::pr_metadata_quick_v1::controls(app, area.width));
     let mut y = area.y + buttons(frame, app, area, tabs);
     if notifications_available && y < area.bottom() {
         let label = "[F8 Notifications]";

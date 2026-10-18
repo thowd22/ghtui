@@ -68,6 +68,7 @@ pub mod pr_metadata_choices;
 pub mod pr_metadata_native;
 pub mod pr_metadata_picker;
 pub mod pr_metadata_preview;
+pub mod pr_metadata_quick_v1;
 pub mod pr_progress;
 pub mod pr_projection;
 pub(crate) mod pr_read_origin_v13;

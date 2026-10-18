@@ -218,8 +218,6 @@ pub(crate) fn install(
     app.focus = 0;
     app.github_content_focused = true;
     app.hits.clear();
-    app.status =
-        "Actual Metadata observed • read-only context, not write permission • no publication"
-            .into();
+    app.status = "Metadata loaded • l label, a assignee, w reviewer, g team, m milestone (Shift removes) • nothing changes before Confirm".into();
     true
 }
