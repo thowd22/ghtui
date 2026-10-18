@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:50'
+updated_date: '2026-10-18 20:38'
 labels:
   - repository
   - e2e
@@ -173,3 +173,12 @@ Root independent combinedMain Related+Diff+Graph wholeterminalGREEN1865code/prov
 
 2026-10-18 a12: file history rows show author/date and modified/added/renamed words. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass; existing file_history PTY tests pass.
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-18 20:38
+---
+File history moves into TASK-99 (History view with a path filter); blame and line provenance stay here. User decision 2026-10-18.
+---
+<!-- COMMENTS:END -->

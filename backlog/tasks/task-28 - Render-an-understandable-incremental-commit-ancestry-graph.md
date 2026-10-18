@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:50'
+updated_date: '2026-10-18 20:38'
 labels:
   - repository
   - e2e
@@ -155,3 +155,12 @@ Frozen Graph compact selector threefile handoff: target/build/provider-parallel-
 
 2026-10-18 a12: graph shows one row per linear commit (connector rows only for merges/forks/outside-walk parents), short ref names, single actor name + UTC date, 2 heading rows; Details readable times. Gate: node scripts/test-task.mjs v1_repo_views -> 6 code + 2 PTY pass (keyboard+mouse).
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-18 20:38
+---
+Graph rendering and navigation are superseded by TASK-99 (combined History view, user decision 2026-10-18).
+---
+<!-- COMMENTS:END -->
