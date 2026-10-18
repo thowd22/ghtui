@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 04:24'
+updated_date: '2026-10-18 00:10'
 labels:
   - search
   - e2e
@@ -103,4 +103,6 @@ Native discovered-PR entry point and exact-comment prepared rows now integrated 
 Latest checked query_modes passed13 meaningful code/provider contracts and6 actual compiled-binary PTY, zeroignored, genuine keyboard/mouse journal coverage. Artifacts /tmp/ghtui-test-coverage-ymBl8f, target/build/root-query-modes-checked.log. Includes new strict native discovered-PR opening from Search (20 exact read/version commands), full conversation/current actors, narrow resize, Back to an empty nonfabricated personal queue, and unchanged retained query/results plus HEAD/index/dirty bytes/zero writes. Exact comment header/body identities and same-node prepared replacement are code-verified; wrong/unverified/outside/excluded scopes fail before gh. First run reached all visible/command assertions and failed because independent fixture git status itself refreshed index stat cache; corrected test helper to GIT_OPTIONAL_LOCKS=0 and added meaningful framework contract, then reran the full key. Native issue/repository destinations and broader corpus/catalogue work remain open.
 
 Fresh full Linux checkpoint passed after actual fixes: CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test --offline --locked --all-targets: 327 meaningful code/provider contracts, including provider100, journal9, PR-controller6, managed-corpus9, and 116 compiled-binary PTY journeys; zero failed/ignored. cargo fmt --check passed; cargo clippy --offline --locked --all-targets -- -D warnings passed9.02s. Logs target/build/root-all-targets-checkpoint.log, root-fmt-checkpoint.log, root-clippy-checkpoint.log. New query_modes discovered-PR2 actual journeys and13-code/6-PTY checked gate are included. Ordered synchronous publication-draft helper and canonical value/separate label mouse/key code contract are verified, but native PR mutations/inspection/ack and managed-corpus UI are not yet wired; no Task17/47 product-completion inference from backend tests. Whole checkpoint first caught a test-source rename race and a wide-emoji continuation-cell assertion, both corrected and fully rerun rather than excluding tests. README records this actual green checkpoint; remaining full-scope/native-platform/release/CI work stays open.
+
+2026-10-18 a13: GitHub mode keeps checkout-origin default scope; typed repo:/org: qualifiers scope one query; issue/repository Open shows number/state/URL/full description in preview; rows show #N. Gate: node scripts/test-task.mjs v1_search (3 code + 2 PTY keyboard/mouse pass); filtered lib search 115, tui_e2e search 34, search_remote_contracts 8, search_contracts 15 pass.
 <!-- SECTION:NOTES:END -->
