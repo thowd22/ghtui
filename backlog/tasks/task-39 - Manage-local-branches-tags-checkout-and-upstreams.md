@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 03:22'
+updated_date: '2026-10-18 00:34'
 labels:
   - localgit
   - e2e
@@ -70,4 +70,6 @@ Native Form-owned local inventory picker connected: F4 and clickable Choose shar
 Typed local inventory picker gate passed: CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 node scripts/test-task.mjs local_picker selected 7 code tests (2 Form +5 actual Git/picker contracts) and2 actual-binary keyboard/mouse PTY tests, all pass/zero ignored. Artifact /tmp/ghtui-test-coverage-GMYYXM; log target/build/local-picker-checked.log. Native journeys verify cancel/no-match, exact stale branch rejection with unchanged HEAD/index, refreshed branch choice, immutable stash SHA disclosure/apply/retention,80x24 resized picker, and exact raw-byte worktree removal preserving a similar Unicode worktree and root dirty files. Reflog rescue immutable SHA picker currently has code coverage, not an additional native rescue-picker journey. APFS-valid newline path fixture replaces invalid filesystem UTF-8 only on macOS; Linux retains byte0xff, neither platform skips raw-path testing. Full product/global gates and task-specific remaining cases stay open; not Done.
 
 Raw reference safety: native picker classifies canonical raw_name bytes, shows non-UTF8 named-write targets explicitly disabled with a reason, and never passes display escapes as Git argv. Immutable revision operations/read-only comparisons can still choose the exact saved object ID. Fresh Reference validation uses raw bytes rather than rendered labels. New real packed-refs code contract (APFS-valid storage) passed as part of checked local_picker8code+2PTY, zero ignored, artifact /tmp/ghtui-test-coverage-UMSKAC; source log target/build/local_picker-checked.log. Native non-UTF8 named writes remain explicitly unavailable rather than guessing a target.
+
+2026-10-18 a09: delete-branch preview shows recovery SHA, unmerged/upstream-saved state and other-worktree checkout; switch preview names remote-tracking DWIM; overview shows missing upstream. Covered by v1_local_branches gate (2 code + 2 PTY, 0 ignored).
 <!-- SECTION:NOTES:END -->
