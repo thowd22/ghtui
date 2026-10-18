@@ -258,6 +258,40 @@ mod v1_local_recovery_tests {
     }
 
     #[test]
+    fn v1_local_recovery_reflog_rescue_candidates_are_left_behind_commits() {
+        use crate::repository_view::rescue_candidates_v1;
+        let zero = "0".repeat(40);
+        let (a, b, c, d) = (
+            "a".repeat(40),
+            "b".repeat(40),
+            "c".repeat(40),
+            "d".repeat(40),
+        );
+        let log = format!(
+            "{zero} {a} T <t@e> 1 +0000\tcommit (initial): first\n\
+             {a} {b} T <t@e> 2 +0000\tcommit: draft work\n\
+             {b} {c} T <t@e> 3 +0000\tcommit (amend): polished work\n\
+             {c} {a} T <t@e> 4 +0000\tcheckout: moving from main to old\n\
+             {a} {d} T <t@e> 5 +0000\treset: moving to HEAD~1\n\
+             {d} {c} T <t@e> 6 +0000\treset: moving to {c}\n\
+             not a reflog line\n"
+        );
+        let found = rescue_candidates_v1(log.as_bytes(), std::slice::from_ref(&c), 8);
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert_eq!(found[0].id, d);
+        assert_eq!(found[0].selector, "HEAD@{0}");
+        assert_eq!(found[0].reason, "before reset");
+        assert_eq!(found[1].id, a);
+        assert_eq!(found[1].selector, "HEAD@{1}");
+        assert_eq!(found[1].subject, "moving from main to old");
+        assert_eq!(found[2].id, b);
+        assert_eq!(found[2].reason, "before amend");
+        assert_eq!(found[2].subject, "draft work");
+        assert_eq!(rescue_candidates_v1(log.as_bytes(), &[c], 1).len(), 1);
+        assert!(rescue_candidates_v1(b"", &[], 8).is_empty());
+    }
+
+    #[test]
     fn v1_local_recovery_conflict_version_names_and_markers() {
         use crate::local_actions::{conflict_markers_v1, conflict_stage_v1};
         assert_eq!(conflict_stage_v1("ours"), Ok(2));

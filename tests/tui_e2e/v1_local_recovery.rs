@@ -133,3 +133,69 @@ fn journey(mouse: bool) {
     assert!(session.inspect_command_journal(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
 }
+
+#[test]
+fn v1_local_recovery_keyboard_amended_away_commit_rescue_branch() {
+    rescue(false);
+}
+#[test]
+fn v1_local_recovery_mouse_amended_away_commit_rescue_branch() {
+    rescue(true);
+}
+
+fn rescue(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"base\n", "base");
+    fixture.commit_file("file.txt", b"draft\n", "draft work");
+    let draft = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fs::write(fixture.repo().join("file.txt"), b"polished\n").unwrap();
+    fixture.git(&["commit", "-q", "--amend", "-am", "polished work"]);
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    fs::write(fixture.repo().join("file.txt"), b"important dirty work\n").unwrap();
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+    session.wait_for_screen("Left behind by amend/reset/rebase");
+    let row = format!("↺ {} draft work • before amend", &draft[..8]);
+    session.wait_for_screen(&row);
+    if mouse {
+        session.click_visible_action(&row);
+    } else {
+        // The first Down focuses the dirty file row; then two recent commits
+        // precede the left-behind commit.
+        session.send_key(b"\x1b[B");
+        session.send_key(&b"\x1b[A".repeat(32));
+        for _ in 0..3 {
+            session.send_key(b"\x1b[B");
+        }
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen(&format!("Commit {draft}"));
+
+    session.resize(80, 24);
+    operation(&mut session, mouse, LocalCommand::RecoverBranch);
+    session.wait_for_screen("New name:");
+    if mouse {
+        let (column, line) = session.locate("New name:").unwrap();
+        session.click(column, line + 1);
+    }
+    session.send_key(b"\x15");
+    session.paste("rescue-draft");
+    session.wait_for_screen("rescue-draft");
+    local::preview(&mut session, mouse);
+    session.wait_for_screen(&draft[..12]);
+    local::confirm(&mut session, mouse, 2);
+    session.wait_for_screen("Completed • Create rescue branch");
+    assert_eq!(
+        fixture.git(&["rev-parse", "rescue-draft"]),
+        format!("{draft}\n")
+    );
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"important dirty work\n"
+    );
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}

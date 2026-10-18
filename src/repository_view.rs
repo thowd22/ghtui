@@ -804,6 +804,79 @@ pub fn paused_operation_rows_v1(
     rows
 }
 
+/// A commit HEAD left behind by an amend, reset or rebase, from the raw local
+/// HEAD reflog file. It may still be reachable elsewhere or already expired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RescueCandidateV1 {
+    pub id: String,
+    pub selector: String,
+    pub reason: &'static str,
+    pub subject: String,
+}
+
+/// Pure, bounded parse of `logs/HEAD` (oldest line first). Only the "old" side
+/// of amend/reset/rebase movements is offered; ids in `exclude` (already
+/// visible recent history) and duplicates are skipped. Newest first.
+pub fn rescue_candidates_v1(
+    log: &[u8],
+    exclude: &[String],
+    limit: usize,
+) -> Vec<RescueCandidateV1> {
+    let lines: Vec<(&str, &str, &str)> = log
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| std::str::from_utf8(line).ok())
+        .filter_map(|line| {
+            let (head, message) = line.split_once('\t')?;
+            let mut fields = head.split(' ');
+            let old = fields.next()?;
+            let new = fields.next()?;
+            (old.len() >= 40 && new.len() >= 40 && old.bytes().all(|b| b.is_ascii_hexdigit()))
+                .then_some((old, new, message))
+        })
+        .collect();
+    let total = lines.len();
+    let mut seen: Vec<&str> = vec![];
+    let mut result = vec![];
+    for (index, (old, _, message)) in lines.iter().enumerate().rev() {
+        let reason = if message.starts_with("commit (amend)") {
+            "before amend"
+        } else if message.starts_with("reset:") {
+            "before reset"
+        } else if message.starts_with("rebase") && message.contains("(start)") {
+            "before rebase"
+        } else {
+            continue;
+        };
+        if old.bytes().all(|byte| byte == b'0')
+            || seen.contains(old)
+            || exclude.iter().any(|id| id == old)
+        {
+            continue;
+        }
+        seen.push(old);
+        let subject = lines[..index]
+            .iter()
+            .rev()
+            .find(|(_, new, _)| new == old)
+            .map(|(_, _, message)| {
+                message
+                    .split_once(": ")
+                    .map_or(*message, |(_, subject)| subject)
+            })
+            .unwrap_or("");
+        result.push(RescueCandidateV1 {
+            id: (*old).to_owned(),
+            selector: format!("HEAD@{{{}}}", total - 1 - index),
+            reason,
+            subject: crate::providers::runner::sanitize_terminal(subject),
+        });
+        if result.len() >= limit {
+            break;
+        }
+    }
+    result
+}
+
 pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
     let branch = status.branch.as_deref().unwrap_or(if status.detached {
         "detached HEAD"

@@ -650,6 +650,7 @@ impl Workspace {
                     SemanticRole::Reference,
                     None,
                 );
+                let mut recent = vec![];
                 for commit in repo.log(12).map_err(|e| e.to_string())? {
                     if workspace.selected_commit.is_none() {
                         workspace.selected_commit = Some(commit.clone());
@@ -661,11 +662,45 @@ impl Workspace {
                         actor_label(&commit.author),
                         actor_label(&commit.committer)
                     );
+                    recent.push(commit.id.clone());
                     workspace.push(
                         &label,
                         SemanticRole::Normal,
                         Some(RowAction::Commit(commit.id)),
                     );
+                }
+                // Raw local HEAD reflog file (no Git child); bounded to its newest 1 MiB.
+                let log = std::fs::read(repo.git_dir.join("logs/HEAD")).unwrap_or_default();
+                let tail = &log[log.len().saturating_sub(1024 * 1024)..];
+                let candidates = crate::repository_view::rescue_candidates_v1(tail, &recent, 8);
+                if !candidates.is_empty() {
+                    workspace.push(
+                        "Left behind by amend/reset/rebase — local reflog only, entries expire; not a universal undo",
+                        SemanticRole::Boundary,
+                        None,
+                    );
+                    workspace.push(
+                        "Recover: select one, Enter to inspect it, then m → Create rescue branch (version prefilled)",
+                        SemanticRole::Boundary,
+                        None,
+                    );
+                    for candidate in candidates {
+                        workspace.push(
+                            &format!(
+                                "↺ {} {} • {} • {}",
+                                &candidate.id[..8],
+                                if candidate.subject.is_empty() {
+                                    "(subject not in reflog)"
+                                } else {
+                                    &candidate.subject
+                                },
+                                candidate.reason,
+                                candidate.selector
+                            ),
+                            SemanticRole::Changed,
+                            Some(RowAction::Commit(candidate.id)),
+                        );
+                    }
                 }
             }
             RepositoryMode::Graph => workspace.initialize_graph_v1(repo)?,
