@@ -389,6 +389,25 @@ pub struct TreeRow {
     pub label: String,
 }
 
+/// File-manager order for a saved tree: each directory's children directly
+/// below it (even when a sibling such as `src-old` sorts between `src` and
+/// `src/` bytewise), directories before files at each level, then raw name
+/// bytes.
+pub(crate) fn tree_order_v1(left: &TreeEntry, right: &TreeEntry) -> std::cmp::Ordering {
+    let a = left.path.0.split(|byte| *byte == b'/').collect::<Vec<_>>();
+    let b = right.path.0.split(|byte| *byte == b'/').collect::<Vec<_>>();
+    for index in 0..a.len().min(b.len()) {
+        if a[index] != b[index] {
+            let a_directory = index + 1 < a.len() || left.kind == "tree";
+            let b_directory = index + 1 < b.len() || right.kind == "tree";
+            return b_directory
+                .cmp(&a_directory)
+                .then_with(|| a[index].cmp(b[index]));
+        }
+    }
+    a.len().cmp(&b.len())
+}
+
 #[derive(Debug, Clone)]
 pub struct TreeBrowser {
     pub revision: String,
@@ -400,7 +419,7 @@ pub struct TreeBrowser {
 
 impl TreeBrowser {
     pub fn new(revision: String, mut entries: Vec<TreeEntry>) -> Self {
-        entries.sort_by(|left, right| left.path.0.cmp(&right.path.0));
+        entries.sort_by(tree_order_v1);
         Self {
             revision,
             entries,
@@ -437,8 +456,7 @@ impl TreeBrowser {
                 self.entries.push(entry);
             }
         }
-        self.entries
-            .sort_by(|left, right| left.path.0.cmp(&right.path.0));
+        self.entries.sort_by(tree_order_v1);
     }
 
     pub fn visible_rows(&self) -> Vec<TreeRow> {

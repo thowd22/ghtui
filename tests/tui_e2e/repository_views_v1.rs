@@ -112,6 +112,13 @@ fn journey(mouse: bool) {
 
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
+    session.wait_for_screen("· notes.txt");
+    // Folders come first, as in a file manager.
+    assert!(
+        session.locate("▸ src").unwrap().1 < session.locate("· notes.txt").unwrap().1,
+        "{}",
+        session.screen()
+    );
     select_row(&mut session, mouse, "▸ src");
     session.wait_for_screen("▾ src");
     select_row(&mut session, mouse, "· main.rs");

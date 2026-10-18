@@ -92,6 +92,55 @@ fn v1_repo_views_commit_changes_hide_raw_index_lines_and_same_name_arrows() {
 }
 
 #[test]
+fn v1_repo_views_tree_lists_folders_first_with_children_under_their_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    run(dir.path(), &["init", "--initial-branch=main"]);
+    run(dir.path(), &["config", "user.name", "Fixture"]);
+    run(
+        dir.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    for path in [
+        "src/main.rs",
+        "src-old.txt",
+        ".config",
+        "README",
+        "docs/a.md",
+    ] {
+        let path = dir.path().join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"x\n").unwrap();
+    }
+    run(dir.path(), &["add", "."]);
+    run(dir.path(), &["commit", "-m", "saved"]);
+    let mut workspace = Workspace::load(dir.path(), RepositoryMode::Tree, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    workspace
+        .open(RowAction::Directory(RawPath::new(b"src".to_vec())))
+        .unwrap();
+    let rows = workspace
+        .tree
+        .as_ref()
+        .unwrap()
+        .visible_rows()
+        .into_iter()
+        .map(|row| row.path.display())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "docs",
+            "src",
+            "src/main.rs",
+            ".config",
+            "README",
+            "src-old.txt"
+        ]
+    );
+}
+
+#[test]
 fn v1_repo_views_back_from_a_tree_file_reselects_it_and_preserves_checkout() {
     let dir = tempfile::tempdir().unwrap();
     run(dir.path(), &["init", "--initial-branch=main"]);
