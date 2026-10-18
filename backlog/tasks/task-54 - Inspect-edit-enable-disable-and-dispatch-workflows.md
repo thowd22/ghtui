@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-16 20:58'
+updated_date: '2026-10-18 00:24'
 labels:
   - actions
   - e2e
@@ -498,4 +498,6 @@ V290 ACTUALLY launched soleoriginal30192 underghtui-verify-members-workflow-v290
 2026-10-16 Root V290 live checkpoint (original30192; sole checked capped scope remains active; NOT final report/full suite/Main adoption). Exact W9V92 8bb02896 full1427: both genuine App Esc regressions each1PASS; checked node scripts/test-task.mjs task54_workflow_edit_v9 ACTUAL174codePASS0FAIL0ignored +50real-binaryPTY PASS0FAIL0ignored (163.94s native), all68physical sessions positive/exited/nonpanicking/allcleanup with strengthened SAME-name actual keyboard/mouse evidence. cargo fmt --check0 and cargo clippy --locked --all-targets -- -D warnings0. Logs target/build/root-members-workflow-v290-20261016-workflow-{checked-task54_workflow_edit_v9,fmt,clippy}.log; coverage /var/tmp/ghtui-verification-20261016-kRLcXc/ghtui-test-coverage-jlR0gN/journeys.jsonl SHAd93c1947f997a78c7e4a2b807cd4e33a957dcdfba4a9e68ad4acc83abc8f9eb5. Three actual completed120x40 terminal PNGs in target/screenshots/verify-v290-private-eLMgyJ, rendered under same bounded lock and Root personally viewed all3; exact files/hashes and UX debt already recordedTask67. Keyboard captures do not alone prove mouse:50gate independently does. This closes previous10W9native failures and7strict findings for this immutable slice ONLY; fullActions/Doc5/heap/nativeMac/formal dependencies/unfilteredV257negative remain open, no AC/status/Done change.
 
 V290 nowauthoritativelyTERMINAL original30192closedexit1 reportSHA06e8cfcd0c66e470a112c937e9582919bdec20d890f1253a6e7065fbc0d87f92 at20:57:05.393Z;scopeinactive/dead. W9focusedPassedTRUE174code50native/all68physicalclean+fmt0strict0; checkpointoverallNEGATIVEonlyotherprivateRootMembers8oldentryhelper tests, notW9. Rootchecked3realPNGpersonalviewalreadyrecordedTask67; sources/caps/Main1148allretained,zeroOOM/pidsmaxevents;peak4,478,353,408B56tasks. NoMainadoption/fullActions/heap/nativeMac/taskcompletion. NextsoleStateV29447390 startedafterterminal, distinctsource notnewW9evidence.
+
+2026-10-18 a02 5bd99ae7: Workflow page D dispatch/X enable-disable/V revision keys matching clickable buttons, plain dispatch/state previews and outcome lines, readable input/job summary. node scripts/test-task.mjs v1_actions_workflows: 3 code + 2 PTY (keyboard+mouse) PASS; actions_workflow_controls PTY 2 PASS; lib actions 803 PASS; scoped_actions_workflow_v6 24 + scoped_actions_dispatch_v7 40 PTY PASS; fmt/clippy clean.
 <!-- SECTION:NOTES:END -->
