@@ -32,7 +32,9 @@ function runGate(root, retry) {
         pending += chunk.toString('utf8');
         const lines = pending.split('\n');
         pending = lines.pop();
-        for (const line of lines) {
+        for (const raw of lines) {
+          // CI sets CARGO_TERM_COLOR=always, so cargo's own lines carry ANSI.
+          const line = raw.replace(/\x1b\[[0-9;]*m/g, '').replace(/\r$/, '');
           const failed = /^test (\S+) \.\.\. FAILED$/.exec(line);
           if (failed) failures.push(failed[1]);
           const result = /^test result: FAILED\. \d+ passed; (\d+) failed/.exec(line);
