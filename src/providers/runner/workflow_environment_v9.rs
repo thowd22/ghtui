@@ -16,16 +16,17 @@ impl std::fmt::Debug for WorkflowProcessEnvironmentV9 {
     }
 }
 // Pinned Rust BTree node: this dominates 11 pairs, 12 edges/header/alignment.
-// Even allowing two nodes per entry +root bounds all occupied/sparse nodes.
+// Every non-root node keeps at least MIN_LEN (5) pairs, so entries/5 + 1
+// nodes bound the map; the +2 keeps a spare root. Charging two nodes per
+// entry refused ordinary ~100-variable shells (e.g. hosted CI runners).
 fn map_bound_v9(entries: usize) -> Option<usize> {
     let node =
         32usize
             .checked_add(16usize.checked_mul(
                 2 * std::mem::size_of::<OsString>() + std::mem::size_of::<usize>(),
             )?)?;
-    entries
-        .checked_mul(2)?
-        .checked_add(1)?
+    (entries / 5)
+        .checked_add(2)?
         .checked_mul(node)?
         .checked_add(std::mem::size_of::<BTreeMap<OsString, OsString>>())
 }
@@ -170,6 +171,21 @@ pub fn initialize_workflow_environment_v9() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn task54_workflow_edit_v9_hosted_runner_sized_environment_fits_child_bound() {
+        // Hosted CI runners carry ~120 variables; ordinary shells often more.
+        let values: BTreeMap<OsString, OsString> = (0..300)
+            .map(|i| (format!("RUNNER_VAR_{i}").into(), "x".repeat(150).into()))
+            .collect();
+        let snapshot = WorkflowProcessEnvironmentV9 {
+            values,
+            retained: 0,
+        };
+        let bound = snapshot.fixed_git_child_bound_v9().unwrap();
+        assert!(bound < 2 * 1024 * 1024, "{bound}");
+        // Still a strict ceiling: BTreeMap non-root nodes hold >= 5 pairs.
+        assert!(map_bound_v9(300).unwrap() >= (300 / 5 + 1) * 32);
+    }
     #[test]
     fn task54_workflow_edit_v9_bootstrap_snapshot_exact_override_bytes_and_redacted_debug() {
         let snapshot =

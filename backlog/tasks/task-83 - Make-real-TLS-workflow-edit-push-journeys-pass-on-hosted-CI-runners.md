@@ -4,7 +4,7 @@ title: Make real-TLS workflow-edit push journeys pass on hosted CI runners
 status: Done
 assignee: []
 created_date: '2026-10-18 06:15'
-updated_date: '2026-10-18 07:14'
+updated_date: '2026-10-18 08:36'
 labels:
   - ci
   - testing
@@ -29,4 +29,6 @@ The 18 tui_e2e tests under task54_workflow_edit_v9::remote_v9 (real openssl s_se
 
 <!-- SECTION:NOTES:BEGIN -->
 Cause: the real-TLS fixture's 30s self-deadline expired during push+PR journeys on ~2.6x slower hosted runners; an expired fixture surfaces as a fenced scope. Reproduced locally by shrinking it to 4s. Raised to 180s and removed the CI skip. Gate: cargo test --test tui_e2e -- task54_workflow_edit_v9::remote_v9:: (42 passed).
+
+Correction 2026-10-18: the 30s fixture deadline was not the cause. Real cause: map_bound_v9 charged two 928-byte BTree nodes per environment variable, so ~70+ variable environments (hosted runners have 120) exhausted the 16 MiB workflow JSON ledger at PR creation and the scope fenced. Bound now uses BTreeMap MIN_LEN (entries/5+2 nodes). Reproduced locally with 30+ extra env vars; gate: remote_v9/corpus/task54 PTY 52 passed with 120 extra vars, lib 175 passed.
 <!-- SECTION:NOTES:END -->
