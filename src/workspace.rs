@@ -307,10 +307,15 @@ pub enum RowAction {
     Conflict(RawPath),
     WorkingFile(RawPath),
     DiffLine(DiffAnchor),
-    ComparisonParent { commit: String, parent: usize },
+    ComparisonParent {
+        commit: String,
+        parent: usize,
+    },
     Legend,
     Graph(crate::repository_graph_v1::GraphActionV1),
     Actor(GitRole),
+    /// A paused-operation shortcut row; App opens the same LocalCommand form as the menu.
+    Local(crate::local_actions::LocalCommand),
 }
 
 #[derive(Clone, Debug)]
@@ -591,27 +596,61 @@ impl Workspace {
         };
         match mode {
             RepositoryMode::Overview => {
+                let paused = crate::repository_view::paused_operation_rows_v1(&workspace.status);
                 workspace
                     .rows
                     .extend(workspace_rows(&workspace.status).into_iter().map(|row| {
-                        let action = row.path.map(|path| {
-                            if row.role == SemanticRole::Conflict {
-                                RowAction::Conflict(path)
-                            } else {
-                                RowAction::WorkingFile(path)
+                        let action = match row.path {
+                            Some(path) if row.role == SemanticRole::Conflict => {
+                                Some(RowAction::Conflict(path))
                             }
-                        });
+                            Some(path) => Some(RowAction::WorkingFile(path)),
+                            None => paused.iter().find_map(|(label, _, command)| {
+                                (*label == row.label)
+                                    .then_some(*command)
+                                    .flatten()
+                                    .map(RowAction::Local)
+                            }),
+                        };
                         DisplayRow {
                             label: row.label,
                             role: row.role,
                             action,
                         }
                     }));
+                // Saved stashes and linked worktrees are easy to forget; show them read-only.
+                let stashes = repo.stash_overview_v1().unwrap_or_default();
+                if let Some(newest) = stashes.first() {
+                    workspace.push(
+                        &format!(
+                            "Saved stashes: {} • newest {} {} • m → Apply/Apply and remove/Delete stash (F4 choose)",
+                            stashes.len(),
+                            crate::providers::runner::sanitize_terminal(
+                                newest.selector.strip_prefix("refs/").unwrap_or(&newest.selector)
+                            ),
+                            crate::providers::runner::sanitize_terminal(&newest.subject)
+                        ),
+                        SemanticRole::Reference,
+                        None,
+                    );
+                }
+                let linked = repo.linked_worktree_count_v1();
+                if linked > 0 {
+                    workspace.push(
+                        &format!(
+                            "Linked worktrees: {} besides this one • m → Add/Remove linked worktree",
+                            linked
+                        ),
+                        SemanticRole::Reference,
+                        None,
+                    );
+                }
                 workspace.push(
                     "Recent commits — saved versions",
                     SemanticRole::Reference,
                     None,
                 );
+                let mut recent = vec![];
                 for commit in repo.log(12).map_err(|e| e.to_string())? {
                     if workspace.selected_commit.is_none() {
                         workspace.selected_commit = Some(commit.clone());
@@ -623,11 +662,45 @@ impl Workspace {
                         actor_label(&commit.author),
                         actor_label(&commit.committer)
                     );
+                    recent.push(commit.id.clone());
                     workspace.push(
                         &label,
                         SemanticRole::Normal,
                         Some(RowAction::Commit(commit.id)),
                     );
+                }
+                // Raw local HEAD reflog file (no Git child); bounded to its newest 1 MiB.
+                let log = std::fs::read(repo.git_dir.join("logs/HEAD")).unwrap_or_default();
+                let tail = &log[log.len().saturating_sub(1024 * 1024)..];
+                let candidates = crate::repository_view::rescue_candidates_v1(tail, &recent, 8);
+                if !candidates.is_empty() {
+                    workspace.push(
+                        "Left behind by amend/reset/rebase — local reflog only, entries expire; not a universal undo",
+                        SemanticRole::Boundary,
+                        None,
+                    );
+                    workspace.push(
+                        "Recover: select one, Enter to inspect it, then m → Create rescue branch (version prefilled)",
+                        SemanticRole::Boundary,
+                        None,
+                    );
+                    for candidate in candidates {
+                        workspace.push(
+                            &format!(
+                                "↺ {} {} • {} • {}",
+                                &candidate.id[..8],
+                                if candidate.subject.is_empty() {
+                                    "(subject not in reflog)"
+                                } else {
+                                    &candidate.subject
+                                },
+                                candidate.reason,
+                                candidate.selector
+                            ),
+                            SemanticRole::Changed,
+                            Some(RowAction::Commit(candidate.id)),
+                        );
+                    }
                 }
             }
             RepositoryMode::Graph => workspace.initialize_graph_v1(repo)?,
@@ -891,6 +964,9 @@ impl Workspace {
         self.actor_profile = None;
         match action {
             RowAction::OriginalDiffReturn(_) => return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into()),
+            RowAction::Local(_) => {
+                return Err("Local operation rows open their explicit preview form".into())
+            }
             RowAction::Graph(action) => return self.graph_action_v1(action, repository),
             RowAction::FileProvenance(action) => {
                 return self.provenance_action_from_repository_v1(
@@ -1101,9 +1177,53 @@ impl Workspace {
                         }
                     }
                 }
+                // The current working file (with any conflict markers) is what Stage records.
+                let working = repo.root.join(path.as_os_str());
+                match std::fs::symlink_metadata(&working) {
+                    Ok(meta) if meta.is_file() && meta.len() <= 512 * 1024 => {
+                        self.push(
+                            "Working file now — this is what Stage selected file will record",
+                            SemanticRole::Reference,
+                            Some(RowAction::Conflict(path.clone())),
+                        );
+                        let content = std::fs::read(&working).unwrap_or_default();
+                        if content.contains(&0) {
+                            self.push(
+                                "Binary working file — no text rendering",
+                                SemanticRole::Boundary,
+                                Some(RowAction::Conflict(path.clone())),
+                            );
+                        } else {
+                            for line in content.split(|byte| *byte == b'\n').take(120) {
+                                let marker = line.starts_with(b"<<<<<<<")
+                                    || line.starts_with(b"=======")
+                                    || line.starts_with(b">>>>>>>");
+                                self.push(
+                                    &crate::git::display_bytes(line),
+                                    if marker {
+                                        SemanticRole::Conflict
+                                    } else {
+                                        SemanticRole::Normal
+                                    },
+                                    Some(RowAction::Conflict(path.clone())),
+                                );
+                            }
+                        }
+                    }
+                    Ok(_) => self.push(
+                        "Working path is not a small regular file; inspect it outside ghtui",
+                        SemanticRole::Boundary,
+                        Some(RowAction::Conflict(path.clone())),
+                    ),
+                    Err(_) => self.push(
+                        "Working file is absent (deleted on one side)",
+                        SemanticRole::Boundary,
+                        Some(RowAction::Conflict(path.clone())),
+                    ),
+                }
                 self.push(
-                    "Read-only conflict inspection. Resolve your working file before staging it.",
-                    SemanticRole::Normal,
+                    "Next: m → Choose conflict version or edit the file, then m → Stage selected file • o: Overview",
+                    SemanticRole::Boundary,
                     Some(RowAction::Conflict(path)),
                 );
             }

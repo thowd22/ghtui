@@ -734,6 +734,168 @@ pub struct WorkspaceRow {
     pub role: SemanticRole,
 }
 
+/// Prominent paused merge/rebase/cherry-pick/revert state with the next step
+/// and clickable Continue/Skip/Abort rows (the same LocalCommand forms as the
+/// Local operations menu). Bisect keeps its own guided rows.
+pub fn paused_operation_rows_v1(
+    status: &RepoStatus,
+) -> Vec<(
+    String,
+    SemanticRole,
+    Option<crate::local_actions::LocalCommand>,
+)> {
+    use crate::git::Sequencer;
+    use crate::local_actions::LocalCommand;
+    let Some(operation) = &status.operation else {
+        // A conflicted stash apply/pop has no sequencer state; the stash is kept.
+        let conflicts = status.conflicts();
+        if conflicts == 0 {
+            return vec![];
+        }
+        return vec![
+            (
+                format!(
+                    "⚠ {conflicts} unresolved conflict{} without a paused operation (for example a stash apply) • a conflicted stash is kept",
+                    if conflicts == 1 { "" } else { "s" }
+                ),
+                SemanticRole::Conflict,
+                None,
+            ),
+            (
+                "Next: open each [conflicted] file below, choose ours/theirs or edit it, then Stage selected file (m)".into(),
+                SemanticRole::Boundary,
+                None,
+            ),
+        ];
+    };
+    let name = crate::local_availability::operation_name_v1(operation);
+    if *operation == Sequencer::Bisect {
+        return vec![(
+            "Bug search in progress • mark versions good/bad/skip or End bug search (m)".into(),
+            SemanticRole::Conflict,
+            None,
+        )];
+    }
+    let conflicts = status.conflicts();
+    let upper = name.to_ascii_uppercase();
+    let mut rows = vec![(
+        if conflicts > 0 {
+            format!(
+                "⚠ {upper} PAUSED • {conflicts} unresolved conflict{} • working files are not committed yet",
+                if conflicts == 1 { "" } else { "s" }
+            )
+        } else {
+            format!("⚠ {upper} PAUSED • all conflicts resolved and staged")
+        },
+        SemanticRole::Conflict,
+        None,
+    )];
+    rows.push((
+        if conflicts > 0 {
+            "Next: open each [conflicted] file below, choose ours/theirs or edit it, then Stage selected file (m)".into()
+        } else {
+            format!("Next: Continue to finish the {name}, or Abort to return to the state before it")
+        },
+        SemanticRole::Boundary,
+        None,
+    ));
+    rows.push((
+        if conflicts > 0 {
+            format!("[Continue {name}] • available after every conflicted file is staged")
+        } else {
+            format!("[Continue {name}] • record the resolved result")
+        },
+        SemanticRole::Conflict,
+        Some(LocalCommand::Continue),
+    ));
+    if *operation != Sequencer::Merge {
+        rows.push((
+            "[Skip this commit] • drop the current commit's changes and move on".into(),
+            SemanticRole::Conflict,
+            Some(LocalCommand::Skip),
+        ));
+    }
+    rows.push((
+        format!("[Abort {name}] • restore the branch and files from before the {name} started"),
+        SemanticRole::Conflict,
+        Some(LocalCommand::Abort),
+    ));
+    rows
+}
+
+/// A commit HEAD left behind by an amend, reset or rebase, from the raw local
+/// HEAD reflog file. It may still be reachable elsewhere or already expired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RescueCandidateV1 {
+    pub id: String,
+    pub selector: String,
+    pub reason: &'static str,
+    pub subject: String,
+}
+
+/// Pure, bounded parse of `logs/HEAD` (oldest line first). Only the "old" side
+/// of amend/reset/rebase movements is offered; ids in `exclude` (already
+/// visible recent history) and duplicates are skipped. Newest first.
+pub fn rescue_candidates_v1(
+    log: &[u8],
+    exclude: &[String],
+    limit: usize,
+) -> Vec<RescueCandidateV1> {
+    let lines: Vec<(&str, &str, &str)> = log
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| std::str::from_utf8(line).ok())
+        .filter_map(|line| {
+            let (head, message) = line.split_once('\t')?;
+            let mut fields = head.split(' ');
+            let old = fields.next()?;
+            let new = fields.next()?;
+            (old.len() >= 40 && new.len() >= 40 && old.bytes().all(|b| b.is_ascii_hexdigit()))
+                .then_some((old, new, message))
+        })
+        .collect();
+    let total = lines.len();
+    let mut seen: Vec<&str> = vec![];
+    let mut result = vec![];
+    for (index, (old, _, message)) in lines.iter().enumerate().rev() {
+        let reason = if message.starts_with("commit (amend)") {
+            "before amend"
+        } else if message.starts_with("reset:") {
+            "before reset"
+        } else if message.starts_with("rebase") && message.contains("(start)") {
+            "before rebase"
+        } else {
+            continue;
+        };
+        if old.bytes().all(|byte| byte == b'0')
+            || seen.contains(old)
+            || exclude.iter().any(|id| id == old)
+        {
+            continue;
+        }
+        seen.push(old);
+        let subject = lines[..index]
+            .iter()
+            .rev()
+            .find(|(_, new, _)| new == old)
+            .map(|(_, _, message)| {
+                message
+                    .split_once(": ")
+                    .map_or(*message, |(_, subject)| subject)
+            })
+            .unwrap_or("");
+        result.push(RescueCandidateV1 {
+            id: (*old).to_owned(),
+            selector: format!("HEAD@{{{}}}", total - 1 - index),
+            reason,
+            subject: crate::providers::runner::sanitize_terminal(subject),
+        });
+        if result.len() >= limit {
+            break;
+        }
+    }
+    result
+}
+
 pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
     let branch = status.branch.as_deref().unwrap_or(if status.detached {
         "detached HEAD"
@@ -809,13 +971,12 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
             role: SemanticRole::Boundary,
         });
     }
-    if let Some(operation) = &status.operation {
+    let paused = paused_operation_rows_v1(status);
+    for (label, role, _) in paused.iter().filter(|row| row.2.is_none()).cloned() {
         rows.push(WorkspaceRow {
             path: None,
-            label: format!(
-                "Operation in progress: {operation:?}; resolve conflicts, continue or abort"
-            ),
-            role: SemanticRole::Conflict,
+            label,
+            role,
         });
     }
     if status.entries.is_empty() {
@@ -854,13 +1015,28 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
         rows.push(WorkspaceRow {
             path: Some(entry.path.clone()),
             label: format!(
-                "{} [{state}] {}{rename}",
+                "{} [{state}] {}{rename}{}",
                 entry.label(),
-                entry.path.display()
+                entry.path.display(),
+                if entry.conflict {
+                    " • Enter: compare base/ours/theirs"
+                } else {
+                    ""
+                }
             ),
             role,
         });
     }
+    rows.extend(
+        paused
+            .into_iter()
+            .filter(|row| row.2.is_some())
+            .map(|(label, role, _)| WorkspaceRow {
+                path: None,
+                label,
+                role,
+            }),
+    );
     rows
 }
 

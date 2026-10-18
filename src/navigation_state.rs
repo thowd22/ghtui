@@ -208,6 +208,10 @@ pub(crate) fn row_key(action: &RowAction) -> Result<Vec<u8>, String> {
             }
         }
         RowAction::Legend => hash.field(b"legend")?,
+        RowAction::Local(command) => {
+            hash.field(b"local-command")?;
+            hash.field(command.key().as_bytes())?;
+        }
         RowAction::Actor(role) => hash.field(match role {
             crate::identity::GitRole::Author => b"author",
             crate::identity::GitRole::Committer => b"committer",

@@ -3047,7 +3047,11 @@ impl App {
                                     })
                                     .and_then(|row| row.action.clone())
                                 {
-                                    self.dispatch(Action::RepositoryRow(action));
+                                    if let crate::workspace::RowAction::Local(command) = action {
+                                        self.dispatch(Action::LocalCommand(command));
+                                    } else {
+                                        self.dispatch(Action::RepositoryRow(action));
+                                    }
                                 }
                                 return;
                             }
