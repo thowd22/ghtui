@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-17 22:33'
+updated_date: '2026-10-18 00:19'
 labels:
   - review
   - e2e
@@ -103,4 +103,5 @@ Next lifecycle observation read boundary is Root-approved source-only. Exact exi
 V68 read-only current-source proposal frozen: manifest target/build/provider-pr-state-v68-proposal-20261016.json SHAd9a6d8418f97c64287dc52d7e6ad977a013deaf00acf8968896d116f8e70958c; full material target/build/provider-pr-state-v68-proposal-20261016.proposal.json SHAc1768c019662a8c41e1440e5dbe038a0a8fa7effab36b2874c556be8c44694d7. Authenticated exact V67 all1320 before/after; static190native files have0merge_workflows/0pr_lifecycle declarations, foundations15+15 stillundeclared. Installed gh2.101.0/git2.53.0/help reverified read-only; current official merge-async/stack/UUID acceptance/queue/update/revert/ref docs primary sources refreshed. First proposed actual Close/Reopen10read/22Confirm/13manual purpose on same Core/queue/Form/PrPlan/journal plus durable state/query fence. Full19 operations, modern async+all open downstack effects, remote-head deletion/update/revert and all-source/host limitations stay REQUIRED. New closed State origin/disposition/recovery/CAS interfaces are material PROPOSAL ONLY awaiting full Root review; no third producer/oldcallback activation, no product edits/build/tests/live mutations or AC/Done.
 
 2026-10-17 (Claude, commit c18c3e47): Basic merge is reachable. PR actions menu → 'Merge pull request' (merge/squash/rebase) → preview → confirm/Ctrl-S. It runs through the PrPlan durable journal with one 'gh pr merge --match-head-commit'; the Merge receipt is written only when GitHub reports the PR merged. Draft, closed, merged and conflicting PRs show the reason instead. Gates: pr_merge 1 code/4 PTY; pr_actions/conversation/navigation_palette 284 PTY; pr contracts pass. Not yet done: auto-merge, merge queue, branch-update and revert UI (the state model exists for these).
+2026-10-18 a06: PR actions menu gains Enable/Disable auto-merge (gh pr merge --auto --match-head-commit / --disable-auto, receipt only on read-back). Gate: node scripts/test-task.mjs v1_pr_lifecycle -> lib 2 passed, tui_e2e 14 passed; provider_contracts v1_pr_lifecycle 1 passed.
 <!-- SECTION:NOTES:END -->

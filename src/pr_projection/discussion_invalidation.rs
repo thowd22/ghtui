@@ -558,6 +558,8 @@ fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, Str
         },
         // A merge changes PR state, not comment/review/body text.
         PrEffectKind::Reaction | PrEffectKind::ReactionRemoved | PrEffectKind::Subscription | PrEffectKind::ViewedFile | PrEffectKind::Merge=>None,
+        // Menu lifecycle actions (ready/draft, auto-merge, update, close/reopen) change state only.
+        PrEffectKind::Lifecycle if marker.command.starts_with("lifecycle-")=>None,
         // These are not the currently integrated text forms. Their future
         // controllers must declare any metadata/filter impact explicitly.
         _=>return Err("This PR effect has no implemented discussion-text impact contract".into()),

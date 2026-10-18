@@ -12,6 +12,8 @@ use std::{
 
 #[path = "pr_checks_bridge.rs"]
 mod pr_checks_bridge;
+#[path = "pr_lifecycle_v1.rs"]
+mod pr_lifecycle_v1;
 #[path = "pr_merge_v1.rs"]
 mod pr_merge_v1;
 #[path = "pr_metadata.rs"]

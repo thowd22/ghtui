@@ -776,6 +776,41 @@ impl App {
                 ),
             ),
         );
+        // Lifecycle actions work from any PR tab; the form re-reads the PR.
+        let lifecycle_action = |command: PrCommand| {
+            unavailable
+                .clone()
+                .or_else(|| {
+                    (!self.pr_pending_message.is_empty()).then(|| self.pr_pending_message.clone())
+                })
+                .or_else(|| {
+                    page.and_then(|page| {
+                        crate::pr_actions::lifecycle_disabled_reason(command, &page.details.summary)
+                    })
+                })
+                .map_or(Action::Pr(PrUiAction::Command(command)), Action::Explain)
+        };
+        let summary = page.map(|page| &page.details.summary);
+        let lifecycle = [
+            if summary.is_some_and(|s| s.pr.draft) {
+                PrCommand::Ready
+            } else {
+                PrCommand::Draft
+            },
+            if summary.is_some_and(|s| s.auto_merge) {
+                PrCommand::DisableAutoMerge
+            } else {
+                PrCommand::EnableAutoMerge
+            },
+            PrCommand::UpdateBranch,
+        ];
+        let at = controls.len().min(5);
+        for (offset, command) in lifecycle.into_iter().enumerate() {
+            controls.insert(
+                at + offset,
+                (command.label().into(), lifecycle_action(command)),
+            );
+        }
         let original_conversation = page.is_some_and(|p| {
             matches!(
                 p.tab,
@@ -801,6 +836,13 @@ impl App {
                 // SAME new original Core checks exact capability/old state;
                 // a known protected original routes to readonly History.
                 Action::Pr(PrUiAction::StateV68(command))
+            } else if unavailable.is_none() && page.is_some() {
+                // Other tabs use the menu lifecycle path with fresh checks.
+                lifecycle_action(if command == crate::pr_state_model::PrStateCommand::Close {
+                    PrCommand::Close
+                } else {
+                    PrCommand::Reopen
+                })
             } else {
                 Action::Explain(unavailable.clone().unwrap_or_else(||
                     "Open the actual Summary or Conversation before a State action; no source fallback".into()))
@@ -876,8 +918,8 @@ impl App {
             .and_then(|page| page.rows.get(self.selected))
             .and_then(|row| row.comment.as_ref());
         for (command, label) in &PrCommand::ALL {
-            if *command == PrCommand::Merge {
-                continue; // Listed beside the review actions above.
+            if *command == PrCommand::Merge || PrCommand::LIFECYCLE.contains(command) {
+                continue; // Listed beside the review actions or as State rows.
             }
             let reason = if let Some(reason) = &unavailable {
                 Some(reason.clone())

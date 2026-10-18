@@ -1564,6 +1564,63 @@ impl GithubProvider {
         self.execute(args, None, Some(self.resource(repo, n)), cancel)?;
         self.after_write(&self.resource(repo, n), self.pr_summary(repo, n, cancel))
     }
+    /// Turn off a pending auto-merge request; read-back must show it gone.
+    pub fn disable_auto_merge_request(
+        &self,
+        identity: &HostIdentity,
+        target: &PrSummary,
+        cancel: &CancellationToken,
+    ) -> GithubResult<PrSummary> {
+        let repo = &target.pr.repository;
+        let n = target.pr.number;
+        let fresh = self.guard_target(identity, target, cancel)?;
+        if !fresh.auto_merge {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Auto-merge is not enabled",
+            ));
+        }
+        let args = vec![
+            "pr".into(),
+            "merge".into(),
+            n.to_string(),
+            "--repo".into(),
+            format!("{}/{repo}", self.host),
+            "--disable-auto".into(),
+        ];
+        self.execute(args, None, Some(self.resource(repo, n)), cancel)?;
+        let fresh = self.after_write(&self.resource(repo, n), self.pr_summary(repo, n, cancel))?;
+        if fresh.auto_merge {
+            self.runner.mark_ambiguous(&self.resource(repo, n));
+            return Err(error(
+                GithubErrorKind::AmbiguousWrite,
+                "Auto-merge still appears enabled after the request; reconcile before retrying",
+            ));
+        }
+        Ok(fresh)
+    }
+    /// Rebase the PR head onto its base (`gh pr update-branch --rebase`).
+    /// The merge-based update uses the head-pinned REST endpoint instead.
+    pub fn rebase_pr_branch(
+        &self,
+        identity: &HostIdentity,
+        target: &PrSummary,
+        cancel: &CancellationToken,
+    ) -> GithubResult<PrSummary> {
+        let repo = &target.pr.repository;
+        let n = target.pr.number;
+        self.guard_target(identity, target, cancel)?;
+        let args = vec![
+            "pr".into(),
+            "update-branch".into(),
+            n.to_string(),
+            "--repo".into(),
+            format!("{}/{repo}", self.host),
+            "--rebase".into(),
+        ];
+        self.execute(args, None, Some(self.resource(repo, n)), cancel)?;
+        self.after_write(&self.resource(repo, n), self.pr_summary(repo, n, cancel))
+    }
     pub fn reconcile_pr(
         &self,
         repo: &str,

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 23:23'
+updated_date: '2026-10-18 00:19'
 labels:
   - review
   - e2e
@@ -270,4 +270,6 @@ READ-ONLY V116 fast-org policy alternative /home/admin2/CODE/ghtui/target/build/
 V118 immutable exactV117 successor delivered for Root review: provider-integration-v118-operation-20261016.json SHAef8d50ff980b89d1b0af0a6e7009d5046be472f160f4a2443d3c048fc3fcc7b8; patch1874B46b13ec1. One test fixture helper path changed/1505unowned exact, cumulativeV114 remains approved2TESTpaths/1504exact. Every parsed static GraphQL first operation must be query/mutation; ALL mutation docs now require exact expected whole query/variables/JSON/argv then1count, not only count alreadymatchingquery. All5480names, C1 PRE-only entireImage model, native2/4sessions, all production unchanged. ZERO workerCargo/rustc/PTY/tests. Separately RootV305 one-testpath readiness review5fbe7ce4 found no actionable bounded source blocker after full1506auth and actual419395/419689 artifacts, not a runtimepass; Root alone runs combinedgates.
 
 READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/build/provider-org-tracking-v121-material-plan-20261016.json SHA7e15edd69e4613eaf97773c4994cdf5daace63cca1461f2678bbb329b104af47. Explicit DELIVERY HOLD after user fix/retest concern: NO Org product code/newarchitecture until coherent current candidate full/strict stable. Exact64KiB savedintent/shortstablekey/existing persistent reservation-ClearCAS/new observation-only records (completeFALSE)/genuine lazy sameCore/noDTOcast/callmap/preGrowth/oldmapVecsort+SQL overlaps/testmatrix recorded. Tracking9..36/752..3992KiB arithmetic and proposed lazy16/4936KiB not heap or runtime proof. Fullorg/defaultHost/finite4096/StateD4 remainOPEN; D4 UNAPPROVED. Existing V120 oneTESTmodel correction separate; Root owns all builds. ZERO sourcecopies/edits/Cargo/rustc/PTY/tests/API mutations.
+
+2026-10-18 a06: PR actions menu gains Mark ready/Convert to draft and Update branch (merge via head-pinned REST, rebase via gh pr update-branch --rebase); Close/Reopen now work from non-Summary/Conversation tabs through the same journaled menu path. Gate: node scripts/test-task.mjs v1_pr_lifecycle -> lib 2, tui_e2e 14 passed (kb+mouse); tui_e2e pr_actions:: 112 passed. Lock/unlock and revert not wired.
 <!-- SECTION:NOTES:END -->
