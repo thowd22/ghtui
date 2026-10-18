@@ -33,6 +33,7 @@ pub enum LocalCommand {
     Pull,
     Push,
     ForcePushLease,
+    CreatePullRequest,
     StashSave,
     StashApply,
     StashPop,
@@ -57,7 +58,7 @@ pub enum LocalCommand {
     BisectReset,
 }
 impl LocalCommand {
-    pub const ALL: [(Self, &'static str); 39] = [
+    pub const ALL: [(Self, &'static str); 40] = [
         (Self::StageFile, "Stage selected file"),
         (Self::UnstageFile, "Unstage selected file"),
         (Self::StageSelection, "Stage selected lines"),
@@ -75,6 +76,7 @@ impl LocalCommand {
         (Self::Pull, "Pull remote branch"),
         (Self::Push, "Push branch"),
         (Self::ForcePushLease, "Force push with exact lease"),
+        (Self::CreatePullRequest, "Create pull request"),
         (Self::StashSave, "Save stash"),
         (Self::StashApply, "Apply stash"),
         (Self::StashPop, "Apply and remove stash"),
@@ -252,6 +254,15 @@ pub fn fields(command: LocalCommand, context: &LocalContext) -> Vec<LocalField> 
             field("remote", "Configured remote", "origin"),
             field("branch", "Local branch", branch),
             field("expected_remote", "Exact expected remote commit SHA", ""),
+        ],
+        CreatePullRequest => vec![
+            field("title", "Pull request title", ""),
+            LocalField {
+                multiline: true,
+                ..field("body", "Description (optional)", "")
+            },
+            field("base", "Base branch (empty = repository default)", ""),
+            choice("draft", "Open as draft?", "false", &["false", "true"]),
         ],
         StashSave => vec![
             field("message", "Stash description", ""),
@@ -1137,6 +1148,11 @@ fn operation(
             branch: value("branch")?,
             expected_remote: value("expected_remote")?,
         },
+        CreatePullRequest => {
+            return Err(
+                "Create pull request is previewed with GitHub, not as a Git operation.".into(),
+            )
+        }
         StashSave => Operation::StashSave {
             message: values.get("message").cloned().unwrap_or_default(),
             untracked: boolean(values, "untracked")?,

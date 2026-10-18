@@ -59,6 +59,7 @@ pub mod pr_checks_native;
 pub mod pr_checks_sql_guard;
 pub(crate) mod pr_collaboration_origin_v17;
 mod pr_comment_selection_shared_v1;
+pub mod pr_create_v1;
 pub mod pr_issue_links_v87;
 pub mod pr_legacy;
 pub mod pr_metadata_actions;

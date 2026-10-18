@@ -71,8 +71,10 @@ pub(crate) use repository_catalogue::{
 };
 mod remote_repository_v1;
 pub use remote_repository_v1::*;
+mod pr_create_v1;
 pub(in crate::providers) mod pr_issue_links_v87;
 mod pr_resources_v1;
+pub(crate) use pr_create_v1::encode_component_v1;
 pub(crate) use pr_issue_links_v87::read::{
     IssueLinksInspectionReadV87, IssueLinksOpenReadV87, IssueLinksSelectedReadV87,
 };

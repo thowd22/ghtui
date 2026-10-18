@@ -77,7 +77,12 @@ impl<'a> LocalAvailability<'a> {
         if self.status.has_history_overrides()
             && !matches!(
                 command,
-                StageFile | UnstageFile | StageSelection | UnstageSelection | Fetch
+                StageFile
+                    | UnstageFile
+                    | StageSelection
+                    | UnstageSelection
+                    | Fetch
+                    | CreatePullRequest
             )
         {
             return Some("History writes guarded: replacement/graft overrides active.".into());
@@ -95,6 +100,9 @@ impl<'a> LocalAvailability<'a> {
             UnstageSelection if !matches!(self.comparison, Some(Comparison::Staged)) => {
                 Some("Select a staged change in Staged diff; saved history is read-only.".into())
             }
+            CreatePullRequest if self.status.detached || self.status.branch.is_none() => Some(
+                "Switch to a named local branch first; a pull request needs a head branch.".into(),
+            ),
             Continue | Skip | Abort if self.status.operation.is_none() => {
                 Some("There is no paused Git operation.".into())
             }
