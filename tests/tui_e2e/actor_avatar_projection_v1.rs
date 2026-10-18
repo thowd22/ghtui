@@ -65,7 +65,8 @@ fn journey(mouse: bool) {
             GREEN_TITLE,
             "unknown actor [unknown]",
             "@same-login",
-            "[?]",
+            // The unknown actor's list-row chip, then its label.
+            "?   unknown actor [unknown]",
         ],
     );
     session.wait_for_command_count(&fixture, 7);

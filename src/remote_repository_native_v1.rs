@@ -737,6 +737,7 @@ pub fn draw(frame: &mut ratatui::Frame, app: &mut App) {
         frame.render_widget(Clear, area);
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Remote repository • default snapshot unavailable")
             .style(theme.base());
         let inner = block.inner(area);
@@ -778,6 +779,7 @@ pub fn draw(frame: &mut ratatui::Frame, app: &mut App) {
     };
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(title)
         .style(theme.base());
     let inner = block.inner(area);

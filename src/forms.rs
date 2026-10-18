@@ -2676,6 +2676,7 @@ fn draw_prepared_resize_v1(
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(" Preview • resize required ")
             .style(theme.base()),
         rect,
@@ -2800,6 +2801,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(
                 Block::default()
                     .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
                     .title(
                         if matches!(
                             form.purpose,
@@ -2909,6 +2911,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(format!(" {} ", safe_text(&form.title)))
             .style(theme.base()),
         rect,

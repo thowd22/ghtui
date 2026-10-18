@@ -77,6 +77,7 @@ impl CatalogueSourceTransitionV1 {
         frame.render_widget(Clear, area);
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(SOURCE_CHANGE_TITLE_V1)
             .style(theme.base());
         let inner = block.inner(area);

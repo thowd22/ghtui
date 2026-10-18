@@ -210,6 +210,7 @@ impl OriginalTreeLayoutV1 {
         frame.render_widget(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
                 .title("Jump to saved path • original source")
                 .style(theme.base()),
             area,

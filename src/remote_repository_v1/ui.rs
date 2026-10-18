@@ -103,6 +103,7 @@ impl RemoteRepositoryWorkspaceV1 {
         frame.render_widget(Clear, area);
         let shell = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(REMOTE_REPOSITORY_TITLE_V1)
             .style(theme.base());
         let inner = shell.inner(area);

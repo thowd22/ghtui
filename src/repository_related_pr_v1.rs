@@ -533,6 +533,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> bool {
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title("Related PRs • exact original saved commit • read-only")
         .style(theme.base());
     let inner = block.inner(area);

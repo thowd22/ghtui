@@ -292,6 +292,7 @@ impl CatalogueDiscoveryLimitsDialogV1 {
         frame.render_widget(Clear, area);
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(DISCOVERY_LIMITS_TITLE)
             .style(theme.base());
         let inner = block.inner(area);

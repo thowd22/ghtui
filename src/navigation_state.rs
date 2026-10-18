@@ -740,6 +740,18 @@ pub(crate) fn validate_repository_completion(
         })
 }
 
+/// Cells Back plus the two most recent breadcrumbs need, gaps included.
+pub(crate) fn navigation_width(app: &App) -> u16 {
+    let crumbs = app.navigation_trail.crumbs();
+    let crumbs: usize = crumbs
+        .iter()
+        .rev()
+        .take(2)
+        .map(|crumb| crate::editor::display_width(crumb.label) + 3)
+        .sum();
+    (6 + crumbs).min(usize::from(u16::MAX)) as u16
+}
+
 pub(crate) fn draw_navigation(
     frame: &mut ratatui::Frame,
     app: &mut App,
@@ -751,9 +763,8 @@ pub(crate) fn draw_navigation(
     let base = theme
         .style(crate::theme::SemanticToken::Reference)
         .remove_modifier(Modifier::UNDERLINED | Modifier::REVERSED);
-    let title_width = crate::editor::display_width("ghtui • Git and GitHub, clearly")
-        .min(usize::from(area.width));
-    let mut x = area.x.saturating_add(title_width as u16).saturating_add(1);
+    // `area` is the header span the chrome left for Back and the breadcrumbs.
+    let mut x = area.x;
     if area.right().saturating_sub(x) < 6 {
         return;
     }

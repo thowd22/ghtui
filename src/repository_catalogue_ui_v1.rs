@@ -1,7 +1,7 @@
 //! Inventory presentation. Borrow immutable prepared rows, shared
 //! editor/theme/actor fallback; no provider, SQL, fuzzy scoring or source cloning.
 use crate::{
-    identity::AvatarWidget,
+    identity::ListAvatar,
     repository_catalogue_workspace_v1::{
         CatalogueDestination, CatalogueFocus, CatalogueHit, CatalogueInput, CatalogueWorkspace,
     },
@@ -83,6 +83,7 @@ impl CatalogueWorkspace {
         frame.render_widget(Clear, area);
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Repositories • explicit discovery")
             .style(theme.base());
         let inner = block.inner(area);
@@ -303,7 +304,7 @@ impl CatalogueWorkspace {
             if let Some(actor) = &row.actor {
                 if inner.width >= 50 {
                     frame.render_widget(
-                        AvatarWidget {
+                        ListAvatar {
                             identity: actor,
                             image: avatars.and_then(|assets| {
                                 self.source

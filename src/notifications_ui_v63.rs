@@ -410,6 +410,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let busy = app.notifications_work_v63.is_some() || app.notifications_owner_v63.is_some();
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(TITLE)
         .style(theme.style(SemanticToken::Normal));
     let inner = block.inner(area);

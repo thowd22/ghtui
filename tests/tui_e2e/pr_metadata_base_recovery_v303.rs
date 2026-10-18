@@ -128,12 +128,15 @@ fn restarted_metadata(s: &mut Session, mouse: bool, raw: &Value) {
         s.poll_output(Duration::from_millis(1));
         if s.completed_cells_end() > opening
             && s.completed_cells_screen().is_some_and(|frame| {
+                // The context moved into the content pane's top border; its
+                // tail keeps the full head SHA.
                 let expected = format!(
-                    "github.invalid / @octocat / all repositories on host / example/repo#7 / {}",
+                    "example/repo#7 / {} ─╮",
                     raw["head"]["sha"].as_str().unwrap()
                 );
-                frame.contents_between(2, 0, 2, 120).trim_end() == expected
-                    && crate::support::main_footer_visible(frame)
+                frame.contents().lines().any(|line| {
+                    line.contains("Inbox • focused view") && line.trim_end().ends_with(&expected)
+                }) && crate::support::main_footer_visible(frame)
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
                             body.contains("[u Metadata]")

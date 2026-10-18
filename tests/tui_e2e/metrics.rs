@@ -592,7 +592,8 @@ fn happy(mouse: bool) {
     card(&mut session, mouse, 1);
     session.wait_for_screen(TITLE);
     session.wait_for_screen("@alice");
-    session.wait_for_screen("[AL]");
+    // Contributor rows carry the filled two-cell initials chip.
+    session.wait_for_screen("AL  ");
     let before_window = session
         .screen()
         .lines()

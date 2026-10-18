@@ -211,6 +211,7 @@ pub fn draw(
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(format!(" {TITLE} "))
             .style(theme.base()),
         area,

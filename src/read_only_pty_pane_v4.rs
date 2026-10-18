@@ -355,6 +355,7 @@ impl ReadOnlyPtyPaneV4 {
         frame.render_widget(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
                 .title("Optional external pager • host-owned read-only PTY"),
             area,
         );

@@ -730,6 +730,7 @@ pub fn draw(
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(" Scoped reviews • observed numeric ownership • no auto submission ")
             .style(theme.base()),
         area,

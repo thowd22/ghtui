@@ -66,11 +66,13 @@ fn swatch_matches(frame: &vt100::Screen, label: &str, expected: (Color, [Color; 
     })
 }
 
-/// The title row's first cell takes the active view's hue on the theme background.
-fn title_matches(frame: &vt100::Screen, fg: Color, bg: Color) -> bool {
-    frame.cell(0, 0).is_some_and(|cell| {
-        cell.contents() == "g" && cell.bold() && cell.fgcolor() == fg && cell.bgcolor() == bg
-    })
+/// The ` ghtui ` logo chip is filled with the active view's hue; the row behind it keeps the
+/// theme background.
+fn title_matches(frame: &vt100::Screen, hue: Color, bg: Color) -> bool {
+    frame
+        .cell(0, 1)
+        .is_some_and(|cell| cell.contents() == "g" && cell.bold() && cell.bgcolor() == hue)
+        && frame.cell(0, 7).is_some_and(|cell| cell.bgcolor() == bg)
 }
 
 fn wait_cells(
@@ -217,9 +219,9 @@ fn theme_journey(mouse: bool, size: (u16, u16), resized: (u16, u16)) {
             });
         title_matches(frame, hues[3], bg)
             && tab.is_some_and(|(row, column)| {
-                frame.cell(row, column).is_some_and(|cell| {
-                    cell.inverse() && cell.fgcolor() == hues[3] && cell.bgcolor() == bg
-                })
+                frame
+                    .cell(row, column)
+                    .is_some_and(|cell| cell.bgcolor() == hues[3] && cell.bold())
             })
     });
     session.capture_completed_terminal_v1(if mouse {

@@ -393,6 +393,7 @@ pub fn folder_draw(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Saved folder • original detail")
             .style(theme.base()),
         area,

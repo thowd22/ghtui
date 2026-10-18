@@ -1,7 +1,7 @@
 //! Pure prepared Actions rendering and keyboard mapping. No subprocess, network or disk I/O.
 use crate::{
     actions_workspace::{ActionsAction, ActionsView, ActionsWorkspace},
-    identity::{ActorIdentity, AvatarState, AvatarWidget},
+    identity::{ActorIdentity, AvatarState, ListAvatar},
     providers::runner::sanitize_terminal,
     theme::{SemanticToken, Theme},
 };
@@ -193,8 +193,19 @@ pub fn draw(
                 .unwrap_or_default()
         };
         let status = format!("{freshness}{watch}");
+        // Freshness and watch state are provenance on the section header, never the heading.
         frame.render_widget(
-            Paragraph::new(status).style(theme.style(SemanticToken::Muted)),
+            Paragraph::new(crate::ui_chrome::section_header(
+                theme,
+                workspace.view.label(),
+                &status,
+                if workspace.fetched_at.is_some() {
+                    crate::theme::Role::TextMuted
+                } else {
+                    crate::theme::Role::Warning
+                },
+                area.width,
+            )),
             Rect::new(area.x, y, area.width, 1),
         );
         y += 1;
@@ -260,16 +271,22 @@ pub fn draw(
         } else {
             theme.style(row.role)
         };
-        let mut row_x = rect.x;
+        // The selection marker leads the row, before the actor chip and label.
+        let marker = if selected { "> " } else { "  " };
+        frame.render_widget(
+            Paragraph::new(marker).style(style),
+            Rect::new(rect.x, rect.y, 2.min(rect.width), 1),
+        );
+        let mut row_x = rect.x + 2.min(rect.width);
         if let Some(actor) = &row.actor {
             let identity = ActorIdentity::github(&workspace.identity.host, actor);
             let image = match avatars.get(&identity) {
                 Some(AvatarState::Ready(image)) => Some(image.as_ref()),
                 _ => None,
             };
-            let width = 4.min(rect.width);
+            let width = 4.min(rect.right().saturating_sub(row_x));
             frame.render_widget(
-                AvatarWidget {
+                ListAvatar {
                     identity: &identity,
                     image,
                     theme,
@@ -286,12 +303,7 @@ pub fn draw(
             );
             row_x += actor_width;
         }
-        let text = format!(
-            "{}{} {}",
-            if selected { "> " } else { "  " },
-            row.role.symbol(),
-            sanitize_terminal(&row.label)
-        );
+        let text = format!("{} {}", row.role.symbol(), sanitize_terminal(&row.label));
         frame.render_widget(
             Paragraph::new(text).style(style),
             Rect::new(row_x, rect.y, rect.right().saturating_sub(row_x), 1),

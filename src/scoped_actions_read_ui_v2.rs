@@ -726,13 +726,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     e.ready = area.width >= 64 && area.height >= if filters { 20 } else { 14 };
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Block::default().borders(Borders::ALL).title(if !e.ready {
-            " Resize for original Actions editor "
-        } else if filters {
-            " Original repository run filters "
-        } else {
-            " Search actual captured Actions logs "
-        }),
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .title(if !e.ready {
+                " Resize for original Actions editor "
+            } else if filters {
+                " Original repository run filters "
+            } else {
+                " Search actual captured Actions logs "
+            }),
         area,
     );
     let inner = area.inner(ratatui::layout::Margin::new(1, 1));

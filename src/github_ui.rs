@@ -2,7 +2,7 @@
 use crate::{
     app::{safe_text, Action, App, HitRegion},
     github_workspace::{GithubAction, InboxFilter, PrTab},
-    identity::{ActorIdentity, AvatarState, AvatarWidget},
+    identity::{ActorIdentity, AvatarState, ListAvatar},
     theme::SemanticToken,
 };
 use ratatui::{
@@ -280,7 +280,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 let identity = ActorIdentity::github(&github.identity.host, actor);
                 let avatar = app.avatar_states.get(&identity);
                 frame.render_widget(
-                    AvatarWidget {
+                    ListAvatar {
                         identity: &identity,
                         image: match avatar {
                             Some(AvatarState::Ready(image)) => Some(image.as_ref()),
@@ -330,9 +330,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         Rect::new(area.x, y, area.width, 1),
     );
     y += 1;
+    // Freshness is provenance: a dimmed detail on the list's section header.
     frame.render_widget(
-        Paragraph::new(safe_text(&github.freshness.label()))
-            .style(theme.style(SemanticToken::Muted)),
+        Paragraph::new(crate::ui_chrome::section_header(
+            theme,
+            "Pull requests",
+            &github.freshness.label(),
+            crate::theme::Role::TextMuted,
+            area.width,
+        )),
         Rect::new(area.x, y, area.width, 1),
     );
     y += 1;
@@ -393,7 +399,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         let actor = ActorIdentity::github(&github.identity.host, &pr.author);
         frame.render_widget(
-            AvatarWidget {
+            ListAvatar {
                 identity: &actor,
                 image: match app.avatar_states.get(&actor) {
                     Some(AvatarState::Ready(image)) => Some(image.as_ref()),

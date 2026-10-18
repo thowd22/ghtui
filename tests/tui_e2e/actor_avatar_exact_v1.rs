@@ -344,7 +344,17 @@ fn journey(mouse: bool, mode: Mode) {
     choose(&mut session, mouse, "[r Refresh]", b"r");
     ready(
         &mut session,
-        &[RED_TITLE, GREEN_TITLE, "@same-login", "[SS]"],
+        &[
+            RED_TITLE,
+            GREEN_TITLE,
+            "@same-login",
+            // The list-row initials chip: bracketed only without color.
+            if mode == Mode::NoColor {
+                "[SS]"
+            } else {
+                "SS  @same-login"
+            },
+        ],
     );
     session.wait_for_command_count(&fixture, 7);
     assert_commands(&session, &fixture, 7);

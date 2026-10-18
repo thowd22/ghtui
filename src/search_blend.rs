@@ -234,6 +234,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Clear, panel);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(" Blend controls • explicit Ranked GitHub discovery ");
     let inner = block.inner(panel);
     frame.render_widget(block, panel);

@@ -273,6 +273,7 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Help • keyboard and mouse")
             .style(
                 theme

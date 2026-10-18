@@ -310,10 +310,13 @@ fn enter_metadata_query(s: &mut Session, mouse: bool) {
                 let text = frame.contents();
                 crate::support::main_footer_visible(frame)
                     // Full H belongs to this SAME completed frame's actual
-                    // breadcrumb, not the separately owned Conversation body.
-                    && text.lines().nth(2).is_some_and(|line| {
-                        line.trim_end()
-                            == format!("github.invalid / @requester / all repositories on host / example/repo#7 / {HEAD}")
+                    // context in the content pane's top border, not the
+                    // separately owned Conversation body.
+                    && text.lines().any(|line| {
+                        line.contains("Inbox • focused view")
+                            && line.trim_end().ends_with(&format!(
+                                "example/repo#7 / {HEAD} ─╮"
+                            ))
                     })
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {

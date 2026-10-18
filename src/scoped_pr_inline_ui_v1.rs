@@ -441,6 +441,7 @@ pub fn draw_anchor(
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(" Original inline anchor • observed intent, not permission ")
             .style(theme.base()),
         rect,

@@ -152,6 +152,7 @@ mod storage_private;
 pub mod terminal;
 pub mod theme;
 pub mod ui;
+pub mod ui_chrome;
 pub mod workspace;
 
 #[cfg(test)]

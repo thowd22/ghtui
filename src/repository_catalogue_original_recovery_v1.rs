@@ -96,6 +96,7 @@ impl RecoveryPreviewV1 {
         frame.render_widget(Clear, area);
         let shell = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(RECOVERY_PREVIEW_TITLE_V1)
             .style(theme.base());
         let inner = shell.inner(area);

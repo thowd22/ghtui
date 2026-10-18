@@ -292,6 +292,7 @@ pub(crate) fn draw_pending(frame: &mut Frame, app: &mut App, area: Rect) -> bool
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title("Opening inline comment • original Native range")
         .style(theme.base());
     let inner = block.inner(area);

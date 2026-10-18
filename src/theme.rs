@@ -431,6 +431,9 @@ impl Palette {
     }
 }
 
+/// Identity chips use the first seven graph lanes; the eighth is red.
+pub const IDENTITY_HUES: usize = 7;
+
 pub fn rgb(hex: u32) -> Color {
     Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
@@ -630,6 +633,50 @@ impl Theme {
         Style::default()
             .fg(downsample(ink, self.mode))
             .bg(downsample(fill, self.mode))
+            .add_modifier(Modifier::BOLD)
+    }
+    /// Ink on a solid view hue: the logo chip and the active view tab.
+    pub fn filled(self, hue: Hue) -> Style {
+        self.fill(
+            self.palette().map(|palette| palette.hue(hue)),
+            ansi16_hue(hue),
+        )
+    }
+    /// Ink on one of the identity hues. Red is left out so a person never reads as a failure.
+    pub fn identity_chip(self, slot: usize) -> Style {
+        if self.mode == ColorMode::NoColor {
+            return self.base().add_modifier(Modifier::BOLD);
+        }
+        let slot = slot % IDENTITY_HUES;
+        self.fill(
+            self.palette().map(|palette| palette.lanes()[slot]),
+            [
+                Color::LightRed,
+                Color::Cyan,
+                Color::Magenta,
+                Color::Green,
+                Color::Blue,
+                Color::Yellow,
+                Color::LightMagenta,
+            ][slot],
+        )
+    }
+    fn fill(self, hex: Option<u32>, named: Color) -> Style {
+        if self.mode == ColorMode::NoColor {
+            return self
+                .base()
+                .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+        }
+        let (fill, ink) = match (hex, self.palette()) {
+            (Some(hex), Some(palette)) => (
+                downsample(rgb(hex), self.mode),
+                downsample(rgb(palette.ink), self.mode),
+            ),
+            _ => (named, Color::Black),
+        };
+        Style::default()
+            .fg(ink)
+            .bg(fill)
             .add_modifier(Modifier::BOLD)
     }
     /// Badge text, always with the glyph so the status survives any color capability.

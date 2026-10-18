@@ -65,6 +65,7 @@ pub fn draw(frame: &mut Frame, area: Rect, modal: &mut CatalogueModal) {
     frame.render_widget(Clear, area);
     let shell = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(TITLE)
         .style(modal.theme.base());
     let inner = shell.inner(area);
@@ -153,6 +154,7 @@ pub fn draw(frame: &mut Frame, area: Rect, modal: &mut CatalogueModal) {
     );
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(title)
         .style(modal.theme.base());
     let content = block.inner(modal.dialog_area);

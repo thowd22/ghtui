@@ -260,7 +260,7 @@ fn form_ready(session: &mut Session, operation: Operation, preview: bool) {
                 } else {
                     "PR INTENT • Preview first"
                 };
-                screen.contains(&format!("┌ {}", operation.title()))
+                screen.contains(&format!("╭ {}", operation.title()))
                     && screen.contains(phase)
                     && screen.contains("[Preview]")
                     && screen.contains("[Confirm action]")

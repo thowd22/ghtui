@@ -978,3 +978,98 @@ impl Widget for ActorWidget<'_> {
             .render(text_area, buffer);
     }
 }
+
+/// A two-cell initials chip for list rows, filled with a hue that stays the same for an identity
+/// in every view and session. Without color it keeps the bracketed `[AB]` text form.
+pub struct InitialsChip<'a> {
+    pub identity: &'a ActorIdentity,
+    pub theme: Theme,
+}
+impl InitialsChip<'_> {
+    /// The identity hue slot: a stable FNV-1a hash of the identity key, never process-seeded.
+    pub fn slot(identity: &ActorIdentity) -> usize {
+        let key = match (&identity.host, &identity.login) {
+            (host, Some(login)) => format!(
+                "login\0{}\0{}",
+                host.as_deref().unwrap_or_default(),
+                login.to_lowercase()
+            ),
+            _ => format!(
+                "local\0{}\0{}",
+                identity.name,
+                identity.email.as_deref().unwrap_or_default().to_lowercase()
+            ),
+        };
+        let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+        (hash % crate::theme::IDENTITY_HUES as u64) as usize
+    }
+    /// The visible text: exactly two cells in color, `[AB]` without it.
+    pub fn text(identity: &ActorIdentity, mode: ColorMode) -> String {
+        let initials = identity.initials();
+        if mode == ColorMode::NoColor {
+            return format!("[{initials}]");
+        }
+        let mut cells = String::new();
+        let mut width = 0;
+        for character in initials.chars() {
+            let next = crate::editor::display_width(character.encode_utf8(&mut [0; 4]));
+            if width + next > 2 {
+                break;
+            }
+            cells.push(character);
+            width += next;
+        }
+        cells.push_str(&" ".repeat(2 - width));
+        cells
+    }
+}
+impl Widget for InitialsChip<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
+        let style = if self.theme.mode == ColorMode::NoColor {
+            self.theme.style(SemanticToken::Actor)
+        } else {
+            self.theme.identity_chip(Self::slot(self.identity))
+        };
+        let text = Self::text(self.identity, self.theme.mode);
+        let width = (crate::editor::display_width(&text) as u16).min(area.width);
+        // The rest of the slot is cleared so no row text shows through beside the chip.
+        Paragraph::new("")
+            .style(self.theme.base())
+            .render(Rect::new(area.x, area.y, area.width, 1), buffer);
+        Paragraph::new(text)
+            .style(style)
+            .render(Rect::new(area.x, area.y, width, 1), buffer);
+    }
+}
+
+/// List rows: a ready image in truecolor, otherwise the initials chip.
+pub struct ListAvatar<'a> {
+    pub identity: &'a ActorIdentity,
+    pub image: Option<&'a AvatarImage>,
+    pub theme: Theme,
+}
+impl Widget for ListAvatar<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        let image_ready = self.theme.mode == ColorMode::TrueColor
+            && self.image.is_some_and(|image| image.validate().is_ok());
+        if image_ready {
+            AvatarWidget {
+                identity: self.identity,
+                image: self.image,
+                theme: self.theme,
+            }
+            .render(area, buffer);
+        } else {
+            InitialsChip {
+                identity: self.identity,
+                theme: self.theme,
+            }
+            .render(area, buffer);
+        }
+    }
+}

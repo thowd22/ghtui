@@ -694,6 +694,7 @@ impl LocalPicker {
         frame.render_widget(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
                 .title(self.title.as_str())
                 .style(theme.base()),
             area,

@@ -1,6 +1,6 @@
 //! Prepared native Dashboard rendering/input; no IO or formula work in draw.
 use crate::{
-    identity::{ActorWidget, AvatarState, AvatarWidget},
+    identity::{ActorWidget, AvatarState, ListAvatar},
     metrics::MetricsAction,
     metrics_workspace::{MetricsView, MetricsWorkspace, MetricsWorkspaceAction},
     theme::{SemanticToken, Theme},
@@ -131,10 +131,25 @@ pub fn draw(
         if y >= area.bottom().saturating_sub(1) {
             break;
         }
-        frame.render_widget(
-            Paragraph::new(label.as_str()).style(theme.style(role)),
-            Rect::new(area.x, y, area.width, 1),
-        );
+        let rect = Rect::new(area.x, y, area.width, 1);
+        if std::ptr::eq(label, &workspace.as_of_label) {
+            // The as-of time is provenance: a dimmed detail on the metrics section header.
+            frame.render_widget(
+                Paragraph::new(crate::ui_chrome::section_header(
+                    theme,
+                    "Metrics",
+                    label,
+                    crate::theme::Role::TextMuted,
+                    area.width,
+                )),
+                rect,
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new(label.as_str()).style(theme.style(role)),
+                rect,
+            );
+        }
         y += 1;
     }
     if let Some(status) = &workspace.status {
@@ -223,7 +238,7 @@ pub fn draw(
             if row.avatar_only {
                 let avatar_width = 4.min(actor_area.width);
                 frame.render_widget(
-                    AvatarWidget {
+                    ListAvatar {
                         identity: actor,
                         image,
                         theme,

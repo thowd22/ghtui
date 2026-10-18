@@ -275,6 +275,7 @@ pub fn draw_context(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(" Exact search source • read-only ")
             .style(app.theme().base()),
         rect,
@@ -400,6 +401,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(" Search sources • explicit read-only hydration ")
             .style(app.theme().base()),
         rect,

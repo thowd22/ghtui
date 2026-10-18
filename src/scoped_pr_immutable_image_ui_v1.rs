@@ -513,6 +513,7 @@ pub fn draw(frame: &mut Frame, area: Rect, view: &mut PrImageViewerV1, theme: cr
     view.geometry = Some(area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(" Immutable file images • read-only canonical context ");
     let inner = block.inner(area);
     frame.render_widget(block, area);

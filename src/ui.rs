@@ -87,10 +87,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     frame.render_widget(Block::default().style(theme.base()), area);
     app.hits.clear();
+    let header = crate::ui_chrome::header_rows(app, area.width);
     let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(header),
         Constraint::Min(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -99,84 +98,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let accent = theme
         .style(crate::theme::SemanticToken::Focus)
         .add_modifier(Modifier::BOLD);
-    // Headings take the view hue without the focus underline.
+    // Logo, view tabs, Source identity, Back and breadcrumbs share the header; the scope
+    // context moved into the content pane's top border.
+    crate::ui_chrome::draw_header(frame, app, rows[0]);
+    let chrome_hits = app.hits.len();
+    // Overlay headings take the view hue without the focus underline.
     let heading = theme.style(crate::theme::SemanticToken::Accent);
-    frame.render_widget(
-        Paragraph::new("ghtui • Git and GitHub, clearly").style(heading),
-        rows[0],
-    );
-    let mut x = rows[1].x;
-    for (index, view) in View::ALL.into_iter().enumerate() {
-        let label = format!(
-            " {} {} ",
-            app.shortcut(["inbox", "repository", "search", "actions", "dashboard"][index]),
-            view.label()
-        );
-        let width = (label.len() as u16).min(rows[1].right().saturating_sub(x));
-        let rect = Rect::new(x, rows[1].y, width, 1);
-        // The active tab is filled with the view hue; the others show their key in that view's hue.
-        let mut style = if app.view == view {
-            theme
-                .with_view(view)
-                .style(crate::theme::SemanticToken::Accent)
-                .add_modifier(Modifier::REVERSED)
-        } else {
-            theme.base()
-        };
-        if app.focus == index {
-            style = style.add_modifier(Modifier::UNDERLINED);
-        }
-        frame.render_widget(Paragraph::new(label).style(style), rect);
-        app.hits.push(HitRegion {
-            rect,
-            action: Action::View(view),
-        });
-        x = x.saturating_add(width);
-    }
-    let source_control = app.view == View::Repository
-        && app.repository_source_identity.is_some()
-        && rows[2].width >= 18;
-    let context_width = rows[2]
-        .width
-        .saturating_sub(if source_control { 18 } else { 0 });
-    let context = safe_text(&app.context);
-    let context = if source_control {
-        crate::local_identity_readability_v1::compact_context(&context, context_width)
-    } else {
-        context
-    };
-    frame.render_widget(
-        Paragraph::new(context),
-        Rect::new(rows[2].x, rows[2].y, context_width, 1),
-    );
-    if source_control {
-        let rect = Rect::new(rows[2].right() - 17, rows[2].y, 17, 1);
-        frame.render_widget(
-            Paragraph::new("[Source identity]").style(
-                theme
-                    .style(
-                        if app.focus == app.hits.len() && !app.repository_content_focused {
-                            crate::theme::SemanticToken::Focus
-                        } else {
-                            crate::theme::SemanticToken::Reference
-                        },
-                    )
-                    .remove_modifier(
-                        if app.focus == app.hits.len() && !app.repository_content_focused {
-                            Modifier::empty()
-                        } else {
-                            Modifier::UNDERLINED
-                        },
-                    ),
-            ),
-            rect,
-        );
-        app.hits.push(HitRegion {
-            rect,
-            action: Action::RepositorySource,
-        });
-    }
-    crate::navigation_state::draw_navigation(frame, app, rows[0]);
+    // `rows` keeps the content/status/footer indices the view adapters below expect.
+    let rows = [rows[0], rows[0], rows[0], rows[1], rows[2], rows[3]];
     if app.overlay.is_none() {
         app.pointer_region.capture(app.view, app.overlay, rows[3]);
     }
@@ -184,13 +113,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         .iter()
         .map(|line| Line::from(safe_text(line)))
         .collect();
+    let focused = crate::ui_chrome::content_focused(app, chrome_hits);
     frame.render_widget(
         Paragraph::new(content)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!(" {} • focused view ", app.view.label())),
-            )
+            .block(crate::ui_chrome::main_pane(app, theme, rows[3], focused))
             .wrap(Wrap { trim: false })
             .scroll((app.scroll.min(u16::MAX as usize) as u16, 0)),
         rows[3],
@@ -492,6 +418,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame.render_widget(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
                 .title(Line::styled(title, heading))
                 .style(theme.base())
                 .border_style(theme.role(crate::theme::Role::BorderFocus)),
@@ -803,7 +730,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 }
 
 fn draw_pr_reactions(frame: &mut Frame, app: &mut App, inner: Rect) {
-    use crate::identity::{AvatarState, AvatarWidget};
+    use crate::identity::{AvatarState, ListAvatar};
     use crate::theme::SemanticToken;
     if app.pr_reactions.is_none() {
         return;
@@ -842,7 +769,7 @@ fn draw_pr_reactions(frame: &mut Frame, app: &mut App, inner: Rect) {
                 _ => None,
             };
             frame.render_widget(
-                AvatarWidget {
+                ListAvatar {
                     identity,
                     image,
                     theme,

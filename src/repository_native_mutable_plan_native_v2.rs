@@ -439,6 +439,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Selected patch • confirm")
             .style(theme.style(SemanticToken::Normal)),
         pane,

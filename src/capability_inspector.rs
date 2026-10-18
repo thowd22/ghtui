@@ -517,6 +517,7 @@ impl CapabilityInspector {
         frame.render_widget(Clear, area);
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Capabilities • read-only inventory")
             .style(theme.base());
         let inner = block.inner(area);

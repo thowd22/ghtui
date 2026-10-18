@@ -190,7 +190,7 @@ fn journey_with_preselected(mouse: bool, preselected: bool) {
         .as_str()
         .unwrap()
         .ends_with("/VIEWED"));
-    session.wait_for_overlay_close("┌ Mark selected file viewed ");
+    session.wait_for_overlay_close("╭ Mark selected file viewed ");
     session.wait_for_screen("Review progress: 1/2 viewed");
     assert!(session.screen().contains("@octocat"));
     session.quit_and_assert_restored_terminal(mouse);
@@ -240,7 +240,7 @@ fn journey_with_preselected(mouse: bool, preselected: bool) {
         .as_str()
         .unwrap()
         .ends_with("/UNVIEWED"));
-    session.wait_for_overlay_close("┌ Mark selected file unviewed ");
+    session.wait_for_overlay_close("╭ Mark selected file unviewed ");
     session.wait_for_screen("UNVIEWED • src/α file.rs");
     session.quit_and_assert_restored_terminal(mouse);
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), original_head);

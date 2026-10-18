@@ -248,6 +248,7 @@ impl Details {
         frame.render_widget(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
                 .title(if self.is_input() {
                     "Full current worktree input • read-only"
                 } else {

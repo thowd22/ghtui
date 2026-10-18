@@ -66,6 +66,14 @@ fn public_asset(fixture: &Fixture, mode: Mode) -> PublicAsset {
     crate::fixture_shell_publication_v1::install(&program, script.as_bytes()).unwrap();
     files
 }
+/// The owner's list-row chip: filled `EO` in color, bracketed `[EO]` without color.
+fn owner_initials(mode: Mode) -> &'static str {
+    if mode == Mode::Monochrome {
+        "[EO]"
+    } else {
+        "EO  "
+    }
+}
 fn launch_assets(fixture: &Fixture, mouse: bool, mode: Mode) -> Session {
     let trace = fixture.root.join("catalogue-git-trace.jsonl");
     let mut env = vec![("GIT_TRACE2_EVENT", trace.to_str().unwrap())];
@@ -297,7 +305,13 @@ fn journey_with_observed_details(mouse: bool, mode: Mode, hold_writer: bool, con
     discover(&mut session, mouse);
     ready(
         &mut session,
-        &[TITLE, "Observed: 2", FIRST, "Repository ID: 10000", "[EO]"],
+        &[
+            TITLE,
+            "Observed: 2",
+            FIRST,
+            "Repository ID: 10000",
+            owner_initials(mode),
+        ],
     );
     assert_commands(&session, &fixture, 7);
     let trace = git_commands(&fixture);
@@ -390,7 +404,7 @@ fn journey_with_observed_details(mouse: bool, mode: Mode, hold_writer: bool, con
         return;
     }
     if mode == Mode::Monochrome {
-        ready(&mut session, &["[EO]"]);
+        ready(&mut session, &[owner_initials(mode)]);
         assert!(!session.screen().contains("▀"));
         assert_public_asset(&files, 0);
         assert!(!fixture.root.join("config/ghtui/avatars").exists());
@@ -401,7 +415,7 @@ fn journey_with_observed_details(mouse: bool, mode: Mode, hold_writer: bool, con
         if mode == Mode::Ready {
             image_at_current_row(&mut session);
         } else {
-            ready(&mut session, &["[EO]"]);
+            ready(&mut session, &[owner_initials(mode)]);
             assert!(!session.screen().contains("▀"));
         }
         assert_public_asset(&files, 1);
@@ -429,7 +443,7 @@ fn journey_with_observed_details(mouse: bool, mode: Mode, hold_writer: bool, con
     if mode == Mode::Ready {
         image_at_current_row(&mut session);
     } else {
-        ready(&mut session, &["[EO]"]);
+        ready(&mut session, &[owner_initials(mode)]);
     }
     assert_public_asset(&files, if mode == Mode::Monochrome { 0 } else { 1 });
     assert_commands(&session, &fixture, 7);

@@ -735,6 +735,7 @@ impl PickerState {
         };
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(format!("{title} · {focus_label}"))
             .style(theme.base());
         let body = block.inner(area);

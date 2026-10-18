@@ -1,0 +1,314 @@
+use super::*;
+use crate::config::ThemeName;
+use crate::identity::{ActorIdentity, ActorKind, InitialsChip};
+use crate::theme::{ColorMode, CATPPUCCIN_MOCHA};
+use ratatui::{backend::TestBackend, buffer::Buffer, style::Color, Terminal};
+
+fn mocha() -> Theme {
+    Theme::new(ThemeName::CatppuccinMocha, ColorMode::TrueColor)
+}
+
+fn row(buffer: &Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer[(x, y)].symbol())
+        .collect()
+}
+
+fn hex(color: u32) -> Color {
+    crate::theme::rgb(color)
+}
+
+fn draw_app(app: &mut App, width: u16, height: u16) -> Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| crate::ui::draw(frame, app)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn person(login: &str, name: &str) -> ActorIdentity {
+    ActorIdentity {
+        host: Some("github.com".into()),
+        login: Some(login.into()),
+        name: name.into(),
+        email: None,
+        avatar_url: None,
+        kind: ActorKind::User,
+        git_role: None,
+        host_associated: true,
+    }
+}
+
+#[test]
+fn design_frames_v89_pane_block_is_rounded_with_breadcrumbs_and_a_non_color_focus_marker() {
+    for theme in [mocha(), Theme::new(ThemeName::NoColor, ColorMode::NoColor)] {
+        for focused in [true, false] {
+            let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 4));
+            ratatui::widgets::Widget::render(
+                pane_block(theme, &["Inbox", "Fix playback"], focused),
+                buffer.area,
+                &mut buffer,
+            );
+            let top = row(&buffer, 0);
+            assert!(top.starts_with('╭') && top.ends_with('╮'), "{top}");
+            assert!(row(&buffer, 3).starts_with('╰') && row(&buffer, 3).ends_with('╯'));
+            assert_eq!(top.contains("▶ Inbox › Fix playback"), focused, "{top}");
+            assert!(top.contains("Inbox › Fix playback ─"), "{top}");
+            // The title is bold when focused: the marker survives with no color at all.
+            let title = top.find("Inbox").unwrap();
+            let title_x = top[..title].chars().count() as u16;
+            assert_eq!(
+                buffer[(title_x, 0)].modifier.contains(Modifier::BOLD),
+                focused
+            );
+            if theme.mode == ColorMode::TrueColor {
+                let expected = if focused {
+                    hex(CATPPUCCIN_MOCHA.magenta)
+                } else {
+                    hex(CATPPUCCIN_MOCHA.border)
+                };
+                assert_eq!(buffer[(0, 1)].fg, expected, "focused={focused}");
+            }
+        }
+    }
+    assert_eq!(crumb_title(&["A", "B"], false), " A › B ");
+    assert_eq!(crumb_title(&["A"], true), " ▶ A ");
+}
+
+#[test]
+fn design_frames_v89_header_merges_logo_tabs_and_navigation_and_keeps_hit_order() {
+    for (width, height, rows) in [(140, 42, 1), (80, 24, 1), (40, 12, 2)] {
+        let mut app = App::default();
+        let buffer = draw_app(&mut app, width, height);
+        assert_eq!(header_rows(&app, width), rows, "{width}");
+        let header = row(&buffer, 0);
+        assert!(header.starts_with(" ghtui "), "{header}");
+        if width >= 80 {
+            for tab in [
+                "1 Inbox",
+                "2 Repository",
+                "3 Search",
+                "4 Actions",
+                "5 Dashboard",
+            ] {
+                assert!(header.contains(tab), "{tab} in {header}");
+            }
+            assert!(header.contains("[Back]"), "{header}");
+        } else {
+            assert!(row(&buffer, 1).starts_with("[Back]"));
+        }
+        // Logo and the active tab are filled with the Inbox hue.
+        assert_eq!(buffer[(1, 0)].bg, hex(CATPPUCCIN_MOCHA.magenta));
+        let inbox = header.find("1 Inbox").unwrap() as u16;
+        assert_eq!(buffer[(inbox, 0)].bg, hex(CATPPUCCIN_MOCHA.magenta));
+        // Tabs, then Back: the registration order the hit tests and Tab order rely on.
+        let views = app.hits[..5]
+            .iter()
+            .map(|hit| hit.action.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(views, View::ALL.map(Action::View).to_vec());
+        assert_eq!(
+            app.hits[5].action,
+            Action::Navigation(crate::navigation_trail::NavigationAction::Back)
+        );
+        // The content pane starts right under the header, with the context in its border.
+        let top = row(&buffer, rows);
+        assert!(top.starts_with("╭─ "), "{top}");
+        assert!(top.contains("Inbox • focused view ─"), "{top}");
+        // Long context keeps host and account whole and its most specific end.
+        if width >= 80 {
+            assert!(top.contains("─ github.com / personal queues / "), "{top}");
+            assert!(top.ends_with("selected ─╮"), "{top}");
+        }
+        if width >= 140 {
+            assert!(top.contains("github.com / personal queues / no repository selected"));
+        }
+        assert!(app
+            .hits
+            .iter()
+            .all(|hit| hit.rect.right() <= width && hit.rect.bottom() <= height));
+    }
+}
+
+#[test]
+fn design_frames_v89_compact_scope_keeps_account_and_specific_end() {
+    let head = "0123456789abcdef0123456789abcdef01234567";
+    let scope = format!("github.com / @octocat / all repositories on host / org/repo#7 / {head}");
+    assert_eq!(compact_scope(&scope, 200), scope);
+    let narrow = compact_scope(&scope, 49);
+    assert_eq!(crate::editor::display_width(&narrow), 49);
+    assert!(narrow.starts_with("github.com / @octocat / …"), "{narrow}");
+    assert!(narrow.ends_with(&head[head.len() - 20..]), "{narrow}");
+    // A long first level (a local path) falls back to the shared prefix/suffix form.
+    let local = format!("Local /{} / main / abcdef0", "deep/".repeat(20));
+    let compact = compact_scope(&local, 40);
+    assert!(compact.starts_with("Local ") && compact.ends_with("/ main / abcdef0"));
+    assert!(crate::editor::display_width(&compact) <= 40);
+}
+
+#[test]
+fn design_frames_v89_active_tab_follows_view_and_focus_shows_marker() {
+    let mut app = App::default();
+    app.dispatch(Action::View(View::Actions));
+    let buffer = draw_app(&mut app, 140, 42);
+    let header = row(&buffer, 0);
+    let actions = header.find("4 Actions").unwrap() as u16;
+    assert_eq!(buffer[(actions, 0)].bg, hex(CATPPUCCIN_MOCHA.blue));
+    assert_eq!(buffer[(1, 0)].bg, hex(CATPPUCCIN_MOCHA.blue));
+    let inbox = header.find("1 Inbox").unwrap() as u16;
+    assert_ne!(buffer[(inbox, 0)].bg, hex(CATPPUCCIN_MOCHA.magenta));
+    // Inactive tabs show their key in their own view hue.
+    assert_eq!(buffer[(inbox, 0)].fg, hex(CATPPUCCIN_MOCHA.magenta));
+    let top = row(&buffer, 1);
+    assert_eq!(
+        app.actions_content_focused,
+        top.contains("▶ Actions"),
+        "{top}"
+    );
+    let border = if app.actions_content_focused {
+        hex(CATPPUCCIN_MOCHA.blue)
+    } else {
+        hex(CATPPUCCIN_MOCHA.border)
+    };
+    assert_eq!(buffer[(0, 2)].fg, border);
+    // Moving focus to the header removes the marker and the accent border.
+    app.actions_content_focused = false;
+    app.focus = 0;
+    let buffer = draw_app(&mut app, 140, 42);
+    assert!(!row(&buffer, 1).contains('▶'));
+    assert_eq!(buffer[(0, 2)].fg, hex(CATPPUCCIN_MOCHA.border));
+    // The keyboard-focused tab is underlined, the others are not.
+    assert!(buffer[(inbox, 0)].modifier.contains(Modifier::UNDERLINED));
+    assert!(!buffer[(actions, 0)].modifier.contains(Modifier::UNDERLINED));
+}
+
+#[test]
+fn design_hierarchy_v94_section_header_keeps_provenance_and_partial_labels() {
+    let theme = mocha();
+    let text = |line: &Line| {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    };
+    let wide = section_header(
+        theme,
+        "Pull requests",
+        "Fresh • fetched 19:51 UTC",
+        Role::TextMuted,
+        60,
+    );
+    assert_eq!(crate::editor::display_width(&text(&wide)), 60);
+    assert!(text(&wide).starts_with("PULL REQUESTS"));
+    assert!(text(&wide).ends_with("Fresh • fetched 19:51 UTC"));
+    assert_eq!(wide.spans[0].style.fg, Some(hex(CATPPUCCIN_MOCHA.magenta)));
+    assert_eq!(wide.spans[2].style.fg, Some(hex(CATPPUCCIN_MOCHA.muted)));
+    // Narrow: the heading yields; the partial label stays readable.
+    let narrow = section_header(
+        theme,
+        "Runs",
+        "12 runs of 40 reported • PARTIAL",
+        Role::Warning,
+        34,
+    );
+    assert_eq!(text(&narrow), "12 runs of 40 reported • PARTIAL");
+    assert_eq!(narrow.spans[0].style.fg, Some(hex(CATPPUCCIN_MOCHA.yellow)));
+    let clipped = section_header(
+        theme,
+        "Runs",
+        "Unknown coverage • not loaded",
+        Role::Warning,
+        12,
+    );
+    assert_eq!(text(&clipped), "Unknown cov…");
+    assert_eq!(fit("abc", 3), "abc");
+    assert_eq!(fit("abcd", 3), "ab…");
+    let pair = label_value(theme, "Author", "@octocat", 9);
+    assert_eq!(text(&pair), "Author    @octocat");
+    assert_eq!(pair.spans[0].style.fg, Some(hex(CATPPUCCIN_MOCHA.muted)));
+    assert_eq!(pair.spans[1].style.fg, Some(hex(CATPPUCCIN_MOCHA.fg)));
+}
+
+#[test]
+fn design_chips_v95_initials_chip_has_a_stable_identity_hue_and_two_cells() {
+    let octocat = person("octocat", "");
+    let again = person("OctoCat", "");
+    let hubot = person("hubot", "Hu Bot");
+    assert_eq!(InitialsChip::slot(&octocat), InitialsChip::slot(&again));
+    assert!(InitialsChip::slot(&octocat) < crate::theme::IDENTITY_HUES);
+    assert_eq!(InitialsChip::text(&octocat, ColorMode::TrueColor), "OC");
+    assert_eq!(InitialsChip::text(&hubot, ColorMode::TrueColor), "HB");
+    assert_eq!(InitialsChip::text(&hubot, ColorMode::NoColor), "[HB]");
+    let unknown = ActorIdentity {
+        kind: ActorKind::Unknown,
+        ..person("", "")
+    };
+    assert_eq!(InitialsChip::text(&unknown, ColorMode::TrueColor), "? ");
+    // The hue is a pure function of the key: the same slot every session.
+    let slots = [
+        "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi",
+    ]
+    .map(|login| InitialsChip::slot(&person(login, "")));
+    assert_eq!(
+        slots,
+        ["alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi"]
+            .map(|login| InitialsChip::slot(&person(login, "")))
+    );
+    assert!(slots.iter().any(|slot| *slot != slots[0]));
+    for (theme, filled) in [
+        (mocha(), true),
+        (Theme::new(ThemeName::NoColor, ColorMode::NoColor), false),
+    ] {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
+        ratatui::widgets::Widget::render(
+            InitialsChip {
+                identity: &octocat,
+                theme,
+            },
+            buffer.area,
+            &mut buffer,
+        );
+        let text = row(&buffer, 0);
+        if filled {
+            assert_eq!(text, "OC  ");
+            let lane = CATPPUCCIN_MOCHA.lanes()[InitialsChip::slot(&octocat)];
+            assert_eq!(buffer[(0, 0)].bg, hex(lane));
+            assert_eq!(buffer[(0, 0)].fg, hex(CATPPUCCIN_MOCHA.ink));
+            assert_ne!(buffer[(2, 0)].bg, hex(lane));
+            assert_ne!(lane, CATPPUCCIN_MOCHA.red);
+        } else {
+            assert_eq!(text, "[OC]");
+        }
+    }
+}
+
+#[test]
+fn design_chips_v95_chip_fill_meets_contrast_on_every_truecolor_theme() {
+    let luminance = |color: Color| {
+        let Color::Rgb(r, g, b) = color else {
+            panic!("{color:?}")
+        };
+        let channel = |v: u8| {
+            let value = f64::from(v) / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    };
+    for name in [
+        ThemeName::CatppuccinMocha,
+        ThemeName::TokyoNight,
+        ThemeName::GruvboxDark,
+    ] {
+        let theme = Theme::new(name, ColorMode::TrueColor);
+        let styles = (0..crate::theme::IDENTITY_HUES)
+            .map(|slot| theme.identity_chip(slot))
+            .chain(View::ALL.map(|view| theme.filled(Hue::for_view(view))));
+        for style in styles {
+            let (a, b) = (luminance(style.fg.unwrap()), luminance(style.bg.unwrap()));
+            let ratio = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+            assert!(ratio >= 4.5, "{name:?} {style:?} {ratio}");
+        }
+    }
+}

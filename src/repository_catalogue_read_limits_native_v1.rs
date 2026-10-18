@@ -196,6 +196,7 @@ impl CatalogueDiscoveryNativeV1 {
         };
         let shell = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(title)
             .style(theme.base());
         let inner = shell.inner(area);

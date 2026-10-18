@@ -232,6 +232,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(TITLE)
         .style(theme.style(SemanticToken::Normal));
     let inner = block.inner(area);
