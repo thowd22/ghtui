@@ -2779,6 +2779,9 @@ fn run() -> Result<()> {
                             if let Err(error)=verify_search_identity(&search,provider,&cancel) {return Ok(PreparedView {clear_private:true,status:error,..PreparedView::default()});}
                             return Ok(PreparedView {context:Some(format!("{host} / {repository}#{number} / exact search PR")),status:"Opened exact GitHub PR search destination".into(),github:Some(github),search:Some(search),navigate_to:Some(ghtui::app::View::Inbox),..PreparedView::default()});
                         }
+                        if let Some(status)=search.open_remote_overview(index).map_err(|error|error.to_string())? {
+                            return Ok(PreparedView {context:Some(search.context()),status,search:Some(search),..PreparedView::default()});
+                        }
                         let ghtui::search::model::Destination::LocalFile {
                             directory,
                             path,

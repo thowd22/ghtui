@@ -317,3 +317,98 @@ fn journey(mouse: bool) {
     );
     session.quit_and_assert_restored_terminal(mouse);
 }
+
+#[test]
+fn v1_search_keyboard_github_mode_defaults_to_checkout_origin_and_opens_issue() {
+    origin_issue_journey(false)
+}
+#[test]
+fn v1_search_mouse_github_mode_defaults_to_checkout_origin_and_opens_issue() {
+    origin_issue_journey(true)
+}
+
+fn issue_search(query: &str, number: u64, repository: &str) -> GhStep {
+    let item = json!({"id":number,"node_id":format!("I{number}"),"number":number,"title":"Crash on empty input","repository_url":format!("https://api.github.invalid/repos/{repository}"),"html_url":format!("https://github.invalid/{repository}/issues/{number}"),"state":"open","body":"Steps to reproduce\nFULL ISSUE BODY LINE","user":{"login":"reporter","type":"User"},"text_matches":[{"fragment":"BUG in the title","property":"title","object_type":"Issue","matches":[{"indices":[0,3]}]}]});
+    GhStep::read(
+        &[
+            "api",
+            "search/issues",
+            "--hostname",
+            "github.invalid",
+            "--method",
+            "GET",
+            "--header",
+            "Accept: application/vnd.github.text-match+json",
+            "-f",
+            &format!("q={query}"),
+            "-f",
+            "per_page=100",
+            "-f",
+            "page=1",
+        ],
+        &json!({"total_count":1,"incomplete_results":false,"items":[item]}).to_string(),
+    )
+}
+
+fn origin_issue_journey(mouse: bool) {
+    // No --repo and no saved set: the launch checkout's origin is the default scope.
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("local.txt", b"saved local bytes\n", "Local fixture");
+    fixture.git(&["remote", "add", "origin", "git@github.invalid:org/app.git"]);
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
+    Config {
+        host: "github.invalid".into(),
+        avatars: false,
+        ..Config::default()
+    }
+    .save(&fixture.root.join("config/ghtui/config.toml"))
+    .unwrap();
+    let mut steps = identity(); // Launch account check.
+    steps.extend(identity()); // Explicit GitHub mode scope.
+    steps.extend(identity());
+    steps.push(issue_search("BUG repo:org/app is:issue", 3, "org/app"));
+    steps.extend(identity()); // Account re-verified after the read.
+    steps.extend(identity()); // Open keeps the issue in the preview, no extra read.
+    steps.extend(identity());
+    steps.push(issue_search("BUG repo:other/lib is:issue", 7, "other/lib"));
+    steps.extend(identity());
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+    choose(&mut session, mouse, "3 Search", b"3");
+    session.wait_for_screen("Selected local search corpus ready");
+    choose(&mut session, mouse, "[h GitHub]", b"h");
+    session.wait_for_screen("GitHub scope verified");
+    session.wait_for_screen("GitHub remote discovery / org/app");
+    session.wait_for_screen("searches outside org/app");
+    assert!(!session
+        .screen()
+        .contains("no verified GitHub repository mapping"));
+    journal(&mut session, &fixture, 4);
+    query(&mut session, mouse, "BUG type:issue");
+    session.wait_for_screen("1 results • GitHub");
+    session.wait_for_screen("#3 Crash on empty input");
+    session.wait_for_screen("org/app#3 • open");
+    session.wait_for_screen("https://github.invalid/org/app/issues/3");
+    session.wait_for_screen("FULL ISSUE BODY LINE");
+    journal(&mut session, &fixture, 9);
+    choose(&mut session, mouse, "[o Open result]", b"o");
+    session.wait_for_screen("Showing org/app#3 in the preview");
+    session.assert_focused_view("Search");
+    journal(&mut session, &fixture, 11);
+    // A typed repo: qualifier is this query's explicit scope.
+    query(&mut session, mouse, "BUG type:issue repo:other/lib");
+    session.wait_for_screen("other/lib#7 • open");
+    let records = journal(&mut session, &fixture, 16);
+    session.resize(80, 24);
+    session.wait_for_screen("#7 Crash on empty input");
+    assert!(records.iter().all(|record| record["matched"] == true));
+    assert!(records
+        .iter()
+        .all(|record| record["args"][0] == "--version" || record["args"][5] == "GET"));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2", "-z"]), status);
+    session.quit_and_assert_restored_terminal(mouse);
+}

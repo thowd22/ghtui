@@ -393,6 +393,12 @@ impl SearchWorkspace {
         super::remote::verify_scope(&self.scope, identity)?;
         let query = Query::parse(input, SearchMode::GitHub)?;
         let kind = super::remote::kind(&query)?;
+        let explicit_scope = kind != RemoteSearchKind::Repositories
+            && (query
+                .filters
+                .get("repo")
+                .is_some_and(|repos| !repos.is_empty())
+                || query.first("org").is_some());
         let repositories = if kind == RemoteSearchKind::Repositories {
             if query.first("org").is_none() {
                 return Err(QueryError(
@@ -400,6 +406,20 @@ impl SearchWorkspace {
                         .into(),
                 ));
             }
+            Vec::new()
+        } else if let Some(explicit) = query.filters.get("repo").filter(|repos| !repos.is_empty()) {
+            // Typed repo: qualifiers are the user's explicit scope for this query;
+            // they replace (never broaden past) the default checkout/set scope.
+            let mut selected = explicit.clone();
+            for repo in &selected {
+                crate::config::validate_repository(repo)
+                    .map_err(|error| QueryError(error.to_string()))?;
+            }
+            selected.sort();
+            selected.dedup();
+            selected
+        } else if query.first("org").is_some() {
+            // An explicit org: qualifier scopes the provider query by itself.
             Vec::new()
         } else {
             if repositories.is_empty() {
@@ -421,7 +441,9 @@ impl SearchWorkspace {
             super::remote::prepare_page(&self.scope, &query, result, self.scan_limits.max_matches)?;
         self.input = input.into();
         self.remote_identity = Some(identity.clone());
-        self.remote_repositories = repositories;
+        if !explicit_scope {
+            self.remote_repositories = repositories;
+        }
         self.remote_items = items;
         self.page = Some(page);
         self.preview = None;
@@ -961,7 +983,72 @@ impl SearchWorkspace {
                 })
                 .collect(),
         });
+        self.extend_remote_preview(index);
         Ok(())
+    }
+    /// GitHub issue/PR/repository fragments omit the item's identity and full
+    /// description; show both so a discovery result is readable in place.
+    fn extend_remote_preview(&mut self, index: usize) {
+        let Some(item) = self
+            .page
+            .as_ref()
+            .and_then(|page| page.hits.get(index))
+            .filter(|hit| hit.document.source == SourceKind::GitHub)
+            .and_then(|hit| self.remote_items.get(&hit.document.key.stable_id()))
+            .filter(|item| item.kind != RemoteSearchKind::Code)
+        else {
+            return;
+        };
+        let line = |text: String| PreviewLine {
+            number: 0,
+            text: text.chars().take(2000).collect(),
+            selected: false,
+        };
+        let mut header = vec![
+            line(format!(
+                "{}{}{}",
+                item.repository,
+                item.number
+                    .map_or(String::new(), |number| format!("#{number}")),
+                if item.state.is_empty() {
+                    String::new()
+                } else {
+                    format!(" • {}", item.state)
+                }
+            )),
+            line(item.url.clone()),
+        ];
+        let Some(preview) = &mut self.preview else {
+            return;
+        };
+        let mut lines = std::mem::take(&mut preview.lines);
+        if !item.text_matches.is_empty() && !item.body.trim().is_empty() {
+            lines.push(line(String::new()));
+            lines.push(line("Description".into()));
+            lines.extend(item.body.lines().take(200).map(|text| line(text.into())));
+        }
+        header.append(&mut lines);
+        preview.lines = header;
+    }
+    /// Issue and repository results have no native ghtui viewer. Open keeps the
+    /// readable provider preview and names the canonical URL instead of failing.
+    pub fn open_remote_overview(&mut self, index: usize) -> Result<Option<String>, QueryError> {
+        if !matches!(
+            self.destination(index)?,
+            Destination::Issue { .. } | Destination::Repository { .. }
+        ) {
+            return Ok(None);
+        }
+        let item = self.remote_item(index)?.clone();
+        self.preview(index)?;
+        let label = match item.number {
+            Some(number) => format!("{}#{number}", item.repository),
+            None => item.repository.clone(),
+        };
+        Ok(Some(format!(
+            "Showing {label} in the preview • no in-app issue/repository viewer; open {} in a browser",
+            item.url
+        )))
     }
     pub fn destination(&self, index: usize) -> Result<Destination, QueryError> {
         self.page
