@@ -257,7 +257,9 @@ impl WorkflowTlsRemoteV9 {
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(false),
-            deadline: Instant::now() + Duration::from_secs(30),
+            // Whole push+PR journeys need headroom on slow hosted CI runners;
+            // an expired fixture looks like a fenced scope, not a timeout.
+            deadline: Instant::now() + Duration::from_secs(180),
             exchanges: AtomicUsize::new(0),
             joined: AtomicUsize::new(0),
             requests: Mutex::new(Vec::with_capacity(EXCHANGES)),

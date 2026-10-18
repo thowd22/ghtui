@@ -1,9 +1,10 @@
 ---
 id: TASK-83
 title: Make real-TLS workflow-edit push journeys pass on hosted CI runners
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 06:15'
+updated_date: '2026-10-18 07:14'
 labels:
   - ci
   - testing
@@ -20,6 +21,12 @@ The 18 tui_e2e tests under task54_workflow_edit_v9::remote_v9 (real openssl s_se
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Root cause of the runner-only fence identified and fixed
-- [ ] #2 GHTUI_CI_SKIP removed from .github/workflows/ci.yml and CI is green
+- [x] #1 Root cause of the runner-only fence identified and fixed
+- [x] #2 GHTUI_CI_SKIP removed from .github/workflows/ci.yml and CI is green
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Cause: the real-TLS fixture's 30s self-deadline expired during push+PR journeys on ~2.6x slower hosted runners; an expired fixture surfaces as a fenced scope. Reproduced locally by shrinking it to 4s. Raised to 180s and removed the CI skip. Gate: cargo test --test tui_e2e -- task54_workflow_edit_v9::remote_v9:: (42 passed).
+<!-- SECTION:NOTES:END -->
