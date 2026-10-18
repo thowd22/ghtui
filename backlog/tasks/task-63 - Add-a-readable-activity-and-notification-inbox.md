@@ -4,7 +4,7 @@ title: Add a readable activity and notification inbox
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-16 04:02'
+updated_date: '2026-10-18 00:42'
 labels:
   - delivery
   - e2e
@@ -204,4 +204,6 @@ V142 actual notification85code84PASS1FAIL,0nativeexecuted becausecodegateblocks;
 2026-10-16 V144 actual SAMEcombined1257: all6 notification integration code PASS (old4 unchanged +2new actual channel cases), full87codeALLPASS,35/36realbinaryPTY. Only mouse genuine PR-follow/pureBack exact region fails302 with native diff tail retained under restored header; Tree investigating actual visible-frame/route causality in NEW immutable current-relative successor after W7freeze. No snapshot/oracle/sleep/timeout/permission relaxation. All44 owned sessions clean;35unique positive is not36pass. Rootreport coverage nKer5A SHA fce79eac238a4a442969c5acee4d9d24df659615b3f55f84b508ce06f9ae64a5. Formal62/17 dependencies, fullnative/Main/Mac and Task63completion remain open.
 
 V145 ACTUALfullnotifications87code36realbinaryPTY ALLGREEN,0ignored/bothinputs/36unique/all44ownedsessioncleanup. CoveragetEGtcb SHAc26c25fabbe2eebfc8a59fad01cfc6966a0d5e2af9167597f71aabef50d03b8a. Actualsamecompleted-cellobservercorrectionverified, originalwholebodyequality302/GH/SQL/Git/PureBackoraclesunchanged;6genuineintegrationcodealsoPASS. Stillcurrentprivatecohortonly, formal62/17deps/fullproduct/currentMain/Mac remainOPEN, noAC/Done. RoototherfocusedgatesstillrunSAME79305.
+
+2026-10-18 a14: notifications reachable from the palette (same action as F8); F8 before Inbox load explains a refresh is needed. Gate: test-task v1_navigation 8 code + 2 PTY pass.
 <!-- SECTION:NOTES:END -->
