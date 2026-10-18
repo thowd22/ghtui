@@ -190,18 +190,25 @@ fn semantic_journey(mouse: bool) {
     session.wait_for_screen("Repository loaded • read-only exploration");
     if mouse {
         session.click_visible_action("[s Settings]");
-        session.click_visible_action("[Theme: Dark]");
+        session.click_visible_action("[Theme: Catppuccin Mocha]");
     } else {
         session.send_key(b"s");
         session.send_key(b"\t\t\r");
     }
-    session.wait_for_screen("[Theme: Light]");
+    session.wait_for_screen("[Theme: Tokyo Night]");
     if mouse {
-        session.click_visible_action("[Theme: Light]");
-        session.wait_for_screen("[Theme: No color]");
+        for (current, next) in [
+            ("[Theme: Tokyo Night]", "[Theme: Gruvbox Dark]"),
+            ("[Theme: Gruvbox Dark]", "[Theme: 16 colors]"),
+            ("[Theme: 16 colors]", "[Theme: No color]"),
+        ] {
+            session.click_visible_action(current);
+            session.wait_for_screen(next);
+        }
         session.click_visible_action("[Save settings]");
     } else {
-        session.send_key(b"\r");
+        session.send_key(b"\r\r\r");
+        session.wait_for_screen("[Theme: No color]");
         session.send_key(b"\t\r");
     }
     session.wait_for_screen("Settings saved");

@@ -1684,7 +1684,10 @@ impl App {
                     .settings_field()
                     .map_or(0, |value| value.chars().count());
             }
-            Action::SettingsTheme => self.settings_theme = (self.settings_theme + 1) % 3,
+            Action::SettingsTheme => {
+                self.settings_theme =
+                    (self.settings_theme + 1) % crate::config::ThemeName::ALL.len()
+            }
             Action::SettingsSave => self.settings_save_requested = true,
             Action::GraphRereadV3(action) => {
                 crate::repository_graph_reread_native_v3::dispatch(self, action)
@@ -3606,17 +3609,14 @@ impl App {
     }
     pub fn theme(&self) -> crate::theme::Theme {
         crate::theme::Theme::new(
-            [
-                crate::config::ThemeName::Dark,
-                crate::config::ThemeName::Light,
-                crate::config::ThemeName::NoColor,
-            ][self.settings_theme % 3],
+            crate::config::ThemeName::from_index(self.settings_theme),
             if self.no_color {
                 crate::theme::ColorMode::NoColor
             } else {
                 self.color_mode
             },
         )
+        .with_view(self.view)
     }
 
     fn move_github_selection(&mut self, down: bool) {

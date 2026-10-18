@@ -90,7 +90,7 @@ fn dashboards_layout_and_persistence_buttons_share_mouse_keyboard_semantics_afte
                     &mut workspace,
                     Rect::new(0, 0, width, height),
                     crate::theme::Theme::new(
-                        crate::config::ThemeName::Dark,
+                        crate::config::ThemeName::CatppuccinMocha,
                         crate::theme::ColorMode::NoColor,
                     ),
                     &Default::default(),

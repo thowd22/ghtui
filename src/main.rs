@@ -94,11 +94,7 @@ fn run() -> Result<()> {
     );
     app.settings_host = config.host.clone();
     app.settings_set = config.active_set.clone().unwrap_or_default();
-    app.settings_theme = match config.theme {
-        ThemeName::Dark => 0,
-        ThemeName::Light => 1,
-        ThemeName::NoColor => 2,
-    };
+    app.settings_theme = config.theme.index();
     app.bindings = config.resolved_bindings()?;
     let mut background = Background::new();
     let runner = CommandRunner::default();
@@ -196,8 +192,7 @@ fn run() -> Result<()> {
             } else {
                 Some(app.settings_set.clone())
             };
-            updated.theme =
-                [ThemeName::Dark, ThemeName::Light, ThemeName::NoColor][app.settings_theme];
+            updated.theme = ThemeName::from_index(app.settings_theme);
             match updated.save(&paths.config) {
                 Ok(()) => {
                     if updated.host != config.host || updated.active_set != config.active_set {

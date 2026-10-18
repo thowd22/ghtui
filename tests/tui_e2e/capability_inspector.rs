@@ -139,7 +139,7 @@ fn fixture(scenario: Scenario) -> Fixture {
         theme: if scenario == Scenario::MissingGh {
             ThemeName::NoColor
         } else {
-            ThemeName::Dark
+            ThemeName::CatppuccinMocha
         },
         ..Config::default()
     }

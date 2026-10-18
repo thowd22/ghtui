@@ -382,7 +382,7 @@ fn actor_avatar_exact_no_color_ready_pixels_keep_actual_initials_without_rgb() {
         AvatarWidget {
             identity: &identity,
             image: states.ready(&identity),
-            theme: Theme::new(ThemeName::Dark, mode),
+            theme: Theme::new(ThemeName::CatppuccinMocha, mode),
         }
         .render(buffer.area, &mut buffer);
         assert_eq!(

@@ -353,7 +353,7 @@ fn metrics_dashboard_widget_controls_keyboard_mouse_layout_and_resize_have_same_
                     &mut workspace,
                     Rect::new(0, 0, width, height),
                     crate::theme::Theme::new(
-                        crate::config::ThemeName::Dark,
+                        crate::config::ThemeName::CatppuccinMocha,
                         crate::theme::ColorMode::NoColor,
                     ),
                     &Default::default(),
@@ -421,7 +421,7 @@ fn metrics_dashboard_keyboard_page_scroll_and_hover_wheel_only_move_current_pane
                 &mut workspace,
                 Rect::new(0, 0, 80, 24),
                 crate::theme::Theme::new(
-                    crate::config::ThemeName::Dark,
+                    crate::config::ThemeName::CatppuccinMocha,
                     crate::theme::ColorMode::NoColor,
                 ),
                 &Default::default(),
@@ -469,7 +469,7 @@ fn metrics_dashboard_pending_controls_explain_and_never_render_obsolete_counts_o
                 &mut workspace,
                 Rect::new(0, 0, 80, 24),
                 crate::theme::Theme::new(
-                    crate::config::ThemeName::Dark,
+                    crate::config::ThemeName::CatppuccinMocha,
                     crate::theme::ColorMode::NoColor,
                 ),
                 &Default::default(),

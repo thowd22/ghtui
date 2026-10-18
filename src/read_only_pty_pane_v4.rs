@@ -465,27 +465,16 @@ fn cell_style(style: Style, mode: ColorMode) -> Style {
     match mode {
         ColorMode::NoColor => style.fg(Color::Reset).bg(Color::Reset),
         ColorMode::TrueColor => style,
-        ColorMode::LowColor => style
-            .fg(low_color(style.fg.unwrap_or(Color::Reset)))
-            .bg(low_color(style.bg.unwrap_or(Color::Reset))),
+        ColorMode::Indexed256 | ColorMode::LowColor => style
+            .fg(crate::theme::downsample(
+                style.fg.unwrap_or(Color::Reset),
+                mode,
+            ))
+            .bg(crate::theme::downsample(
+                style.bg.unwrap_or(Color::Reset),
+                mode,
+            )),
     }
-}
-fn low_color(color: Color) -> Color {
-    let (r, g, b) = match color {
-        Color::Rgb(r, g, b) => (r, g, b),
-        Color::Indexed(index @ 16..=231) => {
-            let n = index - 16;
-            ((n / 36) * 51, ((n / 6) % 6) * 51, (n % 6) * 51)
-        }
-        Color::Indexed(index @ 232..=255) => {
-            let gray = 8 + (index - 232) * 10;
-            (gray, gray, gray)
-        }
-        other => return other,
-    };
-    let bright = u8::from(r.max(g).max(b) > 192) * 8;
-    let index = u8::from(r >= 128) | (u8::from(g >= 128) * 2) | (u8::from(b >= 128) * 4);
-    Color::Indexed(bright + index)
 }
 
 fn safe_header(text: Arc<str>) -> Arc<str> {

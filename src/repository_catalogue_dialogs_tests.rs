@@ -102,7 +102,8 @@ fn repo_catalog_dialogs_safe_shell_only_actual_keyboard_target_is_underlined() {
             for fenced in [false, true] {
                 let mut app = app();
                 let modal = app.catalogue.as_mut().unwrap();
-                modal.theme = crate::theme::Theme::new(crate::config::ThemeName::Dark, mode);
+                modal.theme =
+                    crate::theme::Theme::new(crate::config::ThemeName::CatppuccinMocha, mode);
                 modal.fenced = fenced;
                 modal.busy = !fenced;
                 modal.shell_focus = 0;

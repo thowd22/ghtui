@@ -9,13 +9,50 @@ use std::{
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
+/// Bundled themes. `dark` and `light` are the names saved before the bundled palettes existed;
+/// they stay readable as aliases and are written back under the new names on the next save.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeName {
     #[default]
-    Dark,
-    Light,
+    #[serde(alias = "dark")]
+    CatppuccinMocha,
+    TokyoNight,
+    GruvboxDark,
+    /// The terminal's own 16 colors and background, so it also suits light terminals.
+    #[serde(alias = "light", alias = "ansi_16")]
+    Ansi16,
     NoColor,
+}
+
+impl ThemeName {
+    /// Settings cycles through this order.
+    pub const ALL: [Self; 5] = [
+        Self::CatppuccinMocha,
+        Self::TokyoNight,
+        Self::GruvboxDark,
+        Self::Ansi16,
+        Self::NoColor,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CatppuccinMocha => "Catppuccin Mocha",
+            Self::TokyoNight => "Tokyo Night",
+            Self::GruvboxDark => "Gruvbox Dark",
+            Self::Ansi16 => "16 colors",
+            Self::NoColor => "No color",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|name| *name == self).unwrap_or(0)
+    }
+
+    /// Wraps, so a settings cursor can never select a missing theme.
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL[index % Self::ALL.len()]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,7 +76,7 @@ impl Default for Config {
         Self {
             version: 1,
             host: "github.com".into(),
-            theme: ThemeName::Dark,
+            theme: ThemeName::CatppuccinMocha,
             refresh_seconds: 60,
             repository_sets: BTreeMap::new(),
             active_set: None,
@@ -290,7 +327,7 @@ mod tests {
             .insert("Work".into(), vec!["org/a".into(), "org/b".into()]);
         config.active_set = Some("Work".into());
         config.excluded_repositories.push("org/b".into());
-        config.theme = ThemeName::Light;
+        config.theme = ThemeName::TokyoNight;
         config.bindings.insert("help".into(), "?".into());
         config.save(&path).unwrap();
         let read = Config::load(&path).unwrap();

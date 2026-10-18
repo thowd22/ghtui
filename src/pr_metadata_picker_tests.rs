@@ -107,7 +107,7 @@ fn render(
     (terminal, hits, text)
 }
 fn theme() -> Theme {
-    Theme::new(ThemeName::Dark, ColorMode::TrueColor)
+    Theme::new(ThemeName::CatppuccinMocha, ColorMode::TrueColor)
 }
 
 #[test]

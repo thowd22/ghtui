@@ -54,7 +54,7 @@ fn remote_tree_v1_current_source_and_original_row_indices_survive_keyboard_mouse
                     frame,
                     frame.area(),
                     crate::theme::Theme::new(
-                        crate::config::ThemeName::Dark,
+                        crate::config::ThemeName::CatppuccinMocha,
                         crate::theme::ColorMode::TrueColor,
                     ),
                 )

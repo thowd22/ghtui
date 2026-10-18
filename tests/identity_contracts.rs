@@ -99,7 +99,7 @@ fn artifacts_bounded_image_preview_native_pixels_does_not_widen_avatar_limits() 
     let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
     ImageWidget {
         image: &display,
-        theme: Theme::new(ThemeName::Dark, ColorMode::TrueColor),
+        theme: Theme::new(ThemeName::CatppuccinMocha, ColorMode::TrueColor),
     }
     .render(buffer.area, &mut buffer);
     assert_eq!(buffer[(0, 0)].symbol(), "▀");
@@ -114,7 +114,7 @@ fn artifacts_bounded_image_preview_native_pixels_does_not_widen_avatar_limits() 
         let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 2));
         ImageWidget {
             image: &display,
-            theme: Theme::new(ThemeName::Dark, mode),
+            theme: Theme::new(ThemeName::CatppuccinMocha, mode),
         }
         .render(buffer.area, &mut buffer);
         assert!(buffer_text(&buffer).contains("PNG image 2x2"));
@@ -315,7 +315,7 @@ fn actor_identity_avatar_decoding_bounds_and_actual_raster_cells() {
     AvatarWidget {
         identity: &identity,
         image: Some(&image),
-        theme: Theme::new(ThemeName::Dark, ColorMode::TrueColor),
+        theme: Theme::new(ThemeName::CatppuccinMocha, ColorMode::TrueColor),
     }
     .render(Rect::new(1, 1, 2, 1), &mut buffer);
     assert_eq!(buffer[(1, 1)].symbol(), "▀");
@@ -338,7 +338,7 @@ fn actor_identity_avatar_decoding_bounds_and_actual_raster_cells() {
     ActorWidget {
         identity: &identity,
         image: Some(&image),
-        theme: Theme::new(ThemeName::Dark, ColorMode::LowColor),
+        theme: Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
     }
     .render(buffer.area, &mut buffer);
     assert!(buffer_text(&buffer).contains("[AE]"));
@@ -454,7 +454,7 @@ fn actor_identity_avatar_background_dedup_restart_account_partition_and_fallback
     ActorWidget {
         identity: &identity,
         image: None,
-        theme: Theme::new(ThemeName::Dark, ColorMode::TrueColor),
+        theme: Theme::new(ThemeName::CatppuccinMocha, ColorMode::TrueColor),
     }
     .render(buffer.area, &mut buffer);
     assert!(buffer_text(&buffer).contains("[AE]"));
@@ -737,7 +737,7 @@ fn semantic_colors_terminal_capabilities_are_explicit_and_respect_monochrome() {
     );
     assert_eq!(
         ColorMode::for_terminal(Some("screen-256color"), None, false),
-        ColorMode::LowColor
+        ColorMode::Indexed256
     );
     assert_eq!(
         ColorMode::for_terminal(None, None, false),
@@ -756,14 +756,14 @@ fn semantic_colors_terminal_capabilities_are_explicit_and_respect_monochrome() {
         ColorMode::LowColor
     );
     assert_eq!(
-        Theme::from_capability(2, ColorMode::TrueColor).mode,
+        Theme::from_capability(ThemeName::NoColor.index(), ColorMode::TrueColor).mode,
         ColorMode::NoColor
     );
 }
 
 #[test]
 fn semantic_colors_shared_tokens_selection_no_color_and_graph_legend() {
-    for name in [ThemeName::Dark, ThemeName::Light, ThemeName::NoColor] {
+    for name in ThemeName::ALL {
         for mode in [
             ColorMode::TrueColor,
             ColorMode::LowColor,
@@ -827,7 +827,11 @@ fn semantic_colors_true_color_contrast_meets_readable_status_labels() {
         };
         0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
     }
-    for name in [ThemeName::Dark, ThemeName::Light] {
+    for name in [
+        ThemeName::CatppuccinMocha,
+        ThemeName::TokyoNight,
+        ThemeName::GruvboxDark,
+    ] {
         let theme = Theme::new(name, ColorMode::TrueColor);
         for token in [
             SemanticToken::Added,
@@ -902,7 +906,7 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
                 ghtui::repository_graph_v1::GraphActionV1::Legend,
             ))
     }));
-    app.settings_theme = 2;
+    app.settings_theme = ThemeName::NoColor.index();
     app.no_color = true;
     app.hits.clear();
     terminal

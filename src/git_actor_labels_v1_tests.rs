@@ -164,7 +164,7 @@ fn git_actor_roles_no_color_unknown_author_and_committer_keep_readable_role_text
         ActorWidget {
             identity: &identity,
             image: None,
-            theme: Theme::new(ThemeName::Dark, ColorMode::NoColor),
+            theme: Theme::new(ThemeName::CatppuccinMocha, ColorMode::NoColor),
         }
         .render(buffer.area, &mut buffer);
         let text = buffer

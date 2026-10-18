@@ -99,8 +99,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let accent = theme
         .style(crate::theme::SemanticToken::Focus)
         .add_modifier(Modifier::BOLD);
+    // Headings take the view hue without the focus underline.
+    let heading = theme.style(crate::theme::SemanticToken::Accent);
     frame.render_widget(
-        Paragraph::new("ghtui • Git and GitHub, clearly").style(accent),
+        Paragraph::new("ghtui • Git and GitHub, clearly").style(heading),
         rows[0],
     );
     let mut x = rows[1].x;
@@ -112,12 +114,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         let width = (label.len() as u16).min(rows[1].right().saturating_sub(x));
         let rect = Rect::new(x, rows[1].y, width, 1);
+        // The active tab is filled with the view hue; the others show their key in that view's hue.
         let mut style = if app.view == view {
-            accent
-                .remove_modifier(Modifier::UNDERLINED)
+            theme
+                .with_view(view)
+                .style(crate::theme::SemanticToken::Accent)
                 .add_modifier(Modifier::REVERSED)
         } else {
-            Style::default()
+            theme.base()
         };
         if app.focus == index {
             style = style.add_modifier(Modifier::UNDERLINED);
@@ -349,7 +353,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         let focused = app.focus == app.hits.len();
         frame.render_widget(
-            Paragraph::new(label).style(if focused { accent } else { Style::default() }),
+            Paragraph::new(label).style(if focused { accent } else { theme.base() }),
             rect,
         );
         app.hits.push(HitRegion { rect, action });
@@ -488,8 +492,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame.render_widget(
             Block::default()
                 .borders(Borders::ALL)
-                .title(title)
-                .style(accent.remove_modifier(Modifier::UNDERLINED)),
+                .title(Line::styled(title, heading))
+                .style(theme.base())
+                .border_style(theme.role(crate::theme::Role::BorderFocus)),
             rect,
         );
         let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
@@ -583,7 +588,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                         .style(if index == app.local_action_index {
                             accent
                         } else {
-                            Style::default()
+                            theme.base()
                         }),
                         row,
                     );
@@ -640,7 +645,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                         .style(if index == app.pr_action_index {
                             accent
                         } else {
-                            Style::default()
+                            theme.base()
                         }),
                         row,
                     );
@@ -682,7 +687,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                         .style(if index == app.palette_index {
                             accent
                         } else {
-                            Style::default()
+                            theme.base()
                         }),
                         row,
                     );
@@ -727,21 +732,30 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                         ));
                     }
                 }
-                let theme = Rect::new(inner.x, inner.y + 4, inner.width, 1);
-                frame.render_widget(
-                    Paragraph::new(format!(
+                let theme_row = Rect::new(inner.x, inner.y + 4, inner.width, 1);
+                let mut spans = vec![ratatui::text::Span::styled(
+                    format!(
                         "[Theme: {}]",
-                        ["Dark", "Light", "No color"][app.settings_theme]
-                    ))
-                    .style(if app.focus == 2 {
-                        accent
-                    } else {
-                        Style::default()
-                    }),
-                    theme,
+                        crate::config::ThemeName::from_index(app.settings_theme).label()
+                    ),
+                    if app.focus == 2 { accent } else { theme.base() },
+                )];
+                // A swatch of the five view hues previews the palette before saving.
+                if theme.mode != crate::theme::ColorMode::NoColor {
+                    spans.push(ratatui::text::Span::styled(" ", theme.base()));
+                    spans.extend(View::ALL.into_iter().map(|view| {
+                        ratatui::text::Span::styled(
+                            " ●",
+                            theme.with_view(view).role(crate::theme::Role::Accent),
+                        )
+                    }));
+                }
+                frame.render_widget(
+                    Paragraph::new(Line::from(spans)).style(theme.base()),
+                    theme_row,
                 );
                 app.hits.push(HitRegion {
-                    rect: theme,
+                    rect: theme_row,
                     action: Action::SettingsTheme,
                 });
                 frame.render_widget(Paragraph::new("Tab: next control • Enter: activate • Ctrl-U: clear field\nChoose a saved repository set, or leave blank for personal queues."), Rect::new(inner.x, inner.y + 6, inner.width, 2));
@@ -755,7 +769,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                     Paragraph::new("[Save settings]").style(if app.focus == 3 {
                         accent
                     } else {
-                        Style::default()
+                        theme.base()
                     }),
                     save,
                 );
@@ -776,7 +790,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 if overlay == Overlay::PrReactions && app.focus == app.hits.len() {
                     accent.add_modifier(Modifier::UNDERLINED)
                 } else {
-                    Style::default()
+                    theme.base()
                 },
             ),
             close,
@@ -866,7 +880,7 @@ fn draw_pr_reactions(frame: &mut Frame, app: &mut App, inner: Rect) {
                     .style(SemanticToken::Focus)
                     .add_modifier(Modifier::UNDERLINED)
             } else {
-                Style::default()
+                theme.base()
             };
             frame.render_widget(Paragraph::new(label).style(style), rect);
             app.hits.push(HitRegion {

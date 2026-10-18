@@ -10,6 +10,8 @@ mod collaboration;
 mod comparison;
 #[path = "tui_e2e/corpus.rs"]
 mod corpus;
+#[path = "tui_e2e/design_theme_v98.rs"]
+mod design_theme_v98;
 #[path = "tui_e2e/editor_viewport.rs"]
 mod editor_viewport;
 #[path = "tui_e2e/file_history.rs"]
@@ -349,7 +351,7 @@ fn settings_journey(mouse: bool) {
     let mut expected = config.clone();
     expected.host = "git.example.com".into();
     expected.active_set = Some("Work".into());
-    expected.theme = ghtui::config::ThemeName::Light;
+    expected.theme = ghtui::config::ThemeName::TokyoNight;
     assert!(!mapping.exists());
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
@@ -369,11 +371,11 @@ fn settings_journey(mouse: bool) {
     }
     session.send_key(b"Work");
     if mouse {
-        session.click_visible_action("[Theme: Dark]");
+        session.click_visible_action("[Theme: Catppuccin Mocha]");
     } else {
         session.send_key(b"\t\r");
     }
-    session.wait_for_screen("[Theme: Light]");
+    session.wait_for_screen("[Theme: Tokyo Night]");
     let save_after = session.completed_cells_end();
     if mouse {
         session.click_visible_action("[Save settings]");
@@ -384,7 +386,7 @@ fn settings_journey(mouse: bool) {
     let saved = ghtui::config::Config::load(&config_path).unwrap();
     assert_eq!(saved.host, "git.example.com");
     assert_eq!(saved.active_set.as_deref(), Some("Work"));
-    assert_eq!(saved.theme, ghtui::config::ThemeName::Light);
+    assert_eq!(saved.theme, ghtui::config::ThemeName::TokyoNight);
     assert_eq!(
         saved, expected,
         "Settings save must preserve every unrelated preference"
@@ -423,7 +425,7 @@ fn settings_journey(mouse: bool) {
     } else {
         restarted.send_key(b"s");
     }
-    restarted.wait_for_screen("[Theme: Light]");
+    restarted.wait_for_screen("[Theme: Tokyo Night]");
     let close_after = restarted.completed_cells_end();
     if mouse {
         restarted.click_visible_action("[Esc Close]");

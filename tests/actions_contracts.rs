@@ -155,7 +155,7 @@ fn actions_keyboard_and_mouse_resolve_same_exact_run_attempt_at_small_and_large_
                         frame,
                         &mut workspace,
                         area,
-                        Theme::new(ThemeName::Dark, ColorMode::NoColor),
+                        Theme::new(ThemeName::CatppuccinMocha, ColorMode::NoColor),
                         &Default::default(),
                     )
                     .hits;
@@ -368,7 +368,7 @@ fn actions_paged_controls_keep_every_available_or_unavailable_action_inspectable
                         frame,
                         &mut workspace,
                         frame.area(),
-                        Theme::new(ThemeName::Dark, ColorMode::LowColor),
+                        Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
                         &Default::default(),
                     );
                     for hit in output.hits {
@@ -417,7 +417,7 @@ fn mouse_keyboard_actions_disabled_intent_has_same_read_only_mouse_and_keyboard_
                     frame,
                     &mut workspace,
                     frame.area(),
-                    Theme::new(ThemeName::Dark, ColorMode::LowColor),
+                    Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
                     &Default::default(),
                 );
                 notice = output.hits.into_iter().find_map(|hit| match hit.action {
@@ -653,7 +653,7 @@ fn actions_approvals_reviewer_history_rows_keep_canonical_gate_selection_and_dis
         let mut found = false;
         for _ in 0..workspace.controls.len() + 1 {
             terminal.draw(|frame| {
-                let output=draw(frame,&mut workspace,frame.area(),Theme::new(ThemeName::Dark,ColorMode::LowColor),&Default::default());
+                let output=draw(frame,&mut workspace,frame.area(),Theme::new(ThemeName::CatppuccinMocha,ColorMode::LowColor),&Default::default());
                 found|=output.hits.iter().any(|hit|matches!(&hit.action,ActionsAction::Unavailable(reason) if reason.starts_with("Approve selected deployment:") && reason.contains("required-reviewer")));
             }).unwrap();
             if found {
@@ -892,7 +892,7 @@ fn actions_artifacts_worker_prepares_text_image_binary_and_terminal_fallback_wit
                             frame,
                             &mut workspace,
                             frame.area(),
-                            Theme::new(ThemeName::Dark, mode),
+                            Theme::new(ThemeName::CatppuccinMocha, mode),
                             &Default::default(),
                         );
                     })
@@ -1151,7 +1151,7 @@ fn v1_actions_controls_sizes_empty_artifacts_and_single_bracket_labels() {
                 frame,
                 &mut workspace,
                 area,
-                Theme::new(ThemeName::Dark, ColorMode::NoColor),
+                Theme::new(ThemeName::CatppuccinMocha, ColorMode::NoColor),
                 &Default::default(),
             );
         })

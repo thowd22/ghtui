@@ -158,7 +158,7 @@ fn draw(
             workspace.draw_with_avatars(
                 frame,
                 frame.area(),
-                Theme::new(ThemeName::Dark, mode),
+                Theme::new(ThemeName::CatppuccinMocha, mode),
                 assets,
             )
         })
@@ -355,7 +355,7 @@ fn repo_catalog_avatar_no_color_and_low_color_ready_image_still_honest_initials(
         AvatarWidget {
             identity,
             image: assets.image(&request.source, row),
-            theme: Theme::new(ThemeName::Dark, mode),
+            theme: Theme::new(ThemeName::CatppuccinMocha, mode),
         }
         .render(buffer.area, &mut buffer);
         assert_eq!(

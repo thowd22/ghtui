@@ -315,7 +315,7 @@ fn draw(
                     if no_color {
                         ThemeName::NoColor
                     } else {
-                        ThemeName::Dark
+                        ThemeName::CatppuccinMocha
                     },
                     ColorMode::TrueColor,
                 ),
@@ -815,7 +815,7 @@ fn metrics_retained_detail_semantic_state_and_selected_role_keep_labels_and_colo
         .find(|hit| hit.action == RetainedDetailAction::Select(index))
         .unwrap()
         .rect;
-    let style = Theme::new(ThemeName::Dark, ColorMode::TrueColor).selected(SemanticToken::Success);
+    let style = Theme::new(ThemeName::CatppuccinMocha, ColorMode::TrueColor).selected(SemanticToken::Success);
     assert_eq!(buffer[(row.x + 2, row.y)].fg, style.fg.unwrap());
     assert!(buffer[(row.x + 2, row.y)]
         .modifier

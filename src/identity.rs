@@ -532,18 +532,18 @@ impl Widget for ImageWidget<'_> {
                 let px = x * image.width / width;
                 let top = y * 2 * image.height / (height * 2);
                 let bottom = (y * 2 + 1) * image.height / (height * 2);
-                let base = if self.theme.name == crate::config::ThemeName::Light {
-                    255u16
-                } else {
-                    0
-                };
+                let backdrop = self.theme.backdrop();
                 let color = |pixel: [u8; 4]| {
-                    let channel = |value| {
+                    let channel = |value: u8, under: u8| {
                         ((u16::from(value) * u16::from(pixel[3])
-                            + base * (255 - u16::from(pixel[3])))
+                            + u16::from(under) * (255 - u16::from(pixel[3])))
                             / 255) as u8
                     };
-                    Color::Rgb(channel(pixel[0]), channel(pixel[1]), channel(pixel[2]))
+                    Color::Rgb(
+                        channel(pixel[0], backdrop.0),
+                        channel(pixel[1], backdrop.1),
+                        channel(pixel[2], backdrop.2),
+                    )
                 };
                 buffer[(area.x + x as u16, area.y + y as u16)]
                     .set_symbol("▀")
@@ -921,18 +921,18 @@ impl Widget for AvatarWidget<'_> {
                 let px = u32::from(x) * image.width / u32::from(area.width);
                 let top_y = u32::from(y) * 2 * image.height / (u32::from(area.height) * 2);
                 let bottom_y = (u32::from(y) * 2 + 1) * image.height / (u32::from(area.height) * 2);
-                let base = if self.theme.name == crate::config::ThemeName::Light {
-                    255
-                } else {
-                    0
-                };
+                let backdrop = self.theme.backdrop();
                 let blend = |pixel: [u8; 4]| -> Color {
-                    let channel = |value: u8| {
+                    let channel = |value: u8, under: u8| {
                         ((u16::from(value) * u16::from(pixel[3])
-                            + base * (255 - u16::from(pixel[3])))
+                            + u16::from(under) * (255 - u16::from(pixel[3])))
                             / 255) as u8
                     };
-                    Color::Rgb(channel(pixel[0]), channel(pixel[1]), channel(pixel[2]))
+                    Color::Rgb(
+                        channel(pixel[0], backdrop.0),
+                        channel(pixel[1], backdrop.1),
+                        channel(pixel[2], backdrop.2),
+                    )
                 };
                 buffer[(area.x + x, area.y + y)]
                     .set_symbol("▀")
