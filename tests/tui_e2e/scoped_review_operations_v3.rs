@@ -851,23 +851,30 @@ fn journey_with_lineage_v12(
         .unwrap();
     assert_eq!(count, usize::from(refusal != Refusal::StaleBefore));
     if refusal != Refusal::StaleBefore {
-        let state: String = raw(&fixture)
-            .query_row(
-                "SELECT state FROM pr_write_attempts WHERE command=?1",
-                [operation.command()],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            state,
-            if refusal.canceled_write() || refusal == Refusal::Denied {
-                "uncertain"
-            } else if refusal == Refusal::AccountBefore {
-                "pending"
-            } else {
-                "confirmed"
+        let expected = if refusal.canceled_write() || refusal == Refusal::Denied {
+            "uncertain"
+        } else if refusal == Refusal::AccountBefore {
+            "pending"
+        } else {
+            "confirmed"
+        };
+        // The attempt row settles just after the fixture command returns;
+        // slow runners can observe the earlier "pending" state first.
+        let until = std::time::Instant::now() + Duration::from_secs(10);
+        let state = loop {
+            let state: String = raw(&fixture)
+                .query_row(
+                    "SELECT state FROM pr_write_attempts WHERE command=?1",
+                    [operation.command()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            if state == expected || std::time::Instant::now() >= until {
+                break state;
             }
-        );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(state, expected);
     }
     assert_eq!(
         raw(&fixture)
