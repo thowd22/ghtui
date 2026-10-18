@@ -107,7 +107,177 @@ impl<'a> LocalAvailability<'a> {
             {
                 Some("Select a conflicted file first.".into())
             }
-            _ => None,
+            _ => paused_operation_reason_v1(self.status, command),
         }
+    }
+}
+
+/// Paused merge/rebase/cherry-pick/revert guidance. Starting another history
+/// operation, switching, pulling or stashing on top of a paused operation is
+/// refused before any form opens, and Continue explains unresolved conflicts.
+pub(crate) fn paused_operation_reason_v1(
+    status: &RepoStatus,
+    command: LocalCommand,
+) -> Option<String> {
+    use crate::git::Sequencer;
+    use LocalCommand::*;
+    let operation = status.operation.as_ref()?;
+    let conflicts = status.conflicts();
+    if *operation == Sequencer::Bisect {
+        return matches!(command, Continue | Skip | Abort).then(|| {
+            "A bug search is active; mark versions good/bad/skip or End bug search.".into()
+        });
+    }
+    match command {
+        Continue | Commit if conflicts > 0 => Some(format!(
+            "Resolve and stage {conflicts} conflicted file{} first.",
+            if conflicts == 1 { "" } else { "s" }
+        )),
+        Skip if *operation == Sequencer::Merge => {
+            Some("A merge has no commit to skip; continue or abort it.".into())
+        }
+        Amend | Merge | Rebase | CherryPick | Revert | SwitchBranch | Pull | StashSave
+        | StashApply | StashPop | BisectStart => Some(format!(
+            "A {} is paused; continue or abort it first.",
+            operation_name_v1(operation)
+        )),
+        _ => None,
+    }
+}
+
+pub(crate) fn operation_name_v1(operation: &crate::git::Sequencer) -> &'static str {
+    use crate::git::Sequencer;
+    match operation {
+        Sequencer::Merge => "merge",
+        Sequencer::Rebase => "rebase",
+        Sequencer::CherryPick => "cherry-pick",
+        Sequencer::Revert => "revert",
+        Sequencer::Bisect => "bug search",
+    }
+}
+
+#[cfg(test)]
+mod v1_local_recovery_tests {
+    use super::*;
+    use crate::git::{Sequencer, StatusEntry};
+    use crate::repository_view::paused_operation_rows_v1;
+
+    fn status(operation: Option<Sequencer>, conflicts: usize) -> RepoStatus {
+        RepoStatus {
+            branch: Some("main".into()),
+            operation,
+            entries: (0..conflicts)
+                .map(|index| StatusEntry {
+                    path: RawPath::new(format!("file{index}.txt").into_bytes()),
+                    original_path: None,
+                    index: 'U',
+                    worktree: 'U',
+                    conflict: true,
+                    submodule: false,
+                })
+                .collect(),
+            ..RepoStatus::default()
+        }
+    }
+    fn reason(status: &RepoStatus, command: LocalCommand) -> Option<String> {
+        LocalAvailability {
+            status,
+            path: None,
+            anchor: None,
+            comparison: None,
+        }
+        .disabled_reason(command)
+    }
+
+    #[test]
+    fn v1_local_recovery_paused_merge_guards_conflicting_actions() {
+        use LocalCommand::*;
+        let merge = status(Some(Sequencer::Merge), 2);
+        assert_eq!(
+            reason(&merge, Continue).as_deref(),
+            Some("Resolve and stage 2 conflicted files first.")
+        );
+        assert!(reason(&merge, Commit).unwrap().contains("conflicted"));
+        assert!(reason(&merge, Skip).unwrap().contains("no commit to skip"));
+        for command in [
+            Merge,
+            Rebase,
+            CherryPick,
+            Revert,
+            SwitchBranch,
+            Pull,
+            StashSave,
+            StashPop,
+            Amend,
+        ] {
+            assert_eq!(
+                reason(&merge, command).as_deref(),
+                Some("A merge is paused; continue or abort it first."),
+                "{command:?}"
+            );
+        }
+        assert_eq!(reason(&merge, Abort), None);
+        assert_eq!(reason(&merge, CreateBranch), None);
+        assert_eq!(reason(&merge, RecoverBranch), None);
+
+        let rebase = status(Some(Sequencer::Rebase), 0);
+        assert_eq!(reason(&rebase, Continue), None);
+        assert_eq!(reason(&rebase, Skip), None);
+        assert!(reason(&rebase, Merge).unwrap().contains("rebase is paused"));
+
+        let bisect = status(Some(Sequencer::Bisect), 0);
+        assert!(reason(&bisect, Continue).unwrap().contains("bug search"));
+        assert_eq!(reason(&bisect, BisectGood), None);
+        assert_eq!(reason(&bisect, Merge), None);
+
+        let clean = status(None, 0);
+        assert_eq!(reason(&clean, Merge), None);
+        assert!(reason(&clean, Continue).unwrap().contains("no paused"));
+    }
+
+    #[test]
+    fn v1_local_recovery_paused_rows_name_next_step_and_actions() {
+        let rows = paused_operation_rows_v1(&status(Some(Sequencer::CherryPick), 1));
+        assert!(rows[0]
+            .0
+            .contains("CHERRY-PICK PAUSED • 1 unresolved conflict"));
+        assert!(rows[1].0.starts_with("Next: open each [conflicted] file"));
+        let commands: Vec<_> = rows.iter().filter_map(|row| row.2).collect();
+        assert_eq!(
+            commands,
+            vec![
+                LocalCommand::Continue,
+                LocalCommand::Skip,
+                LocalCommand::Abort
+            ]
+        );
+        let merge = paused_operation_rows_v1(&status(Some(Sequencer::Merge), 0));
+        assert!(merge[0].0.contains("all conflicts resolved"));
+        assert!(merge.iter().all(|row| row.2 != Some(LocalCommand::Skip)));
+        assert!(paused_operation_rows_v1(&status(None, 0)).is_empty());
+    }
+
+    #[test]
+    fn v1_local_recovery_conflict_version_names_and_markers() {
+        use crate::local_actions::{conflict_markers_v1, conflict_stage_v1};
+        assert_eq!(conflict_stage_v1("ours"), Ok(2));
+        assert_eq!(conflict_stage_v1("theirs"), Ok(3));
+        assert_eq!(conflict_stage_v1("base"), Ok(1));
+        assert_eq!(conflict_stage_v1("2"), Ok(2));
+        assert!(conflict_stage_v1("mine").is_err());
+        let dir = std::env::temp_dir().join(format!("ghtui-v1-markers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marked = dir.join("marked.txt");
+        std::fs::write(
+            &marked,
+            b"<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\n",
+        )
+        .unwrap();
+        let clean = dir.join("clean.txt");
+        std::fs::write(&clean, b"ours\n<<<<<<< not closed\n").unwrap();
+        assert!(conflict_markers_v1(&marked));
+        assert!(!conflict_markers_v1(&clean));
+        assert!(!conflict_markers_v1(&dir.join("absent")));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

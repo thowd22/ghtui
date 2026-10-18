@@ -1477,6 +1477,38 @@ impl GitRepository {
         })
     }
 
+    /// Overview-only stash summary: no child unless the stash reflog exists,
+    /// and a read-only `reflog show` rather than any `stash` subcommand.
+    pub fn stash_overview_v1(&self) -> GitResult<Vec<Stash>> {
+        if !self.common_dir.join("logs/refs/stash").is_file() {
+            return Ok(vec![]);
+        }
+        let bytes = self.read(&[
+            "reflog",
+            "show",
+            "--max-count=80",
+            "--format=%H%x00%gd%x00%gs%x00",
+            "refs/stash",
+            "--",
+        ])?;
+        parse_three_fields(&bytes).map(|rows| {
+            rows.into_iter()
+                .map(|(id, selector, subject)| Stash {
+                    id,
+                    selector,
+                    subject,
+                })
+                .collect()
+        })
+    }
+
+    /// Linked worktree metadata count from the common Git directory; no child.
+    pub fn linked_worktree_count_v1(&self) -> usize {
+        std::fs::read_dir(self.common_dir.join("worktrees"))
+            .map(|entries| entries.filter_map(Result::ok).count())
+            .unwrap_or(0)
+    }
+
     pub fn worktrees(&self) -> GitResult<Vec<Worktree>> {
         let bytes = self.read(&["worktree", "list", "--porcelain", "-z"])?;
         Ok(parse_worktrees_v9(&bytes))

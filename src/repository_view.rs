@@ -734,6 +734,76 @@ pub struct WorkspaceRow {
     pub role: SemanticRole,
 }
 
+/// Prominent paused merge/rebase/cherry-pick/revert state with the next step
+/// and clickable Continue/Skip/Abort rows (the same LocalCommand forms as the
+/// Local operations menu). Bisect keeps its own guided rows.
+pub fn paused_operation_rows_v1(
+    status: &RepoStatus,
+) -> Vec<(
+    String,
+    SemanticRole,
+    Option<crate::local_actions::LocalCommand>,
+)> {
+    use crate::git::Sequencer;
+    use crate::local_actions::LocalCommand;
+    let Some(operation) = &status.operation else {
+        return vec![];
+    };
+    let name = crate::local_availability::operation_name_v1(operation);
+    if *operation == Sequencer::Bisect {
+        return vec![(
+            "Bug search in progress • mark versions good/bad/skip or End bug search (m)".into(),
+            SemanticRole::Conflict,
+            None,
+        )];
+    }
+    let conflicts = status.conflicts();
+    let upper = name.to_ascii_uppercase();
+    let mut rows = vec![(
+        if conflicts > 0 {
+            format!(
+                "⚠ {upper} PAUSED • {conflicts} unresolved conflict{} • working files are not committed yet",
+                if conflicts == 1 { "" } else { "s" }
+            )
+        } else {
+            format!("⚠ {upper} PAUSED • all conflicts resolved and staged")
+        },
+        SemanticRole::Conflict,
+        None,
+    )];
+    rows.push((
+        if conflicts > 0 {
+            "Next: open each [conflicted] file below, choose ours/theirs or edit it, then Stage selected file (m)".into()
+        } else {
+            format!("Next: Continue to finish the {name}, or Abort to return to the state before it")
+        },
+        SemanticRole::Boundary,
+        None,
+    ));
+    rows.push((
+        if conflicts > 0 {
+            format!("[Continue {name}] • available after every conflicted file is staged")
+        } else {
+            format!("[Continue {name}] • record the resolved result")
+        },
+        SemanticRole::Conflict,
+        Some(LocalCommand::Continue),
+    ));
+    if *operation != Sequencer::Merge {
+        rows.push((
+            "[Skip this commit] • drop the current commit's changes and move on".into(),
+            SemanticRole::Conflict,
+            Some(LocalCommand::Skip),
+        ));
+    }
+    rows.push((
+        format!("[Abort {name}] • restore the branch and files from before the {name} started"),
+        SemanticRole::Conflict,
+        Some(LocalCommand::Abort),
+    ));
+    rows
+}
+
 pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
     let branch = status.branch.as_deref().unwrap_or(if status.detached {
         "detached HEAD"
@@ -797,13 +867,12 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
             role: SemanticRole::Boundary,
         });
     }
-    if let Some(operation) = &status.operation {
+    let paused = paused_operation_rows_v1(status);
+    for (label, role, _) in paused.iter().filter(|row| row.2.is_none()).cloned() {
         rows.push(WorkspaceRow {
             path: None,
-            label: format!(
-                "Operation in progress: {operation:?}; resolve conflicts, continue or abort"
-            ),
-            role: SemanticRole::Conflict,
+            label,
+            role,
         });
     }
     if status.entries.is_empty() {
@@ -842,13 +911,28 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
         rows.push(WorkspaceRow {
             path: Some(entry.path.clone()),
             label: format!(
-                "{} [{state}] {}{rename}",
+                "{} [{state}] {}{rename}{}",
                 entry.label(),
-                entry.path.display()
+                entry.path.display(),
+                if entry.conflict {
+                    " • Enter: compare base/ours/theirs"
+                } else {
+                    ""
+                }
             ),
             role,
         });
     }
+    rows.extend(
+        paused
+            .into_iter()
+            .filter(|row| row.2.is_some())
+            .map(|(label, role, _)| WorkspaceRow {
+                path: None,
+                label,
+                role,
+            }),
+    );
     rows
 }
 

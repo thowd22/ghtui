@@ -604,6 +604,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     workspace.provenance_available(file_action).err()
                 };
                 reason.map_or(Action::RepositoryRow(action.clone()), Action::Explain)
+            } else if let RowAction::Local(command) = action {
+                Action::LocalCommand(*command)
             } else {
                 Action::RepositoryRow(action.clone())
             };

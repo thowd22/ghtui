@@ -447,7 +447,10 @@ fn git_sequencers_native_conflict_choice_stage_continue_retains_two_parents() {
         .git(&["ls-files", "--unmerged"])
         .contains("file.txt"));
     execute(&prepare(LocalCommand::StageFile, &conflict, &[]));
-    execute(&prepare(LocalCommand::Continue, &conflict, &[]));
+    // Continue is planned from refreshed state: a stale conflicted status refuses it.
+    let resolved =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    execute(&prepare(LocalCommand::Continue, &resolved, &[]));
     assert_eq!(fixture.git(&["rev-parse", "HEAD^1"]), format!("{ours}\n"));
     assert_eq!(fixture.git(&["rev-parse", "HEAD^2"]), format!("{theirs}\n"));
     assert_eq!(fixture.git(&["ls-files", "--unmerged"]), "");
@@ -549,4 +552,91 @@ fn guided_bisect_native_classification_progress_and_reset_restore_original_branc
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), start);
     assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+}
+
+#[test]
+fn v1_local_recovery_paused_merge_overview_rows_marker_warning_and_named_version() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"base\n", "base");
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.commit_file("file.txt", b"theirs\n", "theirs");
+    fixture.git(&["switch", "main"]);
+    fixture.commit_file("file.txt", b"ours\n", "ours");
+    fs::write(fixture.repo().join("other.txt"), b"stashed\n").unwrap();
+    fixture.git(&["stash", "push", "-u", "-m", "parked work"]);
+    let _ = Command::new("git")
+        .args(["merge", "feature"])
+        .current_dir(fixture.repo())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    let view = workspace(&fixture, RepositoryMode::Overview);
+    let labels: Vec<_> = view.rows.iter().map(|row| row.label.as_str()).collect();
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.starts_with("⚠ MERGE PAUSED • 1 unresolved conflict")),
+        "{labels:?}"
+    );
+    assert!(labels
+        .iter()
+        .any(|label| label.starts_with("Saved stashes: 1 • newest stash@{0}")));
+    let position = |action: RowAction| {
+        view.rows
+            .iter()
+            .position(|row| row.action.as_ref() == Some(&action))
+    };
+    let conflict = position(RowAction::Conflict(RawPath::new(b"file.txt".to_vec()))).unwrap();
+    let continue_row = position(RowAction::Local(LocalCommand::Continue)).unwrap();
+    let abort_row = position(RowAction::Local(LocalCommand::Abort)).unwrap();
+    assert!(conflict < continue_row && continue_row < abort_row);
+    assert!(position(RowAction::Local(LocalCommand::Skip)).is_none());
+    // Unresolved Continue is refused before any form or Git child.
+    let context = LocalContext::from_row(&view, continue_row);
+    assert!(LocalCommand::Continue
+        .disabled_reason(&context)
+        .unwrap()
+        .contains("Resolve and stage 1 conflicted file"));
+    assert!(LocalCommand::Merge
+        .disabled_reason(&context)
+        .unwrap()
+        .contains("merge is paused"));
+    let selected = LocalContext::from_row(&view, conflict);
+    let stage = prepare(LocalCommand::StageFile, &selected, &[]);
+    assert!(stage
+        .preview
+        .iter()
+        .any(|line| line.contains("still contains <<<<<<<")));
+    execute(&prepare(
+        LocalCommand::ResolveConflict,
+        &selected,
+        &[("stage", "theirs")],
+    ));
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"theirs\n"
+    );
+    let stage = prepare(LocalCommand::StageFile, &selected, &[]);
+    assert!(!stage
+        .preview
+        .iter()
+        .any(|line| line.contains("still contains <<<<<<<")));
+    execute(&stage);
+    let resolved = workspace(&fixture, RepositoryMode::Overview);
+    assert!(resolved
+        .rows
+        .iter()
+        .any(|row| row.label == "⚠ MERGE PAUSED • all conflicts resolved and staged"));
+    let row = resolved
+        .rows
+        .iter()
+        .position(|row| row.action == Some(RowAction::Local(LocalCommand::Continue)))
+        .unwrap();
+    assert_eq!(
+        LocalCommand::Continue.disabled_reason(&LocalContext::from_row(&resolved, row)),
+        None
+    );
+    assert!(fixture.repo().join(".git/MERGE_HEAD").exists());
 }

@@ -271,9 +271,9 @@ pub fn fields(command: LocalCommand, context: &LocalContext) -> Vec<LocalField> 
         Merge | Rebase | CherryPick | Revert => vec![field("revision", "Saved version", revision)],
         ResolveConflict => vec![choice(
             "stage",
-            "Version: base=1, ours=2, theirs=3",
-            "2",
-            &["1", "2", "3"],
+            "Keep version (ours = current branch, theirs = incoming, base = common ancestor)",
+            "ours",
+            &["ours", "theirs", "base"],
         )],
         Reset => vec![
             field("revision", "Saved version", revision),
@@ -787,6 +787,11 @@ impl LocalPlan {
         }
         if selected_conflict && command == LocalCommand::StageFile {
             preview.push("Stages the complete resolved working file and removes its base/ours/theirs conflict stages. Inspect the working content before confirming.".into());
+            if let Some(path) = &context.selected_path {
+                if conflict_markers_v1(&repo.root.join(path.as_os_str())) {
+                    preview.push("Warning: the working file still contains <<<<<<< / ======= / >>>>>>> conflict markers. Choose a version or edit them out first unless they are intentional.".into());
+                }
+            }
         }
         if selected_untracked && command == LocalCommand::StageFile {
             let path = context
@@ -1160,9 +1165,7 @@ fn operation(
         Abort => Operation::Abort,
         ResolveConflict => Operation::ResolveConflict {
             path: path()?,
-            stage: value("stage")?
-                .parse()
-                .map_err(|_| "stage must be 1, 2, or 3.")?,
+            stage: conflict_stage_v1(&value("stage")?)?,
         },
         RecoverBranch => Operation::RecoverBranch {
             name: value("name")?,
@@ -1188,6 +1191,36 @@ fn operation(
         BisectSkip => Operation::BisectSkip,
         BisectReset => Operation::BisectReset,
     })
+}
+
+/// Bounded check for unresolved conflict markers at line starts in a regular file.
+pub(crate) fn conflict_markers_v1(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() > 4 * 1024 * 1024 {
+        return false;
+    }
+    let content = std::fs::read(path).unwrap_or_default();
+    let mut opened = false;
+    for line in content.split(|byte| *byte == b'\n') {
+        if line.starts_with(b"<<<<<<< ") || line == b"<<<<<<<" {
+            opened = true;
+        } else if opened && (line.starts_with(b">>>>>>> ") || line == b">>>>>>>") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Conflict version names map to Git index stages; numeric stages stay accepted.
+pub(crate) fn conflict_stage_v1(value: &str) -> Result<u8, String> {
+    match value.trim() {
+        "base" | "1" => Ok(1),
+        "ours" | "2" => Ok(2),
+        "theirs" | "3" => Ok(3),
+        _ => Err("Version must be ours, theirs or base.".into()),
+    }
 }
 
 /// Explicit error-recovery refresh. A local refresh cannot prove an uncertain remote push outcome.

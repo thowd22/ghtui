@@ -77,6 +77,8 @@ mod stash_recovery_v1;
 mod support;
 #[path = "tui_e2e/untracked.rs"]
 mod untracked;
+#[path = "tui_e2e/v1_local_recovery.rs"]
+mod v1_local_recovery;
 use support::{empty_inbox_steps, fixture_shell_publication_v1, Fixture, GhStep, Session};
 
 #[test]

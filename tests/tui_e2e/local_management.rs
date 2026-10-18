@@ -403,7 +403,10 @@ fn sequencer(mouse: bool) {
         &mut session,
         mouse,
         LocalCommand::ResolveConflict,
-        &[("Version: base=1, ours=2, theirs=3", "2")],
+        &[(
+            "Keep version (ours = current branch, theirs = incoming, base = common ancestor)",
+            "ours",
+        )],
     );
     assert_eq!(
         fs::read(fixture.repo().join("file.txt")).unwrap(),
