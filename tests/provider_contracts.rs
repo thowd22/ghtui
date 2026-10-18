@@ -3859,6 +3859,85 @@ fn conversation_comments_shared_publication_guards_review_lifecycle_and_merge_ex
 }
 
 #[test]
+fn v1_pr_lifecycle_provider_disable_auto_merge_and_rebase_confirm_by_readback() {
+    let cancel = CancellationToken::default();
+    let mut enabled = pr(7, "example/repo");
+    enabled["auto_merge"] = json!({"merge_method":"squash"});
+    let guarded = |value: &Value| {
+        let mut steps = guard_steps();
+        steps[2] = step(api_args("repos/example/repo/pulls/7"), value.clone());
+        steps
+    };
+    let cli = |args: &[&str]| GhStep::read(args, "");
+    let disable = [
+        "pr",
+        "merge",
+        "7",
+        "--repo",
+        "github.invalid/example/repo",
+        "--disable-auto",
+    ];
+    // Not enabled on the fresh read: refused before any write.
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&guard_steps());
+    let error = provider(&fixture)
+        .disable_auto_merge_request(&identity(), &target(), &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::InvalidTarget));
+    assert_eq!(journal(&fixture).len(), 3);
+    // Read-back still enabled: ambiguous, never reported as done.
+    let fixture = Fixture::new();
+    let mut steps = guarded(&enabled);
+    steps.push(cli(&disable));
+    steps.push(step(
+        api_args("repos/example/repo/pulls/7"),
+        enabled.clone(),
+    ));
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .disable_auto_merge_request(&identity(), &target(), &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::AmbiguousWrite));
+    assert!(journal(&fixture).iter().all(|row| row["matched"] == true));
+    // Read-back disabled: confirmed.
+    let fixture = Fixture::new();
+    let mut steps = guarded(&enabled);
+    steps.push(cli(&disable));
+    steps.push(step(
+        api_args("repos/example/repo/pulls/7"),
+        pr(7, "example/repo"),
+    ));
+    fixture.scripted_gh(&steps);
+    let summary = provider(&fixture)
+        .disable_auto_merge_request(&identity(), &target(), &cancel)
+        .unwrap();
+    assert!(!summary.auto_merge);
+    assert_eq!(journal(&fixture).len(), 5);
+    // Rebase update: guard, one `gh pr update-branch --rebase`, read-back.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    steps.push(cli(&[
+        "pr",
+        "update-branch",
+        "7",
+        "--repo",
+        "github.invalid/example/repo",
+        "--rebase",
+    ]));
+    steps.push(step(
+        api_args("repos/example/repo/pulls/7"),
+        pr(7, "example/repo"),
+    ));
+    fixture.scripted_gh(&steps);
+    provider(&fixture)
+        .rebase_pr_branch(&identity(), &target(), &cancel)
+        .unwrap();
+    let rows = journal(&fixture);
+    assert_eq!(rows.len(), 5);
+    assert!(rows.iter().all(|row| row["matched"] == true));
+}
+
+#[test]
 fn conversation_comments_reaction_catalogue_preserves_ids_accounts_unknown_actors_and_pages() {
     let fixture = Fixture::new();
     fixture.scripted_gh(&[
