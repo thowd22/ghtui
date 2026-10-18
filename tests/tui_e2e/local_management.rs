@@ -530,16 +530,16 @@ fn bisect(mouse: bool) {
             },
             &[],
         );
-        if fixture
-            .git(&["bisect", "log"])
-            .contains("# first bad commit:")
-        {
+        if ghtui::git::bisect_reports_culprit(&fixture.git(&["bisect", "log"])) {
             break;
         }
     }
-    assert!(fixture
-        .git(&["bisect", "log"])
-        .contains(&format!("# first bad commit: [{}]", commits[3])));
+    let log = fixture.git(&["bisect", "log"]);
+    assert!(
+        ghtui::git::bisect_reports_culprit(&log)
+            && log.contains(&format!(" commit: [{}]", commits[3])),
+        "{log}"
+    );
     assert_eq!(
         fixture.git(&["rev-parse", "HEAD"]),
         format!("{}\n", commits[3])

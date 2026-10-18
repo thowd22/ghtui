@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      pty_filter:
+        description: "Run only tui_e2e tests matching this filter (empty = full suite)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -59,6 +64,18 @@ jobs:
       # and the tests use an offline fake gh, so no TTY or GitHub login is
       # needed. test-all.mjs runs `cargo test --locked --all-targets` with the
       # test-only Git environment (foreground automatic maintenance).
-      - run: node scripts/test-all.mjs
+      - if: ${{ inputs.pty_filter == '' }}
+        run: node scripts/test-all.mjs
+      # Targeted diagnosis of runner-only failures without the full suite.
+      - if: ${{ inputs.pty_filter != '' }}
+        run: cargo test --locked --test tui_e2e -- "$FILTER"
+        env:
+          FILTER: ${{ inputs.pty_filter }}
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: maintenance.autoDetach
+          GIT_CONFIG_VALUE_0: "false"
+          GIT_CONFIG_KEY_1: gc.autoDetach
+          GIT_CONFIG_VALUE_1: "false"
       - name: Node script tests
+        if: ${{ inputs.pty_filter == '' }}
         run: node --test tests/test_env.test.mjs tests/test_task_runner.test.mjs

@@ -3226,3 +3226,9 @@ mod tests {
         );
     }
 }
+
+/// True when `git bisect` output (or `git bisect log`) reports the culprit.
+/// Git 2.55 quotes the term ("first 'bad' commit"); older Git does not.
+pub fn bisect_reports_culprit(text: &str) -> bool {
+    text.contains("first bad commit") || text.contains("first 'bad' commit")
+}

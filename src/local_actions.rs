@@ -1073,7 +1073,7 @@ impl LocalPlan {
         ) {
             let explanation = if self.command == LocalCommand::BisectReset {
                 "Bug search ended. Git restored the starting saved version/branch."
-            } else if output.contains("first bad commit") {
+            } else if crate::git::bisect_reports_culprit(&output) {
                 "Culprit found: the current saved version is the first bad commit. Inspect it, then End bug search to restore the starting branch."
             } else {
                 "Bug search is paused at the current saved version. Inspect/test it, then Mark version good, Mark version bad, or Skip untestable version. End bug search restores the starting branch."

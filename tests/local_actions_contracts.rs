@@ -536,7 +536,7 @@ fn guided_bisect_native_classification_progress_and_reset_restore_original_branc
             .rows
             .iter()
             .any(|row| row.label.contains("Bug search") || row.label.contains("Culprit found:")));
-        if result.output.contains("first bad commit") {
+        if ghtui::git::bisect_reports_culprit(&result.output) {
             culprit = Some(result.workspace);
             break;
         }

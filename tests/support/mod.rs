@@ -1880,10 +1880,16 @@ impl Session {
             if self.inspect_command_journal(fixture).lines().count() >= count {
                 return;
             }
-            assert!(
-                Instant::now() < deadline,
-                "expected {count} fixture commands"
-            );
+            if Instant::now() >= deadline {
+                let journal = self.inspect_command_journal(fixture);
+                let lines: Vec<_> = journal.lines().collect();
+                panic!(
+                    "expected {count} fixture commands, saw {}; last: {:#?}\n{}",
+                    lines.len(),
+                    &lines[lines.len().saturating_sub(3)..],
+                    self.screen()
+                );
+            }
             if let Ok(bytes) = self.observed_recv_timeout_v1(Duration::from_millis(20)) {
                 self.process(&bytes);
             }

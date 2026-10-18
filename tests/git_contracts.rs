@@ -2198,7 +2198,7 @@ fn guided_bisect_finds_culprit_and_restores_original_head() {
             .unwrap();
         let output = fixture.repository.execute(&plan, true).unwrap();
         outputs.push(output.clone());
-        if output.contains("is the first bad commit") {
+        if ghtui::git::bisect_reports_culprit(&output) {
             assert!(output.contains(&culprit));
             found = true;
             break;
