@@ -4,6 +4,7 @@ title: 'Design language: hierarchy, sections and provenance placement'
 status: To Do
 assignee: []
 created_date: '2026-10-18 19:59'
+updated_date: '2026-10-18 20:22'
 labels:
   - ui-design
 dependencies:
@@ -25,3 +26,9 @@ Uppercase accent section headers, label/value blocks with aligned muted labels, 
 - [ ] #1 Partial and unknown states stay visible, never shown as zero
 - [ ] #2 PTY test at 140x42 and 80x24 with keyboard and mouse, plus unit tests for the layout helpers
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
+<!-- SECTION:NOTES:END -->

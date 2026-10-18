@@ -4,6 +4,7 @@ title: 'Design language: semantic theme tokens and text levels'
 status: To Do
 assignee: []
 created_date: '2026-10-18 19:59'
+updated_date: '2026-10-18 20:22'
 labels:
   - ui-design
 dependencies: []
@@ -25,3 +26,9 @@ Introduce role-based theme tokens (accent, selection, text, muted, dim, border, 
 - [ ] #2 No view uses raw colors
 - [ ] #3 PTY test at 140x42 and 80x24 with keyboard and mouse, plus unit tests for the layout helpers
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
+<!-- SECTION:NOTES:END -->
