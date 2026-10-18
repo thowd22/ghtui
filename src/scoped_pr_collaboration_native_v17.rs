@@ -1911,7 +1911,8 @@ pub fn capture_action(app: &mut App, action: &PrUiAction, database: &Path) -> bo
     if matches!(
         command,
         PrCommand::MarkViewed | PrCommand::MarkUnviewed | PrCommand::Merge
-    ) {
+    ) || PrCommand::LIFECYCLE.contains(command)
+    {
         return false;
     }
     match PrCollaborationOpenIntentV17::capture(app, database) {

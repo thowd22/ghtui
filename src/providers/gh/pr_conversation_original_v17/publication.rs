@@ -331,7 +331,7 @@ impl GithubProvider {
                     }
                     ConversationReceiptV17::Subscription { state: *state }
                 }
-                PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) => {
+                PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) | PrOperation::State(_) => {
                     return Err(bad(GithubErrorKind::InvalidTarget))
                 }
             };

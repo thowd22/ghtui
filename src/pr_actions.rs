@@ -8,8 +8,8 @@ use crate::{
     providers::{
         gh::{
             CommentKind, CommentReaction, ConversationComment, CurrentPrSubscription, GithubError,
-            GithubErrorKind, GithubProvider, HostIdentity, MergeMethod, PrSummary, Reaction,
-            Subscription,
+            GithubErrorKind, GithubProvider, HostIdentity, MergeMethod, PrLifecycle, PrSummary,
+            Reaction, Subscription,
         },
         runner::{sanitize_terminal, CancellationToken},
     },
@@ -29,9 +29,26 @@ pub enum PrCommand {
     MarkViewed,
     MarkUnviewed,
     Merge,
+    Ready,
+    Draft,
+    EnableAutoMerge,
+    DisableAutoMerge,
+    UpdateBranch,
+    Close,
+    Reopen,
 }
 impl PrCommand {
-    pub const ALL: [(Self, &'static str); 9] = [
+    /// PR state changes that use the shared lifecycle refusal/preview path.
+    pub const LIFECYCLE: [Self; 7] = [
+        Self::Ready,
+        Self::Draft,
+        Self::EnableAutoMerge,
+        Self::DisableAutoMerge,
+        Self::UpdateBranch,
+        Self::Close,
+        Self::Reopen,
+    ];
+    pub const ALL: [(Self, &'static str); 16] = [
         (Self::NewComment, "New conversation comment"),
         (Self::EditComment, "Edit selected comment"),
         (Self::DeleteComment, "Delete selected comment"),
@@ -41,6 +58,13 @@ impl PrCommand {
         (Self::MarkViewed, "Mark selected file viewed"),
         (Self::MarkUnviewed, "Mark selected file unviewed"),
         (Self::Merge, "Merge pull request"),
+        (Self::Ready, "Mark ready for review"),
+        (Self::Draft, "Convert to draft"),
+        (Self::EnableAutoMerge, "Enable auto-merge"),
+        (Self::DisableAutoMerge, "Disable auto-merge"),
+        (Self::UpdateBranch, "Update branch from base"),
+        (Self::Close, "Close without merging"),
+        (Self::Reopen, "Reopen unmerged PR"),
     ];
     pub fn label(self) -> &'static str {
         Self::ALL
@@ -60,6 +84,13 @@ impl PrCommand {
             Self::MarkViewed => "mark-viewed",
             Self::MarkUnviewed => "unmark-viewed",
             Self::Merge => "merge",
+            Self::Ready => "lifecycle-ready",
+            Self::Draft => "lifecycle-draft",
+            Self::EnableAutoMerge => "lifecycle-auto-merge-enable",
+            Self::DisableAutoMerge => "lifecycle-auto-merge-disable",
+            Self::UpdateBranch => "lifecycle-update-branch",
+            Self::Close => "lifecycle-close",
+            Self::Reopen => "lifecycle-reopen",
         }
     }
     pub fn disabled_reason(self, context: &PrActionContext) -> Option<String> {
@@ -68,6 +99,9 @@ impl PrCommand {
         }
         if self == Self::Merge {
             return merge_disabled_reason(&context.target);
+        }
+        if Self::LIFECYCLE.contains(&self) {
+            return lifecycle_disabled_reason(self, &context.target);
         }
         if matches!(self, Self::MarkViewed | Self::MarkUnviewed) {
             let Some(file) = &context.selected_file else {
@@ -411,6 +445,38 @@ pub fn merge_disabled_reason(target: &PrSummary) -> Option<String> {
         None
     }
 }
+/// Loaded-state refusal for draft/ready, auto-merge, update branch and
+/// close/reopen. Publication re-reads the PR and checks it again.
+pub fn lifecycle_disabled_reason(command: PrCommand, target: &PrSummary) -> Option<String> {
+    let open = target.pr.state == "open";
+    let reason = match command {
+        PrCommand::Reopen if target.merged => "A merged PR cannot be reopened.",
+        _ if target.merged => "This PR is already merged.",
+        PrCommand::Reopen if open => "This PR is already open.",
+        PrCommand::Reopen => return None,
+        PrCommand::Close if !open => "This PR is already closed.",
+        _ if !open => "Reopen this PR first; it is closed.",
+        PrCommand::Ready if !target.pr.draft => "This PR is already ready for review.",
+        PrCommand::Draft if target.pr.draft => "This PR is already a draft.",
+        PrCommand::EnableAutoMerge if target.pr.draft => {
+            "Mark this draft PR ready for review before enabling auto-merge."
+        }
+        PrCommand::EnableAutoMerge if target.auto_merge => "Auto-merge is already enabled.",
+        PrCommand::DisableAutoMerge if !target.auto_merge => "Auto-merge is not enabled.",
+        PrCommand::UpdateBranch if target.mergeable_state == "dirty" => {
+            "GitHub reports merge conflicts with the base; resolve them locally instead."
+        }
+        _ => return None,
+    };
+    Some(reason.into())
+}
+fn update_method(value: &str) -> Result<bool, String> {
+    match value {
+        "merge" => Ok(false),
+        "rebase" => Ok(true),
+        _ => Err("Choose merge or rebase.".into()),
+    }
+}
 fn merge_method(value: &str) -> Result<MergeMethod, String> {
     match value {
         "merge" => Ok(MergeMethod::Merge),
@@ -449,8 +515,25 @@ pub(crate) fn fields_v17(
             multiline: true,
             choices: vec![],
         }],
-        PrCommand::DeleteComment | PrCommand::MarkViewed | PrCommand::MarkUnviewed => vec![],
-        PrCommand::Merge => vec![PrField {
+        PrCommand::DeleteComment
+        | PrCommand::MarkViewed
+        | PrCommand::MarkUnviewed
+        | PrCommand::Ready
+        | PrCommand::Draft
+        | PrCommand::DisableAutoMerge
+        | PrCommand::Close
+        | PrCommand::Reopen => vec![],
+        PrCommand::UpdateBranch => vec![PrField {
+            key: "method",
+            label: "Update method",
+            value: "merge".into(),
+            multiline: false,
+            choices: ["merge", "rebase"]
+                .into_iter()
+                .map(PrChoice::plain)
+                .collect(),
+        }],
+        PrCommand::Merge | PrCommand::EnableAutoMerge => vec![PrField {
             key: "method",
             label: "Merge method",
             value: "merge".into(),
@@ -547,6 +630,130 @@ pub(crate) enum PrOperation {
     Subscription(Subscription),
     ViewedFile(crate::pr_progress::FileProgress, bool),
     Merge(MergeMethod),
+    State(StateOperation),
+}
+/// Lifecycle operations; each maps to one existing provider write.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum StateOperation {
+    Lifecycle(PrCommand, PrLifecycle),
+    EnableAutoMerge(MergeMethod),
+    DisableAutoMerge,
+    UpdateBranch { rebase: bool },
+}
+impl StateOperation {
+    pub(crate) fn command(self) -> PrCommand {
+        match self {
+            Self::Lifecycle(command, _) => command,
+            Self::EnableAutoMerge(_) => PrCommand::EnableAutoMerge,
+            Self::DisableAutoMerge => PrCommand::DisableAutoMerge,
+            Self::UpdateBranch { .. } => PrCommand::UpdateBranch,
+        }
+    }
+    fn parse(command: PrCommand, method: &str) -> Result<Self, String> {
+        Ok(match command {
+            PrCommand::Ready => Self::Lifecycle(command, PrLifecycle::Ready),
+            PrCommand::Draft => Self::Lifecycle(command, PrLifecycle::Draft),
+            PrCommand::Close => Self::Lifecycle(command, PrLifecycle::Close),
+            PrCommand::Reopen => Self::Lifecycle(command, PrLifecycle::Reopen),
+            PrCommand::EnableAutoMerge => Self::EnableAutoMerge(merge_method(method)?),
+            PrCommand::DisableAutoMerge => Self::DisableAutoMerge,
+            PrCommand::UpdateBranch => Self::UpdateBranch {
+                rebase: update_method(method)?,
+            },
+            _ => return Err("Not a PR lifecycle action".into()),
+        })
+    }
+    fn preview(self, target: &PrSummary) -> Vec<String> {
+        match self {
+            Self::Lifecycle(_, PrLifecycle::Ready) => vec![
+                "Marks this draft ready for review; GitHub notifies requested reviewers.".into(),
+            ],
+            Self::Lifecycle(_, PrLifecycle::Draft) => vec![
+                "Converts this PR back to a draft; it cannot merge until marked ready again."
+                    .into(),
+            ],
+            Self::Lifecycle(_, PrLifecycle::Close) => vec![
+                "Closes this PR without merging; its branch and commits are kept and it can be reopened.".into(),
+            ],
+            Self::Lifecycle(_, PrLifecycle::Reopen) => {
+                vec!["Reopens this closed, unmerged PR.".into()]
+            }
+            Self::EnableAutoMerge(method) => vec![
+                format!(
+                    "Auto-merge method: {} • {} → {}",
+                    merge_method_name(method),
+                    target.head_ref,
+                    target.base_ref
+                ),
+                format!(
+                    "GitHub merges once requirements pass, only while the head is still {}.",
+                    target.head_sha
+                ),
+            ],
+            Self::DisableAutoMerge => {
+                vec!["Cancels the pending auto-merge request; nothing is merged.".into()]
+            }
+            Self::UpdateBranch { rebase } => vec![
+                format!(
+                    "Update method: {} • {} ← {}",
+                    if rebase { "rebase" } else { "merge" },
+                    target.head_ref,
+                    target.base_ref
+                ),
+                format!(
+                    "Merge state: {} • GitHub updates only the remote head branch; your local checkout is untouched.",
+                    target.mergeable_state
+                ),
+                if rebase {
+                    "Rebase rewrites the PR's commits; collaborators must re-fetch.".into()
+                } else {
+                    format!("GitHub updates only if the head is still {}.", target.head_sha)
+                },
+            ],
+        }
+    }
+    fn receipt(self, summary: &PrSummary) -> Result<PrConfirmedEffect, String> {
+        let state =
+            match self {
+                Self::Lifecycle(_, PrLifecycle::Ready) if !summary.pr.draft => "ready",
+                Self::Lifecycle(_, PrLifecycle::Draft) if summary.pr.draft => "draft",
+                Self::Lifecycle(_, PrLifecycle::Close) if summary.pr.state == "closed" => "closed",
+                Self::Lifecycle(_, PrLifecycle::Reopen) if summary.pr.state == "open" => "open",
+                Self::EnableAutoMerge(_) if summary.merged => "merged",
+                Self::EnableAutoMerge(_) if summary.auto_merge => "auto-merge-enabled",
+                Self::DisableAutoMerge if !summary.auto_merge => "auto-merge-disabled",
+                // GitHub updates the branch asynchronously; the request was accepted.
+                Self::UpdateBranch { .. } => "update-requested",
+                _ => return Err(
+                    "GitHub did not confirm the requested PR state. Inspect it before retrying."
+                        .into(),
+                ),
+            };
+        Ok(PrConfirmedEffect {
+            kind: PrEffectKind::Lifecycle,
+            resource_id: state.into(),
+            node_id: Some(summary.pr.id.clone()),
+        })
+    }
+    fn publish(
+        self,
+        provider: &GithubProvider,
+        identity: &HostIdentity,
+        target: &PrSummary,
+        cancel: &CancellationToken,
+    ) -> crate::providers::gh::GithubResult<PrSummary> {
+        match self {
+            Self::Lifecycle(_, action) => provider.lifecycle(identity, target, action, cancel),
+            Self::EnableAutoMerge(method) => provider.merge(identity, target, method, true, cancel),
+            Self::DisableAutoMerge => provider.disable_auto_merge_request(identity, target, cancel),
+            Self::UpdateBranch { rebase: true } => {
+                provider.rebase_pr_branch(identity, target, cancel)
+            }
+            Self::UpdateBranch { rebase: false } => {
+                provider.update_pr_branch(identity, target, cancel)
+            }
+        }
+    }
 }
 #[path = "pr_actions/operation_v17.rs"]
 mod operation_v17;
@@ -602,6 +809,8 @@ impl PrPlan {
             )
         } else if command == PrCommand::Merge {
             PrOperation::Merge(merge_method(get("method"))?)
+        } else if PrCommand::LIFECYCLE.contains(&command) {
+            PrOperation::State(StateOperation::parse(command, get("method"))?)
         } else {
             PrOperation::from_values_v17(
                 command,
@@ -649,6 +858,11 @@ impl PrPlan {
         }
         if matches!(operation, PrOperation::Merge(_)) {
             if let Some(reason) = merge_disabled_reason(&target) {
+                return Err(reason);
+            }
+        }
+        if let PrOperation::State(state) = operation {
+            if let Some(reason) = lifecycle_disabled_reason(state.command(), &target) {
                 return Err(reason);
             }
         }
@@ -802,6 +1016,7 @@ impl PrPlan {
                     target.head_sha
                 ));
             }
+            PrOperation::State(state) => preview.extend(state.preview(&target)),
             PrOperation::ViewedFile(selected, viewed) => {
                 preview.push(format!(
                     "Exact canonical file: {}",
@@ -1070,6 +1285,9 @@ impl PrPlan {
                     node_id: Some(summary.pr.id.clone()),
                 }
             }
+            (PrOperation::State(state), PrActionEffect::State(summary)) => {
+                state.receipt(summary)?
+            }
             (
                 PrOperation::NewComment(_) | PrOperation::EditComment(_, _),
                 PrActionEffect::Comment(comment),
@@ -1182,6 +1400,9 @@ impl PrPlan {
             PrOperation::Merge(method) => provider
                 .merge(identity, target, *method, false, cancellation)
                 .map(|summary| PrActionEffect::Merged(Box::new(summary))),
+            PrOperation::State(state) => state
+                .publish(provider, identity, target, cancellation)
+                .map(|summary| PrActionEffect::State(Box::new(summary))),
             PrOperation::EditComment(selected, body) => provider
                 .edit_comment(
                     identity,
@@ -1270,6 +1491,7 @@ pub enum PrActionEffect {
         files: Vec<crate::providers::gh::ViewedFile>,
     },
     Merged(Box<PrSummary>),
+    State(Box<PrSummary>),
 }
 fn merge_method_name(method: MergeMethod) -> &'static str {
     match method {
@@ -1379,5 +1601,150 @@ mod pr_merge_tests {
         }
         assert!(merge_method("fast-forward").is_err());
         assert_eq!(PrCommand::Merge.key(), "merge");
+    }
+}
+
+#[cfg(test)]
+mod v1_pr_lifecycle_tests {
+    use super::*;
+
+    fn target() -> PrSummary {
+        PrSummary {
+            pr: crate::providers::gh::PullRequest {
+                host: "github.invalid".into(),
+                id: "PR_lifecycle_7".into(),
+                repository: "example/repo".into(),
+                number: 7,
+                title: "Lifecycle fixture".into(),
+                body: String::new(),
+                url: "https://github.invalid/example/repo/pull/7".into(),
+                author: Default::default(),
+                state: "open".into(),
+                draft: false,
+                created_at: String::new(),
+                updated_at: String::new(),
+                queues: Default::default(),
+            },
+            head_sha: "a".repeat(40),
+            base_sha: "b".repeat(40),
+            head_ref: "feature".into(),
+            base_ref: "main".into(),
+            merged: false,
+            auto_merge: false,
+            merge_commit_sha: None,
+            mergeable: Some(true),
+            mergeable_state: "behind".into(),
+            additions: 0,
+            deletions: 0,
+            changed_files: 0,
+        }
+    }
+
+    #[test]
+    fn v1_pr_lifecycle_disabled_reasons_follow_loaded_state() {
+        let reason = |command, target: &PrSummary| lifecycle_disabled_reason(command, target);
+        let mut pr = target();
+        for command in [
+            PrCommand::Draft,
+            PrCommand::EnableAutoMerge,
+            PrCommand::UpdateBranch,
+            PrCommand::Close,
+        ] {
+            assert_eq!(reason(command, &pr), None, "{command:?} on open ready PR");
+        }
+        assert!(reason(PrCommand::Ready, &pr)
+            .unwrap()
+            .contains("already ready"));
+        assert!(reason(PrCommand::Reopen, &pr)
+            .unwrap()
+            .contains("already open"));
+        assert!(reason(PrCommand::DisableAutoMerge, &pr)
+            .unwrap()
+            .contains("not enabled"));
+        pr.pr.draft = true;
+        assert_eq!(reason(PrCommand::Ready, &pr), None);
+        assert!(reason(PrCommand::Draft, &pr)
+            .unwrap()
+            .contains("already a draft"));
+        assert!(reason(PrCommand::EnableAutoMerge, &pr)
+            .unwrap()
+            .contains("ready for review"));
+        pr.pr.draft = false;
+        pr.auto_merge = true;
+        assert_eq!(reason(PrCommand::DisableAutoMerge, &pr), None);
+        assert!(reason(PrCommand::EnableAutoMerge, &pr)
+            .unwrap()
+            .contains("already enabled"));
+        pr.mergeable_state = "dirty".into();
+        assert!(reason(PrCommand::UpdateBranch, &pr)
+            .unwrap()
+            .contains("conflicts"));
+        pr.pr.state = "closed".into();
+        assert_eq!(reason(PrCommand::Reopen, &pr), None);
+        assert!(reason(PrCommand::Close, &pr)
+            .unwrap()
+            .contains("already closed"));
+        assert!(reason(PrCommand::Draft, &pr).unwrap().contains("Reopen"));
+        pr.merged = true;
+        assert!(reason(PrCommand::Reopen, &pr)
+            .unwrap()
+            .contains("merged PR"));
+        assert!(reason(PrCommand::UpdateBranch, &pr)
+            .unwrap()
+            .contains("already merged"));
+    }
+
+    #[test]
+    fn v1_pr_lifecycle_operations_parse_preview_and_require_confirmed_state() {
+        assert!(matches!(
+            StateOperation::parse(PrCommand::UpdateBranch, "rebase"),
+            Ok(StateOperation::UpdateBranch { rebase: true })
+        ));
+        assert!(StateOperation::parse(PrCommand::UpdateBranch, "squash").is_err());
+        assert!(StateOperation::parse(PrCommand::EnableAutoMerge, "nope").is_err());
+        assert!(StateOperation::parse(PrCommand::NewComment, "").is_err());
+        for command in PrCommand::LIFECYCLE {
+            let method = if command == PrCommand::EnableAutoMerge {
+                "squash"
+            } else {
+                "merge"
+            };
+            let op = StateOperation::parse(command, method).unwrap();
+            assert_eq!(op.command(), command);
+            assert!(command.key().starts_with("lifecycle-"));
+            assert!(!op.preview(&target()).is_empty());
+        }
+        let mut after = target();
+        let ready = StateOperation::parse(PrCommand::Ready, "").unwrap();
+        assert_eq!(ready.receipt(&after).unwrap().resource_id, "ready");
+        after.pr.draft = true;
+        assert!(
+            ready.receipt(&after).is_err(),
+            "still draft is not confirmed"
+        );
+        let draft = StateOperation::parse(PrCommand::Draft, "").unwrap();
+        assert_eq!(draft.receipt(&after).unwrap().kind, PrEffectKind::Lifecycle);
+        let auto = StateOperation::parse(PrCommand::EnableAutoMerge, "squash").unwrap();
+        assert!(auto.receipt(&target()).is_err());
+        after = target();
+        after.auto_merge = true;
+        assert_eq!(
+            auto.receipt(&after).unwrap().resource_id,
+            "auto-merge-enabled"
+        );
+        let off = StateOperation::DisableAutoMerge;
+        assert!(off.receipt(&after).is_err());
+        assert_eq!(
+            off.receipt(&target()).unwrap().resource_id,
+            "auto-merge-disabled"
+        );
+        let close = StateOperation::parse(PrCommand::Close, "").unwrap();
+        assert!(close.receipt(&target()).is_err());
+        after = target();
+        after.pr.state = "closed".into();
+        assert_eq!(close.receipt(&after).unwrap().resource_id, "closed");
+        let fields = fields_v17(PrCommand::UpdateBranch, None, &[], None, None);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].choices.len(), 2);
     }
 }

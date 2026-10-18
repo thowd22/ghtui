@@ -240,7 +240,7 @@ pub(crate) fn conversation_post_caps_v17(
         PrOperation::NewComment(_) | PrOperation::EditComment(_, _) => {
             &CONVERSATION_COMMENT_POST_CAPS_V17
         }
-        PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) => {
+        PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) | PrOperation::State(_) => {
             return Err(bad(GithubErrorKind::InvalidTarget))
         }
     })
@@ -267,7 +267,7 @@ fn operation_digest(
             "content":reaction.content,"account_id":reaction.account_id})
         }
         PrOperation::Subscription(state) => json!({"state":state}),
-        PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) => {
+        PrOperation::ViewedFile(_, _) | PrOperation::Merge(_) | PrOperation::State(_) => {
             return Err(bad(GithubErrorKind::InvalidTarget))
         }
     };

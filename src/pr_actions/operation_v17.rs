@@ -73,9 +73,16 @@ impl PrOperation {
             PrCommand::Subscription => ParsedOperationValuesV17::Subscription(
                 Self::subscription_choice_v17(value("subscription"))?,
             ),
-            PrCommand::MarkViewed | PrCommand::MarkUnviewed | PrCommand::Merge => {
-                return Err("Not a Conversation operation".into())
-            }
+            PrCommand::MarkViewed
+            | PrCommand::MarkUnviewed
+            | PrCommand::Merge
+            | PrCommand::Ready
+            | PrCommand::Draft
+            | PrCommand::EnableAutoMerge
+            | PrCommand::DisableAutoMerge
+            | PrCommand::UpdateBranch
+            | PrCommand::Close
+            | PrCommand::Reopen => return Err("Not a Conversation operation".into()),
         })
     }
     /// Restriction-only prequeue validation against the exact captured request.
@@ -130,6 +137,7 @@ impl PrOperation {
             Self::ViewedFile(_, true) => PrCommand::MarkViewed,
             Self::ViewedFile(_, false) => PrCommand::MarkUnviewed,
             Self::Merge(_) => PrCommand::Merge,
+            Self::State(state) => state.command(),
         }
     }
     pub(crate) fn selected_v17(&self) -> Option<&SelectedComment> {
