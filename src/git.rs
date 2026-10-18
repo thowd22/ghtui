@@ -3119,6 +3119,12 @@ fn git_command_output_v9(
 #[path = "git/readonly_index_v1_tests.rs"]
 mod readonly_index_v1_tests;
 
+/// True when `git bisect` output (or `git bisect log`) reports the culprit.
+/// Git 2.55 quotes the term ("first 'bad' commit"); older Git does not.
+pub fn bisect_reports_culprit(text: &str) -> bool {
+    text.contains("first bad commit") || text.contains("first 'bad' commit")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3225,10 +3231,4 @@ mod tests {
                 .contains("privateToken")
         );
     }
-}
-
-/// True when `git bisect` output (or `git bisect log`) reports the culprit.
-/// Git 2.55 quotes the term ("first 'bad' commit"); older Git does not.
-pub fn bisect_reports_culprit(text: &str) -> bool {
-    text.contains("first bad commit") || text.contains("first 'bad' commit")
 }

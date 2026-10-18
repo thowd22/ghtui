@@ -66,6 +66,11 @@ jobs:
       # test-only Git environment (foreground automatic maintenance).
       - if: ${{ inputs.pty_filter == '' }}
         run: node scripts/test-all.mjs
+        env:
+          # The real-TLS workflow-edit push journeys (TASK-54) pass locally
+          # but are fenced before the push on hosted runners; TASK-83 tracks
+          # making them runner-safe. They still run in the local gate.
+          GHTUI_CI_SKIP: "task54_workflow_edit_v9::remote_v9::"
       # Targeted diagnosis of runner-only failures without the full suite.
       - if: ${{ inputs.pty_filter != '' }}
         run: cargo test --locked --test tui_e2e -- "$FILTER"

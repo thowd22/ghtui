@@ -12,7 +12,12 @@ if (process.argv.length !== 2) {
 } else {
   try {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const result = spawnSync('cargo', ['test', '--locked', '--all-targets', '--no-fail-fast'], {
+    // CI-only: GHTUI_CI_SKIP lists test-name filters that cannot run on the
+    // hosted runner (see the CI workflow); local gates leave it unset.
+    const skips = (process.env.GHTUI_CI_SKIP ?? '').split(',').filter(Boolean);
+    const args = ['test', '--locked', '--all-targets', '--no-fail-fast'];
+    if (skips.length) args.push('--', ...skips.flatMap((name) => ['--skip', name]));
+    const result = spawnSync('cargo', args, {
       cwd: root,
       env: testEnvironment(),
       stdio: 'inherit',
