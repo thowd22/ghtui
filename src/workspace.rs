@@ -26,11 +26,11 @@ use crate::{
     identity::GitRole,
     providers::runner::CancellationToken,
     repository_view::{
-        actor_label, diff_rows, file_preview, workspace_rows, CommitGraph, DiffAnchor, DiffLayout,
-        FilePreview, SemanticRole, TreeBrowser, TreeKind,
+        diff_rows, file_preview, workspace_rows, CommitGraph, DiffAnchor, DiffLayout, FilePreview,
+        SemanticRole, TreeBrowser, TreeKind,
     },
 };
-pub use file_history::{FileAction, FileProvenance, FileSelection, ProvenanceView};
+pub use file_history::{change_word_v1, FileAction, FileProvenance, FileSelection, ProvenanceView};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -617,11 +617,10 @@ impl Workspace {
                         workspace.selected_commit = Some(commit.clone());
                     }
                     let label = format!(
-                        "● {} {} • author {} • committer {}",
+                        "● {} {} • {}",
                         &commit.id[..8.min(commit.id.len())],
                         commit.subject,
-                        actor_label(&commit.author),
-                        actor_label(&commit.committer)
+                        crate::git_actor_labels_v1::commit_summary(&commit)
                     );
                     workspace.push(
                         &label,
@@ -960,6 +959,7 @@ impl Workspace {
                     )?;
                 }
                 tree.toggle(&path);
+                tree.focus = Some(path.clone());
                 self.set_tree(tree);
             }
             RowAction::File(path) => {
@@ -976,6 +976,9 @@ impl Workspace {
                     .as_ref()
                     .and_then(|tree| tree.visible_rows().into_iter().find(|row| row.path == path))
                     .ok_or("Selected file is no longer visible at this revision")?;
+                if let Some(tree) = self.tree.as_mut() {
+                    tree.focus = Some(path.clone());
+                }
                 let entry = TreeEntry {
                     path: path.clone(),
                     id: tree_row.object_id,

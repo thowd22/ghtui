@@ -83,7 +83,9 @@ pub fn first_page_down_batch(
     }
     let commits = (current - target).min(8);
     Ok(Some(DownBatchV1 {
-        count: commits * 2,
+        // Linear commits take one row each: a single straight parent is shown
+        // by its lane, not by a separate connector row.
+        count: commits,
         expected_subject: format!("Ordinary graph version {:05}", current - commits),
     }))
 }

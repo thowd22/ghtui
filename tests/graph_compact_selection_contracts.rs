@@ -11,7 +11,7 @@ fn frame(subject: &str) -> vt100::Screen {
     parser.screen().clone()
 }
 #[test]
-fn commit_graph_v2_selection_actual_inverted_subject_batches16_not398_serial_roundtrips() {
+fn commit_graph_v2_selection_actual_inverted_subject_batches8_not199_serial_roundtrips() {
     let plan = selection::first_page_down_batch(
         &frame("Ordinary graph version 09999 • author Writer"),
         "Ordinary graph version 09800",
@@ -19,8 +19,8 @@ fn commit_graph_v2_selection_actual_inverted_subject_batches16_not398_serial_rou
     )
     .unwrap()
     .unwrap();
-    assert_eq!(plan.count, 16);
-    assert_eq!(plan.bytes(), b"\x1b[B".repeat(16));
+    assert_eq!(plan.count, 8);
+    assert_eq!(plan.bytes(), b"\x1b[B".repeat(8));
     assert_eq!(plan.expected_subject, "Ordinary graph version 09991");
     let mut current = 9999;
     let mut total = 0;
@@ -36,20 +36,17 @@ fn commit_graph_v2_selection_actual_inverted_subject_batches16_not398_serial_rou
         .unwrap() else {
             break;
         };
-        assert!(plan.count <= 16 && plan.count.is_multiple_of(2));
+        assert!(plan.count <= 8);
         total += plan.count;
         batches += 1;
-        current -= plan.count / 2;
+        current -= plan.count;
         assert_eq!(
             plan.expected_subject,
             format!("Ordinary graph version {current:05}")
         );
     }
     assert_eq!(current, 9800);
-    assert_eq!(
-        total, 398,
-        "not one genuine commit/parent connector action is skipped"
-    );
+    assert_eq!(total, 199, "one Down per linear commit; none is skipped");
     assert_eq!(batches, 25);
 }
 #[test]
@@ -61,7 +58,7 @@ fn commit_graph_v2_selection_last_even_batch_exact_target_then_zero_extra_keys()
     )
     .unwrap()
     .unwrap();
-    assert_eq!(plan.count, 6);
+    assert_eq!(plan.count, 3);
     assert_eq!(plan.expected_subject, "Ordinary graph version 09800");
     assert!(selection::first_page_down_batch(
         &frame("Ordinary graph version 09800 • author Writer"),

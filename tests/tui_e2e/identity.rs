@@ -147,7 +147,7 @@ fn inspect_graph_and_changed_file(session: &mut Session, mouse: bool, fixture: &
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("Colors trace parent paths, never permanent branches.");
+    session.wait_for_screen("loaded (limit 10000)");
     for (subject, reference) in [
         ("Feature saved version", "feature"),
         ("Main saved version", "HEAD^1"),
@@ -162,7 +162,7 @@ fn inspect_graph_and_changed_file(session: &mut Session, mouse: bool, fixture: &
     } else {
         session.send_key(b"w");
     }
-    session.wait_for_screen("readme → readme");
+    session.wait_for_screen("│readme ");
     session.wait_for_screen("-new text");
     session.wait_for_screen("+local work to preserve");
     session.wait_for_screen("Repository loaded • read-only exploration");
@@ -288,7 +288,7 @@ fn immutable_overrides_journey(mouse: bool) {
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("Colors trace parent paths, never permanent branches.");
+    session.wait_for_screen("loaded (limit 10000)");
     session.wait_for_screen("New saved version");
     session.wait_for_screen("Root saved version");
     assert!(!session.screen().contains("Replacement root history"));
@@ -419,7 +419,7 @@ fn raw_ref_override_journey(mouse: bool) {
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("Colors trace parent paths, never permanent branches.");
+    session.wait_for_screen("loaded (limit 10000)");
     session.wait_for_screen("Original head");
     session.wait_for_screen("Original root");
     session.wait_for_screen(r"na\xff");
@@ -510,9 +510,11 @@ fn raw_path_journey(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
     for (path, body, downs) in [
+        // Returning to the tree reselects the file opened last, so each next
+        // (lower) row is one Down away.
         (&paths[2].0, paths[2].1.trim(), 1),
-        (&paths[1].0, paths[1].1.trim(), 2),
-        (&paths[0].0, paths[0].1.trim(), 3),
+        (&paths[1].0, paths[1].1.trim(), 1),
+        (&paths[0].0, paths[0].1.trim(), 1),
     ] {
         if mouse {
             session.click_visible_action("[t Tree]");

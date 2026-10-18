@@ -45,12 +45,58 @@ fn parts(name: &str, email: Option<&str>) -> String {
 pub fn local_label(name: &str, email: Option<&str>, role: Option<GitRole>) -> String {
     format!("{}{} [local Git]", role_label(role), parts(name, email))
 }
+/// Compact daily-use byline: one name when author and committer are the same
+/// local actor, both explicit roles otherwise, plus the authored UTC date.
 pub fn commit_summary(commit: &Commit) -> String {
+    let date = utc_date(commit.author.timestamp);
+    if commit.author.name == commit.committer.name && commit.author.email == commit.committer.email
+    {
+        format!("{} • {date}", short_actor(&commit.author))
+    } else {
+        format!(
+            "author {} • committer {} • {date}",
+            short_actor(&commit.author),
+            short_actor(&commit.committer)
+        )
+    }
+}
+/// A readable local name; the full name/email remains in Details and the
+/// author/committer header. Missing or display-limited names keep the
+/// complete honest fallback text.
+fn short_actor(actor: &GitActor) -> String {
+    if display_limited(&actor.name, Some(&actor.email)) || actor.name.trim().is_empty() {
+        actor_text(actor)
+    } else {
+        actor.name.clone()
+    }
+}
+/// Calendar date (UTC) for a Git Unix timestamp, e.g. `2023-11-14`.
+pub fn utc_date(timestamp: i64) -> String {
+    let (year, month, day) = civil_from_days(timestamp.div_euclid(86_400));
+    format!("{year:04}-{month:02}-{day:02}")
+}
+/// Date and minute (UTC) for a Git Unix timestamp, e.g. `2023-11-14 22:13 UTC`.
+pub fn utc_datetime(timestamp: i64) -> String {
+    let seconds = timestamp.rem_euclid(86_400);
     format!(
-        "author {} • committer {}",
-        actor_text(&commit.author),
-        actor_text(&commit.committer)
+        "{} {:02}:{:02} UTC",
+        utc_date(timestamp),
+        seconds / 3600,
+        seconds % 3600 / 60
     )
+}
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    // Howard Hinnant's days-to-civil algorithm (proleptic Gregorian).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
 }
 /// Called BEFORE central ActorIdentity::local copies name/email. The source
 /// GitActor is never cropped/rewritten and this explicit display placeholder

@@ -564,7 +564,7 @@ impl Form {
     pub fn compare(intent: crate::comparison::CompareIntent) -> Result<Self, String> {
         let mut mode = Field::text(
             "mode",
-            "Question: snapshot or proposed-branch changes",
+            "Show: snapshot = all differences A→B • proposed = only B's changes since it branched from A (like a PR)",
             "snapshot",
             false,
         )?;
@@ -575,11 +575,16 @@ impl Form {
         let fields = vec![
             Field::text(
                 "base",
-                "A: starting saved version",
+                "A: from (branch, tag or commit)",
                 &intent.base.value,
                 false,
             )?,
-            Field::text("head", "B: target saved version", &intent.head.value, false)?,
+            Field::text(
+                "head",
+                "B: to (branch, tag or commit)",
+                &intent.head.value,
+                false,
+            )?,
             mode,
         ];
         Ok(Self {

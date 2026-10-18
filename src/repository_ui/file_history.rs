@@ -32,9 +32,25 @@ pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<FileControl> {
             ("[N Next]", FileAction::Next),
         ]
     };
+    let tree_return = workspace.tree_file_return_v1().is_some();
     controls
         .into_iter()
         .map(|(label, file_action)| {
+            if tree_return && file_action == FileAction::Back {
+                // A file opened from the saved tree goes back to that tree.
+                return FileControl {
+                    label: "[u Back to tree]",
+                    disabled: busy,
+                    action: if busy {
+                        Action::Explain(
+                            "Wait for the current repository read, or cancel it first".into(),
+                        )
+                    } else {
+                        Action::RepositoryMode(crate::workspace::RepositoryMode::Tree)
+                    },
+                    selected: false,
+                };
+            }
             let reason = if busy {
                 Some("Wait for the current repository read, or cancel it first".into())
             } else {

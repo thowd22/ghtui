@@ -235,13 +235,7 @@ fn profile(
     assert!(session.inspect_command_journal(&source.fixture).is_empty());
 }
 fn select_original(session: &mut Session, mouse: bool, original: &str) {
-    ready(
-        session,
-        &[
-            COMMITTERLESS,
-            "Colors trace parent paths, never permanent branches.",
-        ],
-    );
+    ready(session, &[COMMITTERLESS, "loaded (limit 10000)"]);
     session.open_saved_graph_subject(mouse, AUTHORLESS, original);
 }
 fn durable(fixture: &Fixture, intent: &Value) {

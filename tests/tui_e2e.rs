@@ -64,6 +64,8 @@ mod relevance;
 mod remote_search;
 #[path = "tui_e2e/repository_catalogue_native_v1.rs"]
 mod repository_catalogue_native_v1;
+#[path = "tui_e2e/repository_views_v1.rs"]
+mod repository_views_v1;
 #[path = "tui_e2e/runner_pipe_lifetime.rs"]
 mod runner_pipe_lifetime;
 #[path = "tui_e2e/scoped_actions_owned_body_v120.rs"]
@@ -540,7 +542,7 @@ fn local_repository_journey(mouse: bool) {
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("● commit • lines connect");
+    session.wait_for_screen("loaded (limit 10000)");
     session.wait_for_screen("second saved version");
     session.open_saved_graph_subject(mouse, "first saved version", &old_revision);
     session.wait_for_screen(&old_revision);

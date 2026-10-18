@@ -394,6 +394,8 @@ pub struct TreeBrowser {
     pub revision: String,
     entries: Vec<TreeEntry>,
     expanded: BTreeSet<Vec<u8>>,
+    /// The last file opened from this tree; returning to the tree selects it.
+    pub(crate) focus: Option<RawPath>,
 }
 
 impl TreeBrowser {
@@ -403,6 +405,7 @@ impl TreeBrowser {
             revision,
             entries,
             expanded: BTreeSet::new(),
+            focus: None,
         }
     }
 
@@ -550,37 +553,56 @@ pub(crate) fn diff_rows_for_files_v1<'a>(
     show_context: bool,
     files: impl IntoIterator<Item = (usize, &'a crate::diff::FileDiff)>,
 ) -> Vec<DiffDisplayRow> {
-    diff_rows_for_members_v3(
+    diff_rows_for_members_plain_v1(
         (diff.base.as_deref(), diff.head.as_deref()),
         layout,
         show_context,
         files,
+        true,
     )
 }
 /// Same canonical pairing implementation, borrowing actual source endpoints and
 /// members; remote files need not masquerade as a local ComparisonResult.
+/// The native patch view keeps the original `old → new` heading and every raw
+/// Git header line.
 pub(crate) fn diff_rows_for_members_v3<'a>(
     endpoints: (Option<&str>, Option<&str>),
     layout: DiffLayout,
     show_context: bool,
     files: impl IntoIterator<Item = (usize, &'a crate::diff::FileDiff)>,
 ) -> Vec<DiffDisplayRow> {
+    diff_rows_for_members_plain_v1(endpoints, layout, show_context, files, false)
+}
+/// `plain` names each file plainly (see `diff_file_title_v1`) and leaves out
+/// raw header lines that heading already says.
+fn diff_rows_for_members_plain_v1<'a>(
+    endpoints: (Option<&str>, Option<&str>),
+    layout: DiffLayout,
+    show_context: bool,
+    files: impl IntoIterator<Item = (usize, &'a crate::diff::FileDiff)>,
+    plain: bool,
+) -> Vec<DiffDisplayRow> {
     let mut rows = Vec::new();
     for (file_index, file) in files {
-        let old = file
-            .old_path
-            .as_deref()
-            .map(display_path_bytes)
-            .unwrap_or_else(|| "new file".into());
-        let new = file
-            .new_path
-            .as_deref()
-            .map(display_path_bytes)
-            .unwrap_or_else(|| "deleted file".into());
+        let title = if plain {
+            diff_file_title_v1(file)
+        } else {
+            format!(
+                "{} → {}",
+                file.old_path
+                    .as_deref()
+                    .map(display_path_bytes)
+                    .unwrap_or_else(|| "new file".into()),
+                file.new_path
+                    .as_deref()
+                    .map(display_path_bytes)
+                    .unwrap_or_else(|| "deleted file".into())
+            )
+        };
         rows.push(DiffDisplayRow {
             left: DiffCell {
                 label: format!(
-                    "{old} → {new}{}",
+                    "{title}{}",
                     if file.binary {
                         " [binary: no text preview]"
                     } else {
@@ -592,7 +614,11 @@ pub(crate) fn diff_rows_for_members_v3<'a>(
             },
             right: None,
         });
-        for metadata in &file.metadata {
+        for metadata in file
+            .metadata
+            .iter()
+            .filter(|line| !plain || !diff_metadata_in_title_v1(line))
+        {
             rows.push(DiffDisplayRow {
                 left: DiffCell {
                     label: display_bytes(metadata),
@@ -678,6 +704,36 @@ pub(crate) fn diff_rows_for_members_v3<'a>(
     rows
 }
 
+/// Plain file heading: the path for an edit, `Added:`/`Deleted:` for a
+/// created/removed file and `Renamed: old → new` only for a real rename.
+pub(crate) fn diff_file_title_v1(file: &crate::diff::FileDiff) -> String {
+    match (file.old_path.as_deref(), file.new_path.as_deref()) {
+        (Some(old), Some(new)) if old == new => display_path_bytes(new),
+        (Some(old), Some(new)) => format!(
+            "Renamed: {} → {}",
+            display_path_bytes(old),
+            display_path_bytes(new)
+        ),
+        (None, Some(new)) => format!("Added: {}", display_path_bytes(new)),
+        (Some(old), None) => format!("Deleted: {}", display_path_bytes(old)),
+        (None, None) => "File with unavailable name".into(),
+    }
+}
+/// Raw Git header lines already expressed by the plain file heading (object
+/// IDs, rename/similarity bookkeeping, create/delete modes) are not repeated.
+fn diff_metadata_in_title_v1(line: &[u8]) -> bool {
+    [
+        b"index ".as_slice(),
+        b"similarity index ",
+        b"dissimilarity index ",
+        b"rename from ",
+        b"rename to ",
+        b"new file mode ",
+        b"deleted file mode ",
+    ]
+    .iter()
+    .any(|prefix| line.starts_with(prefix))
+}
 fn empty_diff_cell() -> DiffCell {
     DiffCell {
         label: String::new(),

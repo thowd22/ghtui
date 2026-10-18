@@ -1851,6 +1851,7 @@ impl Background {
                         if let Some(index) = workspace
                             .provenance_focus_row()
                             .or_else(|| workspace.graph_focus_row_v1())
+                            .or_else(|| workspace.tree_focus_row_v1())
                         {
                             app.selected =
                                 index.min(workspace.display_rows_v1().len().saturating_sub(1));
