@@ -737,6 +737,13 @@ pub(crate) fn diff_file_title_v1(file: &crate::diff::FileDiff) -> String {
         (None, None) => "File with unavailable name".into(),
     }
 }
+/// Header rows `diff_rows` shows for `file` (plain headings omit some).
+pub(crate) fn diff_plain_metadata_len_v1(file: &crate::diff::FileDiff) -> usize {
+    file.metadata
+        .iter()
+        .filter(|line| !diff_metadata_in_title_v1(line))
+        .count()
+}
 /// Raw Git header lines already expressed by the plain file heading (object
 /// IDs, rename/similarity bookkeeping, create/delete modes) are not repeated.
 fn diff_metadata_in_title_v1(line: &[u8]) -> bool {

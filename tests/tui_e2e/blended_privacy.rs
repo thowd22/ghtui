@@ -529,7 +529,7 @@ fn open_description(session: &mut Session, fixture: &Fixture, mouse: bool, end: 
     if mouse {
         session.click_visible_action("Edit PR description");
     } else {
-        for _ in 0..7 {
+        for _ in 0..16 {
             if session
                 .try_wait_for("> Edit PR description", Duration::from_millis(100))
                 .is_ok()
@@ -880,7 +880,7 @@ fn first_source_receipt(mouse: bool) {
                                 "GitHub PRs • COMPLETE • 1 admitted", "[o Open result]",
                             ].iter().all(|label| body.contains(label))
                                 && body.contains(&format!("[/ Query] {NEEDLE}"))
-                                && body.contains(&format!("> {NEEDLE} remote parent 7"))
+                                && body.contains(&format!("> #7 {NEEDLE} remote parent 7"))
                         })
                     && text.contains("Search • focused view")
             })

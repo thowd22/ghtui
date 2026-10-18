@@ -990,7 +990,7 @@ impl ScopedPrResourceViewV1 {
                     let mut cursor = start;
                     for (file_index, file) in diff.files.iter().enumerate() {
                         self.targets[cursor] = PrResourceRowV1::File(file_index);
-                        cursor += 1 + file.metadata.len();
+                        cursor += 1 + crate::repository_view::diff_plain_metadata_len_v1(file);
                         for (hunk_index, hunk) in file.hunks.iter().enumerate() {
                             self.targets[cursor] = PrResourceRowV1::Hunk(file_index, hunk_index);
                             cursor += 1 + display_line_count(hunk, self.layout, self.show_context);

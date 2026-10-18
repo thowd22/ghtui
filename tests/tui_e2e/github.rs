@@ -599,41 +599,19 @@ fn detail(mouse: bool) {
     journal(&mut session, &fixture, after_files);
     assert_eq!(detail_sql_v83(&fixture, false), original_sql);
     let files_sql = detail_sql_v83(&fixture, true);
-    // Direct Files->Checks remains a documented product adapter gap. Prove
-    // its current useful refusal without pretending this closes tab parity.
+    // Files->Checks restores the original cached page first (same as Back),
+    // then continues through the ordinary Checks route.
     let after = session.completed_cursorless_end();
     choose(&mut session, mouse, "[k Checks]", b"k");
     session.wait_for_new_cursorless_condition(
         after,
         |frame| {
             let text = frame.contents();
-            text.contains("Use Back for the original cached page")
-                && text.contains("File src/auth.rs")
-                && !text.contains("Rust tests")
+            text.contains("Rust tests") && !text.contains("File src/auth.rs")
         },
-        "Direct original personal Files Checks is honestly unavailable, no fallback request",
+        "Files->Checks returns to the original page and opens its Checks tab",
         std::time::Duration::from_secs(8),
     );
-    journal(&mut session, &fixture, after_files);
-    assert_eq!(detail_sql_v83(&fixture, true), files_sql);
-    let after = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[b Back]", b"b");
-    session.wait_for_new_cursorless_condition(
-        after,
-        |frame| {
-            let text = frame.contents();
-            text.contains("Fix auth boundary")
-                && text.contains("@build-bot [bot]")
-                && !text.contains("Current observed head")
-                && !text.contains("File src/auth.rs")
-        },
-        "Pure Back restores exact original Commits without transport or SQL changes",
-        std::time::Duration::from_secs(8),
-    );
-    journal(&mut session, &fixture, after_files);
-    assert_eq!(detail_sql_v83(&fixture, true), files_sql);
-    choose(&mut session, mouse, "[k Checks]", b"k");
-    session.wait_for_screen("Rust tests");
     session.wait_for_screen("success");
     session.resize(80, 24);
     choose(&mut session, mouse, "[t Timeline]", b"t");

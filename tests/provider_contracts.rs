@@ -865,7 +865,7 @@ fn workflow_controls_definition_fetches_immutable_yaml_and_dispatch_confirms_ret
         )
         .unwrap();
     assert_eq!(outcome.run.unwrap().id, 123);
-    assert!(outcome.explanation.contains("confirmed"));
+    assert!(outcome.explanation.contains("Workflow run #123 started"));
     assert_eq!(journal(&fixture).len(), 9);
 }
 #[test]

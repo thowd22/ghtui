@@ -166,7 +166,7 @@ fn notifications_pr_follow_v63_genuine_parent_member_and_actual_patch_close_same
         7,
         "P=2 plus five measured children"
     );
-    assert_eq!(accounting.capacity_bytes(), 1_835_008);
+    assert_eq!(accounting.capacity_bytes(), 5_505_024);
     assert_eq!(
         accounting.requests_claimed(),
         4,

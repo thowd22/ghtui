@@ -744,6 +744,8 @@ fn v1_local_branches_first_push_defaults_tracking_and_unmerged_delete_shows_reco
     assert!(error.starts_with("Branch not deleted"), "{error}");
     assert_eq!(fixture.git(&["rev-parse", "topic"]).trim(), remote_head);
     assert_eq!(v1_remote_main(&remote), remote_head);
+}
+
 #[test]
 fn v1_local_recovery_paused_merge_overview_rows_marker_warning_and_named_version() {
     let fixture = Fixture::new();

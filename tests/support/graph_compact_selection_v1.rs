@@ -35,9 +35,9 @@ fn subject_number(subject: &str) -> Result<usize, String> {
         .ok_or("Not an exact ordinary graph subject")?;
     let digits = suffix.get(..5).ok_or("Incomplete ordinary graph subject")?;
     if !digits.bytes().all(|byte| byte.is_ascii_digit())
-        || suffix
-            .get(5..)
-            .is_some_and(|rest| !rest.is_empty() && !rest.starts_with(" •"))
+        || suffix.get(5..).is_some_and(|rest| {
+            !rest.is_empty() && !rest.starts_with(" •") && !rest.starts_with(" (")
+        })
     {
         return Err("Ambiguous or malformed ordinary graph subject".into());
     }
