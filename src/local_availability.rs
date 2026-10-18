@@ -255,6 +255,11 @@ mod v1_local_recovery_tests {
         assert!(merge[0].0.contains("all conflicts resolved"));
         assert!(merge.iter().all(|row| row.2 != Some(LocalCommand::Skip)));
         assert!(paused_operation_rows_v1(&status(None, 0)).is_empty());
+        let stash = paused_operation_rows_v1(&status(None, 1));
+        assert!(stash[0]
+            .0
+            .starts_with("⚠ 1 unresolved conflict without a paused operation"));
+        assert!(stash.iter().all(|row| row.2.is_none()));
     }
 
     #[test]

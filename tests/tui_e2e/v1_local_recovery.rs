@@ -135,6 +135,45 @@ fn journey(mouse: bool) {
 }
 
 #[test]
+fn v1_local_recovery_keyboard_conflicted_stash_apply_banner() {
+    stash_conflict(false);
+}
+#[test]
+fn v1_local_recovery_mouse_conflicted_stash_apply_banner() {
+    stash_conflict(true);
+}
+
+fn stash_conflict(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"base\n", "base");
+    fs::write(fixture.repo().join("file.txt"), b"stashed\n").unwrap();
+    fixture.git(&["stash", "push", "-m", "parked edit"]);
+    let stash = fixture.git(&["rev-parse", "refs/stash"]);
+    fixture.commit_file("file.txt", b"committed\n", "committed");
+    let apply = Command::new("git")
+        .args(["stash", "apply"])
+        .current_dir(fixture.repo())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!apply.status.success(), "fixture stash apply must conflict");
+    let mut session = Session::launch(&fixture, 80, 24);
+    session.wait_for_screen("Recent commits");
+    session.wait_for_screen("⚠ 1 unresolved conflict without a paused operation");
+    activate(&mut session, mouse, "[conflicted] file.txt", b"\x1b[B\r");
+    session.wait_for_screen("Conflict in file.txt");
+    session.wait_for_screen("Ours — current branch content");
+    assert_eq!(fixture.git(&["rev-parse", "refs/stash"]), stash);
+    assert!(fixture
+        .git(&["ls-files", "--unmerged"])
+        .contains("file.txt"));
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
 fn v1_local_recovery_keyboard_amended_away_commit_rescue_branch() {
     rescue(false);
 }

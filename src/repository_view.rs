@@ -747,7 +747,26 @@ pub fn paused_operation_rows_v1(
     use crate::git::Sequencer;
     use crate::local_actions::LocalCommand;
     let Some(operation) = &status.operation else {
-        return vec![];
+        // A conflicted stash apply/pop has no sequencer state; the stash is kept.
+        let conflicts = status.conflicts();
+        if conflicts == 0 {
+            return vec![];
+        }
+        return vec![
+            (
+                format!(
+                    "⚠ {conflicts} unresolved conflict{} without a paused operation (for example a stash apply) • a conflicted stash is kept",
+                    if conflicts == 1 { "" } else { "s" }
+                ),
+                SemanticRole::Conflict,
+                None,
+            ),
+            (
+                "Next: open each [conflicted] file below, choose ours/theirs or edit it, then Stage selected file (m)".into(),
+                SemanticRole::Boundary,
+                None,
+            ),
+        ];
     };
     let name = crate::local_availability::operation_name_v1(operation);
     if *operation == Sequencer::Bisect {
