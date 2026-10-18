@@ -4,7 +4,7 @@ title: Add GitHub CI and CD for testing building and releasing ghtui
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-17 04:31'
+updated_date: '2026-10-18 00:30'
 labels:
   - delivery
   - e2e
@@ -81,4 +81,6 @@ V36 source/host readiness facts: Main currently no.gitHubworkflows/noinstallscri
 Root FULL-read16068B/68line read-only readiness proposal77961c5c876f0ce81d5334fad748070032b9d16c46eeb717ec1d499d6d891440. Concrete gap confirmed: two QA versions alone do not prove final-tag executable bytes, eventual SAME harness pairing QA.1→actual final-tag plus unchanged assembled/archive bytes required before protected immutable aggregate/draft/Latest. Formal65/68/73/67 and actual Linux/Mac/ARM/MSRV/Bash3.2/BSD/runtime/action-pin/source audits remainopen. No CI workflow implementation/remote/push/hostedtests/publicURL/publication authorized or executed by this review.
 
 User explicitly approved separate Linux development readiness and final native macOS release acceptance (17Oct). Keep CI/CD near the end. TASK1/2 original macOS acceptance remains open and release-blocking; hosted native macOS build + actual keyboard/mouse PTY evidence must close it before release promotion. Linux baseline Task79 and cross-compilation are not native macOS evidence. This is a sequencing clarification, not implementation, run evidence, status/AC completion or remote creation.
+
+2026-10-18 a15: added .github/workflows/ci.yml (fmt, clippy -D warnings, shellcheck, test-all.mjs with RUST_TEST_THREADS=2, PTY suites run headless) and release.yml (v* tag: cargo-zigbuild musl x86_64/aarch64 on native runners, --version/static check, file:// install check, gh release create). Not yet run on GitHub; shape test v1_release_workflows_* passes.
 <!-- SECTION:NOTES:END -->
