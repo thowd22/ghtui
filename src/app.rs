@@ -712,8 +712,14 @@ impl App {
         let mut controls = crate::forms::PrFormKind::ALL
             .iter()
             .map(|(kind, label)| {
+                let review_reason = self.github.as_ref().and_then(|github| {
+                    let page = github.pr.as_ref()?;
+                    kind.review_disabled_reason(&page.details.summary, &github.identity.login)
+                });
                 let action = if let Some(reason) = &unavailable {
                     Action::Explain(reason.clone())
+                } else if let Some(reason) = review_reason {
+                    Action::Explain(reason)
                 } else if self.pr_pending_message.is_empty() {
                     match kind {
                         crate::forms::PrFormKind::Title => Action::Pr(PrUiAction::MetadataTextV25(
@@ -752,6 +758,17 @@ impl App {
                 merge_reason.map_or(
                     Action::Pr(PrUiAction::Command(PrCommand::Merge)),
                     Action::Explain,
+                ),
+            ),
+        );
+        // Pending reviews, dismissal and re-requests live in the Reviews
+        // browser, which needs the loaded Files page; say how to get there.
+        controls.insert(
+            controls.len().min(4),
+            (
+                "Pending reviews, dismissal, re-request".into(),
+                Action::Explain(
+                    "Open Files (f), then F10 Reviews: resume, submit or discard a pending review, dismiss a review, or re-request a reviewer.".into(),
                 ),
             ),
         );

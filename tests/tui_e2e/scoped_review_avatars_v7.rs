@@ -266,11 +266,7 @@ fn journey(mouse: bool, mode: Mode) {
     browser_ready(&mut session, before, "#810");
     ready(
         &mut session,
-        &[
-            "@actual-review-author",
-            "UID Some(201)",
-            "requester UID Some(42)",
-        ],
+        &["@actual-review-author", "UID Some(201)", "(you) • "],
     );
     if matches!(mode, Mode::Disabled | Mode::NoColor) {
         ready(&mut session, &["[AA]"]);
