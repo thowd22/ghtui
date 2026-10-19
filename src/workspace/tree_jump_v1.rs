@@ -252,14 +252,14 @@ impl PreparedOriginalTreeNavigationV1 {
             };
             let preview=Arc::new(file_preview(inventory.intent().sha().into(),&entry,content,10_000));
             let source=Arc::new(OriginalTreeRowSourceV1{inventory:inventory.clone(),expanded:expanded.clone().into(),listed:vec![index].into()});
-            let mut rows=vec![DisplayRow{label:"Original immutable saved file • tree jump; no checkout or network".into(),role:SemanticRole::Reference,action:None},DisplayRow{label:bounded_label(&format!("Saved path: {}",member.display())),role:SemanticRole::Reference,action:None}];
+            let mut rows=vec![DisplayRow{label:"Original immutable saved file • tree jump; no checkout or network".into(),role:SemanticRole::Reference,action:None, cells: None},DisplayRow{label:bounded_label(&format!("Saved path: {}",member.display())),role:SemanticRole::Reference,action:None, cells: None}];
             let mut bytes=0;let mut omitted=0;
             for row in &preview.rows {
                 let label=bounded_label(&format!("{:>5} {}",row.line.map_or(String::new(),|line|line.to_string()),row.label));
                 if bytes+label.len()>ROW_BYTES_CAP {omitted+=1;continue;}
-                bytes+=label.len();rows.push(DisplayRow{label,role:SemanticRole::Normal,action:if preview.kind==crate::repository_view::BlobPreviewKind::Text {row.line.map(|line|RowAction::FileProvenance(FileAction::BlameAt(line)))}else{None}});
+                bytes+=label.len();rows.push(DisplayRow{label,role:SemanticRole::Normal,action:if preview.kind==crate::repository_view::BlobPreviewKind::Text {row.line.map(|line|RowAction::FileProvenance(FileAction::BlameAt(line)))}else{None}, cells: None});
             }
-            if preview.truncated||omitted>0 {rows.push(DisplayRow{label:"Original preview partial •10k-line/8MiB prepared limit; raw selected identity preserved".into(),role:SemanticRole::Boundary,action:None});}
+            if preview.truncated||omitted>0 {rows.push(DisplayRow{label:"Original preview partial •10k-line/8MiB prepared limit; raw selected identity preserved".into(),role:SemanticRole::Boundary,action:None, cells: None});}
             let breadcrumbs=breadcrumbs(source.clone(),Some(index))?;
             Ok(Arc::new(Self{source,rows:rows.into(),breadcrumbs:breadcrumbs.into(),preview:Some(preview),path:Some(entry.path),focus:2,omitted}))
         })
@@ -348,6 +348,7 @@ impl PreparedOriginalTreeNavigationV1 {
                 .into(),
             role: SemanticRole::Reference,
             action: None,
+            cells: None,
         }];
         let selected = focus
             .and_then(|index| source.listed.iter().position(|member| *member == index))
@@ -362,10 +363,11 @@ impl PreparedOriginalTreeNavigationV1 {
                         index: Some(index),
                     },
                 ))),
+                cells: None,
             });
         }
         if !source.inventory.complete() || omitted > 0 {
-            rows.push(DisplayRow{label:"Partial saved tree • omitted/unseen paths unknown; Jump searches admitted original paths only".into(),role:SemanticRole::Boundary,action:None});
+            rows.push(DisplayRow{label:"Partial saved tree • omitted/unseen paths unknown; Jump searches admitted original paths only".into(),role:SemanticRole::Boundary,action:None, cells: None});
         }
         let crumbs = breadcrumbs(source.clone(), focus)?;
         operation.check()?;

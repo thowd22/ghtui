@@ -48,13 +48,20 @@ pub fn local_label(name: &str, email: Option<&str>, role: Option<GitRole>) -> St
 /// Compact daily-use byline: one name when author and committer are the same
 /// local actor, both explicit roles otherwise, plus the authored UTC date.
 pub fn commit_summary(commit: &Commit) -> String {
-    let date = utc_date(commit.author.timestamp);
+    format!(
+        "{} • {}",
+        commit_actors(commit),
+        utc_date(commit.author.timestamp)
+    )
+}
+/// [`commit_summary`] without the date: the AUTHOR cell of a commit table row.
+pub fn commit_actors(commit: &Commit) -> String {
     if commit.author.name == commit.committer.name && commit.author.email == commit.committer.email
     {
-        format!("{} • {date}", short_actor(&commit.author))
+        short_actor(&commit.author)
     } else {
         format!(
-            "author {} • committer {} • {date}",
+            "author {} • committer {}",
             short_actor(&commit.author),
             short_actor(&commit.committer)
         )

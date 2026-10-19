@@ -474,6 +474,7 @@ impl ProjectionBuilderV1 {
             label,
             role,
             action,
+            cells: None,
         });
         self.paint.push(Arc::from(spans));
         Ok(index)

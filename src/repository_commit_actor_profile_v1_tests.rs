@@ -154,6 +154,7 @@ fn git_actor_profile_real_rows_mode_head_and_revision_never_infer_role_or_source
         label: "Actor profile — Git author".into(),
         role: crate::repository_view::SemanticRole::Reference,
         action: None,
+        cells: None,
     });
     assert!(LocalActorProfileV1::prepare(&workspace).is_err());
     workspace.open(RowAction::Actor(GitRole::Author)).unwrap();

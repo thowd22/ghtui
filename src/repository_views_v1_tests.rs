@@ -197,3 +197,170 @@ fn v1_repo_views_back_from_a_tree_file_reselects_it_and_preserves_checkout() {
     );
     assert_eq!(fs::read(dir.path().join(".git/index")).unwrap(), index);
 }
+
+/// Draws the whole app and returns the buffer plus its lines.
+fn draw_overview(
+    app: &mut crate::app::App,
+    width: u16,
+    height: u16,
+) -> (ratatui::buffer::Buffer, Vec<String>) {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| crate::ui::draw(frame, app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let lines = (0..height)
+        .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+        .collect();
+    (buffer, lines)
+}
+
+#[test]
+fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_details() {
+    use crate::app::Action;
+    let dir = tempfile::tempdir().unwrap();
+    run(dir.path(), &["init", "--initial-branch=main"]);
+    run(dir.path(), &["config", "user.name", "Fixture Author"]);
+    run(
+        dir.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    let long = "Explain why a stale core.worktree pointing elsewhere confuses discovery";
+    let subjects = ["First note", "Explain why", "Second note"];
+    for (file, subject) in [
+        ("a.txt", "First note"),
+        ("b.txt", long),
+        ("c.txt", "Second note"),
+    ] {
+        fs::write(dir.path().join(file), subject.as_bytes()).unwrap();
+        run(dir.path(), &["add", file]);
+        run(dir.path(), &["commit", "-m", subject]);
+    }
+    fs::write(dir.path().join("a.txt"), b"uncommitted edit\n").unwrap();
+    let head = run(dir.path(), &["rev-parse", "HEAD"]).trim().to_owned();
+    let seconds = run(dir.path(), &["log", "-1", "--format=%at"])
+        .trim()
+        .parse::<i64>()
+        .unwrap();
+    let date = crate::git_actor_labels_v1::utc_date(seconds);
+    let index = fs::read(dir.path().join(".git/index")).unwrap();
+    let workspace = Workspace::load(dir.path(), RepositoryMode::Overview, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    let first = workspace
+        .rows
+        .iter()
+        .position(|row| row.action == Some(RowAction::Commit(head.clone())))
+        .unwrap();
+    // The producer keeps its label (palette, plans) and adds the table cells.
+    let row = &workspace.rows[first];
+    assert!(row.label.contains(&head[..8]), "{}", row.label);
+    let cells = row.cells.as_deref().unwrap();
+    assert_eq!(cells.id, head);
+    assert_eq!(cells.subject, "Second note");
+    assert_eq!(cells.actors, "Fixture Author");
+    assert_eq!(cells.authored, seconds);
+    let mut app = crate::app::App {
+        view: crate::app::View::Repository,
+        selected: first,
+        workspace: Some(workspace),
+        repository_content_focused: true,
+        ..Default::default()
+    };
+    let selection = app.theme().role(crate::theme::Role::Selection).bg.unwrap();
+    let accent = app.theme().role(crate::theme::Role::Accent).fg.unwrap();
+    for (width, height) in [(140u16, 42u16), (80, 24)] {
+        let (buffer, lines) = draw_overview(&mut app, width, height);
+        let screen = lines.join("\n");
+        let commit_lines = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| subjects.iter().any(|subject| line.contains(subject)))
+            .collect::<Vec<_>>();
+        assert_eq!(commit_lines.len(), 3, "{screen}");
+        // Every subject starts in the same column, right after a 7-character id.
+        let subject_x = commit_lines
+            .iter()
+            .map(|(_, line)| {
+                let byte = subjects
+                    .iter()
+                    .find_map(|subject| line.find(subject))
+                    .unwrap();
+                crate::editor::display_width(&line[..byte])
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            subject_x.windows(2).all(|pair| pair[0] == pair[1]),
+            "{screen}"
+        );
+        let (y, selected) = commit_lines
+            .iter()
+            .find(|(_, line)| line.contains("Second note"))
+            .unwrap();
+        assert!(
+            selected.contains(&format!("{}  Second note", &head[..7])),
+            "{screen}"
+        );
+        assert!(!selected.contains(&head[..8]), "{selected}");
+        assert!(selected.contains("Fixture Author"), "{selected}");
+        // The long subject fits at 140 and is cut with an ellipsis at 80, never wrapped.
+        assert_eq!(
+            commit_lines.iter().any(|(_, line)| line.contains(long)),
+            width == 140,
+            "{screen}"
+        );
+        assert_eq!(
+            commit_lines
+                .iter()
+                .any(|(_, line)| line.contains("Explain why") && line.contains('…')),
+            width == 80,
+            "{screen}"
+        );
+        // The UTC date is a column at 140 and leaves first at 80; the full id stays in the
+        // Saved detail row either way.
+        assert_eq!(selected.contains(&date), width == 140, "{screen}");
+        assert!(screen.contains(&format!("Saved: {head}")), "{screen}");
+        // `▌` bar on the Selection background, no reverse video, accent while focused.
+        let hit = app
+            .hits
+            .iter()
+            .find(|hit| hit.action == Action::RepositoryRow(RowAction::Commit(head.clone())))
+            .unwrap();
+        assert_eq!(usize::from(hit.rect.y), *y);
+        assert_eq!(buffer[(hit.rect.x, hit.rect.y)].symbol(), "▌");
+        assert_eq!(buffer[(hit.rect.x, hit.rect.y)].fg, accent);
+        for x in hit.rect.x..hit.rect.right() {
+            let cell = &buffer[(x, hit.rect.y)];
+            assert_eq!(cell.bg, selection, "x={x}\n{screen}");
+            assert!(!cell.modifier.contains(ratatui::style::Modifier::REVERSED));
+        }
+        // Every commit row stays a click target; the section prose starts at the first column.
+        assert_eq!(
+            app.hits
+                .iter()
+                .filter(|hit| matches!(hit.action, Action::RepositoryRow(RowAction::Commit(_))))
+                .count(),
+            3
+        );
+        let prose = lines
+            .iter()
+            .find(|line| line.contains("Recent commits — saved versions"))
+            .unwrap();
+        assert_eq!(
+            crate::editor::display_width(&prose[..prose.find("Recent").unwrap()]),
+            usize::from(hit.rect.x) + 2,
+            "{screen}"
+        );
+    }
+    // A wheel-scrolled viewport is kept; the selection bar is simply out of view.
+    app.scroll = first + 1;
+    let (_, lines) = draw_overview(&mut app, 140, 42);
+    assert_eq!(app.scroll, first + 1);
+    assert!(!lines.iter().any(|line| line.contains("Second note")));
+    assert!(!lines.iter().any(|line| line.contains('▌')));
+    // Read-only browsing leaves the checkout alone.
+    assert_eq!(fs::read(dir.path().join(".git/index")).unwrap(), index);
+    assert_eq!(
+        fs::read(dir.path().join("a.txt")).unwrap(),
+        b"uncommitted edit\n"
+    );
+}

@@ -207,6 +207,7 @@ impl Workspace {
                         label: row.left.label,
                         role: row.left.role,
                         action: row.left.anchor.map(RowAction::DiffLine),
+                        cells: None,
                     }),
             );
             workspace.comparison = Some(result);

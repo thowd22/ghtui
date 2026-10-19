@@ -323,6 +323,21 @@ pub struct DisplayRow {
     pub label: String,
     pub role: SemanticRole,
     pub action: Option<RowAction>,
+    /// Table cells next to the `label` (which palette, plans and logs keep): Overview's
+    /// recent commits are drawn as aligned COMMIT/SUBJECT/AUTHOR/AGE/DATE columns.
+    pub cells: Option<Box<CommitCellsV91>>,
+}
+
+/// One recent commit of the Overview as table cells (TASK-91). The full id and the authored
+/// UTC date stay here and in the Saved/actor detail rows above the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitCellsV91 {
+    pub id: String,
+    pub subject: String,
+    /// One local name when author and committer agree, both roles otherwise.
+    pub actors: String,
+    /// Authored time, seconds since the epoch.
+    pub authored: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -616,6 +631,7 @@ impl Workspace {
                             label: row.label,
                             role: row.role,
                             action,
+                            cells: None,
                         }
                     }));
                 // Saved stashes and linked worktrees are easy to forget; show them read-only.
@@ -662,11 +678,20 @@ impl Workspace {
                         crate::git_actor_labels_v1::commit_summary(&commit)
                     );
                     recent.push(commit.id.clone());
+                    let cells = CommitCellsV91 {
+                        id: commit.id.clone(),
+                        subject: commit.subject.clone(),
+                        actors: crate::git_actor_labels_v1::commit_actors(&commit),
+                        authored: commit.author.timestamp,
+                    };
                     workspace.push(
                         &label,
                         SemanticRole::Normal,
                         Some(RowAction::Commit(commit.id)),
                     );
+                    if let Some(row) = workspace.rows.last_mut() {
+                        row.cells = Some(Box::new(cells));
+                    }
                 }
                 // Raw local HEAD reflog file (no Git child); bounded to its newest 1 MiB.
                 let log = std::fs::read(repo.git_dir.join("logs/HEAD")).unwrap_or_default();
@@ -783,6 +808,7 @@ impl Workspace {
                         label: row.left.label,
                         role: row.left.role,
                         action: row.left.anchor.map(RowAction::DiffLine),
+                        cells: None,
                     });
                 }
                 workspace.comparison = Some(result);
@@ -810,6 +836,7 @@ impl Workspace {
             label: label.into(),
             role,
             action,
+            cells: None,
         });
     }
 
@@ -875,6 +902,7 @@ impl Workspace {
                     label: row.left.label,
                     role: row.left.role,
                     action: row.left.anchor.map(RowAction::DiffLine),
+                    cells: None,
                 }),
         );
         self.mode = RepositoryMode::CommitChanges;

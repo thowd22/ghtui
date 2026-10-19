@@ -291,6 +291,7 @@ impl ComparisonPlan {
                 label: label.clone(),
                 role: SemanticRole::Reference,
                 action: None,
+                cells: None,
             })
             .collect::<Vec<_>>();
         if result.diff.files.is_empty() {
@@ -298,6 +299,7 @@ impl ComparisonPlan {
                 label: "No changed files between these saved versions.".into(),
                 role: SemanticRole::Normal,
                 action: None,
+                cells: None,
             });
         }
         rows.extend(
@@ -307,6 +309,7 @@ impl ComparisonPlan {
                     label: row.left.label,
                     role: row.left.role,
                     action: row.left.anchor.map(RowAction::DiffLine),
+                    cells: None,
                 }),
         );
         let workspace = Workspace {

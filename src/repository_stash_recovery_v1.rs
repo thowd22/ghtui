@@ -167,7 +167,7 @@ impl OriginalStashRecoveryOwnerV1 {
                     for row in &mut workspace.rows {
                         if row.label=="Theirs — incoming branch content" {row.label="Theirs — current index stage 3 (origin not proven)".into();}
                     }
-                    workspace.rows.insert(0,crate::workspace::DisplayRow{label:"Observed index conflicts • not proof of stash/merge provenance; no merge-abort grant".into(),role:crate::repository_view::SemanticRole::Reference,action:None});
+                    workspace.rows.insert(0,crate::workspace::DisplayRow{label:"Observed index conflicts • not proof of stash/merge provenance; no merge-abort grant".into(),role:crate::repository_view::SemanticRole::Reference,action:None, cells: None});
                     if repo.fingerprint().map_err(|e|e.to_string())?!=before {return Err("Original conflict index changed during inspection".into());}
                     Ok(workspace)
                 }).map(Some)?

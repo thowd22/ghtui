@@ -93,8 +93,15 @@ fn journey(mouse: bool) {
 
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
-    // One name for a commit authored and committed by the same person.
-    session.wait_for_screen(&format!("Second note • Fixture Author • {date}"));
+    // One name for a commit authored and committed by the same person, in the AUTHOR column.
+    wait_row(
+        &mut session,
+        &[
+            &format!("{}  Second note", &head[..7]),
+            "Fixture Author",
+            &date,
+        ],
+    );
     assert!(!session.screen().contains("• committer Fixture Author"));
 
     choose(&mut session, mouse, "[g Graph]", b"g");
@@ -153,6 +160,144 @@ fn journey(mouse: bool) {
 }
 
 const REPOSITORY_PANE: &str = "Repository • focused view";
+
+/// Waits for one screen line holding every part (a table row read by its cells).
+fn wait_row(session: &mut Session, parts: &[&str]) -> String {
+    let wanted = parts
+        .iter()
+        .map(|part| part.to_string())
+        .collect::<Vec<_>>();
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen
+                    .lines()
+                    .any(|line| wanted.iter().all(|part| line.contains(part.as_str())))
+            },
+            &format!("row with {parts:?}"),
+            Duration::from_secs(8),
+        )
+        .unwrap();
+    session
+        .screen()
+        .lines()
+        .find(|line| parts.iter().all(|part| line.contains(part)))
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn design_table_v91_keyboard_repository_overview_commit_table() {
+    overview_table(false);
+}
+
+#[test]
+fn design_table_v91_mouse_repository_overview_commit_table() {
+    overview_table(true);
+}
+
+/// TASK-91 on the actual executable: Overview's recent commits are aligned COMMIT, SUBJECT,
+/// AUTHOR, AGE and DATE columns with a `▌` bar on the selected row; keyboard and mouse open the
+/// same commit, whose details keep the full id; short rows keep every column at 80.
+fn overview_table(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("notes.txt", b"first note\n", "First note");
+    fixture.commit_file("src/main.rs", b"fn main() {}\n", "Add the main program");
+    fixture.commit_file("notes.txt", b"second note\n", "Second note");
+    let middle = fixture.git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+    let seconds = fixture
+        .git(&["log", "-1", "--format=%at"])
+        .trim()
+        .to_owned();
+    let date = String::from_utf8(
+        std::process::Command::new("date")
+            .args(["-u", "-d", &format!("@{seconds}"), "+%F"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_owned();
+    fs::write(fixture.repo().join("notes.txt"), b"uncommitted edit\n").unwrap();
+    let refs = fixture.git(&["show-ref"]);
+    let index = fs::read(fixture.repo().join(".git/index")).unwrap();
+    let status = fixture.git(&["status", "--porcelain=v2"]);
+
+    let mut session = Session::launch(&fixture, 140, 42);
+    session.wait_for_screen("Recent commits");
+    let row = wait_row(
+        &mut session,
+        &[
+            &format!("{}  Add the main program", &middle[..7]),
+            "Fixture Author",
+            &date,
+        ],
+    );
+    assert!(!row.contains(&middle[..8]), "{row}");
+    assert!(!row.contains(" • "), "{row}");
+    // The subjects of all three commits start in one column.
+    let screen = session.screen();
+    let columns = ["First note", "Add the main program", "Second note"]
+        .iter()
+        .map(|subject| session.locate(subject).expect(subject).0)
+        .collect::<Vec<_>>();
+    assert!(
+        columns.windows(2).all(|pair| pair[0] == pair[1]),
+        "{screen}"
+    );
+
+    if mouse {
+        let (column, row) = session.locate("Add the main program").unwrap();
+        session.click(column, row);
+    } else {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !session
+            .selected_row(REPOSITORY_PANE)
+            .is_some_and(|row| row.contains("Add the main program"))
+        {
+            assert!(
+                Instant::now() < deadline,
+                "row never selected\n{}",
+                session.screen()
+            );
+            session.send_key(b"\x1b[B");
+            session.poll_output(Duration::from_millis(50));
+        }
+        let selected = session.wait_for_selected_row(REPOSITORY_PANE, "Add the main program");
+        assert!(selected.contains(&middle[..7]), "{selected}");
+        session.send_key(b"\r");
+    }
+    // The opened commit's detail row keeps the full id.
+    session.wait_for_screen(&format!("Commit {middle} — a saved version"));
+
+    choose(&mut session, mouse, "[o Overview]", b"o");
+    session.wait_for_screen("Recent commits");
+    session.resize(80, 24);
+    let row = wait_row(
+        &mut session,
+        &[&format!(
+            "{}  Second note",
+            &fixture.git(&["rev-parse", "HEAD"])[..7]
+        )],
+    );
+    // Short subjects leave room for every column at 80; a long one drops DATE first (unit
+    // test `design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_details`).
+    assert!(row.contains("Fixture Author"), "{row}");
+    assert!(row.contains(&date), "{row}");
+    assert!(!row.contains('…'), "{row}");
+
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2"]), status);
+    assert_eq!(
+        fs::read(fixture.repo().join("notes.txt")).unwrap(),
+        b"uncommitted edit\n"
+    );
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
 
 fn last_row(session: &Session) -> String {
     session

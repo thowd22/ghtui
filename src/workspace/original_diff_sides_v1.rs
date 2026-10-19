@@ -72,12 +72,12 @@ impl PreparedOriginalDiffSideV1 {
             append_wrapped(&format!("Saved object: {} • mode {} • {:?}",entry.id,entry.mode,preview.kind),&mut detail)?;
             append_wrapped(&format!("Author of {sha}: {}",crate::git_actor_labels_v1::actor_text(&commit.author)),&mut detail)?;
             append_wrapped(&format!("Committer of {sha}: {}",crate::git_actor_labels_v1::actor_text(&commit.committer)),&mut detail)?;
-            let mut rows=detail.into_iter().map(|label|DisplayRow{label,role:SemanticRole::Reference,action:None}).collect::<Vec<_>>();
+            let mut rows=detail.into_iter().map(|label|DisplayRow{label,role:SemanticRole::Reference,action:None, cells: None}).collect::<Vec<_>>();
             let focus=0;
             for row in &preview.rows {
-                rows.push(DisplayRow{label:bounded_label(&format!("{:>5} {}",row.line.map_or(String::new(),|line|line.to_string()),row.label)),role:SemanticRole::Normal,action:if preview.kind==crate::repository_view::BlobPreviewKind::Text{row.line.map(|line|RowAction::FileProvenance(FileAction::BlameAt(line)))}else{None}});
+                rows.push(DisplayRow{label:bounded_label(&format!("{:>5} {}",row.line.map_or(String::new(),|line|line.to_string()),row.label)),role:SemanticRole::Normal,action:if preview.kind==crate::repository_view::BlobPreviewKind::Text{row.line.map(|line|RowAction::FileProvenance(FileAction::BlameAt(line)))}else{None}, cells: None});
             }
-            if preview.truncated{rows.push(DisplayRow{label:"Partial original file preview •10k line limit; selected raw identity unchanged".into(),role:SemanticRole::Boundary,action:None});}
+            if preview.truncated{rows.push(DisplayRow{label:"Partial original file preview •10k line limit; selected raw identity unchanged".into(),role:SemanticRole::Boundary,action:None, cells: None});}
             operation.check()?;
             Ok(Arc::new(Self{source:source.clone(),index:ticket.index(),side:ticket.side(),sha:sha.into(),entry,commit,preview,rows:rows.into(),focus}))
         })

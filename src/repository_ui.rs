@@ -521,6 +521,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             content_offset += 1;
         }
     }
+    if overview_table_v91(workspace) {
+        let body = Rect::new(
+            area.x,
+            area.y + content_offset,
+            area.width,
+            area.height.saturating_sub(content_offset),
+        );
+        draw_overview_v91(frame, app, body);
+        return;
+    }
     let visible_rows = usize::from(area.height.saturating_sub(content_offset));
     // A resize or newly installed graph changes the real body height after the
     // worker used the previous view's height. Keep the actual selected member
@@ -625,4 +635,123 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             app.hits.push(HitRegion { rect, action });
         }
     }
+}
+
+/// Overview's recent commits as aligned columns (TASK-91). The full id and the authored UTC
+/// date stay in the Saved and actor detail rows above the list and in the DATE column.
+pub const OVERVIEW_COLUMNS: [crate::ui_table::Column; 5] = [
+    crate::ui_table::Column::new("COMMIT", 7).priority(1),
+    crate::ui_table::Column::new("SUBJECT", 12)
+        .flex(3)
+        .priority(0),
+    crate::ui_table::Column::new("AUTHOR", 6)
+        .flex(1)
+        .priority(3),
+    crate::ui_table::Column::new("AGE", 3).priority(2).right(),
+    crate::ui_table::Column::new("DATE", 10).priority(4),
+];
+
+/// The plain Overview list: no actor profile, preview or file history replaces its rows.
+fn overview_table_v91(workspace: &Workspace) -> bool {
+    workspace.mode == RepositoryMode::Overview
+        && workspace.actor_profile.is_none()
+        && workspace.preview.is_none()
+        && workspace.file_provenance.is_none()
+        && std::ptr::eq(workspace.display_rows_v1(), workspace.rows.as_slice())
+}
+
+/// One Overview row as a table row: commit cells, or prose from the first column.
+pub fn overview_row_v91(
+    row: &crate::workspace::DisplayRow,
+    now: u64,
+) -> crate::ui_table::TableRow<RowAction> {
+    use crate::ui_table::{Cell, TableRow};
+    let tone = SemanticToken::from(row.role);
+    let table_row = match &row.cells {
+        Some(commit) => {
+            let age = u64::try_from(commit.authored)
+                .map(|authored| crate::ui_table::age_from_seconds(now.saturating_sub(authored)))
+                .unwrap_or_else(|_| crate::ui_table::NONE.into());
+            TableRow::cells(vec![
+                Cell::styled(
+                    crate::ui_table::short_sha(&commit.id),
+                    crate::theme::Role::Commit,
+                ),
+                commit.subject.as_str().into(),
+                Cell::styled(commit.actors.as_str(), crate::theme::Role::TextMuted),
+                Cell::styled(age, crate::theme::Role::TextMuted),
+                Cell::styled(
+                    crate::git_actor_labels_v1::utc_date(commit.authored),
+                    crate::theme::Role::TextMuted,
+                ),
+            ])
+        }
+        None => TableRow::text(row.label.as_str()),
+    };
+    table_row.with_tone(tone).with_action(row.action.clone())
+}
+
+fn draw_overview_v91(frame: &mut Frame, app: &mut App, area: Rect) {
+    let Some(workspace) = app.workspace.as_ref() else {
+        return;
+    };
+    let theme = app.theme();
+    let rows = workspace.display_rows_v1();
+    let now = crate::storage::now();
+    let table_rows = rows
+        .iter()
+        .map(|row| overview_row_v91(row, now))
+        .collect::<Vec<_>>();
+    let natural = crate::ui_table::natural_widths(&OVERVIEW_COLUMNS, &table_rows, theme.mode);
+    let table = crate::ui_table::Table {
+        columns: &OVERVIEW_COLUMNS,
+        header: false,
+        focused: app.repository_content_focused,
+        glyphs: false,
+        empty: None,
+    };
+    // The wheel moves the viewport without the selection, so the list keeps `app.scroll`;
+    // keyboard movement already scrolls the selected row into view.
+    let top = app.scroll.min(rows.len().saturating_sub(1));
+    let selected = (app.selected < rows.len()).then_some(app.selected);
+    let rendered = crate::ui_table::draw_table_at(
+        frame,
+        area,
+        &table,
+        &natural,
+        table_rows.len(),
+        |index| table_rows[index].clone(),
+        selected,
+        top,
+        theme,
+    );
+    let busy = app.loading[crate::app::View::Repository.index()];
+    let mut hits = Vec::new();
+    for hit in rendered.hits {
+        let Some(action) = hit.action else {
+            continue;
+        };
+        let action = match action {
+            RowAction::FileProvenance(file_action) => {
+                let reason = if busy {
+                    Some("Wait for the current repository read, or cancel it first".into())
+                } else {
+                    workspace.provenance_available(&file_action).err()
+                };
+                reason.map_or(
+                    Action::RepositoryRow(RowAction::FileProvenance(file_action)),
+                    Action::Explain,
+                )
+            }
+            RowAction::Local(command) => Action::LocalCommand(command),
+            action => Action::RepositoryRow(action),
+        };
+        hits.push(HitRegion {
+            rect: hit.rect,
+            action,
+        });
+    }
+    app.scroll = top;
+    app.repository_visible_rows = rendered.visible_rows;
+    app.hits.extend(hits);
 }

@@ -475,6 +475,40 @@ pub fn draw_table_with<A>(
     state: &mut ListState,
     theme: Theme,
 ) -> TableRender<A> {
+    if len > 0 && !area.is_empty() {
+        state.selected = state.selected.min(len - 1);
+        state.ensure_visible(usize::from(
+            area.height.saturating_sub(u16::from(table.header)),
+        ));
+    }
+    draw_table_at(
+        frame,
+        area,
+        table,
+        natural,
+        len,
+        row,
+        Some(state.selected),
+        state.top,
+        theme,
+    )
+}
+
+/// [`draw_table_with`] for a list whose viewport scrolls apart from its selection (a mouse
+/// wheel that moves only the view): rows are painted from `top` as given, and the bar only
+/// when `selected` is among them.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_table_at<A>(
+    frame: &mut Frame,
+    area: Rect,
+    table: &Table<'_>,
+    natural: &[u16],
+    len: usize,
+    row: impl Fn(usize) -> TableRow<A>,
+    selected: Option<usize>,
+    top: usize,
+    theme: Theme,
+) -> TableRender<A> {
     let mut output = TableRender {
         hits: vec![],
         visible_rows: 0,
@@ -498,13 +532,11 @@ pub fn draw_table_with<A>(
         }
         return output;
     }
-    state.selected = state.selected.min(len - 1);
-    state.ensure_visible(output.visible_rows);
-    for (offset, index) in (state.top..len).take(output.visible_rows).enumerate() {
+    for (offset, index) in (top..len).take(output.visible_rows).enumerate() {
         let item = row(index);
         let y = body.y + offset as u16;
         painter.row(buffer, y, &item);
-        if index == state.selected {
+        if Some(index) == selected {
             painter.select(buffer, y);
         }
         // Column titles are not a target; every other painted row is one.

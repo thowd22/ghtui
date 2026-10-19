@@ -315,13 +315,13 @@ impl OriginalComparisonSourceV1 {
             }
             excluded += admitted - members.len();
             let displayed_files = preflight_diff_display(&result);
-            let mut rows = vec![DisplayRow { label: "Saved comparison • actual Old/New content; no checkout".into(), role: SemanticRole::Reference, action: None }];
+            let mut rows = vec![DisplayRow { label: "Saved comparison • actual Old/New content; no checkout".into(), role: SemanticRole::Reference, action: None, cells: None }];
             for (label, sha) in [("Requested base", intent.requested_base()), ("Actual Old content", Some(intent.content_base())), ("Actual New content", Some(intent.head()))] {
-                if let Some(sha) = sha { rows.push(DisplayRow { label: format!("{label}:"), role: SemanticRole::Reference, action: None }); rows.push(DisplayRow { label: sha.into(), role: SemanticRole::Reference, action: None }); }
+                if let Some(sha) = sha { rows.push(DisplayRow { label: format!("{label}:"), role: SemanticRole::Reference, action: None, cells: None }); rows.push(DisplayRow { label: sha.into(), role: SemanticRole::Reference, action: None, cells: None }); }
             }
-            rows.extend(diff_rows_for_files_v1(&result.diff, DiffLayout::Unified, true, result.diff.files.iter().take(displayed_files).enumerate()).into_iter().map(|row| DisplayRow { label: row.left.label, role: row.left.role, action: row.left.anchor.map(RowAction::DiffLine) }));
-            if displayed_files < result.diff.files.len() { rows.push(DisplayRow { label: "Partial original patch display •50k rows/8MiB preparation; Changed files searches admitted canonical members".into(), role: SemanticRole::Boundary, action: None }); }
-            if excluded > 0 { rows.push(DisplayRow { label: format!("Partial original comparison • {excluded} changed members omitted; unseen sides unknown"), role: SemanticRole::Boundary, action: None }); }
+            rows.extend(diff_rows_for_files_v1(&result.diff, DiffLayout::Unified, true, result.diff.files.iter().take(displayed_files).enumerate()).into_iter().map(|row| DisplayRow { label: row.left.label, role: row.left.role, action: row.left.anchor.map(RowAction::DiffLine), cells: None }));
+            if displayed_files < result.diff.files.len() { rows.push(DisplayRow { label: "Partial original patch display •50k rows/8MiB preparation; Changed files searches admitted canonical members".into(), role: SemanticRole::Boundary, action: None, cells: None }); }
+            if excluded > 0 { rows.push(DisplayRow { label: format!("Partial original comparison • {excluded} changed members omitted; unseen sides unknown"), role: SemanticRole::Boundary, action: None, cells: None }); }
             operation.check()?;
             let new = OriginalComparisonEndpointV1::Commit(intent.head.clone());
             Ok(Arc::new(Self { intent, result, old, new, members: members.into(), rows: rows.into(), observed_members, excluded, path_bytes, head_commit }))

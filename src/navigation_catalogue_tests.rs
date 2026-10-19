@@ -456,6 +456,7 @@ fn navigation_catalogue_preflights_oversized_selected_raw_paths_and_actions_cont
         label: "invalid overlong raw candidate".into(),
         role: crate::repository_view::SemanticRole::Normal,
         action: Some(RowAction::File(crate::git::RawPath(vec![b'x'; 4097]))),
+        cells: None,
     });
     app.selected = workspace.rows.len() - 1;
     app.repository_mode = workspace.mode;

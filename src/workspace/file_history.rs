@@ -336,6 +336,7 @@ impl Workspace {
                                 .into(),
                             role: SemanticRole::Reference,
                             action: None,
+                            cells: None,
                         },
                     );
                 }

@@ -1082,6 +1082,7 @@ impl LocalPlan {
                 label: explanation.into(),
                 role: crate::repository_view::SemanticRole::Reference,
                 action: None,
+                cells: None,
             });
             workspace
                 .rows
@@ -1094,6 +1095,7 @@ impl LocalPlan {
                             label: sanitize_terminal(line),
                             role: crate::repository_view::SemanticRole::Normal,
                             action: None,
+                            cells: None,
                         }),
                 );
         }
