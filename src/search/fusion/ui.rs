@@ -2,6 +2,7 @@
 //! scope/journal proofs; drawing and actions here never invoke Git or gh.
 use super::{blend::BlendPolicy, RankingSource};
 use crate::{
+    footer::KeyControl,
     search::SearchMode,
     theme::{SemanticToken, Theme},
 };
@@ -21,12 +22,18 @@ pub enum BlendAction {
     Adjust(LimitField, i8),
     Close,
 }
-#[derive(Debug, Clone)]
-pub struct Control {
-    pub label: String,
-    pub shortcut: KeyCode,
-    pub action: BlendAction,
-    pub enabled: bool,
+/// One blend preference control: the same [`KeyControl`] model as the main key bar, so its
+/// painted key, click target and keyboard shortcut cannot drift apart. The overlay paints it
+/// as a bracketed `[key label]` row.
+pub type Control = KeyControl<BlendAction>;
+
+const RANKED_ONLY: &str = "GitHub blending is explicit Ranked-only. Exact and Regex never become remote discovery; choose Ranked to change these preferences.";
+const SCOPE_FIRST: &str = "Choose explicit GitHub repositories through the launch scope, a saved set or mapped repositories first. A local checkout is not inferred to be a GitHub repository.";
+const LAST_SOURCE: &str = "Keep at least one source enabled while blending. This control cannot broaden the requested scope.";
+const LIMIT: &str = "Stay within the displayed result/page limits. This control cannot broaden the requested scope.";
+
+fn unless(enabled: bool, reason: &str) -> Option<String> {
+    (!enabled).then(|| reason.to_owned())
 }
 #[derive(Debug, Clone)]
 pub struct ControlHit {
@@ -41,53 +48,61 @@ pub struct BlendControls {
 impl BlendControls {
     pub fn controls(&self, mode: SearchMode, remote_scope_ready: bool) -> Vec<Control> {
         let ranked = mode == SearchMode::Ranked;
-        let can_toggle = ranked && (self.policy.enabled || remote_scope_ready);
-        let mut controls = vec![Control {
-            label: format!(
-                "[b Blend GitHub: {}]",
+        let can_toggle = self.policy.enabled || remote_scope_ready;
+        let mut controls = vec![KeyControl::new(
+            "b",
+            format!(
+                "Blend GitHub: {}",
                 if self.policy.enabled { "on" } else { "off" }
             ),
-            shortcut: KeyCode::Char('b'),
-            action: BlendAction::Toggle,
-            enabled: can_toggle,
-        }];
+            BlendAction::Toggle,
+        )
+        .with_selected(self.policy.enabled)
+        .disabled_by(unless(ranked, RANKED_ONLY))
+        .disabled_by(unless(can_toggle, SCOPE_FIRST))];
         for (key, source, label) in [
-            ('c', RankingSource::GithubCode, "Code"),
-            ('p', RankingSource::GithubPullRequests, "PRs"),
-            ('i', RankingSource::GithubIssues, "Issues"),
+            ("c", RankingSource::GithubCode, "Code"),
+            ("p", RankingSource::GithubPullRequests, "PRs"),
+            ("i", RankingSource::GithubIssues, "Issues"),
         ] {
             let selected = self.policy.sources.contains(&source);
-            controls.push(Control {
-                label: format!("[{key} {label}: {}]", if selected { "on" } else { "off" }),
-                shortcut: KeyCode::Char(key),
-                action: BlendAction::Source(source),
-                enabled: ranked
-                    && !(self.policy.enabled && selected && self.policy.sources.len() == 1),
-            });
+            controls.push(
+                KeyControl::new(
+                    key,
+                    format!("{label}: {}", if selected { "on" } else { "off" }),
+                    BlendAction::Source(source),
+                )
+                .with_selected(selected)
+                .disabled_by(unless(ranked, RANKED_ONLY))
+                .disabled_by(unless(
+                    !(self.policy.enabled && selected && self.policy.sources.len() == 1),
+                    LAST_SOURCE,
+                )),
+            );
         }
         for (field, value, maximum, decrease, increase, label) in [
             (
                 LimitField::FinalResults,
                 self.policy.max_results,
                 5000,
-                'f',
-                'g',
+                "f",
+                "g",
                 "Final results",
             ),
             (
                 LimitField::SourceResults,
                 self.policy.per_source_results,
                 1000,
-                '-',
-                '+',
+                "-",
+                "+",
                 "Results/source",
             ),
             (
                 LimitField::SourcePages,
                 self.policy.per_source_pages,
                 10,
-                '[',
-                ']',
+                "[",
+                "]",
                 "Pages/source",
             ),
         ] {
@@ -95,20 +110,18 @@ impl BlendControls {
                 (-1, decrease, "less", value > 1),
                 (1, increase, "more", value < maximum),
             ] {
-                controls.push(Control {
-                    label: format!("[{key} {label}: {value} {verb}]"),
-                    shortcut: KeyCode::Char(key),
-                    action: BlendAction::Adjust(field, delta),
-                    enabled: ranked && enabled,
-                });
+                controls.push(
+                    KeyControl::new(
+                        key,
+                        format!("{label}: {value} {verb}"),
+                        BlendAction::Adjust(field, delta),
+                    )
+                    .disabled_by(unless(ranked, RANKED_ONLY))
+                    .disabled_by(unless(enabled, LIMIT)),
+                );
             }
         }
-        controls.push(Control {
-            label: "[Esc Close]".into(),
-            shortcut: KeyCode::Esc,
-            action: BlendAction::Close,
-            enabled: true,
-        });
+        controls.push(KeyControl::new("Esc", "Close", BlendAction::Close));
         controls
     }
     /// The same action descriptor validates mouse, shortcut and Enter dispatch.
@@ -122,7 +135,7 @@ impl BlendControls {
         if !self
             .controls(mode, remote_scope_ready)
             .iter()
-            .any(|control| control.action == action && control.enabled)
+            .any(|control| control.action == action && control.disabled.is_none())
         {
             return false;
         }
@@ -175,14 +188,17 @@ impl BlendControls {
                     }
                     KeyCode::Enter => controls
                         .get(self.focus)
-                        .filter(|control| control.enabled)
+                        .filter(|control| control.disabled.is_none())
                         .map(|control| control.action),
                     _ => controls
                         .iter()
-                        .position(|control| control.shortcut == key.code)
+                        .position(|control| crate::footer::key_matches(&control.key, key))
                         .and_then(|index| {
                             self.focus = index;
-                            controls[index].enabled.then_some(controls[index].action)
+                            controls[index]
+                                .disabled
+                                .is_none()
+                                .then_some(controls[index].action)
                         }),
                 }
             }
@@ -193,7 +209,7 @@ impl BlendControls {
                     self.focus = hit.index;
                     controls
                         .get(hit.index)
-                        .filter(|control| control.enabled)
+                        .filter(|control| control.disabled.is_none())
                         .map(|control| control.action)
                 }),
             _ => None,
@@ -223,7 +239,7 @@ pub fn draw(
         .take(height)
         .map(|(index, control)| {
             let rect = Rect::new(area.x, area.y + (index - first) as u16, area.width, 1);
-            let mut style = theme.style(if control.enabled {
+            let mut style = theme.style(if control.disabled.is_none() {
                 SemanticToken::Reference
             } else {
                 SemanticToken::Muted
@@ -231,7 +247,10 @@ pub fn draw(
             if index == focus {
                 style = style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
             }
-            frame.render_widget(Paragraph::new(control.label.as_str()).style(style), rect);
+            frame.render_widget(
+                Paragraph::new(format!("[{}]", control.token(false))).style(style),
+                rect,
+            );
             ControlHit { rect, index }
         })
         .collect()
@@ -277,7 +296,7 @@ mod tests {
                 .controls(mode, true)
                 .iter()
                 .filter(|control| control.action != BlendAction::Close)
-                .all(|control| !control.enabled));
+                .all(|control| control.disabled.is_some()));
             assert!(!state.apply(BlendAction::Toggle, mode, true));
         }
         assert!(state.apply(BlendAction::Toggle, SearchMode::Ranked, false));

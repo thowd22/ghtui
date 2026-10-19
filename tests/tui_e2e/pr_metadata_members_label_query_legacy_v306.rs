@@ -558,7 +558,7 @@ fn initial_search_ready(s: &mut Session, after: usize) {
                         .contents()
                         .contains("Selected local search corpus ready • no clone or fetch")
                     && crate::support::overlay_body(frame, SEARCH).is_some_and(|body| {
-                        ["[H Search sources]", "[Enter Search]", "[/ Query]"]
+                        ["h GitHub", "e Exact", "[/ Query]"]
                             .iter()
                             .all(|needle| body.contains(needle))
                             && !body.contains("[Esc Cancel]")
@@ -610,7 +610,7 @@ fn source_field(s: &mut Session, mouse: bool, label: &str, key: &[u8], value: &s
 
 fn load_source(s: &mut Session, f: &Fixture, mouse: bool, steps: &[GhStep]) {
     let before = s.completed_cells_end();
-    choose(s, mouse, "[H Search sources]", b"H");
+    choose(s, mouse, "[H Sources]", b"H");
     ready_v283(
         s,
         before,
@@ -633,27 +633,17 @@ fn load_source(s: &mut Session, f: &Fixture, mouse: bool, steps: &[GhStep]) {
     published(s, f, steps, 53);
     let before = s.completed_cells_end();
     choose(s, mouse, "[Esc Close]", b"\x1b");
-    ready_v283(
-        s,
-        before,
-        SEARCH,
-        &["[H Search sources]", "[Enter Search]", "[/ Query]"],
-    );
+    ready_v283(s, before, SEARCH, &["h GitHub", "e Exact", "[/ Query]"]);
 }
 
 fn query(s: &mut Session, mouse: bool) -> usize {
     let before = s.completed_cells_end();
     choose(s, mouse, "[/ Query]", b"/");
-    ready_v283(
-        s,
-        before,
-        SEARCH,
-        &["[/ Query]", "[Enter Search]", "[H Search sources]"],
-    );
+    ready_v283(s, before, SEARCH, &["[/ Query]", "e Exact", "h GitHub"]);
     s.send_key(b"\x01");
     let before = s.completed_cells_end();
     s.paste(QUERY_TEXT);
-    ready_v283(s, before, SEARCH, &[QUERY_TEXT, "[Enter Search]"]);
+    ready_v283(s, before, SEARCH, &[QUERY_TEXT, "e Exact"]);
     let before = s.completed_cells_end();
     choose(s, mouse, "[Enter Search]", b"\r");
     before
@@ -1168,7 +1158,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
             "1 results • Exact",
             CANARY_PREFIX,
             "Unchanged title",
-            "[o Open result]",
+            "[Ctrl↓ More]",
         ],
     );
     // At120 columns the split preview intentionally clips the60-character
@@ -1190,7 +1180,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
             "1 results • Exact",
             CANARY_PREFIX,
             "Unchanged title",
-            "[o Open result]",
+            "[Ctrl↓ More]",
         ],
     );
     assert_eq!(s.completed_cells_screen().unwrap().size(), (40, 120));
@@ -1380,12 +1370,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     );
     let before = s.completed_cells_end();
     choose(&mut s, mouse, "3 Search", b"3");
-    ready_v283(
-        &mut s,
-        before,
-        SEARCH,
-        &["[H Search sources]", "[Enter Search]"],
-    );
+    ready_v283(&mut s, before, SEARCH, &["h GitHub", "e Exact"]);
     published(&mut s, &f, &steps, 114);
     let before = query(&mut s, mouse);
     s.wait_for_command_count(&f, 119);
@@ -1397,7 +1382,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
                 let text = frame.contents();
                 crate::support::main_footer_visible(frame)
                     && crate::support::overlay_body(frame, SEARCH).is_some_and(|body| {
-                        body.contains("[H Search sources]")
+                        body.contains("h GitHub")
                             && !body.contains("1 results • Exact")
                             && !body.contains(CANARY)
                             && !body.contains(CANARY_PREFIX)
@@ -1427,7 +1412,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
         &mut s,
         before,
         SEARCH,
-        &["0 results • Exact", "PARTIAL", "[H Search sources]"],
+        &["0 results • Exact", "PARTIAL", "h GitHub"],
     );
     let commands = published(&mut s, &f, &steps, 125);
     let after = image(&f);

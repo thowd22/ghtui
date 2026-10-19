@@ -141,7 +141,7 @@ fn start(session: &mut Session, mouse: bool) {
     session.wait_for_screen("Selected local search corpus ready");
 }
 fn load_parent(session: &mut Session, fixture: &Fixture, mouse: bool, expected_count: usize) {
-    choose(session, mouse, "[H Search sources]", b"H");
+    choose(session, mouse, "[H Sources]", b"H");
     session.wait_for_screen("Search sources • explicit read-only hydration");
     choose(session, mouse, "[p PR]", b"p");
     choose(session, mouse, "[v PR/issue number]", b"v");
@@ -158,7 +158,7 @@ fn load_parent(session: &mut Session, fixture: &Fixture, mouse: bool, expected_c
     );
 }
 fn rank_off(session: &mut Session, fixture: &Fixture, mouse: bool, count: &mut usize) {
-    choose(session, mouse, "[n Ranked]", b"n");
+    choose(session, mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     journal(session, fixture, *count);
     query(session, mouse, NEEDLE);
@@ -194,7 +194,7 @@ fn enable_pr_only(
     count: &mut usize,
     caps: bool,
 ) {
-    choose(session, mouse, "[B Blend controls]", b"B");
+    choose(session, mouse, "[B Blend]", b"B");
     session.wait_for_screen("[b Blend GitHub: off]");
     let before = *count;
     preference(
@@ -263,12 +263,12 @@ fn enable_pr_only(
         choose_control(session, mouse, "[[ Pages/source: 1 less]", b"[");
         session.wait_for_screen("Action unavailable • explanation only");
         close(session, mouse, "Action unavailable • explanation only");
-        choose(session, mouse, "[B Blend controls]", b"B");
+        choose(session, mouse, "[B Blend]", b"B");
         session.wait_for_screen("[b Blend GitHub: on]");
         choose_control(session, mouse, "[p PRs: on]", b"p");
         session.wait_for_screen("Action unavailable • explanation only");
         close(session, mouse, "Action unavailable • explanation only");
-        choose(session, mouse, "[B Blend controls]", b"B");
+        choose(session, mouse, "[B Blend]", b"B");
         session.wait_for_screen("[b Blend GitHub: on]");
         journal(session, fixture, *count);
         assert_eq!(
@@ -295,7 +295,7 @@ fn enable_pr_only(
         mouse,
         "Blend controls • explicit Ranked GitHub discovery",
     );
-    session.wait_for_screen("[B Blend controls]");
+    session.wait_for_control("[B Blend]");
 }
 fn policy_steps(caps: bool) -> Vec<GhStep> {
     (0..if caps { 6 } else { 3 })
@@ -391,7 +391,7 @@ fn rank_sources(session: &mut Session, fixture: &Fixture, mouse: bool, count: us
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
     let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
-    choose(session, mouse, "[B Blend controls]", b"B");
+    choose(session, mouse, "[B Blend]", b"B");
     session.wait_for_screen("[f Final results: 99 less]");
     choose(session, mouse, "[E Rank sources]", b"E");
     session.wait_for_screen("Rank sources • limits and coverage");
@@ -611,7 +611,7 @@ fn removed(mouse: bool) {
     let mut count = 29;
     rank_off(&mut session, &fixture, mouse, &mut count);
     enable_pr_only(&mut session, &fixture, mouse, &mut count, false);
-    choose(&mut session, mouse, "[H Search sources]", b"H");
+    choose(&mut session, mouse, "[H Sources]", b"H");
     session.wait_for_screen("Search sources • explicit read-only hydration");
     choose(&mut session, mouse, "[p PR]", b"p");
     choose(&mut session, mouse, "[v PR/issue number]", b"v");

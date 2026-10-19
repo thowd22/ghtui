@@ -376,6 +376,12 @@ pub fn main_controls(app: &App) -> Vec<KeyControl> {
         {
             crate::repository_ui::footer_keys(app)
         }
+        // Search has no Refresh of its own; the global Refresh and Settings keys stay last.
+        (crate::app::View::Search, _) if app.overlay.is_none() => {
+            let mut keys = crate::search_ui::footer_keys(app);
+            keys.extend(transitional_keys(app));
+            keys
+        }
         _ => transitional_keys(app),
     };
     controls.extend(global_tail(app));

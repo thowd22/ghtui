@@ -4,6 +4,7 @@ use ghtui::storage::{Cache, Scope};
 
 fn choose(session: &mut Session, mouse: bool, label: &str, keys: &[u8]) {
     if mouse {
+        session.wait_for_settled_footer();
         session.click_visible_action(label)
     } else {
         session.send_key(keys)
@@ -73,17 +74,17 @@ fn query_modes(mouse: bool) {
     session.wait_for_screen("1 results • Exact");
     session.wait_for_screen("日本語.txt:1:8");
     session.wait_for_screen("including uncommitted content");
-    choose(&mut session, mouse, "[x Regex]", b"x");
+    choose(&mut session, mouse, "x Regex", b"x");
     enter_query(&mut session, mouse, "[");
     session.wait_for_screen("Invalid or excessive regex");
     enter_query(&mut session, mouse, "working.*β");
     session.wait_for_screen("1 results • Regex");
     choose(&mut session, mouse, "[c Corpus]", b"c");
     session.wait_for_screen("Selected existing checkouts only");
-    choose(&mut session, mouse, "[i Ignored files: false]", b"i");
-    choose(&mut session, mouse, "[b Hidden files: false]", b"b");
+    choose(&mut session, mouse, "[i Ignored files: off]", b"i");
+    choose(&mut session, mouse, "[b Hidden files: off]", b"b");
     choose(&mut session, mouse, "[c Corpus]", b"c");
-    choose(&mut session, mouse, "[e Exact]", b"e");
+    choose(&mut session, mouse, "e Exact", b"e");
     enter_query(&mut session, mouse, "working needle");
     session.wait_for_screen("3 results • Exact");
     choose(&mut session, mouse, "[o Open result]", b"o");
@@ -98,7 +99,8 @@ fn query_modes(mouse: bool) {
         std::fs::read(fixture.repo().join("nested/日本語.txt")).unwrap(),
         "prefix working needle β\nlocal-only marker\n".as_bytes()
     );
-    assert!(session.inspect_command_journal(&fixture).is_empty());
+    let journal = session.inspect_command_journal(&fixture);
+    assert!(journal.is_empty(), "{journal}\n{}", session.screen());
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -130,7 +132,7 @@ fn ranked_index(mouse: bool) {
     .unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     enter_query(&mut session, mouse, "uniqueobsoleteidentifier");
     session.wait_for_screen("1 results • Ranked");
     session.wait_for_screen("temporary.txt");
@@ -174,11 +176,11 @@ fn ranked_index(mouse: bool) {
     std::fs::remove_file(fixture.repo().join("temporary.txt")).unwrap();
     let mut session = Session::launch(&fixture, 80, 24);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     enter_query(&mut session, mouse, "replacedgenerationneedle");
     session.wait_for_screen("0 results • Ranked");
     assert!(!session.screen().contains("temporary.txt"));
-    choose(&mut session, mouse, "[v Saved version]", b"v");
+    choose(&mut session, mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "saved needle");
     session.wait_for_screen("1 results • Ranked");
     session.wait_for_screen("saved needle α");
@@ -247,7 +249,7 @@ fn exact_search(mouse: bool) {
     session.wait_for_screen("1 results • Exact");
     session.wait_for_screen("日本語.txt:2:1");
     session.resize(80, 24);
-    choose(&mut session, mouse, "[v Saved version]", b"v");
+    choose(&mut session, mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "local-only marker");
     session.wait_for_screen("0 results • Exact");
     enter_query(&mut session, mouse, "saved needle");
@@ -284,8 +286,8 @@ fn saved_searches(mouse: bool) {
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "[x Regex]", b"x");
-    choose(&mut session, mouse, "[v Saved version]", b"v");
+    choose(&mut session, mouse, "x Regex", b"x");
+    choose(&mut session, mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "saved.*α path:nested");
     session.wait_for_screen("1 results • Regex");
     choose(&mut session, mouse, "[z Name]", b"z");

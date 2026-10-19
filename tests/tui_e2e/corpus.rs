@@ -67,9 +67,12 @@ fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
 }
 fn search(session: &mut Session, mouse: bool) {
     choose(session, mouse, "3 Search", b"3");
-    session.wait_for_screen("[M Repositories]");
+    session.wait_for_control("[M Repositories]");
+    session.wait_for_settled_footer();
 }
 fn manage(session: &mut Session, mouse: bool) {
+    // Tokens move once a corpus read finishes; click M only in the settled bar.
+    session.wait_for_settled_footer();
     choose(session, mouse, "[M Repositories]", b"M");
     session.wait_for_screen("Manage selected repositories");
     session.wait_for_screen("REPOSITORY INTENT");
@@ -231,7 +234,7 @@ fn confirm(session: &mut Session, mouse: bool, outcome: &str) {
         session.send_key(b"\r");
     }
     session.wait_for_screen(outcome);
-    session.wait_for_screen("[M Repositories]");
+    session.wait_for_control("[M Repositories]");
     assert!(!session.screen().contains("Manage selected repositories"));
 }
 fn query(session: &mut Session, mouse: bool, input: &str) {

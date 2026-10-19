@@ -370,7 +370,7 @@ fn journey(mouse: bool) {
     command(&mut session, mouse, "Open Search");
     session.wait_for_screen("Selected local search corpus ready");
     session.assert_focused_view("Search");
-    choose(&mut session, mouse, "[e Exact]", b"e");
+    choose(&mut session, mouse, "e Exact", b"e");
     choose(&mut session, mouse, "[/ Query]", b"/");
     session.send_key(b"\x01");
     session.paste("working navigation needle");

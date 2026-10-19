@@ -134,7 +134,7 @@ fn unselected(mouse: bool) {
     drop(cache);
     let mut session = Session::launch(&fixture, 120, 40);
     start(&mut session, mouse);
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     let mut count = 29;
     enable_pr_only(&mut session, &fixture, mouse, &mut count, false);
@@ -796,7 +796,7 @@ fn first_source_receipt(mouse: bool) {
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
     start(&mut session, mouse);
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     let mut count = 0;
     enable_pr_only(&mut session, &fixture, mouse, &mut count, false);
@@ -870,14 +870,19 @@ fn first_source_receipt(mouse: bool) {
             && session.completed_cells_screen().is_some_and(|frame| {
                 let text = frame.contents();
                 crate::support::main_footer_visible(frame)
+                    // The Search actions are key-bar tokens; the blended GitHub PR source
+                    // headline below shows blending is on.
+                    && ["[Enter Search]", "[c Corpus]", "[o Open result]"]
+                        .iter()
+                        .all(|label| crate::support::locate_control(frame, label).is_some())
                     && crate::support::overlay_body(frame, "Search • focused view")
                         .is_some_and(|body| {
                             [
-                                "[e Exact]", "[x Regex]", "[n Ranked]", "[h GitHub]", "[Enter Search]",
-                                "[w Working files]", "[c Corpus]", "[b Blend GitHub: on]",
+                                "e Exact", "x Regex", "n Ranked", "h GitHub",
+                                "w Working files",
                                 "2 results • Ranked • searched source snapshot",
                                 "COMPLETE within selected scope • 1 documents across 1 repositories",
-                                "GitHub PRs • COMPLETE • 1 admitted", "[o Open result]",
+                                "GitHub PRs • COMPLETE • 1 admitted",
                             ].iter().all(|label| body.contains(label))
                                 && body.contains(&format!("[/ Query] {NEEDLE}"))
                                 && body.contains(&format!("> #7 {NEEDLE} remote parent 7"))
@@ -889,11 +894,11 @@ fn first_source_receipt(mouse: bool) {
         }
         assert!(Instant::now() < until, "NEW completed original ranked Search source/query/selected remote parent after confirmed privacy retirement\n{}", session.screen());
     }
-    choose(&mut session, mouse, "[h GitHub]", b"h");
+    choose(&mut session, mouse, "h GitHub", b"h");
     count += 4;
     publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("GitHub scope verified");
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     query(&mut session, mouse, NEEDLE);
     count += 8;
@@ -922,7 +927,7 @@ fn first_source_receipt(mouse: bool) {
         0,
         "First-source tombstone works without a prior source binding"
     );
-    choose(&mut session, mouse, "[H Search sources]", b"H");
+    choose(&mut session, mouse, "[H Sources]", b"H");
     session.wait_for_screen("Search sources • explicit read-only hydration");
     choose(&mut session, mouse, "[p PR]", b"p");
     choose(&mut session, mouse, "[v PR/issue number]", b"v");

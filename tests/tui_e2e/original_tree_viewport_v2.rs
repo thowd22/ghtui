@@ -1076,7 +1076,7 @@ fn full_queue(mouse: bool) {
     saved_root(&native, &mut session, mouse, "Chosen immutable rename");
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(&mut session, mouse, "[v Saved version]", b"v");
+    choose(&mut session, mouse, "v Saved version", b"v");
     session.wait_for_screen("Search scope changed");
     choose(&mut session, mouse, "[/ Query]", b"/");
     session.paste("future");

@@ -112,6 +112,17 @@ fn disabled_reason(app: &App) -> String {
     "Keep at least one source enabled while blending, and stay within the displayed result/page limits. This control cannot broaden the requested scope.".into()
 }
 
+/// Why the main Search key bar's `b` Blend toggle is unavailable: the same prepared control
+/// as the overlay's first row, so the bar, the overlay and the key explain alike.
+pub fn toggle_disabled(app: &App) -> Option<String> {
+    controls(app)
+        .controls(mode(app), scope_ready(app))
+        .into_iter()
+        .find(|control| control.action == BlendAction::Toggle)
+        .and_then(|control| control.disabled)
+        .map(|_| disabled_reason(app))
+}
+
 pub fn open(app: &mut App) {
     app.search_controls.editing = None;
     app.search_controls.corpus = false;
@@ -184,11 +195,11 @@ pub fn event(app: &mut App, event: &Event) -> bool {
                         app.dispatch(Action::SearchRankDetails);
                     }
                 }
-                code => {
+                _ => {
                     if let Some((index, control)) = controls
                         .iter()
                         .enumerate()
-                        .find(|(_, control)| control.shortcut == code)
+                        .find(|(_, control)| crate::footer::key_matches(&control.key, key))
                     {
                         app.focus = index;
                         dispatch(app, control.action);
@@ -261,7 +272,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         app.hits.push(HitRegion {
             rect: hit.rect,
             action: if control.action == BlendAction::Close
-                || control.enabled && !app.loading[crate::app::View::Search.index()]
+                || control.disabled.is_none() && !app.loading[crate::app::View::Search.index()]
             {
                 Action::SearchBlend(control.action)
             } else {

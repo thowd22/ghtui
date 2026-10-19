@@ -152,7 +152,7 @@ fn discovered_pr_journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(&mut session, mouse, "[h GitHub]", b"h");
+    choose(&mut session, mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
     query(&mut session, mouse, "DISCUSS type:pr");
     session.wait_for_screen("1 results • GitHub");
@@ -245,7 +245,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(&mut session, mouse, "[h GitHub]", b"h");
+    choose(&mut session, mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
     journal(&mut session, &fixture, 4);
     query(&mut session, mouse, "REMOTE type:file");
@@ -293,7 +293,13 @@ fn journey(mouse: bool) {
         .put_draft(&scope, "private-proof", "Retained private draft")
         .unwrap();
     session.resize(80, 24);
-    choose(&mut session, mouse, "[r Refresh]", b"r");
+    // At 80 columns the Search key bar keeps its own actions; the global Refresh stays on its
+    // key and in the command palette.
+    if mouse {
+        session.invoke_via_palette(true, "[r Refresh]");
+    } else {
+        session.send_key(b"r");
+    }
     session.wait_for_screen("private search hidden");
     assert!(!session.screen().contains("REMOTE LINE"));
     assert!(!session.screen().contains("日本語.rs"));
@@ -381,7 +387,7 @@ fn origin_issue_journey(mouse: bool) {
     session.wait_for_screen("Selected local search corpus ready");
     // SSH origin names the explicit mapping step instead of a dead end.
     session.wait_for_screen("origin org/app is not mapped");
-    choose(&mut session, mouse, "[h GitHub]", b"h");
+    choose(&mut session, mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
     session.wait_for_screen("GitHub remote discovery / org/app");
     session.wait_for_screen("searches outside org/app");

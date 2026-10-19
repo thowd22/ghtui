@@ -19,7 +19,7 @@ fn ranked(session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(session, mouse, "[n Ranked]", b"n");
+    choose(session, mouse, "n Ranked", b"n");
 }
 fn judged_fixture() -> Fixture {
     let fixture = Fixture::new();

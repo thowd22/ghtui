@@ -2,6 +2,7 @@
 use crate::{
     app::{safe_text, Action, App, HitRegion},
     editor::TextBuffer,
+    footer::{ControlGroup, KeyControl},
     search::{corpus::LocalSource, workspace::SearchAction, SearchMode},
     theme::SemanticToken,
 };
@@ -73,6 +74,191 @@ impl SearchControls {
     }
 }
 
+/// Why the corpus pane cannot change GitHub discovery scope.
+const GITHUB_CORPUS: &str = "GitHub repository scope comes from --repo, the selected saved repository set, the launch checkout's origin, or explicit mapped repositories; a typed repo:owner/name or org:name qualifier replaces it for that query. Provider indexing limits apply. Use Exact, Regex or Ranked to select local hidden/ignored files; remote scope is never broadened automatically.";
+/// Why GitHub mode has no working-file or saved-version source.
+const GITHUB_SOURCE: &str = "GitHub discovery searches its indexed default-branch data. Choose Exact, Regex or Ranked for local working files or saved revisions; no remote revision or regex semantics are substituted.";
+const LOADING_OPEN: &str = "Search is still loading • wait for this query before opening a result";
+const NO_RESULT: &str = "Select a result from the exact current query/source first. Saved query intent is not a result or access permit.";
+const NO_CHECKOUT: &str = "No existing checkout is listed • map one through M Repositories; nothing is cloned or fetched automatically.";
+
+fn search_mode(app: &App) -> SearchMode {
+    app.search
+        .as_ref()
+        .map_or(SearchMode::Exact, |search| search.mode)
+}
+
+/// Whether every selected repository searches its working files rather than a saved version.
+fn worktree_source(app: &App) -> bool {
+    app.search.as_ref().is_none_or(|search| {
+        search
+            .selections
+            .iter()
+            .all(|selection| selection.source == LocalSource::Worktree)
+    })
+}
+
+/// The query modes, drawn as the first tabs of the Search pane.
+pub fn mode_tabs(app: &App) -> Vec<KeyControl> {
+    let mode = search_mode(app);
+    [
+        ("e", "Exact", SearchMode::Exact),
+        ("x", "Regex", SearchMode::Regex),
+        ("n", "Ranked", SearchMode::Ranked),
+        ("h", "GitHub", SearchMode::GitHub),
+    ]
+    .into_iter()
+    .map(|(key, label, value)| {
+        KeyControl::new(key, label, Action::Search(SearchAction::Mode(value)))
+            .in_group(ControlGroup::Mode)
+            .with_selected(mode == value)
+    })
+    .collect()
+}
+
+/// The local source choice, drawn after the mode tabs. GitHub discovery has no local source,
+/// so both tabs dim there and explain why.
+pub fn source_tabs(app: &App) -> Vec<KeyControl> {
+    let remote = search_mode(app) == SearchMode::GitHub;
+    let worktree = worktree_source(app);
+    let reason = remote.then(|| GITHUB_SOURCE.to_owned());
+    vec![
+        KeyControl::new("w", "Working files", Action::Search(SearchAction::Worktree))
+            .in_group(ControlGroup::Mode)
+            .with_selected(worktree && !remote)
+            .disabled_by(reason.clone()),
+        KeyControl::new(
+            "v",
+            "Saved version",
+            Action::Search(SearchAction::SavedVersion),
+        )
+        .in_group(ControlGroup::Mode)
+        .with_selected(!worktree && !remote)
+        .disabled_by(reason),
+    ]
+}
+
+/// The Search key bar, most important first, after its Mode tabs (which [`crate::footer`]
+/// leaves to the tab strip). `/ Query`, `d Revision` and `z Name` stay labelled input fields
+/// and selection keys stay in [`handle_event`]. At 80 columns the bar keeps Search, Open,
+/// Repositories and Sources (Corpus instead of Open before a result); the rest stay on their
+/// keys, in Help and in the palette.
+pub fn footer_keys(app: &App) -> Vec<KeyControl> {
+    let corpus = app.search_controls.corpus;
+    let remote = search_mode(app) == SearchMode::GitHub;
+    let loading = app.loading[crate::app::View::Search.index()];
+    let mut keys = mode_tabs(app);
+    keys.extend(source_tabs(app));
+    if corpus {
+        let flag = |value: bool| if value { "on" } else { "off" };
+        let limits = app.search.as_ref().map(|search| &search.corpus_limits);
+        let hidden = limits.is_some_and(|limits| limits.include_hidden);
+        let ignored = limits.is_some_and(|limits| limits.include_ignored);
+        let current = app.search.as_ref().and_then(|search| {
+            search
+                .available_selections
+                .get(app.search_controls.corpus_index)
+                .map(|selection| selection.repository.clone())
+        });
+        keys.push(
+            KeyControl::new(
+                "Enter",
+                "Toggle",
+                Action::Search(SearchAction::ToggleRepository(
+                    current.clone().unwrap_or_default(),
+                )),
+            )
+            .with_priority(5)
+            .disabled_by(current.is_none().then(|| NO_CHECKOUT.to_owned())),
+        );
+        keys.push(
+            KeyControl::new(
+                "b",
+                format!("Hidden files: {}", flag(hidden)),
+                Action::Search(SearchAction::ToggleHidden),
+            )
+            .with_compact(format!("Hidden: {}", flag(hidden)))
+            .with_priority(10)
+            .with_selected(hidden),
+        );
+        keys.push(
+            KeyControl::new(
+                "i",
+                format!("Ignored files: {}", flag(ignored)),
+                Action::Search(SearchAction::ToggleIgnored),
+            )
+            .with_compact(format!("Ignored: {}", flag(ignored)))
+            .with_priority(12)
+            .with_selected(ignored),
+        );
+    } else {
+        keys.push(
+            KeyControl::new("Enter", "Search", Action::Search(SearchAction::Submit))
+                .with_priority(5),
+        );
+    }
+    let has_result = app
+        .search
+        .as_ref()
+        .and_then(|search| search.page.as_ref())
+        .is_some_and(|page| page.hits.get(app.search_controls.selected).is_some());
+    keys.push(
+        KeyControl::new(
+            "o",
+            "Open result",
+            Action::Search(SearchAction::Open(app.search_controls.selected)),
+        )
+        .with_priority(10)
+        .disabled_by(if loading {
+            Some(LOADING_OPEN.to_owned())
+        } else {
+            (!has_result).then(|| NO_RESULT.to_owned())
+        }),
+    );
+    // While the corpus pane is open, `c` is how it closes, so it outranks everything else.
+    keys.push(
+        KeyControl::new("c", "Corpus", Action::Search(SearchAction::Corpus))
+            .with_priority(if corpus { 8 } else { 20 })
+            .with_selected(corpus)
+            .disabled_by((remote && !corpus).then(|| GITHUB_CORPUS.to_owned())),
+    );
+    keys.push(KeyControl::new("M", "Repositories", Action::Corpus).with_priority(15));
+    keys.push(
+        KeyControl::new("f", "Save query", Action::Search(SearchAction::Save)).with_priority(35),
+    );
+    keys.push(
+        KeyControl::new(
+            "H",
+            "Sources",
+            Action::SearchSource(crate::search_sources::SourceAction::Open),
+        )
+        .with_priority(18),
+    );
+    keys.push(
+        KeyControl::new("B", "Blend", Action::Search(SearchAction::BlendControls))
+            .with_priority(45),
+    );
+    if !corpus {
+        let enabled = app
+            .search
+            .as_ref()
+            .is_some_and(|search| search.blend_policy.enabled);
+        let state = if enabled { "on" } else { "off" };
+        keys.push(
+            KeyControl::new(
+                "b",
+                format!("Blend GitHub: {state}"),
+                Action::SearchBlend(crate::search::fusion::ui::BlendAction::Toggle),
+            )
+            .with_compact(format!("GitHub: {state}"))
+            .with_priority(55)
+            .with_selected(enabled)
+            .disabled_by(crate::search_blend::toggle_disabled(app)),
+        );
+    }
+    keys
+}
+
 pub fn dispatch(app: &mut App, action: SearchAction) {
     use SearchAction::*;
     match &action {
@@ -82,12 +268,9 @@ pub fn dispatch(app: &mut App, action: SearchAction) {
         Revision => app.search_controls.editing = Some(SearchField::Revision),
         Name => app.search_controls.editing = Some(SearchField::Name),
         Corpus => {
-            if app
-                .search
-                .as_ref()
-                .is_some_and(|search| search.mode == SearchMode::GitHub)
-            {
-                app.dispatch(Action::Explain("GitHub repository scope comes from --repo, the selected saved repository set, the launch checkout's origin, or explicit mapped repositories; a typed repo:owner/name or org:name qualifier replaces it for that query. Provider indexing limits apply. Use Exact, Regex or Ranked to select local hidden/ignored files; remote scope is never broadened automatically.".into()));
+            // Closing an open corpus pane is always allowed; only opening it is local-only.
+            if !app.search_controls.corpus && search_mode(app) == SearchMode::GitHub {
+                app.dispatch(Action::Explain(GITHUB_CORPUS.into()));
                 return;
             }
             app.search_controls.corpus = !app.search_controls.corpus;
@@ -126,7 +309,7 @@ pub fn dispatch(app: &mut App, action: SearchAction) {
                 .as_ref()
                 .is_some_and(|search| search.mode == SearchMode::GitHub)
             {
-                app.dispatch(Action::Explain("GitHub discovery searches its indexed default-branch data. Choose Exact, Regex or Ranked for local working files or saved revisions; no remote revision or regex semantics are substituted.".into()));
+                app.dispatch(Action::Explain(GITHUB_SOURCE.into()));
                 return;
             }
             if let Some(search) = &mut app.search {
@@ -176,8 +359,7 @@ pub fn dispatch(app: &mut App, action: SearchAction) {
             reset_results(app);
         }
         Open(_) if app.loading[crate::app::View::Search.index()] => {
-            app.status =
-                "Search is still loading • wait for this query before opening a result".into();
+            app.status = LOADING_OPEN.into();
         }
         Submit | Saved(_) => {
             // An old hit count is not the result of the newly entered query.
@@ -362,25 +544,13 @@ pub fn handle_event(app: &mut App, event: &Event) -> bool {
     if key.kind == KeyEventKind::Release {
         return true;
     }
-    if key.code == KeyCode::Char('M') {
-        app.dispatch(Action::Corpus);
-        return true;
-    }
-    if key.code == KeyCode::Char('H') {
-        app.dispatch(Action::SearchSource(
-            crate::search_sources::SourceAction::Open,
-        ));
-        return true;
-    }
-    if key.code == KeyCode::Char('B') {
-        app.dispatch(Action::Search(SearchAction::BlendControls));
-        return true;
-    }
-    if key.code == KeyCode::Char('b') && !app.search_controls.corpus {
-        app.dispatch(Action::SearchBlend(
-            crate::search::fusion::ui::BlendAction::Toggle,
-        ));
-        return true;
+    // Every painted control (key bar and tabs) answers through its one declaration, and a
+    // disabled one explains itself. Enter keeps activating the focused control or row.
+    if key.code != KeyCode::Enter {
+        if let Some(action) = crate::footer::resolve_key(&footer_keys(app), *key) {
+            app.dispatch(action);
+            return true;
+        }
     }
     let action = match key.code {
         KeyCode::Down if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -390,25 +560,14 @@ pub fn handle_event(app: &mut App, event: &Event) -> bool {
             Some(SearchAction::PreviewScroll(-3))
         }
         KeyCode::Char('/') => Some(SearchAction::Query),
-        KeyCode::Char('e') => Some(SearchAction::Mode(SearchMode::Exact)),
-        KeyCode::Char('x') => Some(SearchAction::Mode(SearchMode::Regex)),
-        KeyCode::Char('n') => Some(SearchAction::Mode(SearchMode::Ranked)),
-        KeyCode::Char('h') => Some(SearchAction::Mode(SearchMode::GitHub)),
-        KeyCode::Char('w') => Some(SearchAction::Worktree),
-        KeyCode::Char('v') => Some(SearchAction::SavedVersion),
         KeyCode::Char('d') => Some(SearchAction::Revision),
         KeyCode::Char('z') => Some(SearchAction::Name),
-        KeyCode::Char('f') => Some(SearchAction::Save),
-        KeyCode::Char('c') => Some(SearchAction::Corpus),
-        KeyCode::Char('i') if app.search_controls.corpus => Some(SearchAction::ToggleIgnored),
-        KeyCode::Char('b') if app.search_controls.corpus => Some(SearchAction::ToggleHidden),
         KeyCode::Char('u') => app
             .search
             .as_ref()
             .and_then(|search| search.saved.first())
             .map(|saved| SearchAction::Saved(saved.name.clone())),
         KeyCode::Char('p') => Some(SearchAction::Preview(app.search_controls.selected)),
-        KeyCode::Char('o') => Some(SearchAction::Open(app.search_controls.selected)),
         KeyCode::Enter if app.search_controls.corpus => app
             .search
             .as_ref()
@@ -558,187 +717,21 @@ fn field(
         }
     }
 }
+/// Display width of a tab strip drawn by [`crate::ui_chrome::tab_strip`]: ` key label ` per
+/// tab plus one gap column after each.
+fn tab_strip_width(controls: &[KeyControl]) -> u16 {
+    controls
+        .iter()
+        .map(|control| {
+            crate::editor::display_width(&format!(" {} {} ", control.key, control.label)) + 1
+        })
+        .sum::<usize>()
+        .min(usize::from(u16::MAX)) as u16
+}
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Clear, area);
     app.search_controls.fields.clear();
     app.search_controls.preview_rect = Rect::default();
-    if area.height < 7 {
-        frame.render_widget(Paragraph::new("Resize terminal for search controls"), area);
-        return;
-    }
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(1),
-    ])
-    .split(area);
-    let mode = app
-        .search
-        .as_ref()
-        .map_or(SearchMode::Exact, |search| search.mode);
-    let mut x = rows[0].x;
-    for (mode_value, label) in [
-        (SearchMode::Exact, "[e Exact]"),
-        (SearchMode::Regex, "[x Regex]"),
-        (SearchMode::Ranked, "[n Ranked]"),
-        (SearchMode::GitHub, "[h GitHub]"),
-    ] {
-        let width = (label.len() as u16 + 1).min(rows[0].right().saturating_sub(x));
-        button(
-            frame,
-            app,
-            Rect::new(x, rows[0].y, width, 1),
-            label,
-            SearchAction::Mode(mode_value),
-            mode == mode_value,
-        );
-        x += width;
-    }
-    button(
-        frame,
-        app,
-        Rect::new(x, rows[0].y, 14.min(rows[0].right().saturating_sub(x)), 1),
-        "[Enter Search]",
-        SearchAction::Submit,
-        false,
-    );
-    // Keep saved-query names on their original row. The mode toolbar has room
-    // for this control even at80 columns; adding it beside saved queries would
-    // hide their full labels and mouse targets after restart.
-    button(
-        frame,
-        app,
-        Rect::new(
-            x.saturating_add(15),
-            rows[0].y,
-            19.min(rows[0].right().saturating_sub(x.saturating_add(15))),
-            1,
-        ),
-        "[B Blend controls]",
-        SearchAction::BlendControls,
-        false,
-    );
-    let worktree = app.search.as_ref().is_none_or(|search| {
-        search
-            .selections
-            .iter()
-            .all(|selection| selection.source == LocalSource::Worktree)
-    });
-    let remote = mode == SearchMode::GitHub;
-    for (start, width, label, action, active) in [
-        (
-            0,
-            19,
-            if remote {
-                "[w Indexed GitHub]"
-            } else {
-                "[w Working files]"
-            },
-            SearchAction::Worktree,
-            worktree && !remote,
-        ),
-        (
-            19,
-            18,
-            if remote {
-                "[v Revision: n/a]"
-            } else {
-                "[v Saved version]"
-            },
-            SearchAction::SavedVersion,
-            !worktree && !remote,
-        ),
-        (
-            37,
-            12,
-            "[c Corpus]",
-            SearchAction::Corpus,
-            app.search_controls.corpus,
-        ),
-    ] {
-        button(
-            frame,
-            app,
-            Rect::new(
-                rows[1].x + start.min(rows[1].width),
-                rows[1].y,
-                width.min(rows[1].width.saturating_sub(start)),
-                1,
-            ),
-            label,
-            action,
-            active,
-        );
-    }
-    let blend_label = format!(
-        "[b Blend GitHub: {}]",
-        if app
-            .search
-            .as_ref()
-            .is_some_and(|search| search.blend_policy.enabled)
-        {
-            "on"
-        } else {
-            "off"
-        }
-    );
-    let blend_rect = Rect::new(
-        rows[1].x + 50.min(rows[1].width),
-        rows[1].y,
-        (blend_label.len() as u16).min(rows[1].width.saturating_sub(50)),
-        1,
-    );
-    if !blend_rect.is_empty() {
-        frame.render_widget(
-            Paragraph::new(blend_label).style(if app.focus == app.hits.len() {
-                app.theme().style(SemanticToken::Focus)
-            } else {
-                app.theme().base()
-            }),
-            blend_rect,
-        );
-        app.hits.push(HitRegion {
-            rect: blend_rect,
-            action: Action::SearchBlend(crate::search::fusion::ui::BlendAction::Toggle),
-        });
-    }
-    field(
-        frame,
-        app,
-        rows[2],
-        "[/ Query] ",
-        SearchField::Query,
-        SearchAction::Query,
-    );
-    field(
-        frame,
-        app,
-        rows[3],
-        "[d Revision] ",
-        SearchField::Revision,
-        SearchAction::Revision,
-    );
-    let name_area = Rect::new(rows[4].x, rows[4].y, rows[4].width.saturating_sub(16), 1);
-    field(
-        frame,
-        app,
-        name_area,
-        "[z Name] ",
-        SearchField::Name,
-        SearchAction::Name,
-    );
-    button(
-        frame,
-        app,
-        Rect::new(name_area.right(), rows[4].y, 16.min(rows[4].width), 1),
-        "[f Save query]",
-        SearchAction::Save,
-        false,
-    );
     let saved = app.search.as_ref().map_or_else(Vec::new, |search| {
         search
             .saved
@@ -746,62 +739,99 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .map(|saved| saved.name.clone())
             .collect::<Vec<_>>()
     });
-    let corpus_button = Rect::new(rows[5].x, rows[5].y, 18.min(rows[5].width), 1);
-    let focused = app.focus == app.hits.len();
-    frame.render_widget(
-        Paragraph::new("[M Repositories]").style(if focused {
-            app.theme().style(SemanticToken::Focus)
-        } else {
-            app.theme().base()
-        }),
-        corpus_button,
-    );
-    if !corpus_button.is_empty() {
-        app.hits.push(HitRegion {
-            rect: corpus_button,
-            action: Action::Corpus,
-        });
+    let saved_rows = u16::from(!saved.is_empty());
+    if area.height < 4 + saved_rows {
+        frame.render_widget(Paragraph::new("Resize terminal for search controls"), area);
+        return;
     }
-    let source_button = Rect::new(
-        corpus_button.right(),
-        rows[5].y,
-        20.min(rows[5].right().saturating_sub(corpus_button.right())),
-        1,
-    );
-    frame.render_widget(
-        Paragraph::new("[H Search sources]").style(if app.focus == app.hits.len() {
-            app.theme().style(SemanticToken::Focus)
-        } else {
-            app.theme().base()
-        }),
-        source_button,
-    );
-    if !source_button.is_empty() {
-        app.hits.push(HitRegion {
-            rect: source_button,
-            action: Action::SearchSource(crate::search_sources::SourceAction::Open),
-        });
-    }
-    let mut x = source_button.right();
-    for (index, name) in saved.into_iter().enumerate() {
-        let label = format!(
-            "[{} {}] ",
-            if index == 0 { "u" } else { "saved" },
-            safe_text(&name)
+    // Tabs, the query, revision and name inputs, then saved queries when there are any. Every
+    // other Search action is a key-bar token (see `footer_keys`).
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(saved_rows),
+        Constraint::Min(1),
+    ])
+    .split(area);
+    let mode = search_mode(app);
+    let modes = mode_tabs(app);
+    crate::ui_chrome::tab_strip(frame, app, rows[0], &modes);
+    // The source tabs follow in the last gap column, behind a divider.
+    let divider = rows[0].x + tab_strip_width(&modes).saturating_sub(1);
+    if divider < rows[0].right() {
+        frame.render_widget(
+            Paragraph::new("│").style(app.theme().role(crate::theme::Role::Border)),
+            Rect::new(divider, rows[0].y, 1, 1),
         );
-        let width = (ratatui::text::Line::from(label.as_str()).width() as u16)
-            .min(rows[5].right().saturating_sub(x));
-        button(
+        crate::ui_chrome::tab_strip(
             frame,
             app,
-            Rect::new(x, rows[5].y, width, 1),
-            label,
-            SearchAction::Saved(name),
-            false,
+            Rect::new(divider + 1, rows[0].y, rows[0].right() - divider - 1, 1),
+            &source_tabs(app),
         );
-        x += width;
     }
-    let body = rows[6];
+    field(
+        frame,
+        app,
+        rows[1],
+        "[/ Query] ",
+        SearchField::Query,
+        SearchAction::Query,
+    );
+    let revision_width = rows[2].width / 2;
+    field(
+        frame,
+        app,
+        Rect::new(rows[2].x, rows[2].y, revision_width.saturating_sub(1), 1),
+        "[d Revision] ",
+        SearchField::Revision,
+        SearchAction::Revision,
+    );
+    field(
+        frame,
+        app,
+        Rect::new(
+            rows[2].x + revision_width,
+            rows[2].y,
+            rows[2].width - revision_width,
+            1,
+        ),
+        "[z Name] ",
+        SearchField::Name,
+        SearchAction::Name,
+    );
+    if saved_rows > 0 {
+        let lead = "Saved ";
+        let lead_width = (lead.len() as u16).min(rows[3].width);
+        frame.render_widget(
+            Paragraph::new(lead).style(app.theme().role(crate::theme::Role::TextMuted)),
+            Rect::new(rows[3].x, rows[3].y, lead_width, 1),
+        );
+        let mut x = rows[3].x + lead_width;
+        for (index, name) in saved.into_iter().enumerate() {
+            let label = format!(
+                "[{} {}]",
+                if index == 0 { "u" } else { "saved" },
+                safe_text(&name)
+            );
+            let width = crate::editor::display_width(&label).min(usize::from(u16::MAX)) as u16;
+            // A saved query is shown whole or not at all, so its click target is never cut.
+            if x.saturating_add(width) > rows[3].right() {
+                break;
+            }
+            button(
+                frame,
+                app,
+                Rect::new(x, rows[3].y, width, 1),
+                label,
+                SearchAction::Saved(name),
+                false,
+            );
+            x += width + 1;
+        }
+    }
+    let body = rows[4];
     if app.search_controls.corpus {
         draw_corpus(frame, app, body);
         return;
@@ -1061,23 +1091,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 1.min(inner.height.saturating_sub(1 + actor_rows)),
             ),
         );
-        button(
-            frame,
-            app,
-            Rect::new(
-                inner.x,
-                inner.y + 2 + actor_rows,
-                16.min(inner.width),
-                1.min(inner.height.saturating_sub(2 + actor_rows)),
-            ),
-            "[o Open result]",
-            SearchAction::Open(app.search_controls.selected),
-            false,
-        );
+        // Opening the result is the key bar's `o Open result`; the preview keeps its scroll.
         let more = Rect::new(
-            inner.x + 17.min(inner.width),
+            inner.x,
             inner.y + 2 + actor_rows,
-            20.min(inner.width.saturating_sub(17)),
+            12.min(inner.width),
             1.min(inner.height.saturating_sub(2 + actor_rows)),
         );
         button(
@@ -1089,9 +1107,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             false,
         );
         let back = Rect::new(
-            inner.x + 38.min(inner.width),
+            inner.x + 13.min(inner.width),
             inner.y + 2 + actor_rows,
-            20.min(inner.width.saturating_sub(38)),
+            12.min(inner.width.saturating_sub(13)),
             1.min(inner.height.saturating_sub(2 + actor_rows)),
         );
         button(
@@ -1181,37 +1199,19 @@ fn draw_corpus(frame: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|selection| selection.repository.clone())
         .collect::<Vec<_>>();
-    button(
-        frame,
-        app,
-        Rect::new(area.x, area.y, 25.min(area.width), 1),
-        format!("[b Hidden files: {hidden}]"),
-        SearchAction::ToggleHidden,
-        hidden,
-    );
-    button(
-        frame,
-        app,
-        Rect::new(
-            area.x + 26.min(area.width),
-            area.y,
-            27.min(area.width.saturating_sub(26)),
-            1,
-        ),
-        format!("[i Ignored files: {ignored}]"),
-        SearchAction::ToggleIgnored,
-        ignored,
-    );
+    // The b/i toggles are key-bar tokens; this line keeps their state readable when the
+    // bar is narrow.
+    let flag = |value: bool| if value { "on" } else { "off" };
     frame.render_widget(
-        Paragraph::new("Selected existing checkouts only • no automatic clone/fetch"),
-        Rect::new(
-            area.x,
-            area.y + 1,
-            area.width,
-            1.min(area.height.saturating_sub(1)),
-        ),
+        Paragraph::new(format!(
+            "Selected existing checkouts only • no automatic clone/fetch • Hidden files: {} • Ignored files: {}",
+            flag(hidden),
+            flag(ignored)
+        ))
+        .style(app.theme().role(crate::theme::Role::TextMuted)),
+        Rect::new(area.x, area.y, area.width, 1.min(area.height)),
     );
-    let visible = area.height.saturating_sub(2) as usize;
+    let visible = area.height.saturating_sub(1) as usize;
     let first = app
         .search_controls
         .corpus_index
@@ -1226,7 +1226,7 @@ fn draw_corpus(frame: &mut Frame, app: &mut App, area: Rect) {
         button(
             frame,
             app,
-            Rect::new(area.x, area.y + 2 + offset as u16, area.width, 1),
+            Rect::new(area.x, area.y + 1 + offset as u16, area.width, 1),
             format!(
                 "{} [{}] {} • {}",
                 if index == app.search_controls.corpus_index {
@@ -1256,6 +1256,7 @@ mod tests {
         storage::Scope,
     };
     use crossterm::event::KeyEvent;
+    use ratatui::{backend::TestBackend, Terminal};
     #[test]
     fn query_modes_input_keeps_unicode_literals_and_shared_scope_actions() {
         let mut app = App {
@@ -1296,5 +1297,235 @@ mod tests {
         )));
         assert!(app.search.as_ref().unwrap().selections.is_empty());
         assert_eq!(app.search.as_ref().unwrap().available_selections.len(), 1);
+    }
+
+    fn search_app() -> App {
+        App {
+            view: crate::app::View::Search,
+            search: Some(SearchWorkspace::new(
+                Scope::new("local", "workspace").unwrap(),
+                vec![RepositorySelection {
+                    repository: "local/current".into(),
+                    directory: "/tmp/example".into(),
+                    source: LocalSource::Worktree,
+                    sets: vec![],
+                }],
+            )),
+            ..App::default()
+        }
+    }
+    fn placed_tokens(app: &App, width: u16) -> Vec<String> {
+        let controls = crate::footer::main_controls(app);
+        crate::footer::layout(&controls, width)
+            .into_iter()
+            .map(|placed| controls[placed.index].token(placed.compact))
+            .collect()
+    }
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn design_footer_v90_search_bar_keeps_priorities_at_140_and_80_columns() {
+        let app = search_app();
+        assert_eq!(
+            placed_tokens(&app, 140),
+            [
+                "Enter Search",
+                "c Corpus",
+                "M Repositories",
+                "f Save query",
+                "H Sources",
+                "B Blend",
+                "r Refresh",
+                "s Settings",
+                "? Help",
+                ": Commands",
+                "q Quit"
+            ]
+        );
+        assert_eq!(
+            placed_tokens(&app, 120),
+            [
+                "Enter Search",
+                "c Corpus",
+                "M Repositories",
+                "f Save query",
+                "H Sources",
+                "B Blend",
+                "r Refresh",
+                "? Help",
+                ": Commands",
+                "q Quit"
+            ]
+        );
+        // Mode and source tabs never enter the bar; Open (no result yet) and the Exact-mode
+        // Blend toggle are disabled, so they leave it too.
+        assert_eq!(
+            placed_tokens(&app, 80),
+            [
+                "Enter Search",
+                "c Corpus",
+                "M Repositories",
+                "H Sources",
+                "? Help",
+                ": Cmds",
+                "q Quit"
+            ]
+        );
+    }
+
+    #[test]
+    fn design_footer_v90_search_keys_resolve_like_their_tokens_and_disabled_keys_explain() {
+        let mut app = search_app();
+        let keys = footer_keys(&app);
+        for (code, expected) in [
+            (
+                KeyCode::Char('n'),
+                Action::Search(SearchAction::Mode(SearchMode::Ranked)),
+            ),
+            (KeyCode::Char('w'), Action::Search(SearchAction::Worktree)),
+            (
+                KeyCode::Char('v'),
+                Action::Search(SearchAction::SavedVersion),
+            ),
+            (KeyCode::Char('c'), Action::Search(SearchAction::Corpus)),
+            (KeyCode::Char('M'), Action::Corpus),
+            (KeyCode::Char('f'), Action::Search(SearchAction::Save)),
+            (
+                KeyCode::Char('H'),
+                Action::SearchSource(crate::search_sources::SourceAction::Open),
+            ),
+            (
+                KeyCode::Char('B'),
+                Action::Search(SearchAction::BlendControls),
+            ),
+            (KeyCode::Enter, Action::Search(SearchAction::Submit)),
+        ] {
+            assert_eq!(crate::footer::resolve_key(&keys, key(code)), Some(expected));
+        }
+        assert_eq!(
+            crate::footer::resolve_key(&keys, key(KeyCode::Char('o'))),
+            Some(Action::Explain(NO_RESULT.into()))
+        );
+        assert!(matches!(
+            crate::footer::resolve_key(&keys, key(KeyCode::Char('b'))),
+            Some(Action::Explain(reason)) if reason.contains("Ranked-only")
+        ));
+        // GitHub discovery has no local source or corpus: the tabs dim and explain.
+        app.dispatch(Action::Search(SearchAction::Mode(SearchMode::GitHub)));
+        let keys = footer_keys(&app);
+        for code in [KeyCode::Char('w'), KeyCode::Char('v')] {
+            assert_eq!(
+                crate::footer::resolve_key(&keys, key(code)),
+                Some(Action::Explain(GITHUB_SOURCE.into()))
+            );
+        }
+        assert_eq!(
+            crate::footer::resolve_key(&keys, key(KeyCode::Char('c'))),
+            Some(Action::Explain(GITHUB_CORPUS.into()))
+        );
+        assert!(!placed_tokens(&app, 140).contains(&"c Corpus".to_owned()));
+    }
+
+    #[test]
+    fn design_footer_v90_search_corpus_keys_change_with_the_pane_and_handle_event_dispatches() {
+        let mut app = search_app();
+        assert!(handle_event(&mut app, &Event::Key(key(KeyCode::Char('c')))));
+        assert!(app.search_controls.corpus);
+        assert_eq!(
+            &placed_tokens(&app, 140)[..4],
+            [
+                "Enter Toggle",
+                "b Hidden files: off",
+                "i Ignored files: off",
+                "c Corpus"
+            ]
+        );
+        assert!(placed_tokens(&app, 80).contains(&"b Hidden: off".to_owned()));
+        assert!(handle_event(&mut app, &Event::Key(key(KeyCode::Char('b')))));
+        assert!(app.search.as_ref().unwrap().corpus_limits.include_hidden);
+        assert!(placed_tokens(&app, 140).contains(&"b Hidden files: on".to_owned()));
+        assert!(handle_event(&mut app, &Event::Key(key(KeyCode::Char('i')))));
+        assert!(app.search.as_ref().unwrap().corpus_limits.include_ignored);
+        assert!(handle_event(&mut app, &Event::Key(key(KeyCode::Enter))));
+        assert!(app.search.as_ref().unwrap().selections.is_empty());
+        assert!(handle_event(&mut app, &Event::Key(key(KeyCode::Char('c')))));
+        assert!(!app.search_controls.corpus);
+        assert!(handle_event(&mut app, &Event::Key(key(KeyCode::Char('M')))));
+        assert!(app.corpus_requested);
+        // Ctrl never triggers a plain-letter control.
+        app.corpus_requested = false;
+        handle_event(
+            &mut app,
+            &Event::Key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::CONTROL)),
+        );
+        assert!(!app.corpus_requested);
+    }
+
+    #[test]
+    fn design_footer_v90_search_pane_drops_toolbar_rows_and_registers_tab_and_footer_hits() {
+        for (width, height) in [(140, 42), (80, 24)] {
+            let mut app = search_app();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    draw(frame, &mut app, Rect::new(0, 0, width, height - 1));
+                    let controls = crate::footer::main_controls(&app);
+                    crate::footer::draw(
+                        frame,
+                        &mut app,
+                        Rect::new(0, height - 1, width, 1),
+                        &controls,
+                    );
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let row = |y: u16| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            };
+            assert!(
+                row(0).starts_with(
+                    " e Exact   x Regex   n Ranked   h GitHub │ w Working files   v Saved version "
+                ),
+                "{}",
+                row(0)
+            );
+            assert!(row(1).starts_with("[/ Query] "));
+            assert!(row(2).starts_with("[d Revision] ") && row(2).contains("[z Name] "));
+            assert!(
+                row(3).starts_with("Exact mode • enter a query, then Search."),
+                "{}",
+                row(3)
+            );
+            let screen = (0..height).map(row).collect::<Vec<_>>().join("\n");
+            for gone in [
+                "[Enter Search]",
+                "[B Blend controls]",
+                "[M Repositories]",
+                "[c Corpus]",
+                "[o Open result]",
+            ] {
+                assert!(!screen.contains(gone), "{gone}\n{screen}");
+            }
+            assert!(row(height - 1).starts_with(" Enter Search  c Corpus  M Repositories  "));
+            // Tabs click to the same action their key resolves to; footer hits come last.
+            let ranked = app
+                .hits
+                .iter()
+                .find(|hit| hit.action == Action::Search(SearchAction::Mode(SearchMode::Ranked)))
+                .unwrap();
+            assert_eq!(ranked.rect.y, 0);
+            let last = app.hits.last().unwrap();
+            assert_eq!((last.rect.y, &last.action), (height - 1, &Action::Quit));
+            let corpus = app
+                .hits
+                .iter()
+                .find(|hit| hit.action == Action::Search(SearchAction::Corpus))
+                .unwrap();
+            assert_eq!(corpus.rect.y, height - 1);
+        }
     }
 }

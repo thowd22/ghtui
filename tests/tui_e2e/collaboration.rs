@@ -26,8 +26,17 @@ fn query(session: &mut Session, mouse: bool, input: &str, expected: &str) {
     choose(session, mouse, "[Enter Search]", b"\r");
     session.wait_for_screen(expected);
 }
+/// `f Save query` leaves the 80-column Search key bar; Enter in the Name field and the
+/// palette's save entry run the same Save action.
+fn save_query_at_80(session: &mut Session, mouse: bool) {
+    if mouse {
+        session.invoke_via_palette(true, "Save current search intent");
+    } else {
+        session.send_key(b"\r");
+    }
+}
 fn sources(session: &mut Session, mouse: bool) {
-    choose(session, mouse, "[H Search sources]", b"H");
+    choose(session, mouse, "[H Sources]", b"H");
     session.wait_for_screen("Search sources • explicit read-only hydration");
 }
 fn open_search(session: &mut Session, mouse: bool) {
@@ -36,7 +45,7 @@ fn open_search(session: &mut Session, mouse: bool) {
     // Controls exist in the loading shell too; wait for the prepared corpus so
     // opening the source editor can choose the actual configured repository.
     session.wait_for_screen("Selected local search corpus ready");
-    session.wait_for_screen("[H Search sources]");
+    session.wait_for_control("[H Sources]");
 }
 fn source_field(session: &mut Session, mouse: bool, label: &str, value: &str) {
     session.wait_for_screen(label);
@@ -69,7 +78,7 @@ fn source_field(session: &mut Session, mouse: bool, label: &str, value: &str) {
 }
 fn close_sources(session: &mut Session, mouse: bool) {
     choose(session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("[H Search sources]");
+    session.wait_for_control("[H Sources]");
 }
 fn saved_sources(fixture: &Fixture) -> Value {
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
@@ -158,7 +167,7 @@ fn local_commit(mouse: bool) {
         "CommitOnlyNeedle type:commit",
         "1 results • Exact",
     );
-    choose(&mut session, mouse, "[x Regex]", b"x");
+    choose(&mut session, mouse, "x Regex", b"x");
     query(
         &mut session,
         mouse,
@@ -166,7 +175,7 @@ fn local_commit(mouse: bool) {
         "1 results • Regex",
     );
     session.resize(80, 24);
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     query(
         &mut session,
         mouse,
@@ -189,11 +198,11 @@ fn local_commit(mouse: bool) {
     session.wait_for_screen("ExactMessageTail 日本語");
     choose(&mut session, mouse, "[PgUp Previous]", b"\x1b[5~");
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("[H Search sources]");
+    session.wait_for_control("[H Sources]");
     choose(&mut session, mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("original message scope");
-    choose(&mut session, mouse, "[f Save query]", b"\r");
+    save_query_at_80(&mut session, mouse);
     session.wait_for_screen("Saved query: original message scope");
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
     let view = cache
@@ -362,7 +371,7 @@ fn context(session: &mut Session, mouse: bool, expected: &[&str]) {
         session.wait_for_screen(text);
     }
     choose(session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("[H Search sources]");
+    session.wait_for_control("[H Sources]");
 }
 
 #[test]
@@ -505,7 +514,7 @@ fn pr_sources(mouse: bool) {
         "ReviewOnlyNeedle",
         "0 results • Exact",
     );
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     private_query(
         &mut session,
         &fixture,
@@ -516,13 +525,13 @@ fn pr_sources(mouse: bool) {
     choose(&mut session, mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("private discussion scope");
-    choose(&mut session, mouse, "[f Save query]", b"\r");
+    save_query_at_80(&mut session, mouse);
     session.wait_for_screen("Saved query: private discussion scope");
     let mut restarted = session.restart_with_same_cache(&fixture, 80, 24);
     // The loading shell already paints the mode controls; choosing GitHub
     // before the prepared corpus lands is superseded by its ready status.
     open_search(&mut restarted, mouse);
-    choose(&mut restarted, mouse, "[h GitHub]", b"h");
+    choose(&mut restarted, mouse, "h GitHub", b"h");
     restarted.wait_for_screen("GitHub scope verified");
     restarted.wait_for_screen("[u private discussion scope]");
     choose(&mut restarted, mouse, "[u private discussion scope]", b"u");
@@ -746,7 +755,7 @@ fn revoked_source(mouse: bool) {
         "RevokedPrivateOnlyNeedle",
         "1 results • Exact",
     );
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     private_query(
         &mut session,
         &fixture,
@@ -788,7 +797,7 @@ fn revoked_source(mouse: bool) {
     drop(cache);
     close_sources(&mut session, mouse);
     denied_private_query(&mut session, &fixture, mouse, "RevokedPrivateOnlyNeedle");
-    choose(&mut session, mouse, "[e Exact]", b"e");
+    choose(&mut session, mouse, "e Exact", b"e");
     denied_private_query(&mut session, &fixture, mouse, "RevokedPrivateOnlyNeedle");
     assert!(
         !session
@@ -869,9 +878,9 @@ fn account_switch(mouse: bool) {
     session.wait_for_screen("Source account unavailable");
     assert!(!session.screen().contains("Search sources • explicit"));
     assert!(!session.screen().contains("PriorPrincipalOnlyNeedle"));
-    choose(&mut session, mouse, "[h GitHub]", b"h");
+    choose(&mut session, mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
-    choose(&mut session, mouse, "[e Exact]", b"e");
+    choose(&mut session, mouse, "e Exact", b"e");
     private_query_reads(
         &mut session,
         &fixture,
@@ -966,7 +975,7 @@ fn unavailable_source(mouse: bool) {
     session.wait_for_screen("Loaded 2 cached discussion records");
     let targets = private_sources(&fixture).discussions;
     close_sources(&mut session, mouse);
-    choose(&mut session, mouse, "[n Ranked]", b"n");
+    choose(&mut session, mouse, "n Ranked", b"n");
     private_query(
         &mut session,
         &fixture,

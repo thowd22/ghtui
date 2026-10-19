@@ -1409,6 +1409,26 @@ impl Session {
         }
     }
 
+    /// The key bar lays tokens out by priority, and `Esc Cancel` (with disabled controls that
+    /// leave the bar) shifts them while a read runs. Wait for the settled bar before taking a
+    /// token's coordinates for a click.
+    pub fn wait_for_settled_footer(&mut self) {
+        if let Err(error) = self.try_wait_for_condition(
+            |screen| {
+                screen
+                    .lines()
+                    .rev()
+                    .find(|row| !row.trim().is_empty())
+                    .is_some_and(|row| !row.contains("Esc Cancel"))
+            },
+            "key bar without Esc Cancel",
+            Duration::from_secs(8),
+        ) {
+            self.save_artifacts();
+            panic!("{error}");
+        }
+    }
+
     /// `choose` with the key taken from the label itself, e.g. `[l Logs]`.
     pub fn choose_control(&mut self, mouse: bool, label: &str) {
         let key = Control::parse(label)
