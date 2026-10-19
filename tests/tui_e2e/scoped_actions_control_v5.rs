@@ -1066,7 +1066,11 @@ fn forbidden(mouse: bool) {
     );
     session.wait_for_command_count(&fixture, 53);
     complete(&mut session, after, &["private source hidden"]);
-    assert!(!session.screen().contains(H));
+    let screen = session.screen();
+    assert!(
+        !screen.contains(H),
+        "hidden private head SHA stays visible:\n{screen}"
+    );
     marker(&fixture, Command::Delete, "uncertain");
     finish(
         &mut session,
@@ -1104,7 +1108,11 @@ fn changed_uid(mouse: bool) {
     );
     session.wait_for_command_count(&fixture, 51);
     complete(&mut session, after, &["private source hidden"]);
-    assert!(!session.screen().contains(H));
+    let screen = session.screen();
+    assert!(
+        !screen.contains(H),
+        "hidden private head SHA stays visible:\n{screen}"
+    );
     marker(&fixture, Command::Force, "pending");
     finish(
         &mut session,

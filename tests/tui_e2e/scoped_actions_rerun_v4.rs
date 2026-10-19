@@ -679,7 +679,11 @@ fn privacy(mouse: bool) {
             },
             false,
         );
-        assert!(!session.screen().contains(H));
+        let screen = session.screen();
+        assert!(
+            !screen.contains(H),
+            "hidden private head SHA stays visible:\n{screen}"
+        );
         assert!(!session.screen().contains("PRIVATE_RERUN"));
         finish(
             &mut session,
