@@ -120,11 +120,19 @@ pub fn compact_scope(text: &str, width: u16) -> String {
         used += next;
     }
     let tail = tail.into_iter().rev().collect::<String>();
-    // A tail that starts inside a level drops that broken level when a whole one follows, so the
-    // title reads `… / run 7 / <sha>` rather than `…wner/repo / run 7 / <sha>`.
+    // A tail that starts inside a level is never cut mid-word when a whole level follows: the
+    // broken level keeps its whole path segments, so an Inbox title reads `…/repo / My PRs` and
+    // still names the repository, or is dropped when it has none (`… / run 7 / <sha>` rather
+    // than `…wner / run 7 / <sha>`). A tail cut inside a separator starts at the next level.
+    if let Some(rest) = tail.strip_prefix(" / ").or_else(|| tail.strip_prefix("/ ")) {
+        return format!("{lead} / {rest}");
+    }
     match tail.find(" / ") {
         Some(at) if !text.ends_with(&format!(" / {tail}")) && at + 3 < tail.len() => {
-            format!("{lead} / {}", &tail[at + 3..])
+            match tail[..at].find('/') {
+                Some(slash) => lead + &tail[slash..],
+                None => format!("{lead} / {}", &tail[at + 3..]),
+            }
         }
         _ => lead + &tail,
     }

@@ -229,7 +229,9 @@ fn happy(mouse: bool) {
         session.close_overlay_by_key("Action unavailable");
     }
     if mouse {
-        let (column, row) = session.locate("Exact observed build").unwrap();
+        let (column, row) = session
+            .locate("Exact observed build")
+            .unwrap_or_else(|| panic!("Checks row to scroll:\n{}", session.screen()));
         session.wheel(column, row, true);
     } else {
         session.send_key(b"\x1b[6~");

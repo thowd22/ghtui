@@ -142,6 +142,22 @@ fn design_frames_v89_compact_scope_keeps_account_and_specific_end() {
     let compact = compact_scope(&local, 40);
     assert!(compact.starts_with("Local ") && compact.ends_with("/ main / abcdef0"));
     assert!(crate::editor::display_width(&compact) <= 40);
+    // A level cut inside keeps its last path segment, so the repository stays named, and one
+    // with no segment boundary is dropped rather than shown mid-word.
+    let inbox = "github.invalid / @octocat / example/repo0000 / My PRs";
+    assert_eq!(
+        compact_scope(inbox, 48),
+        "github.invalid / @octocat / …/repo0000 / My PRs"
+    );
+    let run = "github.com / @octocat / owner-name / run 7 / abcdef0";
+    assert_eq!(
+        compact_scope(run, 46),
+        "github.com / @octocat / … / run 7 / abcdef0"
+    );
+    assert_eq!(
+        compact_scope(run, 42),
+        "github.com / @octocat / … / run 7 / abcdef0"
+    );
 }
 
 #[test]
