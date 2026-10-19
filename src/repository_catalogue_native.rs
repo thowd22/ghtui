@@ -976,6 +976,15 @@ pub fn retire_remote_views(app: &mut App) {
         app.search_load_requested = false;
         app.search_controls = Default::default();
     }
+    // The pane scope/context was derived from the retired remote views (for
+    // example an Actions run/attempt and its private head SHA). Neutralize it
+    // for every remote view; only the local Repository view and a retained
+    // independent local search keep their own context.
+    let keeps_context = app.view == View::Repository
+        || (app.view == View::Search && app.search.is_some() && !private_search);
+    if !keeps_context {
+        app.context = "Private context hidden • current exact access required".into();
+    }
     app.avatar_states.clear();
     app.hits.clear();
     for view in [View::Inbox, View::Actions, View::Search, View::Dashboard] {
