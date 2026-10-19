@@ -114,6 +114,7 @@ pub mod repository_native_full_side_ui_v3;
 pub mod repository_native_full_side_v3;
 pub mod repository_native_mutable_plan_native_v2;
 pub mod repository_native_mutable_plan_v2;
+pub mod repository_panels_v93;
 pub mod repository_related_pr_v1;
 pub mod repository_source_identity;
 pub mod repository_source_ui;

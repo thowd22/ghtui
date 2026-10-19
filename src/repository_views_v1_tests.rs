@@ -214,6 +214,17 @@ fn draw_overview(
     (buffer, lines)
 }
 
+fn commit_x(app: &crate::app::App, head: &str) -> u16 {
+    app.hits
+        .iter()
+        .find(|hit| {
+            hit.action == crate::app::Action::RepositoryRow(RowAction::Commit(head.to_owned()))
+        })
+        .unwrap()
+        .rect
+        .x
+}
+
 #[test]
 fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_details() {
     use crate::app::Action;
@@ -274,7 +285,15 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
     for (width, height) in [(140u16, 42u16), (80, 24)] {
         let (buffer, lines) = draw_overview(&mut app, width, height);
         let screen = lines.join("\n");
-        let commit_lines = lines
+        // The panels only: at 140 the preview pane repeats the selected subject.
+        let list_width = app
+            .preview_area_v92
+            .map_or(usize::from(width), |area| usize::from(area.x));
+        let list_lines = lines
+            .iter()
+            .map(|line| line.chars().take(list_width).collect::<String>())
+            .collect::<Vec<_>>();
+        let commit_lines = list_lines
             .iter()
             .enumerate()
             .filter(|(_, line)| subjects.iter().any(|subject| line.contains(subject)))
@@ -305,23 +324,32 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         );
         assert!(!selected.contains(&head[..8]), "{selected}");
         assert!(selected.contains("Fixture Author"), "{selected}");
-        // The long subject fits at 140 and is cut with an ellipsis at 80, never wrapped.
+        // In the Recent commits panel (TASK-93) the long subject is cut with an ellipsis,
+        // never wrapped; at 140 the preview beside the panels takes the rest of the width.
+        assert!(
+            !commit_lines.iter().any(|(_, line)| line.contains(long)),
+            "{screen}"
+        );
+        assert!(
+            commit_lines
+                .iter()
+                .any(|(_, line)| line.contains("Explain why") && line.contains('…')),
+            "{screen}"
+        );
+        // The UTC date leaves the narrow panel first; the full id stays in the Saved detail
+        // row, and at 140 the preview shows the full id with the authored UTC time.
+        assert!(!selected.contains(&date), "{screen}");
+        assert!(screen.contains(&format!("Saved: {head}")), "{screen}");
         assert_eq!(
-            commit_lines.iter().any(|(_, line)| line.contains(long)),
+            screen.contains(&format!("Commit    {head}")),
             width == 140,
             "{screen}"
         );
         assert_eq!(
-            commit_lines
-                .iter()
-                .any(|(_, line)| line.contains("Explain why") && line.contains('…')),
-            width == 80,
+            screen.contains(&format!("Authored  {date}")),
+            width == 140,
             "{screen}"
         );
-        // The UTC date is a column at 140 and leaves first at 80; the full id stays in the
-        // Saved detail row either way.
-        assert_eq!(selected.contains(&date), width == 140, "{screen}");
-        assert!(screen.contains(&format!("Saved: {head}")), "{screen}");
         // `▌` bar on the Selection background, no reverse video, accent while focused.
         let hit = app
             .hits
@@ -336,30 +364,22 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
             assert_eq!(cell.bg, selection, "x={x}\n{screen}");
             assert!(!cell.modifier.contains(ratatui::style::Modifier::REVERSED));
         }
-        // Every commit row stays a click target; the section prose starts at the first column.
+        // Every commit row stays a click target in its panel; the old section heading is
+        // now the panel title.
         assert_eq!(
             app.hits
                 .iter()
-                .filter(|hit| matches!(hit.action, Action::RepositoryRow(RowAction::Commit(_))))
+                .filter(
+                    |hit| matches!(hit.action, Action::RepositoryRow(RowAction::Commit(_)))
+                        && hit.rect.x == commit_x(&app, &head)
+                )
                 .count(),
             3
         );
-        let prose = lines
+        assert!(lines
             .iter()
-            .find(|line| line.contains("Recent commits — saved versions"))
-            .unwrap();
-        assert_eq!(
-            crate::editor::display_width(&prose[..prose.find("Recent").unwrap()]),
-            usize::from(hit.rect.x) + 2,
-            "{screen}"
-        );
+            .any(|line| line.contains("▶ Recent commits — saved versions ─")));
     }
-    // A wheel-scrolled viewport is kept; the selection bar is simply out of view.
-    app.repository_list.top = first + 1;
-    let (_, lines) = draw_overview(&mut app, 140, 42);
-    assert_eq!(app.repository_list.top, first + 1);
-    assert!(!lines.iter().any(|line| line.contains("Second note")));
-    assert!(!lines.iter().any(|line| line.contains('▌')));
     // Read-only browsing leaves the checkout alone.
     assert_eq!(fs::read(dir.path().join(".git/index")).unwrap(), index);
     assert_eq!(

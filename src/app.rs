@@ -87,6 +87,8 @@ pub enum Action {
     LocalMenu,
     LocalCommand(crate::local_actions::LocalCommand),
     LocalQuick(crate::local_actions::QuickLocal),
+    /// Repository panels (TASK-93): the untracked toggle.
+    RepositoryPanelsV93(crate::repository_panels_v93::PanelActionV93),
     MenuScroll(i32),
     Search(crate::search::workspace::SearchAction),
     SearchBlend(crate::search::fusion::ui::BlendAction),
@@ -333,6 +335,8 @@ pub struct App {
     pub repository_action: Option<crate::workspace::RowAction>,
     pub repository_content_focused: bool,
     pub repository_visible_rows: usize,
+    /// Repository panels (TASK-93): panel scroll offsets and the untracked toggle.
+    pub repository_panels_v93: crate::repository_panels_v93::PanelsV93,
     pub github: Option<crate::github_workspace::GithubWorkspace>,
     pub github_action: Option<crate::github_workspace::GithubAction>,
     pub github_content_focused: bool,
@@ -582,6 +586,7 @@ impl Default for App {
             repository_action: None,
             repository_content_focused: true,
             repository_visible_rows: 20,
+            repository_panels_v93: Default::default(),
             github: None,
             github_action: None,
             github_content_focused: true,
@@ -1834,6 +1839,12 @@ impl App {
                 self.repository_content_focused = true;
             }
             Action::Scroll(delta) => {
+                // Repository panels scroll the panel that holds the selection.
+                if self.overlay.is_none()
+                    && crate::repository_panels_v93::scroll_selected(self, delta as isize)
+                {
+                    return;
+                }
                 // No observed page in this body while its sole page prepares.
                 // Never clamp its prior viewport against the cached Inbox.
                 if self.view == View::Inbox
@@ -2131,6 +2142,9 @@ impl App {
             Action::SearchSource(action) => crate::search_sources::ui::dispatch(self, action),
             Action::RepositoryHunk => self.select_repository_hunk(),
             Action::LocalQuick(quick) => self.local_quick(quick),
+            Action::RepositoryPanelsV93(action) => {
+                crate::repository_panels_v93::dispatch(self, action)
+            }
             Action::Actions(action) => {
                 if crate::scoped_actions_native_v1::intercept(self,&action){return;}
                 if crate::pr_checks_native::scoped::choices::continuations_v2::intercept(
@@ -3298,6 +3312,9 @@ impl App {
                 ) {
                     return;
                 }
+                if crate::repository_panels_v93::mouse(self, mouse.column, mouse.row, wheel) {
+                    return;
+                }
                 let hovering =
                     self.pointer_region
                         .contains(self.view, self.overlay, mouse.column, mouse.row);
@@ -3511,6 +3528,13 @@ impl App {
                     .into();
             return;
         }
+        if quick != crate::local_actions::QuickLocal::Commit
+            && crate::repository_panels_v93::selection_hidden(self)
+        {
+            self.status =
+                "The selected file is collapsed with the untracked files • u shows them".into();
+            return;
+        }
         // A cursor on a diff line with no explicit range stages its whole hunk.
         if quick != crate::local_actions::QuickLocal::Commit
             && self.repository_selection.is_none()
@@ -3668,13 +3692,17 @@ impl App {
             .repository_list
             .selected
             .min(workspace.display_rows_v1().len().saturating_sub(1));
+        // Rows the Repository panels collapse (untracked files) are skipped.
+        let hidden = crate::repository_panels_v93::hidden_rows(self).unwrap_or_default();
+        let workspace = self.workspace.as_ref().unwrap();
+        let shown = |index: &usize| {
+            workspace.display_rows_v1()[*index].action.is_some()
+                && !hidden.get(*index).copied().unwrap_or(false)
+        };
         let next = if down {
-            (self.repository_list.selected + 1..workspace.display_rows_v1().len())
-                .find(|index| workspace.display_rows_v1()[*index].action.is_some())
+            (self.repository_list.selected + 1..workspace.display_rows_v1().len()).find(shown)
         } else {
-            (0..self.repository_list.selected)
-                .rev()
-                .find(|index| workspace.display_rows_v1()[*index].action.is_some())
+            (0..self.repository_list.selected).rev().find(shown)
         };
         if let Some(next) = next {
             self.repository_list.selected = next;

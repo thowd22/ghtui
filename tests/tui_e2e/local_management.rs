@@ -412,9 +412,9 @@ fn sequencer(mouse: bool) {
         .contains("file.txt"));
     local::close(&mut session, mouse);
     refresh(&mut session, mouse);
-    session.wait_for_screen("[conflicted] file.txt");
+    session.wait_for_screen("conflicted  file.txt");
     if mouse {
-        session.click_visible_action("[conflicted] file.txt");
+        session.click_visible_action("conflicted  file.txt");
         session.wait_for_screen("Conflict in file.txt");
     } else {
         session.send_key(b"\x1b[B");
@@ -434,7 +434,7 @@ fn sequencer(mouse: bool) {
     );
     // Selection after refreshed content is explicit again, never inferred from labels.
     if mouse {
-        session.click_visible_action("[conflicted] file.txt");
+        session.click_visible_action("conflicted  file.txt");
         session.wait_for_screen("Conflict in file.txt");
     } else {
         session.send_key(&b"\x1b[A".repeat(32));

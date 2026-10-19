@@ -48,7 +48,16 @@ pub fn offered(app: &App) -> bool {
                     .as_ref()
                     .is_some_and(|actions| actions.view == ActionsView::Runs)
         }
+        View::Repository => crate::repository_panels_v93::active(app),
         _ => false,
+    }
+}
+
+/// The terminal width from which the current view's list and preview sit side by side.
+pub fn min_width(app: &App) -> u16 {
+    match app.view {
+        View::Repository => crate::repository_panels_v93::SPLIT_MIN_WIDTH,
+        _ => crate::ui_chrome::SPLIT_MIN_WIDTH,
     }
 }
 
@@ -57,6 +66,7 @@ fn content_focused(app: &App) -> bool {
     match app.view {
         View::Inbox => app.github_content_focused,
         View::Actions => app.actions_content_focused,
+        View::Repository => app.repository_content_focused,
         _ => false,
     }
 }
@@ -86,6 +96,7 @@ pub fn focus(app: &mut App, pane: Pane) {
     match app.view {
         View::Inbox => app.github_content_focused = true,
         View::Actions => app.actions_content_focused = true,
+        View::Repository => app.repository_content_focused = true,
         _ => {}
     }
     app.status = match pane {
@@ -109,6 +120,7 @@ pub fn open_action(app: &App) -> Option<Action> {
                 .and_then(|row| row.action.clone())
                 .map(Action::Actions)
         }),
+        View::Repository => crate::repository_panels_v93::open_action(app),
         _ => None,
     }
 }
@@ -471,6 +483,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let preview = match app.view {
         View::Inbox => app.github.as_ref().map(|github| inbox(github, theme)),
         View::Actions => app.actions.as_ref().map(|actions| run(actions, theme)),
+        View::Repository => Some(crate::repository_panels_v93::preview(app, theme)),
         _ => None,
     };
     let Some(preview) = preview else {

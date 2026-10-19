@@ -233,7 +233,7 @@ fn journey(mouse: bool) {
                 screen.contains("Local Git workspace ready")
                     && screen.contains(" o Overview ")
                     && screen.contains(if unborn {
-                        "Untracked"
+                        "untracked: 1 hidden · u shows them"
                     } else {
                         "Recent commits"
                     })

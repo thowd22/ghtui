@@ -160,6 +160,8 @@ fn journey(mouse: bool) {
 }
 
 const REPOSITORY_PANE: &str = "Repository • focused view";
+/// The Overview's commits panel (TASK-93): its rows carry the selection bar.
+const COMMITS_PANE: &str = "Recent commits — saved versions";
 
 /// Waits for one screen line holding every part (a table row read by its cells).
 fn wait_row(session: &mut Session, parts: &[&str]) -> String {
@@ -254,7 +256,7 @@ fn overview_table(mouse: bool) {
     } else {
         let deadline = Instant::now() + Duration::from_secs(8);
         while !session
-            .selected_row(REPOSITORY_PANE)
+            .selected_row(COMMITS_PANE)
             .is_some_and(|row| row.contains("Add the main program"))
         {
             assert!(
@@ -265,7 +267,7 @@ fn overview_table(mouse: bool) {
             session.send_key(b"\x1b[B");
             session.poll_output(Duration::from_millis(50));
         }
-        let selected = session.wait_for_selected_row(REPOSITORY_PANE, "Add the main program");
+        let selected = session.wait_for_selected_row(COMMITS_PANE, "Add the main program");
         assert!(selected.contains(&middle[..7]), "{selected}");
         session.send_key(b"\r");
     }
@@ -342,15 +344,15 @@ fn key_bar(mouse: bool) {
     for old in ["[o Overview]", "[l Legend]", "[C Compare]", "[J Jump]"] {
         assert!(!screen.contains(old), "{old} still painted\n{screen}");
     }
-    for tab in [
-        " o Overview ",
-        " g Graph ",
-        " t Tree ",
-        " w Working ",
-        " e All edits ",
-    ] {
+    // At 140 the preview pane narrows the Repository pane (TASK-93): the tab strip uses its
+    // compact spacing and All edits its compact label.
+    for tab in ["o Overview  ", " g Graph ", " t Tree ", " w Working "] {
         assert!(screen.contains(tab), "{tab} tab missing\n{screen}");
     }
+    assert!(
+        screen.contains(" e All edits") || screen.contains(" e Edits"),
+        "All edits tab missing\n{screen}"
+    );
     let footer = last_row(&session);
     for token in [
         "+ Stage",

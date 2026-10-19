@@ -70,7 +70,7 @@ fn journey(mouse: bool) {
     activate(
         &mut session,
         mouse,
-        "[conflicted] file.txt",
+        "conflicted  file.txt",
         &[b"\x1b[A".repeat(32), b"\r".to_vec()].concat(),
     );
     session.wait_for_screen("Conflict in file.txt");
@@ -99,7 +99,7 @@ fn journey(mouse: bool) {
 
     // Stage the resolved file from its overview row.
     if mouse {
-        session.click_visible_action("[conflicted] file.txt");
+        session.click_visible_action("conflicted  file.txt");
         session.wait_for_screen("Conflict in file.txt");
     } else {
         session.send_key(&b"\x1b[A".repeat(32));
@@ -162,7 +162,7 @@ fn stash_conflict(mouse: bool) {
     let mut session = Session::launch(&fixture, 80, 24);
     session.wait_for_screen("Recent commits");
     session.wait_for_screen("⚠ 1 unresolved conflict without a paused operation");
-    activate(&mut session, mouse, "[conflicted] file.txt", b"\x1b[B\r");
+    activate(&mut session, mouse, "conflicted  file.txt", b"\x1b[B\r");
     session.wait_for_screen("Conflict in file.txt");
     session.wait_for_screen("Ours — current branch content");
     assert_eq!(fixture.git(&["rev-parse", "refs/stash"]), stash);

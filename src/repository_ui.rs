@@ -131,7 +131,10 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     };
     let graph_back = take_back(&mut graph, false);
     let tree_back = take_back(&mut files, true);
-    let file_back = take_back(&mut files, false);
+    // The panels' untracked toggle owns `u` while the unavailable File back would only explain.
+    let panel_keys = crate::repository_panels_v93::footer_keys(app);
+    let file_back = take_back(&mut files, false)
+        .filter(|back| panel_keys.is_empty() || back.disabled.is_none());
     let side_back = diff_side.map(|side| {
         KeyControl::new(
             "u",
@@ -214,6 +217,7 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     if diff_side.is_none() && !detail {
         context.push(KeyControl::new("C", "Compare", Action::Compare).with_priority(24));
     }
+    context.extend(panel_keys);
     let jump = if busy {
         Some("Wait for the current repository read or cancel first".to_string())
     } else {
@@ -528,7 +532,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             area.width,
             area.height.saturating_sub(content_offset),
         );
-        draw_overview_v91(frame, app, body);
+        if crate::repository_panels_v93::active(app) {
+            crate::repository_panels_v93::draw(frame, app, body);
+        } else {
+            draw_overview_v91(frame, app, body);
+        }
         return;
     }
     let visible_rows = usize::from(area.height.saturating_sub(content_offset));
@@ -641,8 +649,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// Overview's recent commits as aligned columns (TASK-91). The full id and the authored UTC
-/// date stay in the Saved and actor detail rows above the list and in the DATE column.
+/// Overview's recent commits as aligned columns (TASK-91), drawn in the Recent commits panel
+/// (TASK-93). The full id and the UTC times stay in the Saved and actor detail rows, the DATE
+/// column and the commit preview.
 pub const OVERVIEW_COLUMNS: [crate::ui_table::Column; 5] = [
     crate::ui_table::Column::new("COMMIT", 7).priority(1),
     crate::ui_table::Column::new("SUBJECT", 12)
@@ -655,8 +664,9 @@ pub const OVERVIEW_COLUMNS: [crate::ui_table::Column; 5] = [
     crate::ui_table::Column::new("DATE", 10).priority(4),
 ];
 
-/// The plain Overview list: no actor profile, preview or file history replaces its rows.
-fn overview_table_v91(workspace: &Workspace) -> bool {
+/// The plain Overview list: no actor profile, preview or file history replaces its rows; it is
+/// drawn as the Repository panels (TASK-93).
+pub(crate) fn overview_table_v91(workspace: &Workspace) -> bool {
     workspace.mode == RepositoryMode::Overview
         && workspace.actor_profile.is_none()
         && workspace.preview.is_none()
@@ -695,6 +705,8 @@ pub fn overview_row_v91(
     table_row.with_tone(tone).with_action(row.action.clone())
 }
 
+/// A plain Overview list that is not the Overview listing itself (a conflict or stash
+/// detail opened from it) keeps the single table.
 fn draw_overview_v91(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
         return;

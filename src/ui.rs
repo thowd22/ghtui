@@ -67,16 +67,8 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         return;
     }
     let area = frame.area();
-    if app.overlay.is_none() && crate::repository_native_diff_native_v1::draw(frame, app, area) {
-        return;
-    }
-    if crate::repository_tree_viewport_native_v2::folder_draw(frame, app, area) {
-        return;
-    }
-    if app.overlay.is_none() && crate::repository_tree_native_v1::draw(frame, app, area) {
-        return;
-    }
-    if app.overlay.is_none() && crate::repository_diff_sides_native_v1::draw(frame, app, area) {
+    // The Repository viewers that own the screen while open draw into the rect they are given.
+    if crate::repository_panels_v93::draw_takeover(frame, app, area) {
         return;
     }
     let theme = app.theme();
@@ -114,7 +106,9 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
     // A list with a preview splits its pane at wide widths (TASK-92); overlays keep the
     // whole content area.
     let content_full = rows[3];
-    let split = if crate::list_preview_v92::offered(app) {
+    let split = if crate::list_preview_v92::offered(app)
+        && content_full.width >= crate::list_preview_v92::min_width(app)
+    {
         crate::ui_chrome::split_list_preview(content_full)
     } else {
         crate::ui_chrome::ListPreview {

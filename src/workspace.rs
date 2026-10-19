@@ -338,6 +338,11 @@ pub struct CommitCellsV91 {
     pub actors: String,
     /// Authored time, seconds since the epoch.
     pub authored: i64,
+    /// Full `name <email>` of both roles and the committed time, for the Repository preview
+    /// (TASK-93); the list cells stay short.
+    pub author: String,
+    pub committer: String,
+    pub committed: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -683,6 +688,9 @@ impl Workspace {
                         subject: commit.subject.clone(),
                         actors: crate::git_actor_labels_v1::commit_actors(&commit),
                         authored: commit.author.timestamp,
+                        author: crate::git_actor_labels_v1::actor_text(&commit.author),
+                        committer: crate::git_actor_labels_v1::actor_text(&commit.committer),
+                        committed: commit.committer.timestamp,
                     };
                     workspace.push(
                         &label,
