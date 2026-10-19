@@ -168,7 +168,7 @@ fn follow_through(mouse: bool) {
                 crate::support::completed_navigation_controls_v1::progress_selection_in(
                     frame,
                     "Actions • focused view ─",
-                    "Job 501",
+                    "Actual matrix stable linux",
                 )
                 .map(|selection| selection.target)
             }) {
@@ -182,7 +182,7 @@ fn follow_through(mouse: bool) {
     if mouse {
         s.click(point.0, point.1);
     } else {
-        selected_row(&mut s, false, "Job 501");
+        selected_row(&mut s, false, "Actual matrix stable linux");
     }
     s.wait_for_command_count(&f, confirmed + ends[2]);
     complete(
@@ -190,7 +190,7 @@ fn follow_through(mouse: bool) {
         before,
         // Annotations is a key-bar token or, at 80 columns, a palette entry; it is
         // chosen below by the same input kind.
-        &["Step 2", "Actual failed source step"],
+        &["2 Actual failed source step"],
     );
     let before = s.completed_cursorless_end();
     choose(&mut s, mouse, "[l Logs]", b"l");

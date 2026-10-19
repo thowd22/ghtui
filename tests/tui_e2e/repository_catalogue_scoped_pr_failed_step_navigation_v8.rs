@@ -15,6 +15,15 @@ fn step_rows(known: bool) -> Value {
     }
     json!(rows)
 }
+/// A step row's JOB cell starts `N name`; this prefix stays whole even at 40 columns.
+fn step_cell(number: u64) -> &'static str {
+    match number {
+        0 => "0 Unknown rep",
+        2 => "2 Test exact",
+        17 => "17 Sparse rep",
+        _ => unreachable!("no step {number} in this fixture"),
+    }
+}
 fn original(known: bool) -> Vec<GhStep> {
     let mut op = bridge();
     let mut member = observed_job();
@@ -32,9 +41,9 @@ fn original(known: bool) -> Vec<GhStep> {
 fn open_job(session: &mut Session, fixture: &Fixture, mouse: bool) {
     let previous = session.completed_cursorless_end();
     if mouse {
-        session.click_visible_action("Job 501")
+        session.click_visible_action("test (stable)")
     } else {
-        session.focus_visible_action("Job 501");
+        session.focus_visible_action("test (stable)");
         session.send_key(b"\r");
     }
     completed_action(session, previous, "Jobs and steps");
@@ -57,12 +66,13 @@ fn navigate(session: &mut Session, mouse: bool, next: bool, number: u64) {
         if next { b">" } else { b"<" },
     );
     completed_action(session, previous, &format!("Observed failed step {number}"));
-    ready(session, &[&format!("Step {number} •")]);
+    let step = step_cell(number);
+    ready(session, &[step]);
     assert!(
         session
             .screen()
             .lines()
-            .any(|line| line.contains('>') && line.contains(&format!("Step {number} •"))),
+            .any(|line| line.contains('▌') && line.contains(step)),
         "Actual selected failed row\n{}",
         session.screen()
     );
@@ -91,7 +101,7 @@ fn journey(mouse: bool, known: bool, lost: bool) {
         session.wait_for_command_count(&fixture, 74);
         completed_action(&mut session, previous, "private results hidden");
         assert!(!session.screen().contains("[> Next failed step]"));
-        assert!(!session.screen().contains("Step 2"));
+        assert!(!session.screen().contains(step_cell(2)));
         session.send_key(b">");
         session.poll_output(Duration::from_millis(30));
         assert_eq!(commands(&session, &fixture).len(), 74);
@@ -117,7 +127,7 @@ fn journey(mouse: bool, known: bool, lost: bool) {
         assert!(!session.screen().contains("selective step capture"));
         let previous = session.completed_cursorless_end();
         if mouse {
-            session.click_visible_action("Step 17 •")
+            session.click_visible_action(step_cell(17))
         } else {
             session.send_key(b"\r")
         }
@@ -157,7 +167,7 @@ fn journey(mouse: bool, known: bool, lost: bool) {
             let previous = session.completed_cursorless_end();
             close_notice(&mut session, mouse);
             completed_action(&mut session, previous, "[> Next failed step]");
-            ready(&mut session, &["Step 0 •", "[> Next failed step]"]);
+            ready(&mut session, &[step_cell(0), "[> Next failed step]"]);
             assert_eq!(commands(&session, &fixture).len(), 59);
         }
     }

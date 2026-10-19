@@ -224,9 +224,21 @@ pub fn actions_control_position(
                 })
         })
     };
+    // A compact token keeps its one-character key in front of the caption (`K Acknowledge`).
+    let caption = |token: &str| -> String {
+        match token.split_once(' ') {
+            Some((key, caption)) if key.chars().count() == 1 => caption.to_owned(),
+            _ => token.to_owned(),
+        }
+    };
     let compact = tokens
         .iter()
-        .filter(|(_, token)| token.len() >= 4 && wanted.starts_with(*token) || keyed(token))
+        .filter(|(_, token)| {
+            let caption = caption(token);
+            token.len() >= 4 && wanted.starts_with(*token)
+                || caption.len() >= 4 && wanted.starts_with(caption.as_str())
+                || keyed(token)
+        })
         .collect::<Vec<_>>();
     let matches = if !exact.is_empty() {
         exact
@@ -307,6 +319,9 @@ pub struct ActionsControlFocusV2 {
     /// Observe the actual host-wide underline, including header/footer hits.
     /// Tab can legitimately leave the Actions box before returning to it.
     pub underlined: Vec<(u16, u16)>,
+    /// Positions of the `▶` pane focus marker: Tab from a split list first focuses its
+    /// preview pane, which moves this marker rather than any underline.
+    pub pane_markers: Vec<(u16, u16)>,
 }
 
 pub fn actions_control_focus_v2(
@@ -317,16 +332,22 @@ pub fn actions_control_focus_v2(
     let (x, y) = actions_control_position(completed, page, label)?;
     let frame = completed.last.as_ref()?;
     let mut underlined = Vec::new();
+    let mut pane_markers = Vec::new();
     for row in 0..frame.size().0 {
         for column in 0..frame.size().1 {
-            if frame.cell(row, column)?.underline() {
+            let cell = frame.cell(row, column)?;
+            if cell.underline() {
                 underlined.push((column, row));
+            }
+            if cell.contents() == "▶" {
+                pane_markers.push((column, row));
             }
         }
     }
     Some(ActionsControlFocusV2 {
         target_focused: frame.cell(y, x)?.underline(),
         underlined,
+        pane_markers,
     })
 }
 

@@ -43,7 +43,12 @@ fn first_input(mouse: bool) {
     session.wait_for_command_count(&fixture, 59);
     ready(
         &mut session,
-        &["Run 123 • attempt 2", "Job 501", &"a".repeat(40), "alice"],
+        &[
+            "Run 123 • attempt 2",
+            "test (stable)",
+            &"a".repeat(40),
+            "alice",
+        ],
     );
     assert!(!session.screen().contains(DETAIL_BODY));
     assert!(!session.screen().contains(PRIVATE_DRAFT));

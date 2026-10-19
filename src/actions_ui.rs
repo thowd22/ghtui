@@ -119,14 +119,17 @@ pub fn draw(
                 format!(" • {}", workspace.coverage.reasons.join(" • "))
             }
         );
+        // A narrow (split) list ends the coverage row with an ellipsis rather than a cut word.
         frame.render_widget(
-            Paragraph::new(sanitize_terminal(&coverage)).style(theme.style(
-                if workspace.coverage.complete {
-                    SemanticToken::Normal
-                } else {
-                    SemanticToken::Pending
-                },
-            )),
+            Paragraph::new(crate::ui_chrome::fit(
+                &sanitize_terminal(&coverage),
+                usize::from(area.width),
+            ))
+            .style(theme.style(if workspace.coverage.complete {
+                SemanticToken::Normal
+            } else {
+                SemanticToken::Pending
+            })),
             Rect::new(area.x, y, area.width, 1),
         );
         y += 1;

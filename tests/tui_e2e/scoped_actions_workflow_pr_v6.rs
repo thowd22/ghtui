@@ -159,7 +159,7 @@ fn original_workflow_row(session: &mut Session, mouse: bool) {
     session.send_key(b"\x1b[H");
     session.wait_for_new_cursorless_condition(
         after,
-        |f| f.contents().lines().any(|line| line.contains("> ")),
+        |f| f.contents().lines().any(|line| line.contains('▌')),
         "Actual original workflow Home cursor",
         Duration::from_secs(8),
     );
@@ -169,7 +169,7 @@ fn original_workflow_row(session: &mut Session, mouse: bool) {
             .unwrap()
             .contents()
             .lines()
-            .find(|line| line.contains("> "))
+            .find(|line| line.contains('▌'))
             .expect("Actual selected workflow row")
             .to_owned();
         if line.contains("PRIVATE_PR_WORKFLOW") {
@@ -183,7 +183,7 @@ fn original_workflow_row(session: &mut Session, mouse: bool) {
             |f| {
                 f.contents()
                     .lines()
-                    .find(|row| row.contains("> "))
+                    .find(|row| row.contains('▌'))
                     .is_some_and(|row| row != line)
             },
             "Actual Down changes selected canonical row",

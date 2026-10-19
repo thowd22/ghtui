@@ -6,6 +6,8 @@ use super::*;
 // local source and its exclusions in full at every supported width.
 const LOCAL_SOURCE: &str = "local/current working files: ignores excluded";
 const LOCAL_SOURCE_TITLE: &str = "current @ working files";
+/// The search result row's RESULT cell (its LINE cell `1:1` sits in its own column).
+const RESULT: &str = "dirty界.txt";
 fn all_sql(fixture: &Fixture) -> Vec<String> {
     let db = rusqlite::Connection::open_with_flags(
         database(fixture),
@@ -91,21 +93,13 @@ fn preselect_local_search(session: &mut Session, fixture: &Fixture, mouse: bool)
     session.send_key(b"\x01");
     session.paste("dirty checkout");
     let before = session.completed_cells_end();
-    session.begin_search_completion_v1(
-        "dirty checkout",
-        "local/current @ working files",
-        "dirty界.txt:1",
-    );
+    session.begin_search_completion_v1("dirty checkout", "local/current @ working files", RESULT);
     choose(session, mouse, "[Enter Search]", b"\r");
     session.wait_search_completion_v1();
     let text = search_frame(
         session,
         before,
-        &[
-            "1 results • Exact",
-            "dirty界.txt:1",
-            "local/current @ working files",
-        ],
+        &["1 results • Exact", RESULT, "local/current @ working files"],
     );
     assert!(text
         .lines()
@@ -210,7 +204,7 @@ fn navigation(mouse: bool) {
     let retained = search_frame(
         &mut session,
         before,
-        &[LOCAL_SOURCE, "1 results • Exact", "dirty界.txt:1"],
+        &[LOCAL_SOURCE, "1 results • Exact", RESULT],
     );
     assert!(retained
         .lines()
@@ -221,14 +215,14 @@ fn navigation(mouse: bool) {
     session.paste("dirty checkout");
     // The Loading frame replaces the coverage row; only the title tail names
     // the source while this new request is in flight.
-    session.begin_search_completion_v1("dirty checkout", LOCAL_SOURCE_TITLE, "dirty界.txt:1");
+    session.begin_search_completion_v1("dirty checkout", LOCAL_SOURCE_TITLE, RESULT);
     choose(&mut session, mouse, "[Enter Search]", b"\r");
     session.wait_search_completion_v1();
     session.wait_for_screen("1 results • Exact");
     session.wait_for_screen(LOCAL_SOURCE);
-    session.wait_for_screen("dirty界.txt:1");
+    session.wait_for_screen(RESULT);
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
-    session.wait_for_screen("dirty界.txt:1");
+    session.wait_for_screen(RESULT);
     session.wait_for_screen(LOCAL_SOURCE);
     assert_eq!(all_sql(&fixture), sql);
     assert_eq!(session.inspect_command_journal(&fixture), trace);
@@ -243,7 +237,7 @@ fn navigation(mouse: bool) {
     session.wait_for_overlay_close(TITLE);
     session.wait_for_main_frame();
     session.assert_focused_view("Search");
-    session.wait_for_screen("dirty界.txt:1");
+    session.wait_for_screen(RESULT);
     choose(&mut session, mouse, "4 Actions", b"4");
     actions_ready(&mut session);
     assert_actions_commands(&session, &fixture);

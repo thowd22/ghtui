@@ -198,7 +198,7 @@ fn happy(mouse: bool) {
     session.wait_for_command_count(&fixture, 86);
     ready(
         &mut session,
-        &["Run 123 • attempt 2", "Job 501", &history.h],
+        &["Run 123 • attempt 2", "test (stable)", &history.h],
     );
     assert!(!session.screen().contains(DETAIL_BODY));
     assert!(!session.screen().contains(PRIVATE_DRAFT));

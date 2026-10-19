@@ -63,7 +63,8 @@ struct FailedStep {
 fn target(app: &App, next: bool) -> Option<FailedStep> {
     let (workspace, attempt) = page(app)?;
     let selected = workspace.run.as_ref().and_then(|p| p.selected_job);
-    let mut row = 5usize; // SAME prepared run identity/actor/provenance header.
+    // SAME prepared run identity/actor/provenance rows, then the jobs table header.
+    let mut row = 5usize + usize::from(!attempt.jobs.is_empty());
     let mut first = None;
     let mut last = None;
     let mut directional = None;

@@ -110,7 +110,25 @@ fn failed_step_v8_actual_original_sparse_numbers_keyboard_mouse_wrap_no_effects(
                 .status
                 .contains(&format!("Observed failed step {number}")));
             assert!(app.status.contains("original attempt 2"));
-            assert!(frame(&mut app, 120).contains(&format!("Step {number} •")));
+            // The jobs table paints the step as `N name` in its JOB cell.
+            let name = app
+                .actions
+                .as_ref()
+                .unwrap()
+                .run
+                .as_ref()
+                .unwrap()
+                .attempt
+                .jobs[0]
+                .steps
+                .iter()
+                .find(|step| step.number == number)
+                .unwrap()
+                .name
+                .clone();
+            let cell = format!("{number} {name}");
+            let cell = cell.chars().take(12).collect::<String>();
+            assert!(frame(&mut app, 120).contains(&cell), "{cell}");
             assert!(app.actions_action.is_none());
             assert!(app.pr_check_continuation_request_v2.is_none());
             assert!(Arc::ptr_eq(&route, app.pr_checks_route.as_ref().unwrap()));

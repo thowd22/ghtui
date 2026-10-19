@@ -174,7 +174,12 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
         session.wait_for_command_count(&fixture, 75);
         ready(
             &mut session,
-            &["Run 123 • attempt 2", "Job 501", "alice", &"a".repeat(40)],
+            &[
+                "Run 123 • attempt 2",
+                "test (stable)",
+                "alice",
+                &"a".repeat(40),
+            ],
         );
         assert!(!session.screen().contains("Cancelled"));
         assert!(!session.screen().contains(DETAIL_BODY));

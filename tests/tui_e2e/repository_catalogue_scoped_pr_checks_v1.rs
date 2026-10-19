@@ -172,7 +172,7 @@ fn open_run(session: &mut Session, fixture: &Fixture, mouse: bool) {
         session,
         &[
             "Run 123 • attempt 2",
-            "Job 501",
+            "test (stable)",
             "verified exact endpoint",
             "alice",
             &"a".repeat(40),
@@ -243,21 +243,21 @@ fn happy_bridge(mouse: bool) {
     let trace = git_commands(&fixture);
     read_only_control(&mut session, &fixture, mouse);
     if mouse {
-        session.click_visible_action("Job 501");
+        session.click_visible_action("test (stable)");
     } else {
-        session.focus_visible_action("Job 501");
+        session.focus_visible_action("test (stable)");
         session.send_key(b"\r");
     }
     let deadline = Instant::now() + Duration::from_secs(8);
-    while !(session.screen().contains("Step 2") && session.screen().contains("Test exact source")) {
+    while !(session.screen().contains("2 Test exact source")) {
         assert!(
             Instant::now() < deadline,
             "Exact job steps never became visible"
         );
         if mouse {
             let (column, row) = session
-                .locate("Step 1")
-                .or_else(|| session.locate("Job 501"))
+                .locate("1 Compile exact source")
+                .or_else(|| session.locate("test (stable)"))
                 .or_else(|| session.locate("Run 123"))
                 .expect("Navigate the actual prepared job body");
             session.wheel(column, row, true);
@@ -266,7 +266,7 @@ fn happy_bridge(mouse: bool) {
         }
         session.poll_output(Duration::from_millis(20));
     }
-    ready(&mut session, &["Step 2", "Test exact source"]);
+    ready(&mut session, &["2 Test exact source"]);
     assert_eq!(commands(&session, &fixture).len(), 59);
     control(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_command_count(&fixture, 74);

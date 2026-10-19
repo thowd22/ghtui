@@ -163,7 +163,13 @@ fn open_selected_job(
     job: u64,
     count: usize,
 ) {
-    let label = format!("Job {job}");
+    // Job rows show the job's name: the original job is `test (stable)`, a chosen member job
+    // `Exact member N`.
+    let label = if job == 501 {
+        "test (stable)".to_owned()
+    } else {
+        format!("Exact member {job}")
+    };
     let previous = session.completed_cursorless_end();
     if mouse {
         session.click_visible_action(&label)
@@ -173,7 +179,7 @@ fn open_selected_job(
     };
     completed_action(session, previous, "Jobs and steps");
     for _ in 0..8 {
-        if session.screen().contains("Step 2") && session.screen().contains("Test exact source") {
+        if session.screen().contains("2 Test exact source") {
             break;
         }
         let previous = session.completed_cursorless_end();
@@ -184,7 +190,7 @@ fn open_selected_job(
         }
         completed_action(session, previous, "Jobs and steps");
     }
-    ready(session, &["Step 2", "Test exact source"]);
+    ready(session, &["2 Test exact source"]);
     assert_eq!(commands(session, fixture).len(), count);
 }
 fn query(session: &mut Session, mouse: bool, regex: bool, text: &str) {

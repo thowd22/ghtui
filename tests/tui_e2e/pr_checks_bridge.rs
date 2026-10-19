@@ -4,6 +4,8 @@ use super::*;
 use ghtui::{actions_write_journal::ActionsWriteJournal, pr_write_journal::PrWriteJournal};
 
 const CHECK: &str = "Rust tests fail";
+/// The job row shows the job's name (its id is in the ID column).
+const JOB: &str = "matrix test linux";
 const LOG: &str = "genuine exact-attempt log failure";
 const HIDDEN_LOG: &str = "UID43_PRIVATE_LOG_CANARY";
 const BRIDGE_READ_ONLY_REASON: &str = "This PR-check route retains an exact original run/job/log read. Additional catalogues need their own fresh source admission; no broader repository or cached permission is substituted.";
@@ -210,7 +212,7 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
         .try_wait_for_condition(
             |screen| {
                 screen.contains("Run 123 • attempt 2")
-                    && screen.contains("Job 501")
+                    && screen.contains(JOB)
                     && screen.contains("Attempt source: verified exact endpoint")
             },
             "actual check/run/attempt/job projection",
@@ -221,7 +223,7 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
         before_open,
         |frame| {
             frame.contents().contains("Run 123 • attempt 2")
-                && frame.contents().contains("Job 501")
+                && frame.contents().contains(JOB)
                 && frame
                     .contents()
                     .contains("Attempt source: verified exact endpoint")
@@ -284,7 +286,7 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
                 |screen| {
                     !screen.contains("Action unavailable")
                         && screen.contains("Run 123 • attempt 2")
-                        && screen.contains("Job 501")
+                        && screen.contains(JOB)
                         && screen.contains("Attempt source: verified exact endpoint")
                 },
                 "exact original run/job/source restored after disabled explanation",
@@ -296,7 +298,7 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
             |frame| {
                 !frame.contents().contains("Action unavailable")
                     && frame.contents().contains("Run 123 • attempt 2")
-                    && frame.contents().contains("Job 501")
+                    && frame.contents().contains(JOB)
             },
             "completed original Actions after owned explanation Close",
             Duration::from_secs(8),
@@ -373,12 +375,12 @@ fn happy(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     phase_ready(&mut session, &fixture, mouse);
     disabled_bridge_controls(&mut session, &fixture, mouse);
-    session.wait_for_screen("@alice");
+    session.wait_for_screen("AL alice");
     session.wait_for_screen("Exact commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     session.resize(80, 24);
     session.wait_for_screen("Run 123 • attempt 2");
     for _ in 0..16 {
-        if session.screen().contains("Job 501") {
+        if session.screen().contains(JOB) {
             break;
         }
         if mouse {
@@ -388,20 +390,20 @@ fn happy(mouse: bool) {
         }
         session.poll_output(Duration::from_millis(20));
     }
-    session.wait_for_screen("Job 501");
+    session.wait_for_screen(JOB);
     let before_job = session.completed_cursorless_end();
     if mouse {
-        session.click_visible_action("Job 501");
+        session.click_visible_action(JOB);
     } else {
-        session.focus_visible_action("Job 501");
+        session.focus_visible_action(JOB);
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Step 3");
+    session.wait_for_screen("3 Run tests");
     session.wait_for_screen("Run tests");
     session.wait_for_new_cursorless_condition(
         before_job,
         |frame| {
-            frame.contents().contains("Step 3")
+            frame.contents().contains("3 Run tests")
                 && frame.contents().contains("Run tests")
                 && crate::support::locate_control(frame, "[Esc Cancel]").is_none()
         },
@@ -482,7 +484,7 @@ fn private_loss(mouse: bool, expired: bool) {
     actions_control(&mut session, mouse, "[l Logs]", b"l");
     records(&mut session, &fixture, 41);
     session.wait_for_screen("PR check context changed • private pages hidden");
-    assert!(!session.screen().contains("Job 501"));
+    assert!(!session.screen().contains(JOB));
     assert!(!session.screen().contains(CHECK));
     assert!(!session.screen().contains("Exact bridge source"));
     let output = String::from_utf8_lossy(&session.transcript);

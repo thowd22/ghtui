@@ -243,12 +243,12 @@ fn pick(
     // At 80x24 the second actual job is below the body viewport. Navigate the
     // body independently of the fixed toolbar before asserting/opening it.
     for _ in 0..12 {
-        if session.screen().contains("Job 502") {
+        if session.screen().contains("Exact member 502") {
             break;
         }
         if mouse {
             let (column, row) = session
-                .locate("Job 501")
+                .locate("Exact member 501")
                 .or_else(|| session.locate("Run "))
                 .unwrap();
             session.wheel(column, row, true);
@@ -257,22 +257,22 @@ fn pick(
         }
         session.poll_output(Duration::from_millis(20));
     }
-    ready(session, &["Job 502", "[C Candidates]"]);
+    ready(session, &["Exact member 502", "[C Candidates]"]);
 }
 fn another_job(session: &mut Session, fixture: &Fixture, mouse: bool, count: usize) {
     if mouse {
-        session.click_visible_action("Job 502");
+        session.click_visible_action("Exact member 502");
     } else {
-        session.focus_visible_action("Job 502");
+        session.focus_visible_action("Exact member 502");
         session.send_key(b"\r");
     }
     let deadline = Instant::now() + Duration::from_secs(8);
-    while !(session.screen().contains("Step 2") && session.screen().contains("Test exact source")) {
+    while !(session.screen().contains("2 Test exact source")) {
         assert!(Instant::now() < deadline, "Chosen job steps became visible");
         if mouse {
             let (column, row) = session
-                .locate("Step 1")
-                .or_else(|| session.locate("Job 502"))
+                .locate("1 Compile exact source")
+                .or_else(|| session.locate("Exact member 502"))
                 .or_else(|| session.locate("Run "))
                 .expect("Navigate the actual chosen-job body");
             session.wheel(column, row, true);
@@ -281,7 +281,7 @@ fn another_job(session: &mut Session, fixture: &Fixture, mouse: bool, count: usi
         }
         session.poll_output(Duration::from_millis(20));
     }
-    ready(session, &["Step 2", "Test exact source"]);
+    ready(session, &["2 Test exact source"]);
     assert_eq!(commands(session, fixture).len(), count);
     // The shared viewer stays read-only even after an explicit choice: refusal
     // must precede every generic private-draft/journal or mutation route.

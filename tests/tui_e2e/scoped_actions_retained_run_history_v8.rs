@@ -340,7 +340,7 @@ fn open_run_offset_v120(s: &mut Session, f: &Fixture, mouse: bool, offset: usize
         s,
         &[
             "Run 123 • attempt 2",
-            "Job 501",
+            "test (stable)",
             "verified exact endpoint",
             "alice",
             H,

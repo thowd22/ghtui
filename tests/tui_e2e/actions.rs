@@ -69,6 +69,45 @@ fn wait_row(session: &mut Session, parts: &[&str]) {
         panic!("{error}; artifacts: {}", session.artifact_dir.display());
     }
 }
+/// The dispatched run 200 on `main`. At 120 columns the split list drops its RUN cell and the
+/// preview pane titles the selected run instead; a full-width list keeps the RUN cell.
+fn wait_dispatched_run(session: &mut Session) {
+    let found = session.try_wait_for_condition(
+        |screen| {
+            let row = |line: &str| line.contains("main") && line.contains("workflow_dispatch");
+            screen
+                .lines()
+                .any(|line| row(line) && line.contains(" 200"))
+                || screen.lines().any(row) && screen.contains("Run 200 ")
+        },
+        "dispatched run 200 on main",
+        std::time::Duration::from_secs(8),
+    );
+    if let Err(error) = found {
+        session.save_artifacts();
+        panic!("{error}; artifacts: {}", session.artifact_dir.display());
+    }
+}
+/// Every screen line cut before the `Run N` preview pane, when one is painted (TASK-92).
+fn list_pane(screen: &str) -> String {
+    let x = screen.lines().find_map(|line| {
+        let chars = line.chars().collect::<Vec<_>>();
+        let x = chars.iter().skip(1).position(|cell| *cell == '╭')? + 1;
+        chars[x..]
+            .iter()
+            .collect::<String>()
+            .contains("Run ")
+            .then_some(x)
+    });
+    screen
+        .lines()
+        .map(|line| match x {
+            Some(x) => line.chars().take(x).collect::<String>(),
+            None => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 /// The Actions list's `▌` selected row contains `text`.
 fn selected_has(session: &Session, text: &str) -> bool {
     session
@@ -980,7 +1019,7 @@ fn workflow_controls(mouse: bool) {
         journal(&mut session, &fixture, count);
     }
     choose(&mut session, mouse, "Runs", b"R");
-    wait_row(&mut session, &["main", " 200"]);
+    wait_dispatched_run(&mut session);
     let rows = journal(&mut session, &fixture, final_count);
     let writes = rows
         .iter()
@@ -1004,7 +1043,7 @@ fn workflow_controls(mouse: bool) {
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     session.resize(80, 24);
-    wait_row(&mut session, &["main", " 200"]);
+    wait_dispatched_run(&mut session);
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -1671,6 +1710,8 @@ fn table_journey(mouse: bool) {
     steps[2].stdout =
         serde_json::to_vec(&json!({"total_count":2,"workflow_runs":[raw_run(), other]})).unwrap();
     steps.extend(open_steps());
+    // Choosing the Runs catalogue again re-reads the run list.
+    steps.push(steps[2].clone());
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 140, 42);
     session.wait_for_screen("ghtui");
@@ -1697,7 +1738,9 @@ fn table_journey(mouse: bool) {
             &mut session,
             &["Release", "main", "push", "bbbbbbb ", "124"],
         );
-        assert!(!session.screen().contains(&"a".repeat(8)));
+        // The list shows short SHAs; only the 140-column preview's Commit row has the full one.
+        let list = list_pane(&session.screen());
+        assert!(!list.contains(&"a".repeat(8)), "{list}");
         assert!(!session.screen().contains("@alice"));
         let row = wait_selected(&mut session, "CI matrix");
         assert!(row.starts_with("✗ CI matrix"), "{row:?}");
@@ -1753,7 +1796,7 @@ fn table_journey(mouse: bool) {
     choose(&mut session, mouse, "Runs", b"R");
     wait_row(&mut session, &["CI matrix", "123 #2"]);
     wait_selected(&mut session, "CI matrix");
-    let records = journal(&mut session, &fixture, 5);
+    let records = journal(&mut session, &fixture, 6);
     assert!(!records
         .iter()
         .any(|row| row["args"].as_array().is_some_and(|args| args

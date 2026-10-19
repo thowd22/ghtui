@@ -109,9 +109,13 @@ fn watch_stop_on_runs(mouse: bool) {
     choose(&mut session, mouse, "[w Watch]", b"w");
     session.wait_for_screen("Watching: refreshes every 5s");
     // A newer run appears without a manual refresh; the selection stays on run 123.
-    wait_long(&mut session, &run_cell(124, 2));
+    // At 120 columns the split list leaves out its RUN cell: the coverage row counts the new
+    // run, and the preview pane keeps titling the selected run.
+    wait_long(&mut session, "2 runs of 2 reported");
     // The selection stays on run 123.
-    wait_selected(&mut session, &run_cell(123, 2));
+    wait_selected(&mut session, "✗ CI matrix");
+    session.wait_for_screen(&format!("Run {}", run_cell(123, 2)));
+    assert!(!session.screen().contains("Run 124"));
     journal(&mut session, &fixture, watched);
     choose(&mut session, mouse, "[w Stop watch]", b"w");
     session.wait_for_screen("Watch stopped");

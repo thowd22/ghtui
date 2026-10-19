@@ -1087,7 +1087,10 @@ impl Session {
                         &page,
                         label,
                     )
-                    .is_some_and(|actual| actual.underlined != before.underlined)
+                    .is_some_and(|actual| {
+                        actual.underlined != before.underlined
+                            || actual.pane_markers != before.pane_markers
+                    })
                 {
                     break;
                 }

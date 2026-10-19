@@ -42,7 +42,10 @@ fn origin_journey(mouse: bool) {
     session.assert_focused_view("Repository");
     choose(&mut session, mouse, "Actions", b"4");
     session.wait_for_screen(&run_cell(123, 2));
-    session.wait_for_screen("1 runs of 451 reported");
+    session.wait_for_screen("1 runs of 451 reported • PARTIAL");
+    // The 120-column split list ellipsizes the coverage row; the wider 140-column list shows
+    // the partial reason whole.
+    session.resize(140, 42);
     session.wait_for_screen("Loaded 1 of 451 matching runs");
     let rows = journal(&mut session, &fixture, 3);
     assert!(rows
