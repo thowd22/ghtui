@@ -75,11 +75,12 @@ fn palette40(mouse: bool) {
         if session
             .visible_overlay_body(PALETTE_V2)
             .is_some_and(|body| {
-                // Both actual displayed fragments must be visible, including
-                // the final 'n' after the existing64-cell preparation break.
+                // Both actual displayed fragments must be visible. Detail rows
+                // break after a space, so the trimmed rows rejoin with one.
                 body.lines()
                     .map(str::trim)
-                    .collect::<String>()
+                    .collect::<Vec<_>>()
+                    .join(" ")
                     .contains("unseen paths remain unknown")
             })
         {

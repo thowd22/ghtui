@@ -11,7 +11,7 @@ use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, 
 use ratatui::{
     layout::{Margin, Rect},
     text::Line,
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
@@ -271,15 +271,7 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     frame.render_widget(Clear, rect);
     frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .title("Help • keyboard and mouse")
-            .style(
-                theme
-                    .style(SemanticToken::Focus)
-                    .remove_modifier(ratatui::style::Modifier::UNDERLINED),
-            ),
+        crate::ui_chrome::overlay_block(theme, "Help • keyboard and mouse"),
         rect,
     );
     let inner = rect.inner(Margin::new(2, 1));

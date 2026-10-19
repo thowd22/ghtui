@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -24,6 +24,13 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    draw_screen(frame, app);
+    // Views clear their areas to the terminal default; the theme background fills those cells
+    // so gaps between controls and empty rows never show a different terminal color.
+    crate::ui_chrome::fill_default_colors(frame.buffer_mut(), app.theme());
+}
+
+fn draw_screen(frame: &mut Frame, app: &mut App) {
     app.pointer_region.clear();
     crate::notification_pr_v63::retire_invalid(app);
     crate::notifications_native_v63::retire_invalid(app);
@@ -102,8 +109,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // context moved into the content pane's top border.
     crate::ui_chrome::draw_header(frame, app, rows[0]);
     let chrome_hits = app.hits.len();
-    // Overlay headings take the view hue without the focus underline.
-    let heading = theme.style(crate::theme::SemanticToken::Accent);
     // `rows` keeps the content/status/footer indices the view adapters below expect.
     let rows = [rows[0], rows[0], rows[0], rows[1], rows[2], rows[3]];
     if app.overlay.is_none() {
@@ -223,7 +228,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             app.metrics_content = Default::default();
         }
     }
-    frame.render_widget(Paragraph::new(safe_text(&app.status)), rows[4]);
+    frame.render_widget(
+        Paragraph::new(crate::ui_chrome::fit(
+            &safe_text(&app.status),
+            usize::from(rows[4].width),
+        )),
+        rows[4],
+    );
     let mut x = rows[5].x;
     let compact_footer = rows[5].width < 80;
     let mut buttons = vec![
@@ -415,15 +426,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             Overlay::SearchBlend => " Blend controls • explicit Ranked GitHub discovery ",
             Overlay::SearchRankDetails => " Rank sources • limits and coverage ",
         };
-        frame.render_widget(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .title(Line::styled(title, heading))
-                .style(theme.base())
-                .border_style(theme.role(crate::theme::Role::BorderFocus)),
-            rect,
-        );
+        frame.render_widget(crate::ui_chrome::overlay_block(theme, title), rect);
         let inner = rect.inner(ratatui::layout::Margin::new(2, 1));
         app.pointer_region.capture(app.view, app.overlay, rect);
         match overlay {

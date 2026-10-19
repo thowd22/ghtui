@@ -394,9 +394,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             if pr.draft { " [draft]" } else { "" }
         );
         frame.render_widget(
-            Paragraph::new(title).style(base),
+            Paragraph::new(crate::ui_chrome::fit(&title, usize::from(rect.width))).style(base),
             Rect::new(rect.x, rect.y, rect.width, 1),
         );
+        // The author line sits under the title, past the two-cell selection marker column.
+        let indent = 2.min(rect.width);
+        let rect = Rect::new(rect.x + indent, rect.y, rect.width - indent, rect.height);
         let actor = ActorIdentity::github(&github.identity.host, &pr.author);
         frame.render_widget(
             ListAvatar {
@@ -415,12 +418,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .map(|queue| queue.label())
             .collect::<Vec<_>>()
             .join(" + ");
+        let author_line = format!(
+            "{} • {} • {} • review/checks: open PR to load",
+            actor.label(),
+            crate::github_workspace::age_label(&pr.created_at),
+            memberships
+        );
         frame.render_widget(
-            Paragraph::new(format!(
-                "{} • {} • {} • review/checks: open PR to load",
-                actor.label(),
-                crate::github_workspace::age_label(&pr.created_at),
-                memberships
+            Paragraph::new(crate::ui_chrome::fit(
+                &author_line,
+                usize::from(rect.width.saturating_sub(4)),
             ))
             .style(base),
             Rect::new(
@@ -431,7 +438,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             ),
         );
         app.hits.push(HitRegion {
-            rect,
+            rect: Rect::new(area.x, rect.y, area.width, 2),
             action: Action::Github(GithubAction::Open(pr.into())),
         });
     }

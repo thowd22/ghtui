@@ -304,9 +304,10 @@ pub fn draw(
             row_x += actor_width;
         }
         let text = format!("{} {}", row.role.symbol(), sanitize_terminal(&row.label));
+        let text_width = rect.right().saturating_sub(row_x);
         frame.render_widget(
-            Paragraph::new(text).style(style),
-            Rect::new(row_x, rect.y, rect.right().saturating_sub(row_x), 1),
+            Paragraph::new(crate::ui_chrome::fit(&text, usize::from(text_width))).style(style),
+            Rect::new(row_x, rect.y, text_width, 1),
         );
         // One click opens the same exact prepared action as Enter on the selected row.
         output.hits.push(ActionsHit {

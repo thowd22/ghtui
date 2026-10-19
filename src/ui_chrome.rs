@@ -5,8 +5,9 @@ use crate::app::{safe_text, Action, App, HitRegion, View};
 use crate::identity::{ActorIdentity, ActorKind, InitialsChip};
 use crate::theme::{Hue, Role, Theme};
 use ratatui::{
+    buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
@@ -58,6 +59,12 @@ pub fn pane_block(theme: Theme, crumbs: &[&str], focused: bool) -> Block<'static
             Span::styled("─", border),
             Span::styled(crumb_title(crumbs, focused), title),
         ]))
+}
+
+/// A modal overlay frame: the same rounded, focused `╭─ ▶ Title ─╮` frame as a focused pane,
+/// since an overlay owns input while it is open.
+pub fn overlay_block(theme: Theme, title: &str) -> Block<'static> {
+    pane_block(theme, &[title.trim()], true)
 }
 
 /// Adds right-aligned provenance or context to a pane's top border when it fits in `budget`.
@@ -112,7 +119,15 @@ pub fn compact_scope(text: &str, width: u16) -> String {
         tail.push(grapheme);
         used += next;
     }
-    lead + &tail.into_iter().rev().collect::<String>()
+    let tail = tail.into_iter().rev().collect::<String>();
+    // A tail that starts inside a level drops that broken level when a whole one follows, so the
+    // title reads `… / run 7 / <sha>` rather than `…wner/repo / run 7 / <sha>`.
+    match tail.find(" / ") {
+        Some(at) if !text.ends_with(&format!(" / {tail}")) && at + 3 < tail.len() => {
+            format!("{lead} / {}", &tail[at + 3..])
+        }
+        _ => lead + &tail,
+    }
 }
 
 /// Ends `text` with `…` when it is wider than `width` cells.
@@ -346,6 +361,27 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
                 Paragraph::new(line),
                 Rect::new(right - width, row0.y, width, 1),
             );
+        }
+    }
+}
+
+/// Gives cells left at the terminal's default colors (by `Clear` or unstyled text) the theme's
+/// base foreground and background. Without a palette, as in 16-color or NoColor modes, the
+/// terminal defaults are the base, so nothing changes.
+pub fn fill_default_colors(buffer: &mut Buffer, theme: Theme) {
+    let base = theme.base();
+    let (Some(fg), Some(bg)) = (base.fg, base.bg) else {
+        return;
+    };
+    if bg == Color::Reset {
+        return;
+    }
+    for cell in &mut buffer.content {
+        if cell.bg == Color::Reset {
+            cell.bg = bg;
+        }
+        if cell.fg == Color::Reset {
+            cell.fg = fg;
         }
     }
 }

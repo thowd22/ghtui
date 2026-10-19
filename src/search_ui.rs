@@ -826,7 +826,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         } else {
             search.warnings.join("\n")
         };
-        frame.render_widget(Paragraph::new(format!("{:?} mode • enter a query, then Search.\n{}\nFilters: repo: org: set: type: path: language: author: state: after: before: rev:\n{}",mode,search.context(),notes)),body);
+        frame.render_widget(Paragraph::new(format!("{:?} mode • enter a query, then Search.\n{}\nFilters: repo: org: set: type: path: language: author: state: after: before: rev:\n{}",mode,search.context(),notes)).wrap(ratatui::widgets::Wrap { trim: false }),body);
         return;
     };
     let summary = page.coverage.summary();

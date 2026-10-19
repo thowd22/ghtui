@@ -18,7 +18,7 @@ use nucleo_matcher::{
 use ratatui::{
     layout::{Position, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Clear, Paragraph},
     Frame,
 };
 use std::{collections::BTreeSet, fmt};
@@ -394,28 +394,19 @@ impl CommandPalette {
         let mut rows = Vec::new();
         let mut bytes = 0usize;
         for raw in &self.entries[index].detail {
-            let mut row = String::new();
-            let mut cells = 0usize;
-            for grapheme in raw.graphemes(true) {
-                let next = grapheme_width(grapheme);
-                if next > usize::from(width) {
-                    return Err("Command detail grapheme exceeds the actual viewport".into());
-                }
-                if !row.is_empty()
-                    && (cells + next > usize::from(width) || row.len() + grapheme.len() > 256)
-                {
-                    bytes += row.len();
-                    rows.push(std::mem::take(&mut row));
-                    cells = 0;
-                    if rows.len() > 512 || bytes > MAX_PREPARED_BYTES {
-                        return Err("Command width detail exceeds its bounded rows/bytes".into());
-                    }
-                }
-                row.push_str(grapheme);
-                cells += next;
+            if raw
+                .graphemes(true)
+                .any(|grapheme| grapheme_width(grapheme) > usize::from(width))
+            {
+                return Err("Command detail grapheme exceeds the actual viewport".into());
             }
-            bytes += row.len();
-            rows.push(row);
+            for row in wrap_words(raw, usize::from(width)) {
+                bytes += row.len();
+                rows.push(row);
+                if rows.len() > 512 || bytes > MAX_PREPARED_BYTES {
+                    return Err("Command width detail exceeds its bounded rows/bytes".into());
+                }
+            }
         }
         if rows.len() > 512 || bytes > MAX_PREPARED_BYTES {
             return Err("Command width detail exceeds its bounded rows/bytes".into());
@@ -764,11 +755,7 @@ impl CommandPalette {
             return vec![];
         }
         frame.render_widget(Clear, area);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .title("Commands · current context")
-            .style(theme.base());
+        let block = crate::ui_chrome::overlay_block(theme, "Commands · current context");
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let mut hits = vec![];
@@ -1112,26 +1099,43 @@ fn query_line(query: &TextBuffer, width: usize, theme: Theme) -> Line<'static> {
 fn prepare_lines(text: &str) -> Result<Vec<String>, String> {
     let mut output = vec![];
     for raw_line in text.lines() {
-        let mut current = String::new();
-        let mut cells = 0usize;
-        for grapheme in raw_line.graphemes(true) {
-            let width = grapheme_width(grapheme);
-            if !current.is_empty() && (cells + width > 64 || current.len() + grapheme.len() > 256) {
-                output.push(std::mem::take(&mut current));
-                cells = 0;
-                if output.len() >= MAX_DETAIL_ROWS {
-                    return Err("Command detail row budget exceeded".into());
-                }
+        for row in wrap_words(raw_line, 64) {
+            output.push(row);
+            if output.len() > MAX_DETAIL_ROWS {
+                return Err("Command detail row budget exceeded".into());
             }
-            current.push_str(grapheme);
-            cells += width;
-        }
-        output.push(current);
-        if output.len() > MAX_DETAIL_ROWS {
-            return Err("Command detail row budget exceeded".into());
         }
     }
     Ok(output)
+}
+
+/// Splits one line into rows of at most `width` cells and 256 bytes, breaking after a space
+/// when the row has one so words stay whole. Spaces stay at the end of their row, so the rows
+/// concatenate back to the exact original text.
+fn wrap_words(line: &str, width: usize) -> Vec<String> {
+    let mut rows = vec![];
+    let mut current = String::new();
+    let mut cells = 0usize;
+    for grapheme in line.graphemes(true) {
+        let next = grapheme_width(grapheme);
+        if !current.is_empty() && (cells + next > width || current.len() + grapheme.len() > 256) {
+            let carry = if grapheme == " " {
+                String::new()
+            } else {
+                match current.rfind(' ') {
+                    Some(at) if at + 1 < current.len() => current.split_off(at + 1),
+                    _ => String::new(),
+                }
+            };
+            rows.push(std::mem::take(&mut current));
+            cells = display_width(&carry);
+            current = carry;
+        }
+        current.push_str(grapheme);
+        cells += next;
+    }
+    rows.push(current);
+    rows
 }
 
 #[cfg(test)]
