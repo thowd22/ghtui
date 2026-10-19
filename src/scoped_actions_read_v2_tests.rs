@@ -785,9 +785,14 @@ fn scoped_actions_read_v2_editor_valid_search_key_actual_hit_stops_same_watch_th
         let epoch = state.epoch;
         if mouse {
             // The actual shared key-bar token, not fabricated coordinates or a
-            // direct preselected handler result.
+            // direct preselected handler result. At 120 columns the armed Finite
+            // Watch / Stop outranks Search loaded logs (both cannot fit), so the
+            // bar is painted wide enough to hold both.
             let action = ActionsAction::ScopedReadV2(R::Ui(read_ui_v2::ReadUiActionV2::OpenSearch));
-            whole_frame_v3(&mut app);
+            Terminal::new(TestBackend::new(160, 40))
+                .unwrap()
+                .draw(|frame| crate::ui::draw(frame, &mut app))
+                .unwrap();
             let found = app
                 .hits
                 .iter()
