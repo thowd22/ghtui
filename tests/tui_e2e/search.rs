@@ -81,8 +81,12 @@ fn query_modes(mouse: bool) {
     session.wait_for_screen("1 results • Regex");
     choose(&mut session, mouse, "[c Corpus]", b"c");
     session.wait_for_screen("Selected existing checkouts only");
+    // Each toggle repaints the key bar (Open result leaves it and Repositories joins), so
+    // the next token is located only after the toggled state is visible.
     choose(&mut session, mouse, "[i Ignored files: off]", b"i");
+    session.wait_for_screen("Ignored files: on");
     choose(&mut session, mouse, "[b Hidden files: off]", b"b");
+    session.wait_for_screen("Hidden files: on");
     choose(&mut session, mouse, "[c Corpus]", b"c");
     choose(&mut session, mouse, "e Exact", b"e");
     enter_query(&mut session, mouse, "working needle");
