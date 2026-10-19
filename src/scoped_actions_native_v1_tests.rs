@@ -121,19 +121,19 @@ fn scoped_actions_native_genuine_initial_empty_runs_keeps_publications_key_and_w
         )
         .unwrap();
         assert_eq!(keyboard, ActionsAction::PublicationList);
+        // The whole enabled key-bar token of the actual main frame at 120 columns.
         let mut pointer = None;
-        for _ in 0..30 {
-            let rendered = render(&mut app, 80, 24);
-            if let Some(hit) = rendered
-                .hits
-                .iter()
-                .find(|hit| hit.action == ActionsAction::PublicationList)
-            {
-                assert!(!hit.rect.is_empty() && hit.rect.right() <= 80 && hit.rect.bottom() <= 24);
-                pointer = Some(hit.action.clone());
-                break;
-            }
-            app.actions.as_mut().unwrap().controls_page += 1;
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::ui::draw(frame, &mut app))
+            .unwrap();
+        if let Some(hit) = app
+            .hits
+            .iter()
+            .find(|hit| hit.action == Action::Actions(ActionsAction::PublicationList))
+        {
+            assert!(!hit.rect.is_empty() && hit.rect.right() <= 120 && hit.rect.bottom() <= 40);
+            pointer = Some(ActionsAction::PublicationList);
         }
         assert_eq!(
             pointer,
@@ -161,23 +161,34 @@ fn scoped_actions_native_disabled_keys_and_hits_cannot_open_forms_or_write_draft
         let (fixture, _, mut app, all) = f::setup(vec![]);
         let sql = f::sql_state(&fixture);
         let action = if mouse {
-            let mut found = None;
-            for page in 0..64 {
-                app.actions.as_mut().unwrap().controls_page = page;
-                let hits = render(&mut app, 80, 24);
-                found = hits.hits.into_iter().find_map(|hit| match hit.action {
+            // A disabled control leaves the key bar and the body; its painted catalogue tab or
+            // palette entry carries only the explanation.
+            let hits = render(&mut app, 80, 24);
+            assert!(hits
+                .hits
+                .iter()
+                .all(|hit| !matches!(hit.action, ActionsAction::Compose(_))));
+            let found = hits
+                .hits
+                .into_iter()
+                .find_map(|hit| match hit.action {
                     ActionsAction::Unavailable(reason)
                         if reason.contains("no legacy/name fallback") =>
                     {
                         Some(ActionsAction::Unavailable(reason))
                     }
                     _ => None,
+                })
+                .or_else(|| {
+                    crate::actions_ui::footer_keys(app.actions.as_ref().unwrap())
+                        .into_iter()
+                        .find_map(|key| {
+                            key.disabled
+                                .filter(|reason| reason.contains("no legacy/name fallback"))
+                                .map(ActionsAction::Unavailable)
+                        })
                 });
-                if found.is_some() {
-                    break;
-                }
-            }
-            found.expect("Actual disabled source-origin control hit")
+            found.expect("Actual disabled source-origin control explanation")
         } else {
             crate::actions_ui::keyboard_action(
                 // Workflow browsing now has a genuine read adapter. Runner
@@ -208,7 +219,6 @@ fn scoped_actions_native_pure_selection_keeps_actual_row_allocations_without_reb
 #[test]
 fn scoped_actions_native_back_moves_original_workspace_and_restores_exact_viewport() {
     let (fixture, p, mut app, all) = f::setup(f::operation(K::Attempt, 42));
-    app.actions.as_mut().unwrap().controls_page = 1;
     let pointer = app.actions.as_ref().unwrap().rows[0].label.as_ptr();
     let value = f::read(
         &mut app,
@@ -224,7 +234,6 @@ fn scoped_actions_native_back_moves_original_workspace_and_restores_exact_viewpo
     f::install(&mut app, value);
     assert!(intercept(&mut app, &ActionsAction::Back));
     assert_eq!(app.actions.as_ref().unwrap().view, ActionsView::Runs);
-    assert_eq!(app.actions.as_ref().unwrap().controls_page, 1);
     assert_eq!(
         app.actions.as_ref().unwrap().rows[0].label.as_ptr(),
         pointer
@@ -310,7 +319,7 @@ fn scoped_actions_native_original_source_scope_replacement_retires_pending_befor
     f::exact(&fixture, &all);
 }
 #[test]
-fn scoped_actions_native_actor_failure_color_and_paged_controls_survive_narrow_resize() {
+fn scoped_actions_native_actor_failure_color_and_key_bar_survive_narrow_resize() {
     let (fixture, _, mut app, all) = f::setup(vec![]);
     assert_eq!(
         app.actions.as_ref().unwrap().rows[0]
@@ -331,10 +340,11 @@ fn scoped_actions_native_actor_failure_color_and_paged_controls_survive_narrow_r
             .hits
             .iter()
             .all(|hit| hit.rect.right() <= width && hit.rect.bottom() <= height));
-        assert!(output
-            .hits
-            .iter()
-            .any(|hit| matches!(hit.action, ActionsAction::Refresh)));
+        // Refresh is a key-bar token at every size, never paged away.
+        let keys = crate::actions_ui::footer_keys(app.actions.as_ref().unwrap());
+        assert!(crate::footer::layout(&keys, width).iter().any(|placed| {
+            keys[placed.index].action == Action::Actions(ActionsAction::Refresh)
+        }));
     }
     f::exact(&fixture, &all);
 }

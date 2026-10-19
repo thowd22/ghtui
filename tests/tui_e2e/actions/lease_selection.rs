@@ -10,11 +10,11 @@ use ghtui::{
 };
 
 #[test]
-fn actions_run_control_keyboard_retained_cache_lease_survives_selection_and_controls_pages() {
+fn actions_run_control_keyboard_retained_cache_lease_survives_selection_and_key_bar() {
     journey(false);
 }
 #[test]
-fn actions_run_control_mouse_retained_cache_lease_survives_selection_and_controls_pages() {
+fn actions_run_control_mouse_retained_cache_lease_survives_selection_and_key_bar() {
     journey(true);
 }
 fn journey(mouse: bool) {
@@ -68,7 +68,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("#71 • protected-cache");
     session.wait_for_screen("#72 • unrelated-cache");
     journal(&mut session, &fixture, catalogue_count);
-    // Select another resource, rebuild controls through paging, and compose only
+    // Select another resource, rebuild the key bar, and compose only
     // that unblocked target. A cancelled composer must not claim any publication.
     if mouse {
         session.click_visible_action("#72 • unrelated-cache");

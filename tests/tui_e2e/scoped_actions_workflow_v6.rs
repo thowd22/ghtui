@@ -582,9 +582,10 @@ fn committed_ack_visible_v135(session: &mut Session, mouse: bool, after: usize) 
         session.poll_output(Duration::from_millis(1));
         let end = session.completed_cursorless_end();
         if end > after
+            && session.completed_actions_page().is_some()
             && session
-                .completed_actions_page()
-                .is_some_and(|page| page.current == 1 && page.total == 1)
+                .completed_actions_control("Acknowledge inspected state")
+                .is_none()
         {
             if let Some((frame, body)) = session.completed_cursorless_screen().and_then(|frame| {
                 (crate::support::main_footer_visible(frame)

@@ -69,20 +69,21 @@ fn workflow_usability(mouse: bool) {
     session.wait_for_screen("example/repo run 123");
     choose(&mut session, mouse, "Workflows", b"W");
     session.wait_for_screen("Build dispatch • active • .github/workflows/ci.yml");
-    session.wait_for_screen("Enter/click open workflow");
+    // The catalogue tab strip shows Workflows as the current tab.
+    session.wait_for_screen(" W Workflows ");
     journal(&mut session, &fixture, 5);
     if mouse {
         session.click_visible_action("Build dispatch");
     } else {
         session.send_key(b"\r");
     }
-    // Readable definition summary and the page's own key legend.
+    // Readable definition summary and the page's own key-bar tokens.
     session.wait_for_screen("Manual runs: press D to dispatch on main with the 2 input(s) below");
     session.wait_for_screen("Input mode • one of safe, fast • optional • default safe");
     session.wait_for_screen("Definition job report • needs build");
-    session.wait_for_screen("D dispatch • X enable/disable • V revision");
-    session.wait_for_screen("[D Dispatch workflow]");
-    session.wait_for_screen("[X Disable workflow]");
+    session.wait_for_control("[V Choose workflow revision]");
+    session.wait_for_control("[D Dispatch workflow]");
+    session.wait_for_control("[X Disable workflow]");
     journal(&mut session, &fixture, 7);
 
     // X opens Disable (the applicable toggle); preview is plain language; closing writes nothing.
@@ -132,7 +133,10 @@ fn workflow_usability(mouse: bool) {
     );
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    // At 80 columns the key bar keeps compact labels; the accepted dispatch leases the
+    // workflow writes, so D leaves the bar and its key explains why.
     session.resize(80, 24);
-    session.wait_for_screen("D dispatch • X enable/disable");
+    session.wait_for_control("[V Revision]");
+    session.assert_control_absent("[D Dispatch workflow]");
     session.quit_and_assert_restored_terminal(mouse);
 }

@@ -782,77 +782,31 @@ fn publications_from_empty_runs(session: &mut Session, mouse: bool) {
     // border so the owning box is unique; do not weaken the shared parser.
     const TITLE: &str = "Actions • focused view ─";
     let deadline = Instant::now() + Duration::from_secs(8);
-    let mut previous = None;
-    for _ in 0..30 {
-        let (page, publication, next) = loop {
-            session.poll_output(Duration::from_millis(1));
-            let observed = session.completed_cells_screen().and_then(|frame| {
-                let body = crate::support::overlay_body(frame, TITLE)?;
-                if !body.contains("0 runs of 0 reported • complete")
-                    || !body.contains("No records reported in this scope.")
-                    || !body.contains(CURRENT)
-                    || body.contains("[b Cancel read]")
-                    || body.contains("Original current read pending")
-                {
-                    return None;
-                }
-                let row = body
-                    .lines()
-                    .find(|line| line.contains(" • [] change control page"))?;
-                let token = row
-                    .split(" • [] change control page")
-                    .next()?
-                    .split_whitespace()
-                    .last()?;
-                let (current, total) = token.split_once('/')?;
-                let page = (current.parse::<usize>().ok()?, total.parse::<usize>().ok()?);
-                if page.0 == 0 || page.0 > page.1 || page.1 > 30 {
-                    return None;
-                }
-                let point = |label| {
-                    crate::support::completed_navigation_controls_v1::owned_action_position(
-                        frame,
-                        TITLE,
-                        label,
-                        &["Action unavailable", "Commands · current context"],
-                    )
-                };
-                Some((page, point("[P Publications]"), point("[Controls →]")?))
-            });
-            if let Some(observed) = observed {
-                if previous.is_none_or(|(end, page)| {
-                    session.completed_cells_end() > end && observed.0 != page
-                }) {
-                    break observed;
-                }
-            }
-            assert!(
-                Instant::now() < deadline,
-                "No NEW completed owned empty-Runs controls page\n{}",
-                session.screen()
-            );
-        };
-        if let Some((x, y)) = publication {
-            if mouse {
-                session.click(x, y);
-            } else {
-                session.send_key(b"P");
-            }
-            return;
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        let ready = session.completed_cells_screen().is_some_and(|frame| {
+            crate::support::overlay_body(frame, TITLE).is_some_and(|body| {
+                body.contains("0 runs of 0 reported • complete")
+                    && body.contains("No records reported in this scope.")
+                    && body.contains(CURRENT)
+                    && !body.contains("Original current read pending")
+            }) && !frame.contents().contains("Commands · current context")
+        }) && session
+            .completed_actions_control("[b Cancel read]")
+            .is_none()
+            && session
+                .completed_actions_control("[P Publications]")
+                .is_some();
+        if ready {
+            break;
         }
         assert!(
-            page.0 < page.1 && Instant::now() < deadline,
-            "Actual empty-Runs pages must expose Publications\n{}",
+            Instant::now() < deadline,
+            "No completed empty-Runs frame with the Publications key-bar token\n{}",
             session.screen()
         );
-        previous = Some((session.completed_cells_end(), page));
-        if mouse {
-            session.click(next.0, next.1);
-        } else {
-            session.send_key(b"]");
-        }
     }
-    panic!("Publications not reached within30 actual empty-Runs pages");
+    session.activate_completed_actions_control(mouse, "[P Publications]", b"P");
 }
 fn delete_restart(mouse: bool) {
     let mut steps = opening();

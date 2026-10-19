@@ -2096,7 +2096,6 @@ impl App {
                         action,
                         crate::actions_workspace::ActionsAction::Back
                             | crate::actions_workspace::ActionsAction::Select(_)
-                            | crate::actions_workspace::ActionsAction::ControlsPage(_)
                             | crate::actions_workspace::ActionsAction::Unavailable(_)
                     )
                 {
@@ -2121,12 +2120,6 @@ impl App {
                 }
                 if let crate::actions_workspace::ActionsAction::Unavailable(message) = action {
                     self.dispatch(Action::Explain(message));
-                } else if let crate::actions_workspace::ActionsAction::ControlsPage(delta) = action
-                {
-                    if let Some(actions) = &mut self.actions {
-                        actions.controls_page =
-                            actions.controls_page.saturating_add_signed(delta as isize);
-                    }
                 } else if matches!(action, crate::actions_workspace::ActionsAction::Watch) {
                     if let Some(Err(reason)) = self.actions.as_mut().map(|a| a.toggle_watch()) {
                         self.dispatch(Action::Explain(reason));
@@ -2860,9 +2853,15 @@ impl App {
                 if self.view == View::Actions && self.actions.is_some() {
                     let accepts_key = key.code != KeyCode::Enter || self.actions_content_focused;
                     if accepts_key {
-                        if let Some(action) =
-                            crate::actions_ui::keyboard_action(key, self.actions.as_ref().unwrap())
-                        {
+                        let actions = self.actions.as_ref().unwrap();
+                        if let Some(action) = crate::footer::resolve_key(
+                            &crate::actions_ui::footer_keys(actions),
+                            key,
+                        ) {
+                            self.dispatch(action);
+                            return;
+                        }
+                        if let Some(action) = crate::actions_ui::keyboard_action(key, actions) {
                             self.dispatch(Action::Actions(action));
                             return;
                         }
@@ -4064,7 +4063,7 @@ mod tests {
     }
 
     #[test]
-    fn actions_run_control_page_and_watch_input_are_immediate_and_do_not_queue_workers() {
+    fn actions_footer_key_click_and_watch_input_are_immediate_and_do_not_queue_workers() {
         use crate::actions_workspace::{ActionsAction, ActionsWorkspace};
         let identity = crate::providers::gh::HostIdentity {
             host: "github.invalid".into(),
@@ -4072,21 +4071,36 @@ mod tests {
             account_id: Some(42),
             gh_version: "offline".into(),
         };
+        let mut workspace = ActionsWorkspace::new(identity, vec!["example/repo".into()]);
+        workspace.prepare_rows();
         let mut app = App {
             view: View::Actions,
-            actions: Some(ActionsWorkspace::new(identity, vec!["example/repo".into()])),
+            actions: Some(workspace),
             ..Default::default()
         };
-        for _ in 0..3 {
+        // The retired control-page keys are inert; nothing pages or queues.
+        for key in ['[', ']'] {
             app.handle_event(Event::Key(KeyEvent::new(
-                KeyCode::Char(']'),
+                KeyCode::Char(key),
                 KeyModifiers::NONE,
             )));
         }
-        assert_eq!(app.actions.as_ref().unwrap().controls_page, 3);
+        assert!(app.actions_action.is_none() && app.overlay.is_none());
+        // `w` resolves through the key bar to the painted Watch token's action; clicking
+        // that token's target stops it again. Neither queues a worker.
+        let watch = crate::actions_ui::footer_keys(app.actions.as_ref().unwrap())
+            .into_iter()
+            .find(|control| control.key == "w")
+            .expect("Runs paints w Watch in the key bar");
+        assert_eq!(watch.action, Action::Actions(ActionsAction::Watch));
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('w'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.actions.as_ref().unwrap().watching);
         app.hits.push(HitRegion {
             rect: Rect::new(10, 10, 20, 1),
-            action: Action::Actions(ActionsAction::ControlsPage(-1)),
+            action: watch.action,
         });
         app.handle_event(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -4094,14 +4108,9 @@ mod tests {
             row: 10,
             modifiers: KeyModifiers::NONE,
         }));
-        assert_eq!(app.actions.as_ref().unwrap().controls_page, 2);
-        app.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::Char('w'),
-            KeyModifiers::NONE,
-        )));
-        assert!(app.actions.as_ref().unwrap().watching);
-        app.dispatch(Action::Actions(ActionsAction::Watch));
         assert!(!app.actions.as_ref().unwrap().watching);
+        app.dispatch(Action::Actions(ActionsAction::Watch));
+        assert!(app.actions.as_ref().unwrap().watching);
         assert!(
             app.actions_action.is_none(),
             "Pure navigation must not race worker snapshots"

@@ -784,22 +784,15 @@ fn scoped_actions_read_v2_editor_valid_search_key_actual_hit_stops_same_watch_th
         let page = state.page.clone();
         let epoch = state.epoch;
         if mouse {
-            // Actual existing shared renderer/control paging, not fabricated
-            // coordinates or a direct preselected handler result.
+            // The actual shared key-bar token, not fabricated coordinates or a
+            // direct preselected handler result.
             let action = ActionsAction::ScopedReadV2(R::Ui(read_ui_v2::ReadUiActionV2::OpenSearch));
-            let mut found = None;
-            for controls_page in 0..64 {
-                app.actions.as_mut().unwrap().controls_page = controls_page;
-                whole_frame_v3(&mut app);
-                found = app
-                    .hits
-                    .iter()
-                    .find(|hit| hit.action == Action::Actions(action.clone()))
-                    .map(|hit| hit.rect);
-                if found.is_some() {
-                    break;
-                }
-            }
+            whole_frame_v3(&mut app);
+            let found = app
+                .hits
+                .iter()
+                .find(|hit| hit.action == Action::Actions(action.clone()))
+                .map(|hit| hit.rect);
             let rect = found.expect("actual shared Search loaded logs button");
             app.handle_event(Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),

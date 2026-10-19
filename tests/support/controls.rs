@@ -240,9 +240,41 @@ pub fn locate_control(screen: &vt100::Screen, label: &str) -> Option<(u16, u16)>
     locate_text(screen, label).or_else(|| footer_control(screen, &control))
 }
 
-/// Only the footer token form, never an exact bracketed body match.
+/// Only the footer token form, never an exact bracketed body match. Below 100 columns the bar
+/// paints compact labels (`: Cmds`, `D Dispatch`), so a missing full token falls back to the
+/// one token with the same key whose compact caption starts like the full one: the bar binds
+/// each key to exactly one control.
 pub fn footer_control(screen: &vt100::Screen, control: &Control) -> Option<(u16, u16)> {
-    locate_token_in_row(screen, footer_row(screen), &control.footer_form())
+    let row = footer_row(screen);
+    locate_token_in_row(screen, row, &control.footer_form()).or_else(|| {
+        if screen.size().1 >= 100 {
+            return None;
+        }
+        let key = control.key.as_deref()?;
+        let initial = control.text.chars().next()?.to_ascii_lowercase();
+        let (line, starts) = row_text(screen, row)?;
+        let prefix = format!("{key} ");
+        let mut found = None;
+        let mut offset = 0;
+        for token in line.split("  ") {
+            let at = offset;
+            offset += token.len() + 2;
+            let trimmed = token.trim_start();
+            let caption = trimmed.get(prefix.len()..).unwrap_or_default();
+            if trimmed.starts_with(&prefix)
+                && caption
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.to_ascii_lowercase() == initial)
+            {
+                if found.is_some() {
+                    return None;
+                }
+                found = column_at(&starts, at + token.len() - trimmed.len()).map(|x| (x, row));
+            }
+        }
+        found
+    })
 }
 
 /// The restored main key bar: the Global tail tokens `? Help` and `q Quit` in the actual last

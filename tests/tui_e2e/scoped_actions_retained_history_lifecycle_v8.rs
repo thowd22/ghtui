@@ -20,12 +20,12 @@ fn history_facts_visible_v135(
                     && !frame.contents().contains("[Esc Cancel]"))
                 .then(|| crate::support::overlay_body(frame, "Actions • focused view"))
                 .flatten()
-                .filter(|body| {
+                .filter(|_| {
                     !acknowledged
-                        || (!body.contains("[Acknowledge inspected state]")
+                        || (session.completed_actions_page().is_some()
                             && session
-                                .completed_actions_page()
-                                .is_some_and(|page| page.current == 1 && page.total == 1))
+                                .completed_actions_control("Acknowledge inspected state")
+                                .is_none())
                 })
                 .map(|body| (frame, body))
             }) {

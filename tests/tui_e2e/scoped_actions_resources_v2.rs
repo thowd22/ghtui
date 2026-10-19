@@ -245,49 +245,13 @@ fn define(closing: Value) -> Vec<GhStep> {
     let sha = "c".repeat(40);
     resource(vec![get(&format!("repos/{CURRENT}/actions/workflows/7"),workflow()),get(&format!("repos/{CURRENT}/commits/main"),json!({"sha":sha})),GhStep::read(&["api",&format!("repos/{CURRENT}/contents/.github/workflows/ci.yml?ref={sha}"),"--hostname",HOST,"--method","GET","--header","Accept: application/vnd.github.raw+json","--allow-escape-sequences"],"name: ACTUAL_PRIVATE_WORKFLOW\non: [push]\njobs:\n  actual_job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo NEVER_EXECUTED_WORKFLOW\n"),get(&format!("repos/{CURRENT}/actions/workflows/7"),closing)],42)
 }
-fn toolbar_page(screen: &str) -> Option<(usize, usize)> {
-    let line = screen
-        .lines()
-        .find(|line| line.contains("• [] change control page"))?;
-    let fraction = line.split('•').next()?.split_whitespace().last()?;
-    let (a, b) = fraction.split_once('/')?;
-    Some((a.parse().ok()?, b.parse().ok()?))
-}
 pub(super) fn action(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if !mouse {
         session.send_key(key);
         return;
     }
-    let mut forward = false;
-    for _ in 0..64 {
-        let text = session
-            .completed_cursorless_screen()
-            .expect("Actual completed Actions frame")
-            .contents();
-        if text.contains(label) {
-            session.click_visible_action(label);
-            return;
-        }
-        let (current, total) = toolbar_page(&text).expect("Actual control page counter");
-        forward |= current == 1;
-        if forward && current == total {
-            break;
-        }
-        let next = if forward { current + 1 } else { current - 1 };
-        let after = session.completed_cursorless_end();
-        session.click_visible_action(if forward {
-            "[Controls →]"
-        } else {
-            "[← Controls]"
-        });
-        session.wait_for_new_cursorless_condition(
-            after,
-            |frame| toolbar_page(&frame.contents()) == Some((next, total)),
-            "Actual Actions control-page acknowledgement",
-            Duration::from_secs(8),
-        );
-    }
-    panic!("Actual owned Actions control not reachable: {label}");
+    // Catalogue tabs, key-bar tokens, or the palette when the bar cannot fit the control.
+    session.click_actions_control(label);
 }
 fn current_body(session: &mut Session, after: usize, values: &[&str]) {
     complete(session, after, values);
@@ -468,7 +432,7 @@ fn held_cancel(mouse: bool) {
     action(&mut session, mouse, "Workflows", b"W");
     let child = entered(&mut session, &fixture, 18);
     session.wait_for_cursorless_condition(
-        |frame| frame.contents().contains("[b Cancel read]"),
+        |frame| crate::support::locate_control(frame, "[b Cancel read]").is_some(),
         "Actual pending resource Cancel",
         Duration::from_secs(8),
     );

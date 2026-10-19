@@ -528,12 +528,6 @@ pub fn intercept(app: &mut App, action: &ActionsAction) -> bool {
         app.scoped_actions_v1 = Some(state);
         return true;
     }
-    if let ActionsAction::ControlsPage(delta) = action {
-        if let Some(w) = &mut app.actions {
-            w.controls_page = w.controls_page.saturating_add_signed(*delta as isize);
-        }
-        return true;
-    }
     if let ActionsAction::Select(index) = action {
         let changed = app
             .actions

@@ -118,11 +118,13 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
     open_control(&mut session, mouse);
     let mut held = HeldOriginalRepository::stop(&mut session, &fixture, &expected);
     original_checks(&mut session);
-    ready(&mut session, &["[Esc Cancel]"]);
+    // Loading paints the key-bar `Esc Cancel` token.
+    session.wait_for_control("[Esc Cancel]");
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
     session.wait_for_main_frame();
     original_checks(&mut session);
-    ready(&mut session, &["[Esc Cancel]"]);
+    // Loading paints the key-bar `Esc Cancel` token.
+    session.wait_for_control("[Esc Cancel]");
     // An actual click/focused Enter on the visible disabled control explains
     // the pending original read and does not enqueue a duplicate request.
     open_control(&mut session, mouse);
@@ -143,7 +145,11 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
                 |screen| {
                     screen.contains("Cancelled")
                         && screen.contains("Exact observed build")
-                        && !screen.contains("[Esc Cancel]")
+                        && !screen
+                            .lines()
+                            .last()
+                            .unwrap_or_default()
+                            .contains("Esc Cancel")
                         && !screen.contains("Run 123 • attempt 2")
                 },
                 "Cancel retains the actual original Checks without a late run",
@@ -177,7 +183,11 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
                     && !screen.contains("Exact observed build")
                     && !screen.contains(DETAIL_TITLE)
                     && !screen.contains("Run 123 • attempt 2")
-                    && !screen.contains("[Esc Cancel]")
+                    && !screen
+                        .lines()
+                        .last()
+                        .unwrap_or_default()
+                        .contains("Esc Cancel")
             },
             "Original Back restores cached Inbox, retires pending owner and hides private page",
             Duration::from_secs(8),

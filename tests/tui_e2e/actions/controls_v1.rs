@@ -58,13 +58,13 @@ fn watch_until_finished(mouse: bool) {
     journal(&mut session, &fixture, opened);
     choose(&mut session, mouse, "[w Watch]", b"w");
     session.wait_for_screen("Watching: refreshes every 5s");
-    session.wait_for_screen("[w Stop watch]");
+    session.wait_for_control("[w Stop watch]");
     wait_long(&mut session, "Run 123 attempt 2 is in progress");
     wait_long(
         &mut session,
         "Watch ended: run 123 attempt 2 finished • success",
     );
-    session.wait_for_screen("[w Watch]");
+    session.wait_for_control("[w Watch]");
     journal(&mut session, &fixture, watched);
     // Finished runs are not polled again.
     session.poll_output(Duration::from_secs(6));
@@ -182,7 +182,23 @@ fn large_artifact(mouse: bool) {
     // Opening never downloads an over-limit archive.
     session.wait_for_screen("Not downloaded: 57.7 MiB is over ghtui's 16.0 MiB");
     session.wait_for_screen("gh run download 123 -R example/repo -n release-binaries");
-    session.wait_for_screen("Export artifact ZIP unavailable: 57.7 MiB is over");
+    // The over-limit Export leaves the key bar; its palette entry explains why, by the
+    // same input kind, and sends nothing.
+    session.first_completed_actions_page(mouse);
+    assert!(session
+        .completed_actions_control("[Export artifact ZIP]")
+        .is_none());
+    session.invoke_via_palette(mouse, "[Export artifact ZIP]");
+    session.wait_for_screen("Action unavailable");
+    session.wait_for_screen("57.7 MiB is over");
+    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+    session
+        .try_wait_for_condition(
+            |screen| !screen.contains("Action unavailable"),
+            "Export explanation closed",
+            Duration::from_secs(8),
+        )
+        .unwrap();
     journal(&mut session, &fixture, listed);
     // A cancelled deletion sends nothing.
     command(&mut session, mouse, "Delete artifact");

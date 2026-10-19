@@ -646,9 +646,7 @@ pub(super) fn intercept(app: &mut App, action: &ActionsAction) -> bool {
             // Actions semantics; every other provider/mutation route is closed.
             return !matches!(
                 action,
-                ActionsAction::Select(_)
-                    | ActionsAction::ControlsPage(_)
-                    | ActionsAction::Unavailable(_)
+                ActionsAction::Select(_) | ActionsAction::Unavailable(_)
             );
         }
         _ => None,

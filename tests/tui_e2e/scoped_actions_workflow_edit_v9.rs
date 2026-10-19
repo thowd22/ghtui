@@ -355,15 +355,11 @@ fn initial(s: &mut Session, f: &Fixture, mouse: bool, c: &str) {
                 && text.contains(c)
                 && text.contains("Workflow definition")
                 && !text.contains("[Esc Cancel]")
-                && crate::support::completed_navigation_controls_v1::owned_action_position(
-                    frame,
-                    "Actions • focused view ─",
-                    "[Controls →]",
-                    &[FORM, "Action unavailable"],
-                )
-                .is_some()
+                && !text.contains("Action unavailable")
+                && crate::support::main_footer_visible(frame)
+                && crate::support::locate_control(frame, "[E Edit YAML locally]").is_some()
         },
-        "Actual owned nonbusy Definition/full C before control paging",
+        "Actual owned nonbusy Definition/full C with its Edit key-bar token",
         Duration::from_secs(8),
     );
     let after = s.completed_cells_end();
@@ -374,63 +370,23 @@ fn initial(s: &mut Session, f: &Fixture, mouse: bool, c: &str) {
 fn activate_definition_edit(s: &mut Session, f: &Fixture, mouse: bool, c: &str) {
     const TITLE: &str = "Actions • focused view ─";
     const EDIT: &str = "[E Edit YAML locally]";
-    for _ in 0..30 {
-        let frame = s
-            .completed_cursorless_screen()
-            .expect("Actual completed Definition page");
-        let body = crate::support::overlay_body(frame, TITLE)
-            .expect("SAME owned actual Actions Definition body");
-        assert!(
-            body.contains("Requested ref main")
-                && body.contains(c)
-                && !body.contains("[Esc Cancel]"),
-            "Paging must retain the SAME full original Definition/C and nonbusy state"
-        );
-        assert_eq!(
-            commands(s, f).len(),
-            31,
-            "Definition control paging is local and cannot read or mutate GH"
-        );
-        if let Some((x, y)) =
-            crate::support::completed_navigation_controls_v1::owned_action_position(
-                frame,
-                TITLE,
-                EDIT,
-                &[FORM, "Action unavailable"],
-            )
-        {
-            if mouse {
-                s.click(x, y)
-            } else {
-                s.send_key(b"E")
-            }
-            return;
-        }
-        let page = s
-            .completed_actions_page()
-            .expect("Actual existing bounded Actions page parser");
-        assert!(
-            page.current < page.total,
-            "All actual Definition control pages lack the complete Edit action"
-        );
-        let expected = format!(
-            "{}/{} • [] change control page",
-            page.current + 1,
-            page.total
-        );
-        let after = s.completed_cursorless_end();
-        if mouse {
-            s.click(page.next.0, page.next.1)
-        } else {
-            s.send_key(b"]")
-        }
-        s.wait_for_new_cursorless_condition(after,|frame| {
-            crate::support::overlay_body(frame,TITLE).is_some_and(|body|
-                body.contains("Requested ref main") && body.contains(c) && body.contains(&expected)
-                && !body.contains("[Esc Cancel]"))
-        },"ONE actual control-page input requires NEW same-owned Definition/full C/page acknowledgement",Duration::from_secs(8));
-    }
-    panic!("Complete actual Edit control not reached within existing bounded30pages");
+    let frame = s
+        .completed_cursorless_screen()
+        .expect("Actual completed Definition page");
+    let body = crate::support::overlay_body(frame, TITLE)
+        .expect("SAME owned actual Actions Definition body");
+    assert!(
+        body.contains("Requested ref main") && body.contains(c) && !body.contains("[Esc Cancel]"),
+        "The Definition keeps the SAME full original Definition/C and nonbusy state"
+    );
+    assert!(!frame.contents().contains(FORM));
+    assert_eq!(
+        commands(s, f).len(),
+        31,
+        "Showing the Definition controls is local and cannot read or mutate GH"
+    );
+    // Edit is a key-bar token (or, when it does not fit, a palette entry); its key is E.
+    s.activate_completed_actions_control(mouse, EDIT, b"E");
 }
 fn unrelated(f: &Fixture) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
     let mut rows = sql(f);

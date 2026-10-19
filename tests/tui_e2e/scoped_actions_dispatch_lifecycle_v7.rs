@@ -252,7 +252,7 @@ fn visible_history(s: &mut Session, mouse: bool, after: usize, words: &[&str]) {
                         frame
                             .contents()
                             .contains("/ Inspect original Actions publication")
-                            && !body.contains("[b Cancel read]")
+                            && crate::support::locate_control(frame, "[b Cancel read]").is_none()
                             && !body.contains("Original current read pending")
                             && !frame.contents().contains("[Esc Cancel]")
                     })

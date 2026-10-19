@@ -221,7 +221,16 @@ pub fn render<A: Clone>(
 /// in registration (and Tab) order.
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyControl]) {
     let first = app.hits.len();
-    let focus = app.focus.checked_sub(first);
+    // While a view's content owns Enter, no bar token may look focused.
+    let content_owns_enter = app.overlay.is_none()
+        && match app.view {
+            crate::app::View::Inbox => app.github_content_focused,
+            crate::app::View::Repository => app.repository_content_focused,
+            crate::app::View::Actions => app.actions_content_focused,
+            crate::app::View::Dashboard => app.metrics_content_focused,
+            crate::app::View::Search => app.search_content_focused,
+        };
+    let focus = app.focus.checked_sub(first).filter(|_| !content_owns_enter);
     let targets = render(frame, area, app.theme(), controls, focus);
     app.hits.extend(
         targets
@@ -366,6 +375,9 @@ pub fn main_controls(app: &App) -> Vec<KeyControl> {
     let mut controls = match (app.view, &app.metrics) {
         (crate::app::View::Dashboard, Some(metrics)) if app.overlay.is_none() => {
             crate::metrics_ui::footer_keys(metrics)
+        }
+        (crate::app::View::Actions, _) if app.overlay.is_none() && app.actions.is_some() => {
+            crate::actions_ui::footer_keys(app.actions.as_ref().unwrap())
         }
         _ => transitional_keys(app),
     };

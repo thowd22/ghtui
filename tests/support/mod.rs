@@ -966,6 +966,16 @@ impl Session {
         completed_navigation_controls_v1::actions_page(&self.cursorless_frames, 0)
     }
 
+    /// The key-bar token for `label` in the last completed main Actions frame.
+    pub fn completed_actions_control(&self, label: &str) -> Option<(u16, u16)> {
+        let page = self.completed_actions_page()?;
+        completed_navigation_controls_v1::actions_control_position(
+            &self.cursorless_frames,
+            &page,
+            label,
+        )
+    }
+
     pub fn wait_for_scoped_actions_jobs_row_v2(
         &mut self,
         after: usize,
@@ -991,8 +1001,33 @@ impl Session {
         }
     }
 
+    /// Keyboard half of "focus the control, then press Enter": Tab until the control's key-bar
+    /// token is underlined. A control that does not fit the bar at this size is reached the
+    /// keyboard way through the command palette instead: `:` and its text select the entry,
+    /// and the caller's Enter activates it.
     pub fn focus_completed_actions_control_v2(&mut self, label: &str) {
         let deadline = Instant::now() + Duration::from_secs(8);
+        let page = loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some(page) = self.completed_actions_page() {
+                break page;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "No completed Actions page\n{}",
+                self.screen()
+            );
+        };
+        if completed_navigation_controls_v1::actions_control_position(
+            &self.cursorless_frames,
+            &page,
+            label,
+        )
+        .is_none()
+        {
+            self.select_in_palette(false, label);
+            return;
+        }
         for _ in 0..256 {
             self.poll_output(Duration::from_millis(1));
             let Some(page) = self.completed_actions_page() else {
@@ -1009,11 +1044,10 @@ impl Session {
                 label,
             ) else {
                 assert!(
-                    page.current < page.total,
-                    "Final current Actions page lacks {label}\n{}",
+                    Instant::now() < deadline,
+                    "Actions key bar lost {label}\n{}",
                     self.screen()
                 );
-                self.change_completed_actions_page(false, 1, page, deadline);
                 continue;
             };
             if before.target_focused {
@@ -1043,40 +1077,33 @@ impl Session {
         panic!("Actual Actions focus did not reach {label} within256 inputs");
     }
 
+    /// Click the control's key-bar token, or send its key. A control that does not fit the bar
+    /// at this size is chosen through the command palette by the same input kind.
     pub fn activate_completed_actions_control(&mut self, mouse: bool, label: &str, key: &[u8]) {
         let deadline = Instant::now() + Duration::from_secs(8);
-        for _ in 0..30 {
-            let page = loop {
-                self.poll_output(Duration::from_millis(1));
-                if let Some(page) = self.completed_actions_page() {
-                    break page;
-                }
-                assert!(
-                    Instant::now() < deadline,
-                    "No completed owned Actions control page\n{}",
-                    self.screen()
-                );
-            };
-            if !mouse {
-                self.send_key(key);
-                return;
-            }
-            if let Some((x, y)) = completed_navigation_controls_v1::actions_control_position(
-                &self.cursorless_frames,
-                &page,
-                label,
-            ) {
-                self.click(x, y);
-                return;
+        let page = loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some(page) = self.completed_actions_page() {
+                break page;
             }
             assert!(
-                page.current < page.total,
-                "Actual final Actions page lacks expected control {label:?}\n{}",
+                Instant::now() < deadline,
+                "No completed owned Actions frame\n{}",
                 self.screen()
             );
-            self.change_completed_actions_page(mouse, 1, page, deadline);
+        };
+        if !mouse && !key.is_empty() {
+            self.send_key(key);
+            return;
         }
-        panic!("Bounded actual Actions pages lack expected control {label:?}");
+        match completed_navigation_controls_v1::actions_control_position(
+            &self.cursorless_frames,
+            &page,
+            label,
+        ) {
+            Some((x, y)) => self.click(x, y),
+            None => self.invoke_via_palette(mouse, label),
+        }
     }
 
     pub fn click_ready_scoped_actions_control_v4(&mut self, after: usize, label: &str) {
@@ -1101,54 +1128,18 @@ impl Session {
         }
     }
 
-    pub fn first_completed_actions_page(&mut self, mouse: bool) {
+    /// Wait for a completed main Actions frame with its key bar, for example after an
+    /// explanation closes. There is no control page to rewind any more.
+    pub fn first_completed_actions_page(&mut self, _mouse: bool) {
         let deadline = Instant::now() + Duration::from_secs(8);
-        for _ in 0..30 {
-            let page = loop {
-                self.poll_output(Duration::from_millis(1));
-                if let Some(page) = self.completed_actions_page() {
-                    break page;
-                }
-                assert!(
-                    Instant::now() < deadline,
-                    "No completed original Actions page after explanation Close\n{}",
-                    self.screen()
-                );
-            };
-            if page.current == 1 {
-                return;
-            }
-            self.change_completed_actions_page(mouse, -1, page, deadline);
-        }
-        panic!("Actual Actions first page not reached within30 pages");
-    }
-
-    fn change_completed_actions_page(
-        &mut self,
-        mouse: bool,
-        delta: i32,
-        page: completed_navigation_controls_v1::ActionsPage,
-        deadline: Instant,
-    ) {
-        assert!(matches!(delta, -1 | 1));
-        let before = self.completed_cursorless_end();
-        if mouse {
-            let (x, y) = if delta > 0 { page.next } else { page.previous };
-            self.click(x, y);
-        } else {
-            self.send_key(if delta > 0 { b"]" } else { b"[" });
-        }
-        let expected = page.current.saturating_add_signed(delta as isize);
         loop {
             self.poll_output(Duration::from_millis(1));
-            if completed_navigation_controls_v1::actions_page(&self.cursorless_frames, before)
-                .is_some_and(|actual| actual.current == expected && actual.total == page.total)
-            {
+            if self.completed_actions_page().is_some() {
                 return;
             }
             assert!(
                 Instant::now() < deadline,
-                "No NEW complete exact Actions page after one arrow input\n{}",
+                "No completed original Actions frame after explanation Close\n{}",
                 self.screen()
             );
         }
@@ -1314,6 +1305,35 @@ impl Session {
         self.click(column, row);
     }
 
+    /// Click an Actions control where it is painted: a catalogue tab (`Secrets` is the
+    /// ` S Secrets ` tab), a key-bar token, or a bracketed body/overlay button. A control that
+    /// does not fit the key bar or tab strip at this width is clicked in the command palette.
+    pub fn click_actions_control(&mut self, label: &str) {
+        let label = actions_tab_label(label);
+        if self
+            .try_wait_for_control(label, Duration::from_secs(2))
+            .is_some()
+        {
+            self.click_visible_action(label);
+        } else {
+            self.invoke_via_palette(true, label);
+        }
+    }
+
+    /// Like `wait_for_control`, but reports absence after `timeout` instead of panicking.
+    pub fn try_wait_for_control(&mut self, label: &str, timeout: Duration) -> Option<(u16, u16)> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            self.poll_output(Duration::from_millis(10));
+            if let Some(position) = locate_control(self.parser.screen(), label) {
+                return Some(position);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+        }
+    }
+
     /// Wait until `label` is a visible control (see `locate_control`).
     pub fn wait_for_control(&mut self, label: &str) -> (u16, u16) {
         let deadline = Instant::now() + Duration::from_secs(8);
@@ -1367,17 +1387,72 @@ impl Session {
     /// Explicit opt-in for actions that live only in the command palette:
     /// open it, filter by the label text, then pick the selected result.
     pub fn invoke_via_palette(&mut self, mouse: bool, label: &str) {
-        let text = Control::parse(label).text;
-        self.choose(mouse, "[: Commands]", b":");
+        let selected = self.select_in_palette(mouse, label);
+        self.choose(mouse, &selected, b"\r");
+        self.wait_for_overlay_close(PALETTE_TITLE);
+    }
+
+    /// Open the palette and filter it until the label's entry is the selected result,
+    /// returning that selected row text; nothing is activated yet.
+    pub fn select_in_palette(&mut self, mouse: bool, label: &str) -> String {
+        // `Delete run` is a caption, not the `Delete` key plus `run`.
+        let parsed = Control::parse(label);
+        let text = if parsed
+            .key
+            .as_ref()
+            .is_some_and(|key| key.chars().count() == 1)
+        {
+            parsed.text
+        } else {
+            label
+                .strip_prefix('[')
+                .and_then(|inner| inner.strip_suffix(']'))
+                .unwrap_or(label)
+                .to_owned()
+        };
+        // Below 100 columns the key bar paints the compact `: Cmds` token.
+        let commands = if self.parser.screen().size().1 < 100 {
+            "[: Cmds]"
+        } else {
+            "[: Commands]"
+        };
+        self.choose(mouse, commands, b":");
         self.wait_for_overlay_body(PALETTE_TITLE);
         self.send_key(b"\x01");
         self.paste(&text);
-        let selected = format!("> {text}");
+        // A prepared control keeps its own caption in the palette, bracketed or not. When
+        // the filter ranks another command first, Down walks the selection to it.
+        let candidates = [format!("> {text}"), format!("> {label}")];
         let deadline = Instant::now() + Duration::from_secs(8);
-        while !self
-            .visible_overlay_body(PALETTE_TITLE)
-            .is_some_and(|body| body.contains(&selected))
-        {
+        let mut moved = Instant::now();
+        let mut downs = 0;
+        loop {
+            if let Some(body) = self.visible_overlay_body(PALETTE_TITLE) {
+                // The whole caption, not a prefix of a longer one (`Delete run` is not
+                // `Delete run logs`): it ends the row, or the shortcut column or the
+                // unavailable marker follows.
+                let whole = |row: &str| {
+                    body.lines().any(|line| {
+                        line.match_indices(row).any(|(at, _)| {
+                            let rest = line[at + row.len()..].trim_end_matches(['│', ' ']);
+                            rest.is_empty()
+                                || line[at + row.len()..].starts_with("  ")
+                                || rest.starts_with(" [why unavailable]")
+                        })
+                    })
+                };
+                if let Some(selected) = candidates.iter().find(|row| whole(row)) {
+                    return selected.clone();
+                }
+                let listed = candidates
+                    .iter()
+                    .any(|row| body.contains(&format!(" {}", &row[2..])));
+                if listed && downs < 24 && moved.elapsed() > Duration::from_millis(300) {
+                    self.send_key(b"\x1b[B");
+                    downs += 1;
+                    moved = Instant::now();
+                }
+            }
             self.poll_output(Duration::from_millis(10));
             if Instant::now() >= deadline {
                 self.save_artifacts();
@@ -1388,8 +1463,6 @@ impl Session {
                 );
             }
         }
-        self.choose(mouse, &selected, b"\r");
-        self.wait_for_overlay_close(PALETTE_TITLE);
     }
 
     /// The control is neither bracketed anywhere nor a key-bar token.
@@ -1852,7 +1925,9 @@ impl Session {
             .unwrap();
         self.parser.set_size(rows, cols);
         self.cursorless_frames.invalidate_size();
-        let footer_cursor = format!("\x1b[{rows};1H");
+        // The key bar leads with a blank column, so its repaint can start past column 1:
+        // any cursor move into the new last row acknowledges it.
+        let footer_cursor = format!("\x1b[{rows};");
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
             while let Ok(bytes) = self.observed_try_recv_v1() {
@@ -1866,7 +1941,14 @@ impl Session {
                 .unwrap_or_default();
             let new_frame = self.transcript[previous_bytes..]
                 .windows(footer_cursor.len())
-                .any(|bytes| bytes == footer_cursor.as_bytes());
+                .enumerate()
+                .any(|(at, bytes)| {
+                    bytes == footer_cursor.as_bytes() && {
+                        let tail = &self.transcript[previous_bytes + at + footer_cursor.len()..];
+                        let digits = tail.iter().take_while(|byte| byte.is_ascii_digit()).count();
+                        digits > 0 && tail.get(digits) == Some(&b'H')
+                    }
+                });
             let footer_ready = if let Some((title, actions, placement)) = owned {
                 owned_resize_controls_ready_v1(self.parser.screen(), title, actions, placement)
             } else {
@@ -2417,5 +2499,26 @@ fn read_termios(master: &dyn MasterPty) -> Option<libc::termios> {
         Some(unsafe { termios.assume_init() })
     } else {
         None
+    }
+}
+
+/// Actions catalogue entries are tabs painted as `key label`; other names pass through.
+pub fn actions_tab_label(label: &str) -> &str {
+    match label {
+        "Runs" => "R Runs",
+        "Workflows" => "W Workflows",
+        "Caches" => "c Caches",
+        "Secrets" => "S Secrets",
+        "Variables" => "v Variables",
+        "Environments" => "e Environments",
+        "Policies" => "p Policies",
+        "Runners" => "n Runners",
+        "Runner groups" => "g Runner groups",
+        "Usage" => "u Usage",
+        "Approvals" => "G Approvals",
+        "Refresh" => "[r Refresh]",
+        "Artifacts" => "[a Artifacts]",
+        "Publications" | "[Publications]" => "[P Publications]",
+        other => other,
     }
 }

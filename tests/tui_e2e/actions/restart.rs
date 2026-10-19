@@ -275,7 +275,9 @@ fn journey(mouse: bool, interruption: Interrupted) {
     );
     if interruption == Interrupted::Accepted {
         restarted.wait_for_screen("ACCEPTED REQUEST STILL WAITING");
-        assert!(!restarted.screen().contains("[Acknowledge inspected state]"));
+        assert!(restarted
+            .completed_actions_control("Acknowledge inspected state")
+            .is_none());
         restarted.resize(80, 24);
         restarted.wait_for_screen("Inspect ORIGINAL Actions attempt #1");
         restarted.resize(120, 40);

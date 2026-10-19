@@ -65,6 +65,23 @@ impl ActionsView {
         (Self::Usage, "Usage"),
         (Self::Approvals, "Approvals"),
     ];
+    /// The key that opens a catalogue tab, as its tab and the key bar paint it.
+    pub fn catalog_key(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Runs => "R",
+            Self::Workflows => "W",
+            Self::Caches => "c",
+            Self::Secrets => "S",
+            Self::Variables => "v",
+            Self::Environments => "e",
+            Self::Policies => "p",
+            Self::Runners => "n",
+            Self::RunnerGroups => "g",
+            Self::Usage => "u",
+            Self::Approvals => "G",
+            _ => return None,
+        })
+    }
     pub fn label(self) -> &'static str {
         Self::CATALOGS
             .iter()
@@ -95,7 +112,6 @@ pub enum ActionsAction {
     Repository(usize),
     Scope(ActionsScope),
     Select(usize),
-    ControlsPage(i32),
     OpenRun {
         repository: String,
         id: u64,
@@ -235,6 +251,137 @@ pub struct ActionsControl {
     pub action: ActionsAction,
     pub disabled_reason: Option<String>,
 }
+impl ActionsControl {
+    /// The key-bar key and caption. `[l Logs]`, `> Next failure` and `X Enable workflow` carry
+    /// their key in the label; catalogue tabs, Publications, Cancel and log search have fixed
+    /// keys; every other control is a click target and a palette entry without a key.
+    pub fn key_and_text(&self) -> (Option<String>, String) {
+        let label = self.label.trim();
+        let inner = label
+            .strip_prefix('[')
+            .and_then(|inner| inner.strip_suffix(']'))
+            .unwrap_or(label);
+        if let Some((key, text)) = inner.split_once(' ') {
+            let mut characters = key.chars();
+            if let (Some(character), None) = (characters.next(), characters.next()) {
+                if !character.is_whitespace() && !text.trim().is_empty() {
+                    return (Some(key.into()), text.into());
+                }
+            }
+        }
+        let fixed = match &self.action {
+            ActionsAction::View(view) if self.is_catalog_tab() => ActionsView::catalog_key(*view),
+            ActionsAction::PublicationList => Some("P"),
+            ActionsAction::Compose(ActionsCommand::Cancel) => Some("C"),
+            ActionsAction::Compose(ActionsCommand::SearchLogs) => Some("/"),
+            _ => None,
+        };
+        (fixed.map(str::to_owned), inner.into())
+    }
+    /// A catalogue entry (Runs, Workflows, Caches…) is a sub-mode: it belongs to the tab strip.
+    pub fn is_catalog_tab(&self) -> bool {
+        matches!(self.action, ActionsAction::View(view) if ActionsView::CATALOGS
+            .iter()
+            .any(|(catalog, label)| *catalog == view && *label == self.label))
+    }
+    /// Key-bar importance; lower stays longer when the row is narrow. Pending recovery comes
+    /// first, then Back and Refresh, the run's own pages, its everyday commands (rerun failed,
+    /// cancel, dispatch), Watch and the failure jumps, the rarer commands, and the scope tools.
+    /// What leaves the bar stays one key or palette entry away.
+    pub fn priority(&self) -> u8 {
+        use crate::scoped_actions_resources_v2::ScopedActionsReadActionV2 as Read;
+        use ActionsAction::*;
+        use ActionsCommand::*;
+        match &self.action {
+            Reconcile
+            | Acknowledge
+            | PublicationAcknowledge(_)
+            | PublicationAcknowledgeAcceptance(_) => 5,
+            Back => 10,
+            Refresh => 15,
+            View(ActionsView::Run | ActionsView::Jobs)
+            | Logs(_)
+            | Annotations(_)
+            | PublicationInspect(_) => 20,
+            Compose(RerunFailed | Cancel | DispatchWorkflow | EnableWorkflow | DisableWorkflow) => {
+                22
+            }
+            Watch | ScopedReadV2(_)
+                if !matches!(
+                    self.action,
+                    ScopedReadV2(Read::AllRunStatuses | Read::FailedRuns | Read::ActiveRuns)
+                ) =>
+            {
+                25
+            }
+            Select(_) if self.label == NEXT_FAILURE => 26,
+            Select(_) => 27,
+            Compose(RerunAll | RerunJob | WorkflowRevision) | EditWorkflowLocalV9 => 28,
+            View(_) | Artifacts => 30,
+            PublicationList => 32,
+            Compose(ChooseScope | FilterRuns | FilterCaches | SearchLogs) => 45,
+            Compose(_) => 34,
+            ScopedReadV2(_) | Policy(_) => 35,
+            _ => 50,
+        }
+    }
+    /// A shorter caption for narrow terminals; only an unchanged default caption is shortened.
+    pub fn compact_text(&self) -> Option<&'static str> {
+        use ActionsCommand::*;
+        let (_, text) = self.key_and_text();
+        let compact = match &self.action {
+            ActionsAction::Compose(command)
+                if text == command.label()
+                    || workflow_control_label(*command).ends_with(text.as_str()) =>
+            {
+                match command {
+                    ChooseScope => "Scope",
+                    WorkflowRevision => "Revision",
+                    SearchLogs => "Search",
+                    FilterRuns | FilterCaches => "Filter",
+                    RerunAll => "Rerun all",
+                    RerunFailed => "Rerun failed",
+                    RerunJob => "Rerun job",
+                    Cancel => "Cancel",
+                    ForceCancel => "Force-cancel",
+                    DeleteRun => "Delete run",
+                    DeleteLogs => "Delete logs",
+                    ApproveFork => "Approve fork",
+                    EnableWorkflow => "Enable",
+                    DisableWorkflow => "Disable",
+                    DispatchWorkflow => "Dispatch",
+                    ExportArtifact => "Export",
+                    ExtractArtifact => "Extract",
+                    ApproveDeployment => "Approve",
+                    RejectDeployment => "Reject",
+                    SetSecret | SetVariable => "Set",
+                    DeleteArtifact | DeleteCache | DeleteSecret | DeleteVariable
+                    | DeleteRunnerGroup => "Delete",
+                    EditPolicy | EditEnvironment | EditRunnerGroup => "Edit",
+                    RunnerLabels => "Labels",
+                    RemoveRunner => "Remove",
+                    GroupRunners => "Runners",
+                    GroupRepositories => "Repos",
+                    CreateRunnerGroup => "Create",
+                }
+            }
+            ActionsAction::Select(_) if text == NEXT_FAILURE[2..] => "Next fail",
+            ActionsAction::Select(_) if text == PREVIOUS_FAILURE[2..] => "Prev fail",
+            ActionsAction::PublicationList if text == "Publications" => "Pubs",
+            ActionsAction::Reconcile if text == "Inspect uncertain write" => "Inspect",
+            ActionsAction::Acknowledge
+            | ActionsAction::PublicationAcknowledge(_)
+            | ActionsAction::PublicationAcknowledgeAcceptance(_)
+                if text.starts_with("Acknowledge") =>
+            {
+                "Acknowledge"
+            }
+            ActionsAction::EditWorkflowLocalV9 if text == "Edit YAML locally" => "Edit YAML",
+            _ => return None,
+        };
+        Some(compact)
+    }
+}
 #[derive(Clone, Debug)]
 pub struct ScopedRun {
     pub repository: String,
@@ -289,7 +436,6 @@ pub struct ActionsWorkspace {
     pub controls: Vec<ActionsControl>,
     pub selected: usize,
     pub top: usize,
-    pub controls_page: usize,
     pub fetched_at: Option<u64>,
     pub warnings: Vec<String>,
     pub watching: bool,
@@ -409,7 +555,6 @@ impl ActionsWorkspace {
             controls: vec![],
             selected: 0,
             top: 0,
-            controls_page: 0,
             fetched_at: None,
             warnings: vec![],
             watching: false,
@@ -759,10 +904,6 @@ impl ActionsWorkspace {
                 self.select(*index);
                 return Ok(());
             }
-            ControlsPage(delta) => {
-                self.controls_page = self.controls_page.saturating_add_signed(*delta as isize);
-                return Ok(());
-            }
             Watch => {
                 if let Err(reason) = self.toggle_watch() {
                     self.warnings.push(reason);
@@ -819,7 +960,6 @@ impl ActionsWorkspace {
                 self.view = *view;
                 self.selected = 0;
                 self.top = 0;
-                self.controls_page = 0;
             }
             OpenRun {
                 repository,

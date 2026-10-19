@@ -9,7 +9,7 @@ use cursorless_frames::CursorlessFrames;
 const SHA: &str = "1234567890123456789012345678901234567890";
 const SUBJECT: &str = "Original navigation ancestry 界 e\u{301}";
 const STATUS: &str = "Original navigation source restored • read-only";
-const WATCH: &str = "[[w Watch] unavailable:";
+const WATCH: &str = "[w Watch]";
 
 const PROGRESS_FILE: &str = "UNVIEWED • src/α file.rs";
 const CATALOGUE: &str = "Repositories • explicit discovery";
@@ -931,10 +931,18 @@ fn graph_bytes(height: u16, width: u16) -> Vec<u8> {
     bytes
 }
 
-fn actions_bytes(height: u16, width: u16, page: usize) -> Vec<u8> {
+/// A completed main Actions frame: the owned box, the catalogue tab row and the key bar in the
+/// last row (`variant` only changes body text).
+fn actions_bytes(height: u16, width: u16, variant: usize) -> Vec<u8> {
     let mut bytes = box_bytes("Actions • focused view", height, width);
-    bytes.extend_from_slice(format!("\x1b[6;2H[← Controls] [Controls →] {page}/6 • [] change control page\x1b[7;2H{WATCH} explicit fresh source required]\x1b[12;2HRun 123 • attempt 2\x1b[13;2HExact Job 501").as_bytes());
+    bytes.extend_from_slice(format!("\x1b[6;2H R Runs  W Workflows \x1b[12;2HRun 123 • attempt {variant}\x1b[13;2HExact Job 501").as_bytes());
+    bytes.extend_from_slice(footer(height, " r Refresh  w Watch  Rerun all jobs").as_bytes());
     bytes
+}
+
+/// Rewrites the key bar: the view's tokens, then the Global tail.
+fn footer(height: u16, view: &str) -> String {
+    format!("\x1b[{height};1H\x1b[2K{view}  ? Help  : Cmds  q Quit")
 }
 
 fn complete(parser: &mut vt100::Parser, frames: &mut CursorlessFrames, bytes: &[u8]) {
@@ -954,26 +962,23 @@ fn scoped_actions_layout_v2(jobs: bool) -> Vec<u8> {
 
 fn scoped_actions_ready_bytes_v4() -> Vec<u8> {
     let mut bytes = actions_bytes(24, 80, 1);
-    bytes.extend_from_slice(
-        b"\x1b[7;2H[) Next runs]\x1b[23;1HOriginal scoped Actions target verified",
-    );
+    bytes.extend_from_slice(b"\x1b[23;1HOriginal scoped Actions target verified");
+    bytes.extend_from_slice(footer(24, " b Back  ) Next runs").as_bytes());
     bytes
 }
 #[test]
-fn scoped_actions_test_framework_ready_control_rejects_pending_decorated_caption_and_old_frame() {
+fn scoped_actions_test_framework_ready_control_rejects_pending_cancel_bar_and_old_frame() {
     let mut parser = vt100::Parser::new(24, 80, 0);
     let mut frames = CursorlessFrames::default();
     let mut pending = scoped_actions_ready_bytes_v4();
-    pending.extend_from_slice(
-        b"\x1b[7;2H[[) Next runs] unavailable: Original current read pending; Cancel or wait]",
-    );
+    pending.extend_from_slice(footer(24, " b Cancel read  ) Next runs").as_bytes());
     complete(&mut parser, &mut frames, &pending);
     assert!(frames
         .last
         .as_ref()
         .unwrap()
         .contents()
-        .contains("[) Next runs]"));
+        .contains(") Next runs"));
     assert!(
         navigation::scoped_actions_ready_control_position_v4(&frames, 0, "[) Next runs]").is_none()
     );
@@ -987,7 +992,7 @@ fn scoped_actions_test_framework_ready_control_rejects_pending_decorated_caption
     frames.process(&mut parser, b"\x1b[?25l", before + ready.len());
     assert_eq!(
         navigation::scoped_actions_ready_control_position_v4(&frames, before, "[) Next runs]"),
-        Some((1, 6))
+        Some((9, 23))
     );
     assert!(navigation::scoped_actions_ready_control_position_v4(
         &frames,
@@ -997,11 +1002,11 @@ fn scoped_actions_test_framework_ready_control_rejects_pending_decorated_caption
     .is_none());
 }
 #[test]
-fn scoped_actions_test_framework_ready_control_refuses_wrong_page_ghost_body_and_notice() {
+fn scoped_actions_test_framework_ready_control_refuses_body_ghost_missing_bar_and_notice() {
     for suffix in [
-        "\x1b[7;2H                    \x1b[18;2H[) Next runs]",
-        "\x1b[15;2H[b Cancel read]",
-        "\x1b[15;2HAction unavailable",
+        format!("{}\x1b[18;2H[) Next runs]", footer(24, " b Back")),
+        "\x1b[24;1H\x1b[2K".into(),
+        "\x1b[15;2HAction unavailable".into(),
     ] {
         let mut parser = vt100::Parser::new(24, 80, 0);
         let mut frames = CursorlessFrames::default();
@@ -1040,9 +1045,9 @@ fn scoped_actions_test_framework_jobs_wait_rejects_old_shared_labels_and_partial
 #[test]
 fn scoped_actions_test_framework_jobs_refuses_duplicate_wrong_head_pending_or_modal() {
     for suffix in [
-        "\x1b[19;2HJob 501",
-        "\x1b[15;2H[b Cancel read]",
-        "\x1b[15;2HAction unavailable",
+        "\x1b[19;2HJob 501".to_string(),
+        footer(24, " b Cancel read"),
+        "\x1b[15;2HAction unavailable".into(),
     ] {
         let mut parser = vt100::Parser::new(24, 80, 0);
         let mut frames = CursorlessFrames::default();
@@ -1061,28 +1066,40 @@ fn scoped_actions_test_framework_jobs_refuses_duplicate_wrong_head_pending_or_mo
 }
 
 #[test]
-fn scoped_actions_test_framework_focus_observes_header_to_current_disabled_control() {
+fn scoped_actions_test_framework_focus_observes_header_to_footer_token() {
     let mut parser = vt100::Parser::new(24, 80, 0);
     let mut frames = CursorlessFrames::default();
     let mut bytes = actions_bytes(24, 80, 3);
-    bytes.extend_from_slice(b"\x1b[1;1H\x1b[4m[Back]\x1b[0m\x1b[8;2H[Rerun all jobs unavailable: original source required]");
+    bytes.extend_from_slice(b"\x1b[1;1H\x1b[4m[Back]\x1b[0m");
     complete(&mut parser, &mut frames, &bytes);
     let page = navigation::actions_page(&frames, 0).unwrap();
     let before = navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
     assert!(!before.target_focused);
     assert!(before.underlined.contains(&(0, 0)));
-    complete(&mut parser, &mut frames, b"\x1b[1;1H\x1b[0m[Back]\x1b[8;2H\x1b[4m[Rerun all jobs unavailable: original source required]\x1b[0m");
+    complete(
+        &mut parser,
+        &mut frames,
+        b"\x1b[1;1H\x1b[0m[Back]\x1b[24;22H\x1b[4mRerun all jobs\x1b[0m",
+    );
     let after = navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
     assert!(after.target_focused);
     assert_ne!(after.underlined, before.underlined);
+    // A fragment names the one token containing it; the bracketed form names the whole token.
+    assert_eq!(
+        navigation::actions_control_position(&frames, &page, "Rerun all"),
+        Some((21, 23))
+    );
+    assert_eq!(
+        navigation::actions_control_position(&frames, &page, "[w Watch]"),
+        Some((12, 23))
+    );
 }
 
 #[test]
-fn scoped_actions_test_framework_focus_repaint_foreign_page_or_duplicate_cannot_supply_target() {
+fn scoped_actions_test_framework_focus_body_text_duplicate_or_other_view_cannot_supply_target() {
     let mut parser = vt100::Parser::new(24, 80, 0);
     let mut frames = CursorlessFrames::default();
-    let mut bytes = actions_bytes(24, 80, 3);
-    bytes.extend_from_slice(b"\x1b[8;2H[Rerun all jobs unavailable: original source required]");
+    let bytes = actions_bytes(24, 80, 3);
     complete(&mut parser, &mut frames, &bytes);
     let page = navigation::actions_page(&frames, 0).unwrap();
     let before = navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap();
@@ -1091,9 +1108,22 @@ fn scoped_actions_test_framework_focus_repaint_foreign_page_or_duplicate_cannot_
         navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").unwrap(),
         before
     );
-    complete(&mut parser, &mut frames, b"\x1b[9;2HRerun all jobs");
+    // Body prose is not a control: only the key bar supplies one.
+    let mut body = actions_bytes(24, 80, 3);
+    body.extend_from_slice(footer(24, " r Refresh").as_bytes());
+    body.extend_from_slice(b"\x1b[9;2HRerun all jobs");
+    complete(&mut parser, &mut frames, &body);
     assert!(navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
-    complete(&mut parser, &mut frames, &actions_bytes(24, 80, 4));
+    // Two tokens with the same caption are ambiguous.
+    let mut twice = actions_bytes(24, 80, 3);
+    twice.extend_from_slice(b"\x1b[24;66HRerun all jobs");
+    complete(&mut parser, &mut frames, &twice);
+    assert!(navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
+    complete(
+        &mut parser,
+        &mut frames,
+        &box_bytes("Inbox • focused view", 24, 80),
+    );
     assert!(navigation::actions_control_focus_v2(&frames, &page, "Rerun all jobs").is_none());
 }
 
@@ -1154,35 +1184,28 @@ fn navigation_local_palette_test_framework_exact_full_source_inverse_and_owned_g
 }
 
 #[test]
-fn pr_checks_bridge_test_framework_actions_page_requires_new_completed_exact_geometry() {
+fn pr_checks_bridge_test_framework_actions_page_requires_new_completed_frame_and_key_bar() {
     for (height, width) in [(24, 80), (40, 120)] {
         let mut parser = vt100::Parser::new(height, width, 0);
         let mut frames = CursorlessFrames::default();
         complete(&mut parser, &mut frames, &actions_bytes(height, width, 1));
         let old = navigation::actions_page(&frames, 0).unwrap();
-        assert_eq!((old.current, old.total), (1, 6));
-        assert_eq!(old.previous, (1, 5));
-        assert_eq!(old.next, (14, 5));
+        assert_eq!(old.footer, height - 1);
         assert_eq!(
             navigation::actions_control_position(&frames, &old, WATCH),
-            Some((1, 6))
+            Some((12, height - 1))
         );
         let before = frames.end;
         let partial = actions_bytes(height, width, 2);
         frames.process(&mut parser, &partial, before);
-        assert!(parser.screen().contents().contains("2/6"));
+        assert!(parser.screen().contents().contains("attempt 2"));
         assert!(navigation::actions_page(&frames, before).is_none());
-        assert_eq!(navigation::actions_page(&frames, 0).unwrap().current, 1);
+        assert!(navigation::actions_page(&frames, 0).is_some());
         frames.process(&mut parser, b"\x1b[?25l", before + partial.len());
         let new = navigation::actions_page(&frames, before).unwrap();
-        assert_eq!((new.current, new.total), (2, 6));
-        assert!(
-            navigation::actions_control_position(&frames, &old, WATCH).is_none(),
-            "Never reuse a prior control-page coordinate lease"
-        );
         assert_eq!(
             navigation::actions_control_position(&frames, &new, WATCH),
-            Some((1, 6))
+            Some((12, height - 1))
         );
         frames.invalidate_size();
         assert!(navigation::actions_page(&frames, 0).is_none());
@@ -1192,9 +1215,9 @@ fn pr_checks_bridge_test_framework_actions_page_requires_new_completed_exact_geo
 #[test]
 fn pr_checks_bridge_test_framework_actions_control_refuses_ghost_rows_notice_and_ambiguity() {
     for extra in [
-        format!("\x1b[8;2H{WATCH} duplicate]"),
+        "\x1b[40;80Hw Watch".to_string(),
         "\x1b[12;2HAction unavailable".into(),
-        "\x1b[8;2H2/6 • [] change control page".into(),
+        "\x1b[40;1H\x1b[2K".into(),
         "\x1b[38;120H ".into(),
     ] {
         let mut parser = vt100::Parser::new(40, 120, 0);
@@ -1212,35 +1235,37 @@ fn pr_checks_bridge_test_framework_actions_control_refuses_ghost_rows_notice_and
     let mut parser = vt100::Parser::new(40, 120, 0);
     let mut frames = CursorlessFrames::default();
     let mut bytes = actions_bytes(40, 120, 1);
-    bytes.extend_from_slice(format!("\x1b[7;2H\x1b[2K│\x1b[7;120H│\x1b[30;2H{WATCH} user log body]\x1b[2;1H{WATCH} underlying header]\x1b[40;1H{WATCH} footer]").as_bytes());
+    bytes.extend_from_slice(footer(40, " r Refresh").as_bytes());
+    bytes.extend_from_slice(
+        format!(
+            "\x1b[30;2H{WATCH} user log body\x1b[2;1H{WATCH} underlying header\x1b[6;30H w Watch "
+        )
+        .as_bytes(),
+    );
     complete(&mut parser, &mut frames, &bytes);
     let page = navigation::actions_page(&frames, 0).unwrap();
     assert!(
         navigation::actions_control_position(&frames, &page, WATCH).is_none(),
-        "Only actually rendered control rows, not body/header/footer strings"
+        "Only the actual key bar, not body/header/tab strings"
     );
 }
 
 #[test]
-fn pr_checks_bridge_test_framework_actions_page_numbers_are_positive_bounded_and_owned() {
-    for page in ["0/6", "7/6", "1/31", "1/not-a-page"] {
-        let mut parser = vt100::Parser::new(40, 120, 0);
-        let mut frames = CursorlessFrames::default();
-        let mut bytes = actions_bytes(40, 120, 1);
-        bytes.extend_from_slice(format!("\x1b[6;2H\x1b[2K[← Controls] [Controls →] {page} • [] change control page\x1b[6;120H│").as_bytes());
-        complete(&mut parser, &mut frames, &bytes);
-        assert!(
-            navigation::actions_page(&frames, 0).is_none(),
-            "Never guess malformed page metadata: {page}"
-        );
-    }
+fn pr_checks_bridge_test_framework_actions_page_requires_owned_box_and_main_key_bar() {
+    // A modal's bracketed row is not the main key bar.
     let mut parser = vt100::Parser::new(40, 120, 0);
     let mut frames = CursorlessFrames::default();
     complete(
         &mut parser,
         &mut frames,
-        &box_bytes("Inbox • focused view", 40, 120),
+        &box_bytes("Actions • focused view", 40, 120),
     );
+    assert!(navigation::actions_page(&frames, 0).is_none());
+    let mut parser = vt100::Parser::new(40, 120, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut inbox = box_bytes("Inbox • focused view", 40, 120);
+    inbox.extend_from_slice(footer(40, " r Refresh  w Watch").as_bytes());
+    complete(&mut parser, &mut frames, &inbox);
     assert!(navigation::actions_page(&frames, 0).is_none());
 }
 

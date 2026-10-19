@@ -117,67 +117,22 @@ fn button(session: &mut Session, label: &str) {
             | "[F9 New intent]"
     ) {
         // Composer footers can arrive after the worker prepared the form. Never
-        // page the underlying catalogue while waiting for the overlay's real hit.
+        // reach into the underlying view while waiting for the overlay's real hit.
         session.click_visible_action(label);
         return;
     }
-    if !session.screen().contains(label) {
-        first_page(session, true);
-    }
-    for _ in 0..30 {
-        if session.screen().contains(label) {
-            session.click_visible_action(label);
-            return;
-        }
-        session.click_visible_action("[Controls →]");
-        let _ = session.try_wait_for(label, std::time::Duration::from_millis(80));
-    }
-    panic!("Action never appeared: {label}");
+    session.click_actions_control(label);
 }
-fn first_page(session: &mut Session, mouse: bool) {
-    for _ in 0..30 {
-        let page = session
-            .screen()
-            .lines()
-            .find(|line| line.contains(" • []"))
-            .and_then(|line| line.split(" • []").next())
-            .and_then(|line| line.split_whitespace().last())
-            .and_then(|number| number.split('/').next())
-            .and_then(|number| number.parse::<usize>().ok());
-        if page.is_none_or(|page| page <= 1) {
-            return;
-        }
-        if mouse {
-            session.click_visible_action("[← Controls]");
-        } else {
-            session.send_key(b"[");
-        }
-        session.poll_output(std::time::Duration::from_millis(30));
-    }
-    panic!("Could not reach first native controls page");
-}
+/// A command control: clicked (mouse), or Tab-focused in the key bar and activated with
+/// Enter (keyboard). Commands that do not fit the bar are chosen through the palette by the
+/// same input kind.
 fn command(session: &mut Session, mouse: bool, label: &str) {
-    if !session.screen().contains(label) {
-        first_page(session, mouse);
+    if mouse {
+        button(session, label);
+    } else {
+        session.focus_completed_actions_control_v2(label);
+        session.send_key(b"\r");
     }
-    for _ in 0..30 {
-        if session.screen().contains(label) {
-            if mouse {
-                session.click_visible_action(label);
-            } else {
-                session.focus_visible_action(label);
-                session.send_key(b"\r");
-            }
-            return;
-        }
-        if mouse {
-            session.click_visible_action("[Controls →]");
-        } else {
-            session.send_key(b"]");
-        }
-        let _ = session.try_wait_for(label, std::time::Duration::from_millis(80));
-    }
-    panic!("Native command never became visible: {label}");
 }
 fn write(endpoint: &str, input: Option<Value>, out: Value) -> GhStep {
     let mut step = read(endpoint, out, false);
@@ -244,7 +199,7 @@ fn inspect_original_publication(session: &mut Session, mouse: bool, attempt_id: 
 fn open_original_publication(session: &mut Session, mouse: bool, attempt_id: i64) {
     // Disabled control explanations also mention Publications; target its exact
     // rendered button, not another control whose explanatory text contains it.
-    command(session, mouse, "[Publications]");
+    command(session, mouse, "[P Publications]");
     session.wait_for_screen("unresolved publications shown");
     let heading = format!("ORIGINAL ACTIONS ATTEMPT #{attempt_id} •");
     session.wait_for_screen(&heading);
@@ -1289,7 +1244,7 @@ fn uncertain_cancel(mouse: bool) {
     assert_eq!(original[0].context["head_sha"], "a".repeat(40));
     assert!(original[0].receipt.is_none());
     close_form(&mut session, mouse);
-    choose(&mut session, mouse, "Refresh", b"r");
+    choose(&mut session, mouse, "[r Refresh]", b"r");
     journal(&mut session, &fixture, refresh_count);
     command(&mut session, mouse, "Cancel run");
     session.wait_for_screen("Action unavailable");
@@ -1500,7 +1455,7 @@ fn artifact_management(mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("Job 501");
-    choose(&mut session, mouse, "Artifacts", b"a");
+    choose(&mut session, mouse, "[a Artifacts]", b"a");
     session.wait_for_screen("build-output #41");
     session.wait_for_screen("attempt not exposed");
     journal(&mut session, &fixture, 6);

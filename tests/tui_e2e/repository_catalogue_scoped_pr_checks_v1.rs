@@ -203,44 +203,9 @@ pub(super) fn control(session: &mut Session, mouse: bool, label: &str, key: &[u8
         session.send_key(key);
         return;
     }
-    fn page(screen: &str) -> Option<(usize, usize)> {
-        let line = screen
-            .lines()
-            .find(|line| line.contains("• [] change control page"))?;
-        let fraction = line.split('•').next()?.split_whitespace().last()?;
-        let (current, total) = fraction.split_once('/')?;
-        Some((current.parse().ok()?, total.parse().ok()?))
-    }
-    // A previous action can leave the toolbar on any page. Walk back to the
-    // beginning, then forward, acknowledging each actual rendered transition
-    // before sending another click. Never saturate the queue on a stale frame.
-    let mut forward = false;
-    for _ in 0..64 {
-        if session.screen().contains(label) {
-            session.click_visible_action(label);
-            return;
-        }
-        let (current, total) = page(&session.screen()).expect("Actual control page counter");
-        forward |= current == 1;
-        if forward && current == total {
-            break;
-        }
-        let expected = if forward { current + 1 } else { current - 1 };
-        session.click_visible_action(if forward {
-            "[Controls →]"
-        } else {
-            "[← Controls]"
-        });
-        session
-            .try_wait_for_condition(
-                |screen| page(screen) == Some((expected, total)),
-                "One acknowledged control-page transition",
-                Duration::from_secs(3),
-            )
-            .unwrap();
-    }
-    session.save_artifacts();
-    panic!("Scoped shared control not visible: {label}");
+    // A catalogue tab or key-bar token is clicked where it is painted; a control that does
+    // not fit the bar at this width is clicked in the command palette.
+    session.click_actions_control(label);
 }
 fn close_notice(session: &mut Session, mouse: bool) {
     if mouse {
@@ -250,7 +215,9 @@ fn close_notice(session: &mut Session, mouse: bool) {
     }
 }
 fn read_only_control(session: &mut Session, fixture: &Fixture, mouse: bool) {
-    control(session, mouse, "[Runs unavailable:", b"R");
+    // The scoped route keeps the catalogue tabs visible but disabled: the dimmed Runs tab
+    // and its R key both explain why instead of doing nothing.
+    control(session, mouse, "Runs", b"R");
     overlay_ready(
         session,
         "Action unavailable",

@@ -171,8 +171,11 @@ fn complete(session: &mut Session, after: usize, required: &[&str]) {
     session.wait_for_new_cursorless_condition(
         after,
         |screen| {
+            // A bracketed Actions control is a key-bar token now.
             let text = screen.contents();
-            required.iter().all(|value| text.contains(value))
+            required.iter().all(|value| {
+                text.contains(value) || crate::support::locate_control(screen, value).is_some()
+            })
         },
         &format!("Original completed Actions frame {required:?}"),
         Duration::from_secs(8),
@@ -456,7 +459,7 @@ fn cancel(mouse: bool) {
     choose(&mut session, mouse, "[l Logs]", b"l");
     let child = entered(&mut session, &fixture, 32);
     session.wait_for_cursorless_condition(
-        |s| s.contents().contains("[b Cancel read]"),
+        |s| crate::support::locate_control(s, "[b Cancel read]").is_some(),
         "Owned pending read Cancel",
         Duration::from_secs(8),
     );

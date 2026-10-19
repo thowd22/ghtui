@@ -602,10 +602,7 @@ pub fn scoped_unavailable_v1(route: &PrChecksRoute, action: &ActionsAction) -> O
         || matches!(action, ActionsAction::Annotations(id) if choices::other_job_allowed(route,Some(*id)))
         || matches!(action, ActionsAction::Compose(crate::actions_workspace::ActionsCommand::SearchLogs) if route.loaded_capture_v2.is_some())
         || match action {
-            ActionsAction::Back
-            | ActionsAction::Select(_)
-            | ActionsAction::ControlsPage(_)
-            | ActionsAction::Unavailable(_) => true,
+            ActionsAction::Back | ActionsAction::Select(_) | ActionsAction::Unavailable(_) => true,
             ActionsAction::OpenJob(job) => {
                 choices::other_job_allowed(route, Some(*job))
                     || route
@@ -696,10 +693,7 @@ fn preserve_scoped_controls_v1(
     for (control, run_entry) in workspace.controls.iter_mut().zip(run_entries) {
         let allowed = matches!(
             control.action,
-            ActionsAction::Back
-                | ActionsAction::Select(_)
-                | ActionsAction::ControlsPage(_)
-                | ActionsAction::OpenJob(_)
+            ActionsAction::Back | ActionsAction::Select(_) | ActionsAction::OpenJob(_)
         ) || matches!(control.action, ActionsAction::Logs(job) if job == matched && matched.is_some());
         if control.action == ActionsAction::Back {
             control.label = "[b Back to PR checks]".into();

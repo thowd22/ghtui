@@ -488,8 +488,12 @@ impl Builder {
             if control.label.len() > MAX_CONTROL_BYTES {
                 return Err("Actions command label exceeds its byte budget".into());
             }
+            // The same "label: reason" explanation as the control's key and click.
             let action = if let Some(reason) = &control.disabled_reason {
-                bounded_explanation(reason)
+                bounded_explanation(&format!(
+                    "{}: {reason}",
+                    crate::providers::runner::sanitize_terminal(&control.label)
+                ))
             } else if allowed_actions_control(&control.action) {
                 Action::Actions(control.action.clone())
             } else {

@@ -1,6 +1,8 @@
 //! Run/job/log focus and failure-jump behaviour of the shared Actions viewer.
 use super::*;
-use crate::actions_ui::keyboard_action;
+use crate::actions_ui::{footer_keys, keyboard_action};
+use crate::app::Action;
+use crate::footer::{layout, resolve_key};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 
@@ -46,6 +48,16 @@ fn selected_label(workspace: &ActionsWorkspace) -> &str {
 }
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
+}
+/// What a key does in the Actions view: the key-bar control first, then the hand-written
+/// selection keys. A disabled control answers with its explanation.
+fn press(code: KeyCode, workspace: &ActionsWorkspace) -> Option<ActionsAction> {
+    match resolve_key(&footer_keys(workspace), key(code)) {
+        Some(Action::Actions(action)) => Some(action),
+        Some(Action::Explain(reason)) => Some(ActionsAction::Unavailable(reason)),
+        Some(other) => panic!("unexpected {other:?}"),
+        None => keyboard_action(key(code), workspace),
+    }
 }
 
 #[test]
@@ -105,7 +117,7 @@ fn v1_actions_runs_failure_jumps_walk_failed_jobs_and_steps_by_key_and_control()
     workspace.view = ActionsView::Jobs;
     workspace.prepare_rows();
     workspace.select(0);
-    let next = |w: &ActionsWorkspace| keyboard_action(key(KeyCode::Char('>')), w);
+    let next = |w: &ActionsWorkspace| press(KeyCode::Char('>'), w);
     let Some(ActionsAction::Select(first)) = next(&workspace) else {
         panic!("next failure");
     };
@@ -116,13 +128,23 @@ fn v1_actions_runs_failure_jumps_walk_failed_jobs_and_steps_by_key_and_control()
     };
     workspace.select(second);
     assert!(selected_label(&workspace).starts_with("Job 3 • test"));
-    // The clickable control carries the same target as the key.
-    let control = workspace
-        .controls
+    // The painted key-bar token carries the same target as the key. At 80 columns the
+    // everyday commands keep their place and the jump stays one key away.
+    let keys = footer_keys(&workspace);
+    let placed = layout(&keys, 140)
+        .into_iter()
+        .find(|placed| keys[placed.index].key == ">")
+        .expect("> Next failure is painted at 140 columns");
+    assert_eq!(
+        keys[placed.index].action,
+        Action::Actions(next(&workspace).unwrap())
+    );
+    assert_eq!(keys[placed.index].token(placed.compact), "> Next failure");
+    let narrow = layout(&keys, 80);
+    assert!(narrow.iter().all(|placed| placed.compact));
+    assert!(narrow
         .iter()
-        .find(|control| control.label == NEXT_FAILURE)
-        .unwrap();
-    assert_eq!(Some(control.action.clone()), next(&workspace));
+        .any(|placed| keys[placed.index].action == Action::Actions(ActionsAction::Back)));
     let Some(ActionsAction::Select(step)) = next(&workspace) else {
         panic!("failed step");
     };
@@ -132,7 +154,7 @@ fn v1_actions_runs_failure_jumps_walk_failed_jobs_and_steps_by_key_and_control()
         matches!(next(&workspace), Some(ActionsAction::Unavailable(reason)) if reason.contains("none later"))
     );
     assert_eq!(
-        keyboard_action(key(KeyCode::Char('<')), &workspace),
+        press(KeyCode::Char('<'), &workspace),
         Some(ActionsAction::Select(second))
     );
 }
@@ -169,13 +191,14 @@ fn v1_actions_runs_logs_mark_error_lines_as_failure_jump_targets() {
     workspace.select(0);
     assert_eq!(workspace.rows[1].role, SemanticToken::Failure);
     assert_eq!(
-        keyboard_action(key(KeyCode::Char('>')), &workspace),
+        press(KeyCode::Char('>'), &workspace),
         Some(ActionsAction::Select(1))
     );
     // A green run without failures offers no failure controls.
     let green = workspace_green();
     assert!(!green.controls.iter().any(|c| c.label == NEXT_FAILURE));
-    assert_eq!(keyboard_action(key(KeyCode::Char('>')), &green), None);
+    assert_eq!(press(KeyCode::Char('>'), &green), None);
+    assert!(!footer_keys(&green).iter().any(|control| control.key == ">"));
 }
 fn workspace_green() -> ActionsWorkspace {
     workspace(vec![job(1, "lint", "success", false)])

@@ -27,9 +27,9 @@ fn actual_actions_v9(s: &mut Session, after: usize, words: &[&str]) {
         if s.completed_cells_end() > after
             && s.completed_cells_screen().is_some_and(|frame| {
                 crate::support::main_footer_visible(frame)
+                    && crate::support::locate_control(frame, "[b Cancel read]").is_none()
                     && actions_body_v9(s).is_some_and(|body| {
                         words.iter().all(|word| body.contains(word))
-                            && !body.contains("[b Cancel read]")
                             && !body.contains("Original current read pending")
                     })
             })
@@ -47,14 +47,18 @@ fn actual_ack_v9(s: &mut Session, after: usize) {
     let until = Instant::now() + Duration::from_secs(8);
     loop {
         s.poll_output(Duration::from_millis(1));
+        // The recovery result keeps Refresh history and Back in the key bar, and the
+        // acknowledged control and busy Cancel read have left it.
         if s.completed_cells_end() > after
-            && actions_body_v9(s).is_some_and(|body| {
-                body.contains("Inspect original Actions publication")
-                    && body.contains("[r Refresh history]")
-                    && body.contains("[b Back]")
-                    && !body.contains("[Acknowledge inspected state]")
-                    && !body.contains("[b Cancel read]")
+            && actions_body_v9(s)
+                .is_some_and(|body| body.contains("Inspect original Actions publication"))
+            && s.completed_cells_screen().is_some_and(|frame| {
+                crate::support::locate_control(frame, "[r Refresh history]").is_some()
+                    && crate::support::locate_control(frame, "[b Back]").is_some()
+                    && crate::support::locate_control(frame, "[b Cancel read]").is_none()
             })
+            && s.completed_actions_control("Acknowledge inspected state")
+                .is_none()
         {
             return;
         }
@@ -66,7 +70,11 @@ fn actions_fact_v9(s: &mut Session, mouse: bool, fact: &str) {
     loop {
         s.poll_output(Duration::from_millis(1));
         let current = actions_body_v9(s).expect("SAME completed owned historical Actions body");
-        assert!(!current.contains("[b Cancel read]"));
+        assert!(s
+            .completed_cells_screen()
+            .is_some_and(
+                |frame| crate::support::locate_control(frame, "[b Cancel read]").is_none()
+            ));
         if current.contains(fact) {
             return;
         }
@@ -159,72 +167,26 @@ fn fresh_source_v9(r: &RemoteFixture, mouse: bool, offset: usize) -> Session {
 }
 fn open_publications_v9(s: &mut Session, mouse: bool) {
     let until = Instant::now() + Duration::from_secs(8);
-    let mut previous = None;
-    for _ in 0..30 {
-        let (page, publication, next) = loop {
-            s.poll_output(Duration::from_millis(1));
-            let observation = s.completed_cells_screen().and_then(|frame| {
-                let body = crate::support::overlay_body(frame, ACTIONS)?;
-                if !body.contains(CURRENT)
-                    || !body.contains("0 runs of 0 reported • complete")
-                    || !body.contains("No records reported in this scope.")
-                    || body.contains("[b Cancel read]")
-                {
-                    return None;
-                }
-                let line = body
-                    .lines()
-                    .find(|line| line.contains(" • [] change control page"))?;
-                let (current, total) = line
-                    .split(" • [] change control page")
-                    .next()?
-                    .split_whitespace()
-                    .last()?
-                    .split_once('/')?;
-                let page = (current.parse::<usize>().ok()?, total.parse::<usize>().ok()?);
-                if page.0 == 0 || page.0 > page.1 || page.1 > 30 {
-                    return None;
-                }
-                let point = |label| {
-                    crate::support::completed_navigation_controls_v1::owned_action_position(
-                        frame,
-                        ACTIONS,
-                        label,
-                        &[FORM, "Action unavailable", "Commands · current context"],
-                    )
-                };
-                Some((page, point("[P Publications]"), point("[Controls →]")?))
-            });
-            if let Some(observed) = observation {
-                if previous
-                    .is_none_or(|(end, page)| s.completed_cells_end() > end && observed.0 != page)
-                {
-                    break observed;
-                }
-            }
-            assert!(
-                Instant::now() < until,
-                "NEW complete exact current empty-Runs control page\n{}",
-                s.screen()
-            );
-        };
-        if let Some((x, y)) = publication {
-            if mouse {
-                s.click(x, y);
-            } else {
-                s.send_key(b"P");
-            }
-            return;
+    loop {
+        s.poll_output(Duration::from_millis(1));
+        let ready = s.completed_cells_screen().is_some_and(|frame| {
+            crate::support::overlay_body(frame, ACTIONS).is_some_and(|body| {
+                body.contains(CURRENT)
+                    && body.contains("0 runs of 0 reported • complete")
+                    && body.contains("No records reported in this scope.")
+            }) && crate::support::locate_control(frame, "[b Cancel read]").is_none()
+                && !frame.contents().contains("Commands · current context")
+        }) && s.completed_actions_control("[P Publications]").is_some();
+        if ready {
+            break;
         }
-        assert!(page.0 < page.1 && Instant::now() < until);
-        previous = Some((s.completed_cells_end(), page));
-        if mouse {
-            s.click(next.0, next.1);
-        } else {
-            s.send_key(b"]");
-        }
+        assert!(
+            Instant::now() < until,
+            "NEW complete exact current empty-Runs frame with the Publications token\n{}",
+            s.screen()
+        );
     }
-    panic!("Exact Publications control not reached within real30pages");
+    s.activate_completed_actions_control(mouse, "[P Publications]", b"P");
 }
 fn source_reservation_only_v9(
     before: &[(String, Vec<Vec<rusqlite::types::Value>>)],
@@ -403,11 +365,7 @@ fn restart_v9(mouse: bool, mode: RestartV9) {
     if !already_ack {
         let end = s.completed_cells_end();
         if mouse {
-            let (x, y) = s.wait_for_owned_completed_action(
-                ACTIONS,
-                "[Acknowledge inspected state]",
-                &[FORM, "Action unavailable"],
-            );
+            let (x, y) = s.wait_for_control("[Acknowledge inspected state]");
             s.click(x, y);
         } else {
             s.focus_completed_actions_control_v2("Acknowledge inspected state");
@@ -462,8 +420,7 @@ fn restart_v9(mouse: bool, mode: RestartV9) {
     let terminal_protected = raw_tables_v9(&r.fixture);
     let end = s.completed_cells_end();
     if mouse {
-        let (x, y) =
-            s.wait_for_owned_completed_action(ACTIONS, "[b Back]", &[FORM, "Action unavailable"]);
+        let (x, y) = s.wait_for_control("[b Back]");
         s.click(x, y);
     } else {
         s.send_key(b"b");

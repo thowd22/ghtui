@@ -234,29 +234,27 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
 fn actions_control(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     session.activate_completed_actions_control(mouse, label, key);
 }
-fn controls_page(screen: &str) -> Option<usize> {
-    screen
-        .lines()
-        .find(|line| line.contains(" • []"))
-        .and_then(|line| line.split(" • []").next())
-        .and_then(|line| line.split_whitespace().last())
-        .and_then(|page| page.split('/').next())
-        .and_then(|page| page.parse().ok())
-}
 fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: bool) {
-    // The nested bracket + unavailable suffix targets the shared Actions
-    // control, not the application's similarly labelled global footer Refresh.
+    // Disabled shared controls leave the key bar. Their key still explains why, and the
+    // mouse reaches the same explanation through the control's palette entry.
     for (label, key) in [
-        ("[[r Refresh] unavailable:", b"r".as_slice()),
-        ("[[w Watch] unavailable:", b"w".as_slice()),
+        ("[r Refresh]", b"r".as_slice()),
+        ("[w Watch]", b"w".as_slice()),
     ] {
-        actions_control(session, mouse, label, key);
+        session.first_completed_actions_page(mouse);
+        assert!(session.completed_actions_control(label).is_none());
+        if mouse {
+            session.invoke_via_palette(true, label);
+        } else {
+            session.send_key(key);
+        }
         session
             .try_wait_for_condition(
                 |screen| {
                     screen.contains("Action unavailable")
                         && screen.contains("[Esc Close]")
-                        && screen.contains("exact original run/job/log read")
+                        // The label prefix can wrap the reason; its exact text is checked
+                        // below with wrapping whitespace removed.
                         && screen.contains("fresh source admission")
                 },
                 "same complete shared bridge explanation for disabled click/key",
@@ -306,11 +304,8 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
         assert!(!session.screen().contains("Stop watch"));
         records(session, fixture, 32);
     }
-    // Watch appears after Logs in the paged controls. Return via actual shared
-    // controls and observed page transitions before the existing narrow journey;
-    // this does not alter the retained row/source or send any provider request.
+    // The explanations do not alter the retained row/source or send any provider request.
     session.first_completed_actions_page(mouse);
-    assert_eq!(controls_page(&session.screen()), Some(1));
     records(session, fixture, 32);
 }
 fn effects(session: &mut Session, fixture: &Fixture, head: &str, index: &[u8]) {

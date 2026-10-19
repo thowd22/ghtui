@@ -71,11 +71,16 @@ fn workspace(state: &str, triggers: &[&str]) -> ActionsWorkspace {
     workspace
 }
 
+/// What the key does in the Actions view: its key-bar control (a disabled one explains), then
+/// the hand-written view keys.
 fn key(workspace: &ActionsWorkspace, code: char) -> Option<ActionsAction> {
-    crate::actions_ui::keyboard_action(
-        KeyEvent::new(KeyCode::Char(code), KeyModifiers::SHIFT),
-        workspace,
-    )
+    let event = KeyEvent::new(KeyCode::Char(code), KeyModifiers::SHIFT);
+    match crate::footer::resolve_key(&crate::actions_ui::footer_keys(workspace), event) {
+        Some(crate::app::Action::Actions(action)) => Some(action),
+        Some(crate::app::Action::Explain(reason)) => Some(ActionsAction::Unavailable(reason)),
+        Some(other) => panic!("unexpected {other:?}"),
+        None => crate::actions_ui::keyboard_action(event, workspace),
+    }
 }
 
 #[test]

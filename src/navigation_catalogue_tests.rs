@@ -312,7 +312,7 @@ fn navigation_catalogue_actions_uses_actual_exact_run_attempt_and_disabled_reaso
     );
     assert_eq!(
         entry(&catalogue, "actions.control.0").action,
-        Action::Explain("Repository permission was not established".into())
+        Action::Explain("Delete run: Repository permission was not established".into())
     );
     assert!(catalogue
         .entries

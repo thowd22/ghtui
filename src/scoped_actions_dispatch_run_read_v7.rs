@@ -324,7 +324,7 @@ pub(crate) fn intercept(app: &mut App, action: &ActionsAction) -> bool {
                 job,
             )
         }
-        ActionsAction::Select(_) | ActionsAction::ControlsPage(_) => return false,
+        ActionsAction::Select(_) => return false,
         _ => {
             super::super::explain(app,"Returned Dispatch run is read only; resources/Search/Watch/Compose require independently fresh normal discovery. Back keeps the original protected receipt; nothing was requested.");
             return true;

@@ -3,11 +3,13 @@
 mod support;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ghtui::{
-    actions_ui::{draw, keyboard_action},
+    actions_ui::{draw, footer_keys, keyboard_action},
     actions_workspace::{
         ActionsAction, ActionsCommand, ActionsPlan, ActionsView, ActionsWorkspace, RunPage,
     },
+    app::Action,
     config::ThemeName,
+    footer::{layout, resolve_key, ControlGroup},
     providers::{
         gh::{
             ActionsArtifact, ActionsTarget, Actor, ArtifactArchive, ArtifactLimits, GithubProvider,
@@ -328,7 +330,7 @@ fn actions_unverified_account_can_browse_but_not_compose_remote_mutations() {
 }
 
 #[test]
-fn actions_paged_controls_keep_every_available_or_unavailable_action_inspectable() {
+fn actions_key_bar_keeps_every_available_or_unavailable_action_inspectable() {
     for (width, height) in [(40, 12), (80, 24), (120, 40)] {
         let fixture = Fixture::new();
         let mut workspace = workspace();
@@ -345,58 +347,60 @@ fn actions_paged_controls_keep_every_available_or_unavailable_action_inspectable
             annotations: vec![],
         });
         workspace.prepare_rows();
-        let expected = workspace
-            .controls
-            .iter()
-            .map(|control| {
-                format!(
-                    "{:?}",
-                    control.disabled_reason.as_ref().map_or_else(
-                        || control.action.clone(),
-                        |reason| ActionsAction::Unavailable(format!("{}: {reason}", control.label))
-                    )
-                )
-            })
-            .collect::<std::collections::BTreeSet<_>>();
+        // Every prepared control is one key-bar entry carrying its exact action, or its
+        // "label: reason" explanation when disabled. Nothing is paged away.
+        let keys = footer_keys(&workspace);
+        for control in &workspace.controls {
+            let expected = control
+                .disabled_reason
+                .as_ref()
+                .map_or_else(|| Some(Action::Actions(control.action.clone())), |_| None);
+            assert!(
+                keys.iter().any(|key| match (&expected, &key.disabled) {
+                    (Some(action), None) => key.action == *action,
+                    (None, Some(reason)) =>
+                        key.action == Action::Actions(control.action.clone())
+                            && *reason
+                                == format!(
+                                    "{}: {}",
+                                    control.label,
+                                    control.disabled_reason.as_ref().unwrap()
+                                ),
+                    _ => false,
+                }),
+                "{} lost from the key bar",
+                control.label
+            );
+        }
+        // Catalogue tabs are drawn as the tab strip; the bar fits whole tokens only and
+        // keeps Back and the run pages before scope tools at every width.
         let mut seen = std::collections::BTreeSet::new();
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        for _ in 0..workspace.controls.len() + 1 {
-            let mut next = false;
-            terminal
-                .draw(|frame| {
-                    let output = draw(
-                        frame,
-                        &mut workspace,
-                        frame.area(),
-                        Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
-                        &Default::default(),
-                    );
-                    for hit in output.hits {
-                        if hit.action == ActionsAction::ControlsPage(1) {
-                            next = true;
-                        }
-                        seen.insert(format!("{:?}", hit.action));
-                    }
-                })
-                .unwrap();
-            if !next {
-                break;
-            }
-            workspace
-                .apply(
-                    &provider(&fixture),
-                    &ActionsAction::ControlsPage(1),
-                    &CancellationToken::default(),
-                )
-                .unwrap();
-        }
-        assert!(
-            expected.is_subset(&seen),
-            "Missing {}x{} controls: {:?}",
-            width,
-            height,
-            expected.difference(&seen).collect::<Vec<_>>()
-        );
+        terminal
+            .draw(|frame| {
+                let output = draw(
+                    frame,
+                    &mut workspace,
+                    frame.area(),
+                    Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
+                    &Default::default(),
+                );
+                for hit in output.hits {
+                    seen.insert(format!("{:?}", hit.action));
+                }
+            })
+            .unwrap();
+        assert!(seen.contains(&format!("{:?}", ActionsAction::View(ActionsView::Runs))));
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(!screen.contains("unavailable:") && !screen.contains("Controls →"));
+        let placed = layout(&keys, width);
+        assert!(placed
+            .iter()
+            .all(|placed| keys[placed.index].group != ControlGroup::Mode
+                && keys[placed.index].disabled.is_none()));
+        assert!(placed
+            .iter()
+            .any(|placed| keys[placed.index].action == Action::Actions(ActionsAction::Back)));
         assert!(journal(&fixture).is_empty());
     }
 }
@@ -408,32 +412,20 @@ fn mouse_keyboard_actions_disabled_intent_has_same_read_only_mouse_and_keyboard_
     workspace.view = ActionsView::Variables;
     workspace.identity.account_id = None;
     workspace.prepare_rows();
-    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
-    let mut notice = None;
-    for _ in 0..workspace.controls.len() + 1 {
-        terminal
-            .draw(|frame| {
-                let output = draw(
-                    frame,
-                    &mut workspace,
-                    frame.area(),
-                    Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
-                    &Default::default(),
-                );
-                notice = output.hits.into_iter().find_map(|hit| match hit.action {
-                    ActionsAction::Unavailable(reason) if reason.starts_with("Set variable:") => {
-                        Some(ActionsAction::Unavailable(reason))
-                    }
-                    _ => None,
-                });
-            })
-            .unwrap();
-        if notice.is_some() {
-            break;
-        }
-        workspace.controls_page += 1;
-    }
-    let action = notice.expect("Visible disabled control still has a shared mouse/Tab hit");
+    // A disabled command leaves the key bar; the bar entry (palette and key) explains it.
+    let keys = footer_keys(&workspace);
+    let set = keys
+        .iter()
+        .find(|key| {
+            key.action == Action::Actions(ActionsAction::Compose(ActionsCommand::SetVariable))
+        })
+        .unwrap();
+    let reason = set.disabled.clone().expect("Set variable is disabled");
+    assert!(reason.starts_with("Set variable:"));
+    assert!(layout(&keys, 120)
+        .iter()
+        .all(|placed| keys[placed.index].label != "Set variable"));
+    let action = ActionsAction::Unavailable(reason);
     assert!(
         matches!(&action, ActionsAction::Unavailable(reason) if reason.contains("verified account"))
     );
@@ -648,25 +640,23 @@ fn actions_approvals_reviewer_history_rows_keep_canonical_gate_selection_and_dis
     assert!(workspace.controls.iter().any(|control| control.action
         == ActionsAction::Compose(ActionsCommand::ApproveDeployment)
         && control.disabled_reason.is_some()));
-    for (width, height) in [(80, 24), (120, 40)] {
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        let mut found = false;
-        for _ in 0..workspace.controls.len() + 1 {
-            terminal.draw(|frame| {
-                let output=draw(frame,&mut workspace,frame.area(),Theme::new(ThemeName::CatppuccinMocha,ColorMode::LowColor),&Default::default());
-                found|=output.hits.iter().any(|hit|matches!(&hit.action,ActionsAction::Unavailable(reason) if reason.starts_with("Approve selected deployment:") && reason.contains("required-reviewer")));
-            }).unwrap();
-            if found {
-                break;
-            }
-            workspace.controls_page += 1;
-        }
-        assert!(
-            found,
-            "Denied approval remains a meaningful mouse/Tab explanation hit at {width}x{height}"
-        );
-        workspace.controls_page = 0;
+    // The denied approval leaves the key bar but still explains itself by key and palette.
+    let keys = footer_keys(&workspace);
+    assert!(keys.iter().any(|key| key
+        .disabled
+        .as_ref()
+        .is_some_and(|reason| reason.starts_with("Approve selected deployment:")
+            && reason.contains("required-reviewer"))));
+    for width in [80, 120] {
+        assert!(layout(&keys, width)
+            .iter()
+            .all(|placed| keys[placed.index].action
+                != Action::Actions(ActionsAction::Compose(ActionsCommand::ApproveDeployment))));
     }
+    assert!(matches!(
+        resolve_key(&keys, KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)),
+        Some(Action::Actions(ActionsAction::View(ActionsView::Approvals)))
+    ));
     let history = workspace
         .rows
         .iter()
@@ -1164,8 +1154,15 @@ fn v1_actions_controls_sizes_empty_artifacts_and_single_bracket_labels() {
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(screen.contains("[r Refresh]"));
-    assert!(!screen.contains("[[r Refresh]]"));
-    assert!(screen.contains("[w Stop watch]"));
+    // Controls are key-bar tokens with single labels, not bracketed toolbar rows.
+    assert!(!screen.contains("[r Refresh]") && !screen.contains("[w Stop watch]"));
+    assert!(screen.contains(" R Runs "));
+    let keys = footer_keys(&workspace);
+    let tokens = layout(&keys, 120)
+        .into_iter()
+        .map(|placed| keys[placed.index].token(placed.compact))
+        .collect::<Vec<_>>();
+    assert!(tokens.contains(&"r Refresh".to_owned()), "{tokens:?}");
+    assert!(tokens.contains(&"w Stop watch".to_owned()), "{tokens:?}");
     assert!(screen.contains("Watching: refreshes every 5s • w stops"));
 }

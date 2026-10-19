@@ -8,19 +8,13 @@ fn corrective_initial_closed_matched_controls_mouse_watch_and_keyboard_stop_are_
     let mut app = loaded(&f, &p, &Default::default());
     let before = sql_state(&f);
     let git = git_state_resource(&f);
-    let mut found = None;
-    for _ in 0..32 {
-        frame(&mut app);
-        if let Some(hit) = app
-            .hits
-            .iter()
-            .find(|hit| hit.action == Action::Actions(ActionsAction::Watch))
-        {
-            found = Some(hit.rect);
-            break;
-        }
-        app.dispatch(Action::Actions(ActionsAction::ControlsPage(1)));
-    }
+    // The admitted Watch is a key-bar token of the actual frame; nothing is paged away.
+    frame(&mut app);
+    let found = app
+        .hits
+        .iter()
+        .find(|hit| hit.action == Action::Actions(ActionsAction::Watch))
+        .map(|hit| hit.rect);
     let hit = found.expect(
         "Initial closed matched factory must expose the admitted clickable Watch, not Unavailable",
     );

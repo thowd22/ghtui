@@ -158,8 +158,9 @@ fn follow_through(mouse: bool) {
                     || !body.contains("Run 124 • attempt 1")
                     || !body.contains(C)
                     || !body.contains("Actual exact-attempt jobs")
-                    || !body.contains("Returned Dispatch run is READ ONLY")
-                    || body.contains("[b Cancel read]")
+                    // Its disabled writes left the key bar; the read-only status remains.
+                    || !frame.contents().contains("Actual returned Dispatch run")
+                    || crate::support::locate_control(frame, "[b Cancel read]").is_some()
                     || body.contains("Original current read pending")
                 {
                     return None;

@@ -1,6 +1,9 @@
 //! Test-only observations of actual completed cursorless frames. Geometry and
 //! labels are input hints, not Git/resource identity or permission authority.
-use super::controls::{cell_is_corner, view_title, Corner};
+use super::controls::{
+    cell_is_corner, footer_row, locate_token_in_row, main_footer_visible, view_title, Control,
+    Corner,
+};
 use super::cursorless_frames::CursorlessFrames;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,14 +133,12 @@ pub fn saved_graph_position(
     frame.cell(y, x)?.inverse().then_some((x, y))
 }
 
+/// One completed main Actions frame: its owned content box and the key bar in the last row.
+/// There is no control pager: every enabled control is a key-bar token or, when it does not
+/// fit, a command-palette entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActionsPage {
-    pub current: usize,
-    pub total: usize,
-    pub previous: (u16, u16),
-    pub next: (u16, u16),
-    controls_top: u16,
-    controls_bottom: u16,
+    pub footer: u16,
     bounds: OwnedBox,
 }
 
@@ -146,34 +147,23 @@ pub fn actions_page(completed: &CursorlessFrames, after: usize) -> Option<Action
         return None;
     }
     let frame = completed.last.as_ref()?;
-    if frame.contents().contains("Action unavailable") {
+    // A loading frame (`Esc Cancel` in the bar) is not idle: input would race the read.
+    if frame.contents().contains("Action unavailable")
+        || !main_footer_visible(frame)
+        || locate_token_in_row(frame, footer_row(frame), "Esc Cancel").is_some()
+    {
         return None;
     }
-    let bounds = owned_box(frame, &view_title("Actions"))?;
-    let ys = bounds.top + 1..bounds.bottom;
-    let xs = bounds.left + 1..bounds.right;
-    let (_, page_y) = unique_position(frame, " • [] change control page", ys.clone(), xs.clone())?;
-    let (page_row, _) = row(frame, page_y);
-    let marker = page_row.find(" • [] change control page")?;
-    let token = page_row[..marker].split_whitespace().last()?;
-    let (current, total) = token.split_once('/')?;
-    let current: usize = current.parse().ok()?;
-    let total: usize = total.parse().ok()?;
-    if current == 0 || current > total || total > 30 {
-        return None;
-    }
-    Some(ActionsPage {
-        current,
-        total,
-        previous: unique_position(frame, "[← Controls]", ys.clone(), xs.clone())?,
-        next: unique_position(frame, "[Controls →]", ys, xs)?,
-        controls_top: page_y + 1,
-        // Existing shared Actions layout paints at most four control rows.
-        controls_bottom: (page_y + 5).min(bounds.bottom),
-        bounds,
-    })
+    // The status line can repeat the title; the border title is followed by `─`.
+    let bounds = owned_box(frame, &format!("{} ─", view_title("Actions")))
+        .or_else(|| owned_box(frame, &view_title("Actions")))?;
+    let footer = footer_row(frame);
+    (footer > bounds.bottom).then_some(ActionsPage { footer, bounds })
 }
 
+/// The key-bar token for `label` in a completed page: `[l Logs]` is the token `l Logs`, and an
+/// unbracketed fragment such as `Acknowledge` names the one token containing it. Ambiguous
+/// fragments and labels painted only in the body never supply a coordinate.
 pub fn actions_control_position(
     completed: &CursorlessFrames,
     page: &ActionsPage,
@@ -182,16 +172,56 @@ pub fn actions_control_position(
     if actions_page(completed, 0)? != *page {
         return None;
     }
-    unique_position(
-        completed.last.as_ref()?,
-        label,
-        page.controls_top..page.controls_bottom,
-        page.bounds.left + 1..page.bounds.right,
-    )
+    let frame = completed.last.as_ref()?;
+    let wanted = Control::parse(label).footer_form();
+    if wanted.trim().is_empty() {
+        return None;
+    }
+    // Tokens are separated by two spaces; an exact token wins over a fragment match, and two
+    // matching tokens are ambiguous.
+    let (line, columns) = row(frame, page.footer);
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    for token in line.split("  ") {
+        let byte = start;
+        start += token.len() + 2;
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            tokens.push((byte + token.find(trimmed)?, trimmed));
+        }
+    }
+    let exact = tokens
+        .iter()
+        .filter(|(_, token)| token.eq_ignore_ascii_case(&wanted))
+        .collect::<Vec<_>>();
+    let fragment = tokens
+        .iter()
+        .filter(|(_, token)| token.contains(wanted.as_str()))
+        .collect::<Vec<_>>();
+    // Below 100 columns a token can be the compact start of the caption (`Acknowledge`).
+    let compact = tokens
+        .iter()
+        .filter(|(_, token)| token.len() >= 4 && wanted.starts_with(*token))
+        .collect::<Vec<_>>();
+    let matches = if !exact.is_empty() {
+        exact
+    } else if !fragment.is_empty() {
+        fragment
+    } else {
+        compact
+    };
+    let [(offset, _)] = matches.as_slice() else {
+        return None;
+    };
+    columns
+        .iter()
+        .rev()
+        .find(|(start, _)| start <= offset)
+        .map(|(_, x)| (*x, page.footer))
 }
 
-/// A retained page's pending repaint still contains the old body and decorates
-/// old button captions as unavailable. Neither can supply a new click target.
+/// A retained page's pending repaint still contains the old body and offers only
+/// `b Cancel read` in the key bar. Neither can supply a new click target.
 pub fn scoped_actions_ready_control_position_v4(
     completed: &CursorlessFrames,
     after: usize,
@@ -207,10 +237,11 @@ pub fn scoped_actions_ready_control_position_v4(
         return None;
     }
     let page = actions_page(completed, after)?;
-    let text = completed.last.as_ref()?.contents();
+    let frame = completed.last.as_ref()?;
+    let text = frame.contents();
     if !text.contains("Original scoped Actions target verified")
         || text.contains("Original current read pending")
-        || text.contains("[b Cancel read]")
+        || locate_token_in_row(frame, page.footer, "b Cancel read").is_some()
     {
         return None;
     }
@@ -233,14 +264,14 @@ pub fn scoped_actions_jobs_position_v2(
         || !text.contains(head)
         || !text.contains("/ Jobs and steps /")
         || !text.contains("Retained observed attempt")
-        || text.contains("[b Cancel read]")
+        || locate_token_in_row(frame, page.footer, "b Cancel read").is_some()
     {
         return None;
     }
     unique_position(
         frame,
         job,
-        page.controls_bottom..page.bounds.bottom,
+        page.bounds.top + 1..page.bounds.bottom,
         page.bounds.left + 1..page.bounds.right,
     )
 }

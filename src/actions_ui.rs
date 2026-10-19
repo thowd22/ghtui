@@ -1,15 +1,17 @@
 //! Pure prepared Actions rendering and keyboard mapping. No subprocess, network or disk I/O.
 use crate::{
-    actions_workspace::{ActionsAction, ActionsView, ActionsWorkspace},
+    actions_workspace::{ActionsAction, ActionsControl, ActionsView, ActionsWorkspace},
+    app::Action,
+    footer::{ControlGroup, KeyControl},
     identity::{ActorIdentity, AvatarState, ListAvatar},
     providers::runner::sanitize_terminal,
-    theme::{SemanticToken, Theme},
+    theme::{Hue, Role, SemanticToken, Theme},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     layout::Rect,
     style::Modifier,
-    text::Line,
+    text::{Line, Span},
     widgets::{Clear, Paragraph},
     Frame,
 };
@@ -40,128 +42,16 @@ pub fn draw(
     }
     frame.render_widget(Clear, area);
     let mut y = area.y;
-    let mut x = area.x;
-    // Bound header height even for large sets; every repository remains accessible.
-    if !workspace.repositories.is_empty() {
-        let len = workspace.repositories.len();
-        for (label, index) in [
-            (
-                "[← Previous repo]",
-                (workspace.selected_repository + len - 1) % len,
-            ),
-            ("[→ Next repo]", (workspace.selected_repository + 1) % len),
-        ] {
-            button(
-                frame,
-                area,
-                &mut x,
-                &mut y,
-                label,
-                theme,
-                false,
-                &mut output,
-                ActionsAction::Repository(index),
-            );
-        }
-    }
-    if x > area.x {
+    // Catalogue sub-modes are one row of tabs; every other control is in the key bar.
+    if draw_tabs(
+        frame,
+        Rect::new(area.x, y, area.width, 1),
+        theme,
+        workspace,
+        &mut output,
+    ) {
         y = y.saturating_add(1);
-        x = area.x;
     }
-    // All controls are reachable, not silently dropped at narrow terminal sizes.
-    let mut positioned = Vec::new();
-    let mut row = 0u16;
-    let mut column = 0u16;
-    for (index, control) in workspace.controls.iter().enumerate() {
-        let text = sanitize_terminal(&control.label);
-        let label = match &control.disabled_reason {
-            // Labels such as "[r Refresh]" already carry their brackets.
-            None if text.starts_with('[') && text.ends_with(']') => text,
-            reason => format!(
-                "[{text}{}]",
-                reason
-                    .as_ref()
-                    .map(|reason| format!(" unavailable: {}", sanitize_terminal(reason)))
-                    .unwrap_or_default()
-            ),
-        };
-        let width = (Line::from(label.as_str()).width() as u16).min(area.width);
-        if column > 0 && column.saturating_add(width) > area.width {
-            column = 0;
-            row = row.saturating_add(1);
-        }
-        positioned.push((index, column, row, width, label));
-        column = column.saturating_add(width).saturating_add(1);
-    }
-    let rows_per_page = (area.height.saturating_sub(8) / 2).clamp(1, 4);
-    let page_count = usize::from(row + 1)
-        .div_ceil(usize::from(rows_per_page))
-        .max(1);
-    workspace.controls_page = workspace.controls_page.min(page_count - 1);
-    for (label, delta, disabled) in [
-        ("[← Controls]", -1, workspace.controls_page == 0),
-        ("[Controls →]", 1, workspace.controls_page + 1 == page_count),
-    ] {
-        button(
-            frame,
-            area,
-            &mut x,
-            &mut y,
-            label,
-            theme,
-            disabled,
-            &mut output,
-            ActionsAction::ControlsPage(delta),
-        );
-    }
-    if y < area.bottom() {
-        let label = format!(
-            " {}/{} • [] change control page",
-            workspace.controls_page + 1,
-            page_count
-        );
-        frame.render_widget(
-            Paragraph::new(label).style(theme.style(SemanticToken::Muted)),
-            Rect::new(x, y, area.right().saturating_sub(x), 1),
-        );
-    }
-    y = y.saturating_add(1);
-    let controls_top = y;
-    let start = workspace.controls_page * usize::from(rows_per_page);
-    let mut drawn_rows = 0u16;
-    for (index, column, row, width, label) in positioned {
-        if usize::from(row) < start || usize::from(row) >= start + usize::from(rows_per_page) {
-            continue;
-        }
-        let relative = row - (start as u16);
-        let rect = Rect::new(area.x + column, controls_top + relative, width, 1);
-        if rect.y >= area.bottom() {
-            continue;
-        }
-        let control = &workspace.controls[index];
-        let disabled = control.disabled_reason.is_some();
-        frame.render_widget(
-            Paragraph::new(label).style(
-                theme
-                    .style(if disabled {
-                        SemanticToken::Muted
-                    } else {
-                        SemanticToken::Focus
-                    })
-                    .remove_modifier(Modifier::UNDERLINED),
-            ),
-            rect,
-        );
-        output.hits.push(ActionsHit {
-            rect,
-            action: control.disabled_reason.as_ref().map_or_else(
-                || control.action.clone(),
-                |reason| ActionsAction::Unavailable(format!("{}: {reason}", control.label)),
-            ),
-        });
-        drawn_rows = drawn_rows.max(relative + 1);
-    }
-    y = y.saturating_add(drawn_rows);
     if y < area.bottom() {
         frame.render_widget(
             Paragraph::new(sanitize_terminal(&workspace.context()))
@@ -245,7 +135,7 @@ pub fn draw(
         );
         y += 1;
     }
-    let content_height = area.bottom().saturating_sub(y.saturating_add(1));
+    let content_height = area.bottom().saturating_sub(y);
     output.visible_rows = usize::from(content_height);
     output.content = Rect::new(area.x, y, area.width, content_height);
     if workspace.selected < workspace.top {
@@ -330,92 +220,179 @@ pub fn draw(
             frame.render_widget(crate::identity::ImageWidget { image, theme }, image_area);
         }
     }
-    if area.height > 0 {
-        frame.render_widget(
-            Paragraph::new(footer_hint(workspace)).style(theme.style(SemanticToken::Muted)),
-            Rect::new(area.x, area.bottom() - 1, area.width, 1),
-        );
-    }
     output
 }
-#[allow(clippy::too_many_arguments)]
-fn button(
+/// The catalogue tab strip (Runs, Workflows, Caches…): the current catalogue filled with the
+/// Actions hue, the others with the key in the accent. Tabs that do not fit leave from the
+/// right, never the current one; they stay one key or palette entry away. Returns whether a
+/// row was used.
+fn draw_tabs(
     frame: &mut Frame,
-    area: Rect,
-    x: &mut u16,
-    y: &mut u16,
-    label: &str,
+    row: Rect,
     theme: Theme,
-    disabled: bool,
+    workspace: &ActionsWorkspace,
     output: &mut ActionsRender,
-    action: ActionsAction,
-) {
-    let width = (Line::from(label).width() as u16).min(area.width);
-    if *x > area.x && x.saturating_add(width) > area.right() {
-        *x = area.x;
-        *y = y.saturating_add(1);
-    }
-    if *y >= area.bottom() {
-        return;
-    }
-    let rect = Rect::new(*x, *y, width, 1);
-    frame.render_widget(
-        // Accent styling is not focus: App adds underline only to the active hit.
-        Paragraph::new(label).style(
-            theme
-                .style(if disabled {
-                    SemanticToken::Muted
-                } else {
-                    SemanticToken::Focus
-                })
-                .remove_modifier(Modifier::UNDERLINED),
-        ),
-        rect,
-    );
-    if !disabled {
-        output.hits.push(ActionsHit { rect, action });
-    }
-    *x = x.saturating_add(width).saturating_add(1);
-}
-/// Workflow definition keys resolve to the same visible control a click
-/// activates, including its exact "unavailable" explanation when disabled.
-fn workflow_key_action(key: char, workspace: &ActionsWorkspace) -> Option<ActionsAction> {
-    use crate::actions_workspace::ActionsCommand::*;
-    let commands: &[_] = match key {
-        'D' => &[DispatchWorkflow],
-        // One toggle key: whichever of Disable/Enable currently applies.
-        'X' => &[DisableWorkflow, EnableWorkflow],
-        _ => &[WorkflowRevision],
-    };
-    let controls = commands
+) -> bool {
+    let tabs = workspace
+        .controls
         .iter()
-        .filter_map(|command| {
-            workspace
-                .controls
-                .iter()
-                .find(|control| control.action == ActionsAction::Compose(*command))
-        })
+        .filter(|control| control.is_catalog_tab())
         .collect::<Vec<_>>();
-    let control = controls
-        .iter()
-        .find(|control| control.disabled_reason.is_none())
-        .or_else(|| controls.first())?;
-    Some(control.disabled_reason.as_ref().map_or_else(
+    if tabs.is_empty() || row.is_empty() {
+        return false;
+    }
+    let selected = |control: &ActionsControl| control.action == ActionsAction::View(workspace.view);
+    let text = |control: &ActionsControl| {
+        let (key, text) = control.key_and_text();
+        sanitize_terminal(&key.map_or_else(|| format!(" {text} "), |key| format!(" {key} {text} ")))
+    };
+    let width = |control: &ActionsControl| Line::from(text(control)).width() as u16;
+    let mut shown = (0..tabs.len()).collect::<Vec<_>>();
+    while shown.len() > 1
+        && shown.iter().map(|index| width(tabs[*index])).sum::<u16>()
+            + shown.len().saturating_sub(1) as u16
+            > row.width
+    {
+        let Some(position) = shown.iter().rposition(|index| !selected(tabs[*index])) else {
+            break;
+        };
+        shown.remove(position);
+    }
+    let mut x = row.x;
+    for index in shown {
+        let control = tabs[index];
+        let tab_width = width(control).min(row.right().saturating_sub(x));
+        if tab_width == 0 {
+            break;
+        }
+        let rect = Rect::new(x, row.y, tab_width, 1);
+        let line = if control.disabled_reason.is_some() {
+            Line::from(Span::styled(text(control), theme.role(Role::TextDim)))
+        } else if selected(control) {
+            Line::from(Span::styled(
+                text(control),
+                theme.filled(Hue::for_view(crate::app::View::Actions)),
+            ))
+        } else {
+            let (key, label) = control.key_and_text();
+            let mut spans = vec![Span::raw(" ")];
+            if let Some(key) = key {
+                spans.push(Span::styled(
+                    sanitize_terminal(&key),
+                    theme.role(Role::Accent).add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::raw(" "));
+            }
+            spans.push(Span::styled(
+                format!("{} ", sanitize_terminal(&label)),
+                theme.role(Role::TextMuted),
+            ));
+            Line::from(spans)
+        };
+        frame.render_widget(Paragraph::new(line), rect);
+        output.hits.push(ActionsHit {
+            rect,
+            action: unavailable_or(control),
+        });
+        x = x.saturating_add(tab_width).saturating_add(1);
+    }
+    true
+}
+/// The control's action, or its visible explanation when it is disabled.
+fn unavailable_or(control: &ActionsControl) -> ActionsAction {
+    control.disabled_reason.as_ref().map_or_else(
         || control.action.clone(),
         |reason| ActionsAction::Unavailable(format!("{}: {reason}", control.label)),
-    ))
+    )
 }
-fn footer_hint(workspace: &ActionsWorkspace) -> &'static str {
-    match workspace.view {
-        ActionsView::Workflows => {
-            "↑/↓ select • Enter/click open workflow • r refresh • R runs • b back • [] controls"
+/// The Actions key bar: every prepared control in declaration order, with its key, compact
+/// caption and priority. Catalogue entries are Mode controls (the tab strip); disabled
+/// controls leave the bar and their key explains why. Repository switching joins them when
+/// more than one repository is in scope.
+pub fn footer_keys(workspace: &ActionsWorkspace) -> Vec<KeyControl> {
+    let mut keys = workspace
+        .controls
+        .iter()
+        .map(|control| {
+            let (key, text) = control.key_and_text();
+            let mut key_control = KeyControl::new(
+                key.unwrap_or_default(),
+                sanitize_terminal(&text),
+                Action::Actions(control.action.clone()),
+            )
+            .with_priority(control.priority())
+            .in_group(if control.is_catalog_tab() {
+                ControlGroup::Mode
+            } else if matches!(
+                control.action,
+                ActionsAction::Back | ActionsAction::Select(_)
+            ) {
+                ControlGroup::Navigate
+            } else {
+                ControlGroup::Act
+            })
+            .with_selected(control.action == ActionsAction::View(workspace.view))
+            .disabled_by(
+                control
+                    .disabled_reason
+                    .as_ref()
+                    .map(|reason| format!("{}: {reason}", control.label)),
+            );
+            if let Some(compact) = control.compact_text() {
+                key_control = key_control.with_compact(compact);
+            }
+            key_control
+        })
+        .collect::<Vec<_>>();
+    let len = workspace.repositories.len();
+    if len > 1 {
+        for (key, label, compact, index) in [
+            (
+                "{",
+                "Previous repo",
+                "Prev repo",
+                (workspace.selected_repository + len - 1) % len,
+            ),
+            (
+                "}",
+                "Next repo",
+                "Next repo",
+                (workspace.selected_repository + 1) % len,
+            ),
+        ] {
+            keys.push(
+                KeyControl::new(
+                    key,
+                    label,
+                    Action::Actions(ActionsAction::Repository(index)),
+                )
+                .with_compact(compact)
+                .with_priority(70)
+                .in_group(ControlGroup::Navigate),
+            );
         }
-        ActionsView::Workflow => {
-            "D dispatch • X enable/disable • V revision • ↑/↓ scroll YAML • b back • W workflows"
-        }
-        _ => "↑/↓ select • Enter open • >/< failures • Tab buttons • r refresh • b back • R runs • W workflows • [] controls",
     }
+    // One key, one action: the first enabled bearer keeps a shared key (Enable and Disable
+    // workflow both use X); a different action on the same key becomes click/palette only.
+    for index in 0..keys.len() {
+        if keys[index].key.is_empty() {
+            continue;
+        }
+        let bearer = keys
+            .iter()
+            .position(|other| other.key == keys[index].key && other.disabled.is_none())
+            .or_else(|| keys.iter().position(|other| other.key == keys[index].key))
+            .unwrap_or(index);
+        if bearer != index && keys[bearer].action != keys[index].action {
+            keys[index].key.clear();
+        }
+    }
+    keys
 }
+/// Selection, movement and the Enter/Esc aliases, plus view keys for routes whose prepared
+/// controls omit their tab or page. Keys of prepared controls (Refresh, Logs, failure jumps,
+/// paging, workflow commands, Cancel…) resolve first through [`footer_keys`], so a key does
+/// exactly what its painted control does, or explains why it is unavailable.
 pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<ActionsAction> {
     if event.kind != KeyEventKind::Press
         || event
@@ -444,68 +421,11 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         KeyCode::Char('E') => Some(ActionsAction::EditWorkflowLocalV9),
         KeyCode::Char('w') => Some(ActionsAction::Watch),
         KeyCode::Char('R') => Some(ActionsAction::View(ActionsView::Runs)),
-        KeyCode::Char(key @ ('(' | ')' | 'A' | 'F' | 'I')) => {
-            use crate::scoped_actions_resources_v2::ScopedActionsReadActionV2 as Read;
-            let action = ActionsAction::ScopedReadV2(match key {
-                '(' => Read::RunPage(-1),
-                ')' => Read::RunPage(1),
-                'A' => Read::AllRunStatuses,
-                'F' => Read::FailedRuns,
-                _ => Read::ActiveRuns,
-            });
-            workspace
-                .controls
-                .iter()
-                .any(|control| control.action == action)
-                .then_some(action)
-        }
         KeyCode::Char('W') => Some(ActionsAction::View(ActionsView::Workflows)),
-        KeyCode::Char(key @ ('>' | '<')) => {
-            let label = if key == '>' {
-                crate::actions_workspace::NEXT_FAILURE
-            } else {
-                crate::actions_workspace::PREVIOUS_FAILURE
-            };
-            let control = workspace
-                .controls
-                .iter()
-                .find(|control| control.label == label)?;
-            Some(control.disabled_reason.as_ref().map_or_else(
-                || control.action.clone(),
-                |reason| ActionsAction::Unavailable(format!("{}: {reason}", control.label)),
-            ))
-        }
-        KeyCode::Char(key @ ('D' | 'X' | 'V')) if workspace.view == ActionsView::Workflow => {
-            workflow_key_action(key, workspace)
-        }
-        KeyCode::Char('[') => Some(ActionsAction::ControlsPage(-1)),
-        KeyCode::Char(']') => Some(ActionsAction::ControlsPage(1)),
-        KeyCode::Char('{') if !workspace.repositories.is_empty() => {
-            Some(ActionsAction::Repository(
-                (workspace.selected_repository + workspace.repositories.len() - 1)
-                    % workspace.repositories.len(),
-            ))
-        }
-        KeyCode::Char('}') if !workspace.repositories.is_empty() => {
-            Some(ActionsAction::Repository(
-                (workspace.selected_repository + 1) % workspace.repositories.len(),
-            ))
-        }
         KeyCode::Char('/') if workspace.view == ActionsView::Logs => Some(ActionsAction::Compose(
             crate::actions_workspace::ActionsCommand::SearchLogs,
         )),
         KeyCode::Char('c') => Some(ActionsAction::View(ActionsView::Caches)),
-        KeyCode::Char('C')
-            if workspace.controls.iter().any(|control| {
-                control.action
-                    == ActionsAction::Compose(crate::actions_workspace::ActionsCommand::Cancel)
-                    && control.disabled_reason.is_none()
-            }) =>
-        {
-            Some(ActionsAction::Compose(
-                crate::actions_workspace::ActionsCommand::Cancel,
-            ))
-        }
         KeyCode::Char('S') => Some(ActionsAction::View(ActionsView::Secrets)),
         KeyCode::Char('v') => Some(ActionsAction::View(ActionsView::Variables)),
         KeyCode::Char('e') => Some(ActionsAction::View(ActionsView::Environments)),
@@ -526,22 +446,8 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
             ))
         }
         KeyCode::Char('u') => Some(ActionsAction::View(ActionsView::Usage)),
-        KeyCode::Char('j')
-            if workspace.run.is_some()
-                || workspace
-                    .controls
-                    .iter()
-                    .any(|control| control.action == ActionsAction::View(ActionsView::Jobs)) =>
-        {
+        KeyCode::Char('j') if workspace.run.is_some() => {
             Some(ActionsAction::View(ActionsView::Jobs))
-        }
-        KeyCode::Char('t')
-            if workspace
-                .controls
-                .iter()
-                .any(|control| control.label == "[t Run]") =>
-        {
-            Some(ActionsAction::View(ActionsView::Run))
         }
         KeyCode::Char('l') if workspace.run.is_some() => Some(ActionsAction::Logs(
             workspace.run.as_ref().and_then(|run| run.selected_job),
@@ -550,3 +456,6 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         _ => None,
     }
 }
+#[cfg(test)]
+#[path = "actions_footer_v90_tests.rs"]
+mod design_footer_v90_tests;
