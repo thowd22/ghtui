@@ -246,9 +246,12 @@ fn visible_history(s: &mut Session, mouse: bool, after: usize, words: &[&str]) {
                         // A strict child count can precede worker publication.
                         // Never send PgDn/Select to the retained busy list:
                         // that correctly cancels the still-pending read.
+                        // The framed pane clips the context line after the
+                        // view segment at 80 columns, so anchor on the view
+                        // segment without the clipped scope that follows it.
                         frame
                             .contents()
-                            .contains("/ Inspect original Actions publication /")
+                            .contains("/ Inspect original Actions publication")
                             && !body.contains("[b Cancel read]")
                             && !body.contains("Original current read pending")
                             && !frame.contents().contains("[Esc Cancel]")
