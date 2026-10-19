@@ -143,7 +143,17 @@ fn restart(mouse: bool) {
         let sql = unrelated(&f);
         let trace = git_commands(&f);
         let after = resumed.completed_cursorless_end();
-        choose(&mut resumed, mouse, "[F8 Actions history]", b"\x1b[19~");
+        // At 80 columns the PR Summary key bar has no room for F8; the mouse picks the same
+        // action's palette entry.
+        if mouse
+            && resumed
+                .try_wait_for_control("[F8 Actions history]", Duration::from_millis(500))
+                .is_none()
+        {
+            resumed.invoke_via_palette(true, "Actions history");
+        } else {
+            choose(&mut resumed, mouse, "[F8 Actions history]", b"\x1b[19~");
+        }
         resumed.wait_for_command_count(&f, first.len() + 39);
         resumed.wait_for_new_cursorless_condition(
             after,

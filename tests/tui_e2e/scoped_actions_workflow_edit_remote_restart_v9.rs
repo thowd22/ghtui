@@ -20,6 +20,12 @@ fn actions_body_v9(s: &Session) -> Option<String> {
     s.completed_cells_screen()
         .and_then(|frame| crate::support::overlay_body(frame, ACTIONS))
 }
+/// A read is in flight: the key bar offers `Esc Cancel` (or Back relabelled `b Cancel read`).
+/// Moving the selection then cancels the read, so facts are only read from an idle frame.
+fn busy_v9(frame: &vt100::Screen) -> bool {
+    crate::support::locate_control(frame, "[b Cancel read]").is_some()
+        || crate::support::locate_control(frame, "[Esc Cancel]").is_some()
+}
 fn actual_actions_v9(s: &mut Session, after: usize, words: &[&str]) {
     let until = Instant::now() + Duration::from_secs(8);
     loop {
@@ -27,7 +33,7 @@ fn actual_actions_v9(s: &mut Session, after: usize, words: &[&str]) {
         if s.completed_cells_end() > after
             && s.completed_cells_screen().is_some_and(|frame| {
                 crate::support::main_footer_visible(frame)
-                    && crate::support::locate_control(frame, "[b Cancel read]").is_none()
+                    && !busy_v9(frame)
                     && actions_body_v9(s).is_some_and(|body| {
                         words.iter().all(|word| body.contains(word))
                             && !body.contains("Original current read pending")
@@ -55,7 +61,7 @@ fn actual_ack_v9(s: &mut Session, after: usize) {
             && s.completed_cells_screen().is_some_and(|frame| {
                 crate::support::locate_control(frame, "[r Refresh history]").is_some()
                     && crate::support::locate_control(frame, "[b Back]").is_some()
-                    && crate::support::locate_control(frame, "[b Cancel read]").is_none()
+                    && !busy_v9(frame)
             })
             && s.completed_actions_control("Acknowledge inspected state")
                 .is_none()
@@ -72,9 +78,7 @@ fn actions_fact_v9(s: &mut Session, mouse: bool, fact: &str) {
         let current = actions_body_v9(s).expect("SAME completed owned historical Actions body");
         assert!(s
             .completed_cells_screen()
-            .is_some_and(
-                |frame| crate::support::locate_control(frame, "[b Cancel read]").is_none()
-            ));
+            .is_some_and(|frame| !busy_v9(frame)));
         if current.contains(fact) {
             return;
         }
@@ -174,7 +178,7 @@ fn open_publications_v9(s: &mut Session, mouse: bool) {
                 body.contains(CURRENT)
                     && body.contains("0 runs of 0 reported • complete")
                     && body.contains("No records reported in this scope.")
-            }) && crate::support::locate_control(frame, "[b Cancel read]").is_none()
+            }) && !busy_v9(frame)
                 && !frame.contents().contains("Commands · current context")
         }) && s.completed_actions_control("[P Publications]").is_some();
         if ready {
@@ -365,8 +369,8 @@ fn restart_v9(mouse: bool, mode: RestartV9) {
     if !already_ack {
         let end = s.completed_cells_end();
         if mouse {
-            let (x, y) = s.wait_for_control("[Acknowledge inspected state]");
-            s.click(x, y);
+            // The key-bar token (compact `Acknowledge` below 100 columns).
+            s.click_actions_control("Acknowledge inspected state");
         } else {
             s.focus_completed_actions_control_v2("Acknowledge inspected state");
             s.send_key(b"\r");

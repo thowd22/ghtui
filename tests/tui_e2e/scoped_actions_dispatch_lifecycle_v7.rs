@@ -371,11 +371,8 @@ fn restart(mouse: bool) {
         assert_eq!(metadata(&f), original);
         let after = resumed.completed_cursorless_end();
         if mouse {
-            selected_row(
-                &mut resumed,
-                true,
-                "Acknowledge inspected acceptance (effect unverified)",
-            );
+            // The key-bar token (compact `Acknowledge` below 100 columns).
+            resumed.click_actions_control("Acknowledge inspected acceptance (effect unverified)");
         } else {
             resumed.focus_completed_actions_control_v2(
                 "Acknowledge inspected acceptance (effect unverified)",
