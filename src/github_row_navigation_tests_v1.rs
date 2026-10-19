@@ -144,10 +144,32 @@ fn completed_frame_actions_pr_navigation_first_down_skips_notice_rows_and_matche
             .iter()
             .find(|hit| hit.action == Action::GithubRow(2))
             .unwrap();
+        // The cursor is the `▌` bar on the Selection background, never a `>` marker.
+        let buffer = frame.backend().buffer();
         assert_eq!(
-            frame.backend().buffer()[(hit.rect.x, hit.rect.y)].symbol(),
-            ">"
+            buffer[(hit.rect.x, hit.rect.y)].symbol(),
+            crate::ui_table::SELECTION_BAR
         );
+        let selection = crate::ui_table::selection_style(keyboard.theme());
+        assert_eq!(
+            buffer[(hit.rect.x + 5, hit.rect.y)].bg,
+            selection.bg.unwrap()
+        );
+        let painted = (0..width)
+            .map(|x| buffer[(x, hit.rect.y)].symbol())
+            .collect::<String>();
+        assert!(
+            painted.starts_with("▌ Original observed comment 11"),
+            "{painted}"
+        );
+        assert!(!(0..height).any(|y| (0..width).any(|x| buffer[(x, y)].symbol() == ">")));
+        // Rows that are not targets never take the bar.
+        let other = keyboard
+            .hits
+            .iter()
+            .find(|hit| hit.action == Action::GithubRow(4))
+            .unwrap();
+        assert_eq!(buffer[(other.rect.x, other.rect.y)].symbol(), " ");
         let mut mouse = app(true);
         draw(&mut mouse, width, height);
         let hit = mouse

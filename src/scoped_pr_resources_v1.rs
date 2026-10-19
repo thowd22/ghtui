@@ -773,6 +773,7 @@ fn row(label: String, role: SemanticToken) -> PrRow {
         actor: None,
         anchor: None,
         comment: None,
+        cells: None,
     }
 }
 fn coverage(label: &str, value: &crate::providers::gh::PrResourceCoverageV1) -> String {
@@ -984,6 +985,7 @@ impl ScopedPrResourceViewV1 {
                             actor: None,
                             anchor,
                             comment: None,
+                            cells: None,
                         });
                         self.targets.push(target);
                     }

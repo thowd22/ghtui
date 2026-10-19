@@ -239,10 +239,9 @@ fn chip_width(identity: &ActorIdentity, mode: ColorMode) -> u16 {
 }
 
 fn cell_width<A>(row: &TableRow<A>, columns: &[Column], index: usize, mode: ColorMode) -> u16 {
-    if columns[index].actor {
-        return row.actor.as_ref().map_or(0, |identity| {
-            chip_width(identity, mode) + 1 + display_width(&actor_text(identity)) as u16
-        });
+    // An actor column without an identity shows its cell text (a name with no username).
+    if let Some(identity) = row.actor.as_ref().filter(|_| columns[index].actor) {
+        return chip_width(identity, mode) + 1 + display_width(&actor_text(identity)) as u16;
     }
     row.cells.get(index).map_or(0, |cell| {
         display_width(&sanitize_terminal(&cell.text)) as u16
@@ -484,41 +483,18 @@ pub fn draw_table_with<A>(
     if area.is_empty() {
         return output;
     }
-    let lead = lead(table.glyphs).min(area.width);
-    let columns_x = area.x + lead;
-    let placed = layout(table.columns, natural, area.width - lead);
+    let painter = TablePainter::new(table, natural, area, theme);
     let buffer = frame.buffer_mut();
-    let header_style = theme.role(Role::TextMuted).add_modifier(Modifier::BOLD);
-    let draw_header = |buffer: &mut Buffer, y: u16| {
-        for column in &placed {
-            let spec = table.columns[column.column];
-            put(
-                buffer,
-                columns_x + column.x,
-                y,
-                area.right(),
-                &aligned(spec.title, column.width, spec.align),
-                header_style,
-            );
-        }
-    };
     let mut body = area;
     if table.header {
-        draw_header(buffer, area.y);
+        painter.header(buffer, area.y);
         body = Rect::new(area.x, area.y + 1, area.width, area.height - 1);
     }
     output.body = body;
     output.visible_rows = usize::from(body.height);
     if len == 0 {
         if let Some(empty) = table.empty.filter(|_| !body.is_empty()) {
-            put(
-                buffer,
-                columns_x,
-                body.y,
-                body.right(),
-                &fit(empty, usize::from(body.right().saturating_sub(columns_x))),
-                theme.role(Role::TextMuted),
-            );
+            painter.empty(buffer, body.y, empty);
         }
         return output;
     }
@@ -527,9 +503,86 @@ pub fn draw_table_with<A>(
     for (offset, index) in (state.top..len).take(output.visible_rows).enumerate() {
         let item = row(index);
         let y = body.y + offset as u16;
-        let rect = Rect::new(body.x, y, body.width, 1);
+        painter.row(buffer, y, &item);
+        if index == state.selected {
+            painter.select(buffer, y);
+        }
+        // Column titles are not a target; every other painted row is one.
+        if item.kind != RowKind::Header {
+            output.hits.push(TableHit {
+                rect: painter.line(y),
+                index,
+                action: item.action,
+            });
+        }
+    }
+    output
+}
+
+/// Paints single table lines into a fixed area for a list that keeps its own scroll and
+/// selection (a mixed detail list whose cursor may rest off screen, or rows of more than one
+/// kind). [`draw_table_with`] is built on it, so both paint the same columns and bar.
+pub struct TablePainter<'t> {
+    table: &'t Table<'t>,
+    placed: Vec<Placed>,
+    area: Rect,
+    lead: u16,
+    theme: Theme,
+}
+impl<'t> TablePainter<'t> {
+    /// Places the columns for `area`'s width (rows are painted at any `y` the caller picks).
+    pub fn new(table: &'t Table<'t>, natural: &[u16], area: Rect, theme: Theme) -> Self {
+        let lead = lead(table.glyphs).min(area.width);
+        Self {
+            table,
+            placed: layout(table.columns, natural, area.width - lead),
+            area,
+            lead,
+            theme,
+        }
+    }
+    fn columns_x(&self) -> u16 {
+        self.area.x + self.lead
+    }
+    /// The full-width line at `y`: one row's click target.
+    pub fn line(&self, y: u16) -> Rect {
+        Rect::new(self.area.x, y, self.area.width, 1)
+    }
+    /// The column titles at `y`.
+    pub fn header(&self, buffer: &mut Buffer, y: u16) {
+        let style = self
+            .theme
+            .role(Role::TextMuted)
+            .add_modifier(Modifier::BOLD);
+        for column in &self.placed {
+            let spec = self.table.columns[column.column];
+            put(
+                buffer,
+                self.columns_x() + column.x,
+                y,
+                self.area.right(),
+                &aligned(spec.title, column.width, spec.align),
+                style,
+            );
+        }
+    }
+    /// Muted text where the first row would start.
+    pub fn empty(&self, buffer: &mut Buffer, y: u16, text: &str) {
+        let x = self.columns_x();
+        put(
+            buffer,
+            x,
+            y,
+            self.area.right(),
+            &fit(text, usize::from(self.area.right().saturating_sub(x))),
+            self.theme.role(Role::TextMuted),
+        );
+    }
+    /// One row at `y`, without the selection.
+    pub fn row<A>(&self, buffer: &mut Buffer, y: u16, item: &TableRow<A>) {
+        let (table, theme, area, columns_x) = (self.table, self.theme, self.area, self.columns_x());
         let tone = theme.style(item.tone);
-        if let Some(glyph) = item.glyph.filter(|_| table.glyphs && lead > 1) {
+        if let Some(glyph) = item.glyph.filter(|_| table.glyphs && self.lead > 1) {
             put(
                 buffer,
                 area.x + 1,
@@ -540,7 +593,7 @@ pub fn draw_table_with<A>(
             );
         }
         match item.kind {
-            RowKind::Header => draw_header(buffer, y),
+            RowKind::Header => self.header(buffer, y),
             RowKind::Text => {
                 let mut x = columns_x;
                 if let Some(identity) = &item.actor {
@@ -569,7 +622,7 @@ pub fn draw_table_with<A>(
                 }
             }
             RowKind::Cells => {
-                for column in &placed {
+                for column in &self.placed {
                     let spec = table.columns[column.column];
                     let x = columns_x + column.x;
                     let right = (x + column.width).min(area.right());
@@ -582,8 +635,8 @@ pub fn draw_table_with<A>(
                                 Rect::new(x, y, right.saturating_sub(x), 1),
                                 theme.role(Role::Text),
                             );
+                            continue;
                         }
-                        continue;
                     }
                     let Some(cell) = item.cells.get(column.column) else {
                         continue;
@@ -599,27 +652,24 @@ pub fn draw_table_with<A>(
                 }
             }
         }
-        if index == state.selected {
-            buffer.set_style(rect, selection_style(theme));
-            let bar = theme
-                .role(if table.focused {
-                    Role::Accent
-                } else {
-                    Role::TextDim
-                })
-                .patch(selection_style(theme));
-            put(buffer, area.x, y, area.right(), SELECTION_BAR, bar);
-        }
-        // Column titles are not a target; every other painted row is one.
-        if item.kind != RowKind::Header {
-            output.hits.push(TableHit {
-                rect,
-                index,
-                action: item.action,
-            });
-        }
     }
-    output
+    /// The Selection background and the `▌` bar over the line at `y` (accent when focused).
+    pub fn select(&self, buffer: &mut Buffer, y: u16) {
+        select_line(buffer, self.line(y), self.table.focused, self.theme);
+    }
+}
+
+/// The selection over one painted line: Selection background on every cell (foregrounds
+/// kept) and the `▌` bar in its first cell, accent when the list is focused, dim otherwise.
+pub fn select_line(buffer: &mut Buffer, line: Rect, focused: bool, theme: Theme) {
+    if line.is_empty() {
+        return;
+    }
+    buffer.set_style(line, selection_style(theme));
+    let bar = theme
+        .role(if focused { Role::Accent } else { Role::TextDim })
+        .patch(selection_style(theme));
+    put(buffer, line.x, line.y, line.right(), SELECTION_BAR, bar);
 }
 
 /// A whole-age label in the largest fitting unit: `45s`, `12m`, `3h`, `9d`.

@@ -190,7 +190,47 @@ pub struct PrRow {
     pub actor: Option<crate::providers::gh::Actor>,
     pub anchor: Option<crate::repository_view::DiffAnchor>,
     pub comment: Option<std::sync::Arc<PrCommentSelection>>,
+    /// Table cells for the tab's columns (`PrPage::columns`); `label` keeps the full prose
+    /// (full SHA, UTC time) for palette, plans and logs. None paints `label` as a prose row.
+    pub cells: Option<PrCells>,
 }
+/// A PR list row painted as table cells (TASK-91): Commits, Files and Checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PrCells {
+    /// The column titles, inline after the tab's intro row.
+    Header,
+    /// One cell per column; the actor column's cell is the name shown without a username.
+    Row(Vec<String>),
+}
+/// Commits tab: short SHA, first message line, author chip and authored age. Author and age
+/// share the message priority so a long message is cut before they leave.
+pub const COMMIT_COLUMNS: [crate::ui_table::Column; 4] = [
+    crate::ui_table::Column::new("SHA", 7).priority(0),
+    crate::ui_table::Column::new("MESSAGE", 10)
+        .flex(1)
+        .priority(2),
+    crate::ui_table::Column::new("AUTHOR", 6)
+        .priority(2)
+        .actor(),
+    crate::ui_table::Column::new("AGE", 3).priority(2).right(),
+];
+/// Files tab: change kind, path (with its old path), added and deleted lines; a long path is
+/// cut before any of them leaves.
+pub const FILE_COLUMNS: [crate::ui_table::Column; 4] = [
+    crate::ui_table::Column::new("STATUS", 6).priority(2),
+    crate::ui_table::Column::new("PATH", 10).flex(1).priority(2),
+    crate::ui_table::Column::new("ADD", 3).priority(1).right(),
+    crate::ui_table::Column::new("DEL", 3).priority(1).right(),
+];
+/// Checks tab (status glyph in the glyph slot): name, state and the head commit (the commit
+/// leaves first: the exact head is painted above the table).
+pub const CHECK_COLUMNS: [crate::ui_table::Column; 3] = [
+    crate::ui_table::Column::new("CHECK", 10)
+        .flex(1)
+        .priority(1),
+    crate::ui_table::Column::new("STATUS", 6).priority(1),
+    crate::ui_table::Column::new("COMMIT", 7).priority(3),
+];
 impl PrRow {
     fn text(label: impl Into<String>) -> Self {
         Self {
@@ -199,6 +239,7 @@ impl PrRow {
             actor: None,
             anchor: None,
             comment: None,
+            cells: None,
         }
     }
     fn actor(label: impl Into<String>, actor: crate::providers::gh::Actor) -> Self {
@@ -206,6 +247,10 @@ impl PrRow {
             actor: Some(actor),
             ..Self::text(label)
         }
+    }
+    fn with_cells(mut self, cells: PrCells) -> Self {
+        self.cells = Some(cells);
+        self
     }
     fn with_comment(mut self, selection: &std::sync::Arc<PrCommentSelection>) -> Self {
         self.comment = Some(selection.clone());
@@ -257,6 +302,15 @@ impl PrPage {
         (self.tab == PrTab::Checks)
             .then(|| self.checks.as_ref()?.get(index))
             .flatten()
+    }
+    /// The table columns of this tab's cell rows and whether they carry a status glyph.
+    pub fn columns(&self) -> Option<(&'static [crate::ui_table::Column], bool)> {
+        match self.tab {
+            PrTab::Commits => Some((&COMMIT_COLUMNS, false)),
+            PrTab::Files => Some((&FILE_COLUMNS, false)),
+            PrTab::Checks => Some((&CHECK_COLUMNS, true)),
+            _ => None,
+        }
     }
     pub(crate) fn prepare_rows(&mut self) -> Result<()> {
         use crate::theme::SemanticToken;
@@ -349,12 +403,23 @@ impl PrPage {
                 let mut rows = vec![PrRow::text(
                     "Commit = a saved version • author writes, committer records it",
                 )];
+                if !self.details.commits.is_empty() {
+                    rows.push(PrRow::text("").with_cells(PrCells::Header));
+                }
                 for commit in &self.details.commits {
-                    rows.push(PrRow::text(format!(
-                        "{} {}",
-                        commit.sha,
-                        commit.message.lines().next().unwrap_or_default()
-                    )));
+                    let subject = commit.message.lines().next().unwrap_or_default();
+                    let mut row = PrRow::text(format!("{} {subject}", commit.sha)).with_cells(
+                        PrCells::Row(vec![
+                            crate::ui_table::short_sha(&commit.sha).to_owned(),
+                            subject.to_owned(),
+                            commit.author_name.clone(),
+                            crate::ui_table::relative_age(&commit.authored_at),
+                        ]),
+                    );
+                    if !commit.author.login.is_empty() {
+                        row.actor = Some(commit.author.clone());
+                    }
+                    rows.push(row);
                     if commit.author.login.is_empty() {
                         rows.push(PrRow::text(format!(
                             "author {} [local Git; no associated username]",
@@ -377,8 +442,10 @@ impl PrPage {
                             commit.committer.clone(),
                         ));
                     }
+                    // The full SHA stays visible and copyable under the short one.
                     rows.push(PrRow::text(format!(
-                        "Parents: {}",
+                        "Commit {} • Parents: {}",
+                        commit.sha,
                         if commit.parents.is_empty() {
                             "Parent links unavailable or none in this response".into()
                         } else {
@@ -393,17 +460,26 @@ impl PrPage {
                     "Canonical diff • base {} • head {}",
                     summary.base_sha, summary.head_sha
                 ))];
+                if !self.details.files.is_empty() {
+                    rows.push(PrRow::text("").with_cells(PrCells::Header));
+                }
                 for file in &self.details.files {
-                    rows.push(PrRow::text(format!(
-                        "{} {} +{} −{}{}",
-                        file.status,
-                        file.path,
-                        file.additions,
-                        file.deletions,
-                        file.previous_path
-                            .as_ref()
-                            .map_or(String::new(), |old| format!(" (was {old})"))
-                    )));
+                    let was = file
+                        .previous_path
+                        .as_ref()
+                        .map_or(String::new(), |old| format!(" (was {old})"));
+                    rows.push(
+                        PrRow::text(format!(
+                            "{} {} +{} −{}{was}",
+                            file.status, file.path, file.additions, file.deletions,
+                        ))
+                        .with_cells(PrCells::Row(vec![
+                            file.status.clone(),
+                            format!("{}{was}", file.path),
+                            format!("+{}", file.additions),
+                            format!("−{}", file.deletions),
+                        ])),
+                    );
                 }
                 if let Some(diff) = &self.diff {
                     let mut canonical = crate::diff::Diff::parse(diff.text.as_bytes())
@@ -421,6 +497,7 @@ impl PrPage {
                             actor: None,
                             anchor: row.left.anchor,
                             comment: None,
+                            cells: None,
                         });
                     }
                 }
@@ -468,6 +545,15 @@ impl PrPage {
                                     actor: None,
                                     anchor: None,
                                     comment: None,
+                                    cells: Some(PrCells::Row(vec![
+                                        check.name.clone(),
+                                        if check.conclusion.is_empty() {
+                                            check.status.clone()
+                                        } else {
+                                            check.conclusion.clone()
+                                        },
+                                        crate::ui_table::short_sha(&check.head_sha).to_owned(),
+                                    ])),
                                 }
                             })
                             .collect()

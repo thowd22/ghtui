@@ -294,9 +294,8 @@ fn select_current(s: &mut Session, mouse: bool, body: &str) {
         s.click_visible_action(body);
     } else {
         for _ in 0..48 {
-            if s.screen()
-                .lines()
-                .any(|line| line.contains(body) && line.contains('>'))
+            if s.selected_row(&crate::support::view_title("Inbox"))
+                .is_some_and(|row| row.contains(body))
             {
                 break;
             }
@@ -310,16 +309,8 @@ fn select_current(s: &mut Session, mouse: bool, body: &str) {
             );
         }
     }
-    s.try_wait_for_condition(
-        |screen| {
-            screen
-                .lines()
-                .any(|line| line.contains(body) && line.contains('>'))
-        },
-        "Actual exact refreshed comment selected",
-        Duration::from_secs(8),
-    )
-    .unwrap();
+    // The exact refreshed comment carries the `▌` selection bar.
+    s.wait_for_selected_row(&crate::support::view_title("Inbox"), body);
 }
 
 pub(super) fn assert_projection_v19(
@@ -669,11 +660,14 @@ pub(crate) fn create_cancel_receipt(mouse: bool) {
                     && text.contains("Inbox • focused view")
                     && crate::support::controls::control_painted(screen, "[c Conversation]")
                     && text.contains("Native café comment 雪")
-                    && text.contains(if mouse {
-                        "> Native café comment 雪"
-                    } else {
-                        "> Second line"
-                    })
+                    && crate::support::selected_row(screen, &crate::support::view_title("Inbox"))
+                        .is_some_and(|row| {
+                            row.starts_with(if mouse {
+                                "Native café comment 雪"
+                            } else {
+                                "Second line"
+                            })
+                        })
                     && text.contains("Second line")
                     && text.contains("Selected comment #10 by @octocat")
                     && !text.contains("[Confirm action]")

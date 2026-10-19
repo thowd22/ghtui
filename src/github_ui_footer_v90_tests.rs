@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{backend::TestBackend, Terminal};
 use std::collections::BTreeSet;
 
-fn pull_request(number: u64) -> PullRequest {
+pub(super) fn pull_request(number: u64) -> PullRequest {
     PullRequest {
         host: "github.invalid".into(),
         id: format!("PR_{number}"),
@@ -27,7 +27,7 @@ fn pull_request(number: u64) -> PullRequest {
     }
 }
 
-fn inbox(count: u64) -> App {
+pub(super) fn inbox(count: u64) -> App {
     let mut github = GithubWorkspace::empty(
         HostIdentity {
             host: "github.invalid".into(),
@@ -48,7 +48,7 @@ fn inbox(count: u64) -> App {
     }
 }
 
-fn detail(tab: PrTab) -> App {
+pub(super) fn detail(tab: PrTab) -> App {
     let mut app = inbox(1);
     let pr = pull_request(7);
     app.github.as_mut().unwrap().pr = Some(PrPage {
@@ -176,8 +176,8 @@ fn design_footer_v90_inbox_queues_are_tabs_and_keys_match_their_clicks() {
             "{expected:?} has no click target"
         );
     }
-    // Every row of the list area is content now: three PRs, two rows each, no bottom button.
-    assert_eq!(app.github_visible_rows, (41 - 1 - 3) / 2);
+    // Every row under the column titles is content: one table row per PR, no bottom button.
+    assert_eq!(app.github_visible_rows, 41 - 1 - 3 - 1);
 }
 
 #[test]

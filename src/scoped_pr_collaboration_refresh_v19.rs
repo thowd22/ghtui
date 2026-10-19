@@ -260,6 +260,7 @@ impl PreparedConversationPageV19 {
                         actor: None,
                         anchor: None,
                         comment: None,
+                        cells: None,
                     },
                 );
             }

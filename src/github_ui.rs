@@ -295,6 +295,42 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         // stay one line so their hit regions and selection index are unchanged.
         // Visible rows = logical rows that actually fit, for paging/selection.
         let wrap_prose = matches!(page.tab, PrTab::Summary | PrTab::Conversation);
+        // Commits, Files and Checks rows with cells are table rows (TASK-91); every other row
+        // is prose. The page keeps its own scroll and cursor, so lines are painted one by one.
+        let host = github.identity.host.clone();
+        let columns = page.columns();
+        let cell_rows = columns.map_or_else(Vec::new, |(_, glyphs)| {
+            page.rows
+                .iter()
+                .filter_map(|row| table_row(row, &host, glyphs))
+                .collect::<Vec<_>>()
+        });
+        let table = columns.map(|(columns, glyphs)| crate::ui_table::Table {
+            columns,
+            header: false,
+            focused: app.github_content_focused,
+            glyphs,
+            empty: None,
+        });
+        let natural = columns.map_or_else(Vec::new, |(columns, _)| {
+            crate::ui_table::natural_widths(columns, cell_rows.iter(), theme.mode)
+        });
+        let painter = table
+            .as_ref()
+            .map(|table| crate::ui_table::TablePainter::new(table, &natural, area, theme));
+        // Checks are one table: the exact head they ran on, then sticky column titles.
+        if let Some(painter) = painter
+            .as_ref()
+            .filter(|_| page.tab == PrTab::Checks && !cell_rows.is_empty() && area.bottom() > y + 1)
+        {
+            frame.render_widget(
+                Paragraph::new(format!("  Head {}", safe_text(&summary.head_sha)))
+                    .style(theme.style(SemanticToken::Muted)),
+                Rect::new(area.x, y, area.width, 1),
+            );
+            painter.header(frame.buffer_mut(), y + 1);
+            y += 2;
+        }
         let mut line = y;
         let mut rendered = 0usize;
         for (offset, row) in page.rows.iter().skip(app.scroll).enumerate() {
@@ -324,18 +360,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             let row_area = Rect::new(area.x, line, area.width, 1);
             line += 1;
             rendered += 1;
-            let selected = selectable && index == app.selected && app.github_content_focused;
-            let marker = if selected { "> " } else { "  " };
-            let style = if selected {
-                theme.style(SemanticToken::Focus)
-            } else {
-                theme.style(row.role)
-            };
-            if let Some(actor) = &row.actor {
-                // Marker, initials chip, one blank cell, then `@login text` cut with an ellipsis.
-                // The row text is never painted under the chip, so nothing shows through it.
-                frame.render_widget(Paragraph::new(marker).style(style), row_area);
-                let identity = ActorIdentity::github(&github.identity.host, actor);
+            let style = theme.style(row.role);
+            if let (Some(painter), Some(item)) = (
+                &painter,
+                columns.and_then(|(_, glyphs)| table_row(row, &host, glyphs)),
+            ) {
+                painter.row(frame.buffer_mut(), row_area.y, &item);
+            } else if let Some(actor) = &row.actor {
+                // Bar slot, initials chip (or photo), one blank cell, then `@login text` cut
+                // with an ellipsis. The row text is never painted under the chip.
+                let identity = ActorIdentity::github(&host, actor);
                 let avatar = ListAvatar {
                     identity: &identity,
                     image: match app.avatar_states.get(&identity) {
@@ -353,11 +387,21 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 );
             } else {
                 frame.render_widget(
-                    Paragraph::new(format!("{marker}{}", safe_text(&row.label))).style(style),
+                    Paragraph::new(format!("  {}", safe_text(&row.label))).style(style),
                     row_area,
                 );
             }
             if selectable {
+                // The cursor rests only on interactive rows: the `▌` bar on the Selection
+                // background, accent while the page content has focus.
+                if index == app.selected {
+                    crate::ui_table::select_line(
+                        frame.buffer_mut(),
+                        row_area,
+                        app.github_content_focused,
+                        theme,
+                    );
+                }
                 app.hits.push(HitRegion {
                     rect: row_area,
                     action: Action::GithubRow(index),
@@ -412,77 +456,115 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         y += 1;
     }
-    app.github_visible_rows = area.bottom().saturating_sub(y) as usize / 2;
+    // One table row per pull request under sticky column titles (TASK-91). The Inbox keeps
+    // its own scroll (`app.scroll`; the wheel may leave the cursor off screen).
     let visible = github.visible();
-    if visible.is_empty() {
-        frame.render_widget(
-            Paragraph::new(if github.state_membership_unavailable_v68() {
+    let host = github.identity.host.clone();
+    let rows = visible
+        .iter()
+        .map(|pr| inbox_row(pr, &host))
+        .collect::<Vec<_>>();
+    let table = crate::ui_table::Table {
+        columns: &INBOX_COLUMNS,
+        header: true,
+        focused: app.github_content_focused,
+        glyphs: false,
+        empty: None,
+    };
+    let natural = crate::ui_table::natural_widths(&INBOX_COLUMNS, rows.iter(), theme.mode);
+    let painter = crate::ui_table::TablePainter::new(&table, &natural, area, theme);
+    if y < area.bottom() {
+        painter.header(frame.buffer_mut(), y);
+        y += 1;
+    }
+    app.github_visible_rows = usize::from(area.bottom().saturating_sub(y));
+    if visible.is_empty() && y < area.bottom() {
+        painter.empty(
+            frame.buffer_mut(),
+            y,
+            &if github.state_membership_unavailable_v68() {
                 "Queue membership unavailable • use a genuine fresh scope read.".to_string()
             } else {
                 crate::github_workspace::empty_queue_hint_v1(github.filter, github.queue_counts())
-            }),
-            Rect::new(area.x, y, area.width, 1),
+            },
         );
     }
+    let selected = github.selected_index();
     for (offset, index) in (app.scroll..visible.len())
         .take(app.github_visible_rows)
         .enumerate()
     {
-        let pr = visible[index];
-        let rect = Rect::new(area.x, y + offset as u16 * 2, area.width, 2);
-        let selected = github.selected_index() == index && app.github_content_focused;
-        let base = if selected {
-            theme.selected(SemanticToken::Normal)
-        } else {
-            theme.style(SemanticToken::Normal)
-        };
-        let title = format!(
-            "{} {}#{} {}{}",
-            if selected { ">" } else { " " },
-            pr.repository,
-            pr.number,
-            safe_text(&pr.title),
-            if pr.draft { " [draft]" } else { "" }
-        );
-        frame.render_widget(
-            Paragraph::new(crate::ui_chrome::fit(&title, usize::from(rect.width))).style(base),
-            Rect::new(rect.x, rect.y, rect.width, 1),
-        );
-        // The author line sits under the title, past the two-cell selection marker column.
-        let indent = 2.min(rect.width);
-        let rect = Rect::new(rect.x + indent, rect.y, rect.width - indent, rect.height);
-        let actor = ActorIdentity::github(&github.identity.host, &pr.author);
-        let avatar = ListAvatar {
-            identity: &actor,
-            image: match app.avatar_states.get(&actor) {
-                Some(AvatarState::Ready(image)) => Some(image.as_ref()),
-                _ => None,
-            },
-            theme,
-        };
-        let memberships = pr
-            .queues
-            .iter()
-            .map(|queue| queue.label())
-            .collect::<Vec<_>>()
-            .join(" + ");
-        let author_line = format!(
-            "{} • {} • {} • review/checks: open PR to load",
-            actor.label(),
-            crate::github_workspace::age_label(&pr.created_at),
-            memberships
-        );
-        // Chip, exactly one blank cell, then the author line cut with an ellipsis.
-        avatar.render_with_label(
-            Rect::new(rect.x, rect.y + 1, rect.width, 1),
-            frame.buffer_mut(),
-            &author_line,
-            base,
-        );
+        let y = y + offset as u16;
+        painter.row(frame.buffer_mut(), y, &rows[index]);
+        if index == selected {
+            painter.select(frame.buffer_mut(), y);
+        }
         app.hits.push(HitRegion {
-            rect: Rect::new(area.x, rect.y, area.width, 2),
-            action: Action::Github(GithubAction::Open(pr.into())),
+            rect: painter.line(y),
+            action: Action::Github(GithubAction::Open(visible[index].into())),
         });
+    }
+}
+
+/// Inbox queue columns. The PR reference never leaves; title, author and age share a priority
+/// so a long title is cut before author or age leave; queues go first. The title takes most of
+/// the spare width (a long login is cut before the title is).
+const INBOX_COLUMNS: [crate::ui_table::Column; 5] = [
+    crate::ui_table::Column::new("PR", 6).priority(0),
+    crate::ui_table::Column::new("TITLE", 10)
+        .flex(4)
+        .priority(1),
+    crate::ui_table::Column::new("AUTHOR", 6)
+        .flex(1)
+        .priority(1)
+        .actor(),
+    crate::ui_table::Column::new("AGE", 3).priority(1).right(),
+    crate::ui_table::Column::new("QUEUE", 5).priority(3),
+];
+
+/// One Inbox table row: `owner/repo#N`, title (`[draft]` kept), author chip, age, queues.
+fn inbox_row(pr: &crate::providers::gh::PullRequest, host: &str) -> crate::ui_table::TableRow<()> {
+    use crate::providers::gh::Queue;
+    let queues = pr
+        .queues
+        .iter()
+        .map(|queue| match queue {
+            Queue::Authored => "Created",
+            Queue::Assigned => "Assigned",
+            Queue::ReviewRequested => "Review",
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    crate::ui_table::TableRow::cells(vec![
+        format!("{}#{}", pr.repository, pr.number).into(),
+        format!("{}{}", pr.title, if pr.draft { " [draft]" } else { "" }).into(),
+        String::new().into(),
+        crate::ui_table::relative_age(&pr.created_at).into(),
+        crate::ui_table::Cell::styled(queues, crate::theme::Role::TextMuted),
+    ])
+    .with_actor(Some(ActorIdentity::github(host, &pr.author)))
+}
+
+/// A PR page row with cells as a table row (`None` for prose rows). The status glyph comes
+/// from the row's role when the tab's table has a glyph slot.
+fn table_row(
+    row: &crate::github_workspace::PrRow,
+    host: &str,
+    glyphs: bool,
+) -> Option<crate::ui_table::TableRow<()>> {
+    use crate::{github_workspace::PrCells, ui_table::TableRow};
+    match row.cells.as_ref()? {
+        PrCells::Header => Some(TableRow::header()),
+        PrCells::Row(cells) => Some(
+            TableRow::cells(cells.iter().map(|cell| cell.as_str().into()).collect())
+                .with_tone(row.role)
+                .with_glyph(glyphs.then_some(row.role))
+                .with_actor(
+                    row.actor
+                        .as_ref()
+                        .map(|actor| ActorIdentity::github(host, actor)),
+                ),
+        ),
     }
 }
 
@@ -561,3 +643,7 @@ mod pr_body_wrap_tests {
 #[cfg(test)]
 #[path = "github_ui_footer_v90_tests.rs"]
 mod footer_v90_tests;
+
+#[cfg(test)]
+#[path = "github_table_v91_tests.rs"]
+mod table_v91_tests;

@@ -383,8 +383,14 @@ pub fn progress_selection_in(
     let mut selected_row = None;
     for y in bounds.top + 1..bounds.bottom {
         let (line, _) = row(frame, y);
-        let text = line.trim_start_matches('│').trim_start();
-        if text.starts_with("> ") || text.starts_with("› ") {
+        // PR page and table rows carry the `▌` bar in the first inner cell; overlays keep
+        // their `>`/`›` markers.
+        let inner = line.trim_start_matches('│');
+        let text = inner.trim_start();
+        if inner.starts_with(super::controls::SELECTION_BAR)
+            || text.starts_with("> ")
+            || text.starts_with("› ")
+        {
             if selected_row.is_some() {
                 return None;
             }
