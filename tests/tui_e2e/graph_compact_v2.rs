@@ -251,7 +251,7 @@ fn full_back(mouse: bool) {
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
     let before_back = trace(&native).len();
-    choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
     session.wait_for_screen("Graph horizontal: 8 cells");
@@ -294,7 +294,7 @@ fn discard(mouse: bool) {
     ready_loaded(&mut session, 400, 0);
     // The previous200-source bookmark must be honestly unavailable, no legacy
     // graph reconstruction/source decode/HEAD fallback despite real objects.
-    choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     session.wait_for_screen("Original Graph snapshot unavailable");
     unchanged_calls(&native, &mut session, prior);
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
@@ -330,7 +330,7 @@ fn restore_cancel(mouse: bool) {
         b"hold exact original Back read\n",
     )
     .unwrap();
-    choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     until(
         &mut session,
         || {

@@ -741,77 +741,79 @@ pub(crate) fn validate_repository_completion(
         })
 }
 
-/// Cells Back plus the two most recent breadcrumbs need, gaps included.
-pub(crate) fn navigation_width(app: &App) -> u16 {
-    let crumbs = app.navigation_trail.crumbs();
-    let crumbs: usize = crumbs
-        .iter()
-        .rev()
-        .take(2)
-        .map(|crumb| crate::editor::display_width(crumb.label) + 3)
-        .sum();
-    (6 + crumbs).min(usize::from(u16::MAX)) as u16
-}
+/// Cells the header keeps for Back at least: its compact `Back` label.
+pub(crate) const NAVIGATION_MIN_WIDTH: u16 = 4;
+/// A crumb cut to fit keeps at least this many cells, ellipsis included.
+const CRUMB_MIN_WIDTH: u16 = 8;
 
+/// The header's Back and breadcrumb tokens, in the footer key-bar style: `Alt-← Back` (the
+/// configured key in the accent hue, then the label) and the two most recent crumbs as
+/// labels, two cells apart. Nothing wraps: Back drops its key before it is left out, the
+/// older crumb leaves first, and the most recent one ends with `…` while at least
+/// [`CRUMB_MIN_WIDTH`] cells remain. Every painted token is a click target; Tab focus
+/// underlines it.
 pub(crate) fn draw_navigation(
     frame: &mut ratatui::Frame,
     app: &mut App,
     area: ratatui::layout::Rect,
 ) {
-    use ratatui::style::Modifier;
-    use ratatui::{layout::Rect, widgets::Paragraph};
+    use crate::theme::Role;
+    use ratatui::style::{Modifier, Style};
+    use ratatui::{layout::Rect, text::Line, widgets::Paragraph};
     let theme = app.theme();
-    let base = theme
-        .style(crate::theme::SemanticToken::Reference)
-        .remove_modifier(Modifier::UNDERLINED | Modifier::REVERSED);
-    // `area` is the header span the chrome left for Back and the breadcrumbs.
-    let mut x = area.x;
-    if area.right().saturating_sub(x) < 6 {
+    let key = crate::ui_chrome::key_token(app.shortcut("back"));
+    let full = crate::editor::display_width(&key) + 5;
+    let (key, width) = if !key.is_empty() && full <= usize::from(area.width) {
+        (key, full as u16)
+    } else if area.width >= NAVIGATION_MIN_WIDTH {
+        (String::new(), NAVIGATION_MIN_WIDTH)
+    } else {
         return;
-    }
-    let rect = Rect::new(x, area.y, 6, 1);
+    };
+    let rect = Rect::new(area.x, area.y, width, 1);
+    let focused = app.focus == app.hits.len();
     frame.render_widget(
-        Paragraph::new("[Back]").style(if app.focus == app.hits.len() {
-            base.add_modifier(Modifier::UNDERLINED)
-        } else {
-            base
-        }),
+        Paragraph::new(crate::ui_chrome::key_token_line(
+            theme, &key, "Back", focused,
+        )),
         rect,
     );
     app.hits.push(crate::app::HitRegion {
         rect,
         action: Action::Navigation(NavigationAction::Back),
     });
-    x = rect.right().saturating_add(1);
+    let mut x = rect.right().saturating_add(2);
     let crumbs = app.navigation_trail.crumbs();
-    let mut selected = vec![];
     let mut remaining = area.right().saturating_sub(x);
-    // Display recent complete labels only. Older entries stay owned in the
-    // bounded trail; a complete history picker is a separate pending adapter.
+    // Display recent labels only, newest first while choosing. Older entries stay owned in
+    // the bounded trail; a complete history picker is a separate pending adapter.
+    let mut selected = vec![];
     for crumb in crumbs.iter().rev().take(2) {
-        let width = crate::editor::display_width(crumb.label).saturating_add(2);
-        if width > usize::from(remaining) {
+        let label = crate::app::safe_text(crumb.label);
+        let width = crate::editor::display_width(&label);
+        let label = if width <= usize::from(remaining) {
+            label
+        } else if selected.is_empty() && remaining >= CRUMB_MIN_WIDTH {
+            crate::ui_chrome::fit(&label, usize::from(remaining))
+        } else {
             break;
-        }
-        remaining = remaining.saturating_sub(width as u16 + 1);
-        selected.push(crumb);
+        };
+        let width = crate::editor::display_width(&label) as u16;
+        remaining = remaining.saturating_sub(width.saturating_add(2));
+        selected.push((label, width, crumb.link.clone()));
     }
-    for crumb in selected.into_iter().rev() {
-        let label = format!("[{}]", crumb.label);
-        let rect = Rect::new(x, area.y, crate::editor::display_width(&label) as u16, 1);
-        frame.render_widget(
-            Paragraph::new(label).style(if app.focus == app.hits.len() {
-                base.add_modifier(Modifier::UNDERLINED)
-            } else {
-                base
-            }),
-            rect,
-        );
+    for (label, width, link) in selected.into_iter().rev() {
+        let rect = Rect::new(x, area.y, width, 1);
+        let mut line = Line::styled(label, theme.role(Role::Text));
+        if app.focus == app.hits.len() {
+            line = line.patch_style(Style::default().add_modifier(Modifier::UNDERLINED));
+        }
+        frame.render_widget(Paragraph::new(line), rect);
         app.hits.push(crate::app::HitRegion {
             rect,
-            action: Action::Navigation(NavigationAction::Breadcrumb(crumb.link.clone())),
+            action: Action::Navigation(NavigationAction::Breadcrumb(link)),
         });
-        x = rect.right().saturating_add(1);
+        x = rect.right().saturating_add(2);
     }
 }
 

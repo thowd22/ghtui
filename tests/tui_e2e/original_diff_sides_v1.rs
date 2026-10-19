@@ -366,7 +366,7 @@ fn close_absence(session: &mut Session, mouse: bool, message: &str) {
 }
 fn observe_restored_basis(native: &Native, session: &mut Session, mouse: bool) {
     let before = starts(native).len();
-    choose(session, mouse, "[Source identity]", b"I");
+    choose(session, mouse, "I Source", b"I");
     let title = "Repository source identity • read-only";
     session.wait_for_cursorless_condition(
         |frame| frame.contents().contains(title) && frame.contents().contains("[PgDn More]"),
@@ -556,7 +556,7 @@ fn proposed(mouse: bool) {
     back(&native, &mut session, mouse);
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     session.wait_for_screen("Saved comparison • actual Old/New content");
     observe_restored_basis(&native, &mut session, mouse);
     effects(&native, &session);

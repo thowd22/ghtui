@@ -65,9 +65,12 @@ fn chrome(frame: &vt100::Screen, view: &str, hue: Color, focused: bool) -> bool 
         .iter()
         .find(|tab| tab.ends_with(view))
         .and_then(|tab| column_of(header, tab));
+    // One header row at 80 columns and wider: Back is a key-bar style token, never bracketed.
     header.starts_with(" ghtui ")
+        && top == 1
         && TABS.iter().all(|tab| header.contains(tab))
-        && (header.contains("[Back]") || lines.get(1).is_some_and(|row| row.contains("[Back]")))
+        && header.contains("5 Dashboard  Alt-← Back")
+        && !header.contains('[')
         // Logo and active tab are filled with the view hue; text stays bold.
         && frame
             .cell(0, 1)
@@ -180,4 +183,140 @@ fn design_frames_v89_keyboard_merged_header_rounded_focus_frames_140x42_then_80x
 #[test]
 fn design_frames_v89_mouse_merged_header_rounded_focus_frames_80x24_then_140x42() {
     journey(true, (80, 24), (140, 42));
+}
+
+/// The header row and the row under it (the pane's top border when the header is one row).
+fn rows(frame: &vt100::Screen) -> (String, String) {
+    let contents = frame.contents();
+    let mut lines = contents.lines();
+    let header = lines.next().unwrap_or_default().to_owned();
+    let top = lines.next().unwrap_or_default().to_owned();
+    (header, top)
+}
+
+/// Back and Source identity are one-row key-bar style tokens (`Alt-← Back` in the header,
+/// `I Source` closing the Repository pane border); each is clicked or pressed with the same
+/// effect, at 80x24 and 140x42, without touching the working tree.
+fn header_journey(mouse: bool, size: (u16, u16)) {
+    const SOURCE_TITLE: &str = "Repository source identity • read-only";
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("readme", b"saved text\n", "Header saved version");
+    std::fs::write(fixture.repo().join("readme"), b"local work to preserve\n").unwrap();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let status = fixture.git(&["status", "--porcelain=v1"]);
+    let mut session = Session::launch(&fixture, size.0, size.1);
+    session.wait_for_screen("Recent commits");
+    let source = if size.0 >= 100 {
+        "I Source identity"
+    } else {
+        "I Source"
+    };
+
+    let after = session.completed_cells_end();
+    choose_tab(&mut session, mouse, "2 Repository");
+    wait_cells(
+        &mut session,
+        after,
+        "one-row header with Source token",
+        |frame| {
+            let (header, top) = rows(frame);
+            chrome(frame, "Repository", PEACH, true)
+                && !header.contains("Source")
+                && top.trim_end().ends_with(&format!("─ {source} ─╮"))
+                && top.contains("Local ")
+        },
+    );
+    session.capture_completed_terminal_v1(if mouse {
+        "design-header-v89-repository-mouse"
+    } else {
+        "design-header-v89-repository-keyboard"
+    });
+
+    let after = session.completed_cells_end();
+    if mouse {
+        let (column, row) = session.locate("I Source").expect("Source token is painted");
+        assert_eq!(row, 1, "Source identity sits in the pane's top border");
+        session.click(column + 2, row);
+    } else {
+        session.send_key(b"I");
+    }
+    wait_cells(
+        &mut session,
+        after,
+        "Source identity explanation",
+        |frame| frame.contents().contains(SOURCE_TITLE),
+    );
+    let after = session.completed_cells_end();
+    if mouse {
+        session.click_visible_action("[Esc Close]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    wait_cells(&mut session, after, "explanation closed", |frame| {
+        let (header, top) = rows(frame);
+        !frame.contents().contains(SOURCE_TITLE)
+            && header.contains("Alt-← Back")
+            && top.contains(source)
+    });
+
+    // Leave for Search, then Back returns to the same Repository page.
+    let after = session.completed_cells_end();
+    choose_tab(&mut session, mouse, "3 Search");
+    wait_cells(&mut session, after, "Search with one-row Back", |frame| {
+        let (header, top) = rows(frame);
+        // Back waits for the Search corpus read, so the journey does too.
+        top.contains("Search • focused view")
+            && frame
+                .contents()
+                .contains("Selected local search corpus ready")
+            && header.contains("5 Dashboard  Alt-← Back")
+            && !header.contains('[')
+            // A crumb names the earlier page when the row has room; it never wraps.
+            && (size.0 < 100 || header.contains("Alt-← Back  Repository • "))
+    });
+    let after = session.completed_cells_end();
+    if mouse {
+        let (column, row) = session.locate("Alt-← Back").expect("Back token is painted");
+        assert_eq!(row, 0);
+        session.click(column + 1, row);
+    } else {
+        session.send_key(b"\x1b[1;3D");
+    }
+    wait_cells(&mut session, after, "Back restored Repository", |frame| {
+        let (_, top) = rows(frame);
+        top.contains("Repository • focused view") && top.contains(source)
+    });
+
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain=v1"]), status);
+    assert_eq!(
+        std::fs::read(fixture.repo().join("readme")).unwrap(),
+        b"local work to preserve\n"
+    );
+    assert!(
+        session.inspect_command_journal(&fixture).is_empty(),
+        "header navigation must not run any GitHub command"
+    );
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn design_header_v89_keyboard_one_row_back_and_source_tokens_80x24() {
+    header_journey(false, (80, 24));
+}
+
+#[test]
+fn design_header_v89_mouse_one_row_back_and_source_tokens_80x24() {
+    header_journey(true, (80, 24));
+}
+
+#[test]
+fn design_header_v89_keyboard_one_row_back_and_source_tokens_140x42() {
+    header_journey(false, (140, 42));
+}
+
+#[test]
+fn design_header_v89_mouse_one_row_back_and_source_tokens_140x42() {
+    header_journey(true, (140, 42));
 }

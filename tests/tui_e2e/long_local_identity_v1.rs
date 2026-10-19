@@ -388,12 +388,12 @@ fn source_journey(mouse: bool) {
     session.wait_for_screen(r"na\xff");
     let frame = session.completed_cursorless_screen().unwrap();
     assert!(support::locate_screen(frame, r"na\xff").is_some());
-    assert!(support::locate_screen(frame, "[Source identity]").is_some());
+    assert!(support::locate_screen(frame, "I Source").is_some());
     let sql = sqlite_image(&fixture);
     let config = files(&fixture.root.join("config/ghtui"));
     let before_trace = fs::read(&trace).unwrap();
     assert!(!before_trace.is_empty());
-    activate(&mut session, mouse, "[Source identity]", b"I");
+    activate(&mut session, mouse, "I Source", b"I");
     assert_complete_detail(
         &mut session,
         mouse,

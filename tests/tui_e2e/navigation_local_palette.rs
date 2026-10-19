@@ -15,8 +15,8 @@ const HELP_OVERLAY: &str = "Help • keyboard and mouse"; // Confirmed Root head
 const REPOSITORY_HELP: &str = "Repository • help for this view"; // Actual producer.
 const SEARCH_HELP: &str = "Search • help for this view"; // Actual producer.
                                                          // Global navigation, not a File back/toggle alias.
-const GLOBAL_BACK: &str = "[Back]";
-const WORKING_CRUMB: &str = "[Repository • Working diff]";
+const GLOBAL_BACK: &str = "Alt-← Back";
+const WORKING_CRUMB: &str = "Repository • Working diff";
 const GLOBAL_BACK_KEY: &[u8] = b"\x1b[1;3D"; // Resolved default Alt+Left.
 
 #[derive(Debug, PartialEq, Eq)]

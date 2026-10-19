@@ -375,7 +375,7 @@ fn journey(mouse: bool) {
                 "actual Overview before original combined Back",
             );
             let previous = session.completed_cursorless_end();
-            choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+            choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
             ack(
                 &mut session,
                 previous,

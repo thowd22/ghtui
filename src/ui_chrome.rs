@@ -20,7 +20,13 @@ pub const FOCUS_MARKER: &str = "▶";
 /// Separates breadcrumb levels in pane titles.
 pub const CRUMB_SEPARATOR: &str = " › ";
 const LOGO: &str = " ghtui ";
-const SOURCE_CONTROL: &str = "[Source identity]";
+/// The Repository Source identity token in the content pane's top border: its key (`I`, the
+/// Repository key that opens the same explanation) and its full and compact labels.
+pub const SOURCE_KEY: &str = "I";
+const SOURCE_LABEL: &str = "Source identity";
+const SOURCE_COMPACT: &str = "Source";
+/// Below this width chrome tokens use compact labels, as the footer key bar does.
+const COMPACT_WIDTH: u16 = 100;
 
 /// The title text of a pane: breadcrumbs joined by `›`, with the focus marker when focused.
 pub fn crumb_title(crumbs: &[&str], focused: bool) -> String {
@@ -264,17 +270,116 @@ fn source_control(app: &App) -> bool {
     app.view == View::Repository && app.repository_source_identity.is_some()
 }
 
-/// Header rows: one when the logo, tabs, Back, crumbs and Source identity fit, else two, with
-/// Back, the crumbs and Source identity on the second row.
-pub fn header_rows(app: &App, width: u16) -> u16 {
-    let source = if source_control(app) {
-        SOURCE_CONTROL.len() as u16 + 1
-    } else {
-        0
+/// A configured shortcut as a key-bar key token: `alt+left` reads `Alt-←`, `ctrl+b` reads
+/// `Ctrl-b`, `f5` reads `F5` and a single character stays as it is.
+pub fn key_token(binding: &str) -> String {
+    let (modifiers, key) = match binding.strip_suffix("++") {
+        Some(modifiers) => (modifiers, "+"),
+        None => match binding.rsplit_once('+') {
+            Some((modifiers, key)) if !key.is_empty() => (modifiers, key),
+            _ => ("", binding),
+        },
     };
-    let needed = tabs_width(app)
-        .saturating_add(crate::navigation_state::navigation_width(app))
-        .saturating_add(source);
+    let key = match key {
+        "left" => "←".to_owned(),
+        "right" => "→".to_owned(),
+        "up" => "↑".to_owned(),
+        "down" => "↓".to_owned(),
+        "pageup" => "PgUp".to_owned(),
+        "pagedown" => "PgDn".to_owned(),
+        key if key.chars().count() == 1 => key.to_owned(),
+        key if key.len() > 1
+            && key.starts_with('f')
+            && key[1..].chars().all(|c| c.is_ascii_digit()) =>
+        {
+            key.to_uppercase()
+        }
+        key => {
+            let mut chars = key.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        }
+    };
+    modifiers
+        .split('+')
+        .filter(|part| !part.is_empty())
+        .map(|part| match part {
+            "ctrl" => "Ctrl",
+            "alt" => "Alt",
+            "shift" => "Shift",
+            other => other,
+        })
+        .chain(std::iter::once(key.as_str()))
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// A key-bar style token: the key in the accent hue and bold, the label muted. A keyboard
+/// focused token is underlined, as in the footer.
+pub fn key_token_line(theme: Theme, key: &str, label: &str, focused: bool) -> Line<'static> {
+    let mut spans = Vec::new();
+    if !key.is_empty() {
+        spans.push(Span::styled(
+            safe_text(key),
+            theme.role(Role::Accent).add_modifier(Modifier::BOLD),
+        ));
+        if !label.is_empty() {
+            spans.push(Span::styled(" ", theme.role(Role::TextMuted)));
+        }
+    }
+    if !label.is_empty() {
+        spans.push(Span::styled(safe_text(label), theme.role(Role::TextMuted)));
+    }
+    // Underline each span, so the focus survives when the spans join another title line.
+    if focused {
+        for span in &mut spans {
+            span.style = span.style.add_modifier(Modifier::UNDERLINED);
+        }
+    }
+    Line::from(spans)
+}
+
+/// Cells the left (breadcrumb) title of the main pane takes, with the focus marker, plus the
+/// border cell before it.
+fn main_title_width(app: &App) -> u16 {
+    let title = format!("{} • focused view", app.view.label());
+    crate::editor::display_width(&crumb_title(&[&title], true)) as u16 + 1
+}
+
+/// Where the Repository `I Source identity` token sits: at the right end of the content
+/// pane's top border (`─ Local …/main/abc ─ I Source identity ─╮`), like the key hints pane
+/// titles carry. The full label at 100 columns and wider while the scope keeps room, else the
+/// compact `I Source`; None when even that does not fit beside the pane title.
+pub fn source_token(app: &App, pane: Rect) -> Option<(Rect, &'static str)> {
+    if !source_control(app) || pane.height == 0 {
+        return None;
+    }
+    let budget = pane
+        .width
+        .saturating_sub(2)
+        .saturating_sub(main_title_width(app));
+    let need = |label: &str| (SOURCE_KEY.len() + 1 + label.len()) as u16;
+    // ` token ─` closes the border; the scope title keeps a dozen cells on its left.
+    let label = if pane.width >= COMPACT_WIDTH && need(SOURCE_LABEL) + 3 + 16 <= budget {
+        SOURCE_LABEL
+    } else if need(SOURCE_COMPACT) + 3 <= budget {
+        SOURCE_COMPACT
+    } else {
+        return None;
+    };
+    let width = need(label);
+    Some((
+        Rect::new(pane.right().saturating_sub(3 + width), pane.y, width, 1),
+        label,
+    ))
+}
+
+/// Header rows: one whenever the logo, tabs and at least the compact Back token fit (every
+/// width of 80 columns and more); else two, with Back and the crumbs on the second row.
+pub fn header_rows(app: &App, width: u16) -> u16 {
+    let needed = tabs_width(app).saturating_add(crate::navigation_state::NAVIGATION_MIN_WIDTH);
     if needed <= width {
         1
     } else {
@@ -317,8 +422,9 @@ fn account_line(app: &App, theme: Theme) -> Option<(Line<'static>, u16)> {
     ))
 }
 
-/// Draws the header into `area` (one or two rows). Hits keep their order: tabs, Source
-/// identity, Back, then breadcrumbs.
+/// Draws the header into `area` (one or two rows): logo, tabs, Back, crumbs and the account
+/// chip, every control a key-bar style token. Hits keep their order: tabs, Source identity
+/// (painted in the content pane's top border by [`main_pane`]), Back, then breadcrumbs.
 pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme();
     let row0 = Rect::new(area.x, area.y, area.width, 1);
@@ -359,51 +465,52 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
         });
         x = x.saturating_add(width).saturating_add(1).min(row0.right());
     }
+    // Source identity is painted in the pane border just below; its hit keeps its place.
+    let screen = frame.area();
+    if area.bottom() < screen.bottom() {
+        let pane = Rect::new(
+            area.x,
+            area.bottom(),
+            area.width,
+            screen.bottom() - area.bottom(),
+        );
+        if let Some((rect, _)) = source_token(app, pane) {
+            app.hits.push(HitRegion {
+                rect,
+                action: Action::RepositorySource,
+            });
+        }
+    }
     let single = area.height == 1;
     let nav_row = if single { row0 } else { row1 };
     let nav_start = if single { x } else { nav_row.x };
-    let mut nav_right = nav_row.right();
-    if source_control(app) && nav_row.width > SOURCE_CONTROL.len() as u16 {
-        let width = SOURCE_CONTROL.len() as u16;
-        let rect = Rect::new(nav_row.right() - width, nav_row.y, width, 1);
-        let focused = app.focus == app.hits.len() && !app.repository_content_focused;
-        let style = if focused {
-            theme
-                .role(Role::Accent)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else {
-            theme.style(crate::theme::SemanticToken::Reference)
-        };
-        frame.render_widget(Paragraph::new(SOURCE_CONTROL).style(style), rect);
-        app.hits.push(HitRegion {
-            rect,
-            action: Action::RepositorySource,
-        });
-        nav_right = rect.x.saturating_sub(1);
-    }
     let before = app.hits.len();
     crate::navigation_state::draw_navigation(
         frame,
         app,
-        Rect::new(nav_start, nav_row.y, nav_right.saturating_sub(nav_start), 1),
+        Rect::new(
+            nav_start,
+            nav_row.y,
+            nav_row.right().saturating_sub(nav_start),
+            1,
+        ),
     );
     // The account chip takes the free end of the first row; it is information, not a control.
     let used = if single {
         app.hits[before..]
             .iter()
-            .map(|hit| hit.rect.right())
+            .map(|hit| hit.rect.right().saturating_add(1))
             .max()
             .unwrap_or(x)
             .max(x)
     } else {
         x
     };
-    let right = if single { nav_right } else { row0.right() };
     if let Some((line, width)) = account_line(app, theme) {
-        if right.saturating_sub(used) > width {
+        if row0.right().saturating_sub(used) > width {
             frame.render_widget(
                 Paragraph::new(line),
-                Rect::new(right - width, row0.y, width, 1),
+                Rect::new(row0.right() - width, row0.y, width, 1),
             );
         }
     }
@@ -541,18 +648,44 @@ pub fn content_focused(app: &App, chrome_hits: usize) -> bool {
 }
 
 /// The main view pane: `View • focused view` on the left (tests and screen readers rely on the
-/// acknowledgement), the scope context on the right.
+/// acknowledgement), the scope context on the right, and on Repository the `I Source identity`
+/// token closing the top border (its hit is registered by [`draw_header`]).
 pub fn main_pane(app: &App, theme: Theme, area: Rect, focused: bool) -> Block<'static> {
     let title = format!("{} • focused view", app.view.label());
     let left = crate::editor::display_width(&crumb_title(&[&title], focused)) as u16 + 1;
     let block = pane_block(theme, &[&title], focused);
-    with_right_title(
-        block,
-        theme,
-        focused,
-        &app.context,
-        area.width.saturating_sub(2).saturating_sub(left),
-    )
+    let budget = area.width.saturating_sub(2).saturating_sub(left);
+    let Some((rect, label)) = source_token(app, area) else {
+        return with_right_title(block, theme, focused, &app.context, budget);
+    };
+    let (border, _) = pane_styles(theme, focused);
+    // The scope keeps the rest of the border: ` scope `, one border cell, then ` token ─`.
+    let scope_width = budget.saturating_sub(rect.width + 4).saturating_sub(4);
+    let block = if scope_width >= 8 && !app.context.is_empty() {
+        let text = compact_scope(&safe_text(&app.context), scope_width);
+        block.title(
+            Line::from(Span::styled(
+                format!(" {text} "),
+                theme.role(Role::TextMuted),
+            ))
+            .right_aligned(),
+        )
+    } else {
+        block
+    };
+    let token_focused = !app.repository_content_focused
+        && app
+            .hits
+            .iter()
+            .position(|hit| hit.action == Action::RepositorySource)
+            .is_some_and(|index| index == app.focus);
+    let mut spans = vec![Span::styled(" ", theme.role(Role::TextMuted))];
+    spans.extend(key_token_line(theme, SOURCE_KEY, label, token_focused).spans);
+    spans.extend([
+        Span::styled(" ", theme.role(Role::TextMuted)),
+        Span::styled("─", border),
+    ]);
+    block.title(Line::from(spans).right_aligned())
 }
 
 #[cfg(test)]

@@ -297,7 +297,10 @@ fn journey(mouse: bool) {
     session.resize(80, 24);
     mode(&mut session, mouse, b"g", "[g Graph]");
     session.open_saved_graph_subject(mouse, "Root comparison fixture", &root);
-    session.wait_for_screen("[Repository • Commit changes]");
+    // At 80 columns the one-row header keeps Back only; the crumb shows when there is room.
+    session.resize(120, 40);
+    session.wait_for_screen("Repository • Commit changes");
+    session.resize(80, 24);
     mode(&mut session, mouse, b"D", "[D Details]");
     session.wait_for_screen("root commit:");
     mode(&mut session, mouse, b"d", "[d Changes]");

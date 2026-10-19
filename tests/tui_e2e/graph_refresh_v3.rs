@@ -66,7 +66,7 @@ fn refresh_full(mouse: bool) {
     visible_page(&mut session, 10_000, 400);
     choose(&mut session, mouse, "[w Working]", b"w");
     session.wait_for_screen("DIRTY GRAPH REFRESH V3 CANARY");
-    choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
     effects(&native, &session, None);
@@ -137,7 +137,7 @@ fn deliberate_reread(mouse: bool) {
         .as_array()
         .is_some_and(|argv| argv.iter().any(|arg| arg == "--skip=200"))));
     let back = trace(&native).len();
-    choose(&mut session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
     session.wait_for_screen("Graph horizontal: 8 cells");

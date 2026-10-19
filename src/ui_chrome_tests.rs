@@ -91,9 +91,10 @@ fn design_frames_v89_header_merges_logo_tabs_and_navigation_and_keeps_hit_order(
             ] {
                 assert!(header.contains(tab), "{tab} in {header}");
             }
-            assert!(header.contains("[Back]"), "{header}");
+            assert!(header.contains("5 Dashboard  Alt-← Back"), "{header}");
+            assert!(!header.contains('['), "{header}");
         } else {
-            assert!(row(&buffer, 1).starts_with("[Back]"));
+            assert!(row(&buffer, 1).starts_with("Alt-← Back"));
         }
         // Logo and the active tab are filled with the Inbox hue.
         assert_eq!(buffer[(1, 0)].bg, hex(CATPPUCCIN_MOCHA.magenta));
@@ -522,4 +523,229 @@ fn design_chips_v95_chip_lead_reports_its_cells_and_clamps_to_the_area() {
     let mut buffer = stray_row(4);
     let used = avatar(mocha()).render_lead(Rect::new(10, 3, 6, 1), &mut buffer, Style::default());
     assert_eq!((used, row(&buffer, 0)), (0, "xxxx".to_owned()));
+}
+
+fn cells(buffer: &Buffer, rect: Rect) -> String {
+    (rect.x..rect.right())
+        .map(|x| buffer[(x, rect.y)].symbol())
+        .collect()
+}
+
+fn source_app() -> (tempfile::TempDir, App) {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    };
+    git(&["init", "--initial-branch=main"]);
+    git(&["config", "user.name", "Header Author"]);
+    git(&["config", "user.email", "header@example.invalid"]);
+    std::fs::write(dir.path().join("file.txt"), "saved\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-m", "saved header source"]);
+    let workspace = crate::workspace::Workspace::load(
+        dir.path(),
+        crate::workspace::RepositoryMode::Graph,
+        "HEAD",
+        None,
+    )
+    .unwrap()
+    .unwrap();
+    let source = std::sync::Arc::new(
+        crate::repository_source_identity::PreparedRepositorySourceIdentity::prepare(&workspace)
+            .unwrap(),
+    );
+    let app = App {
+        view: View::Repository,
+        repository_source_identity: Some(source),
+        workspace: Some(workspace),
+        repository_content_focused: true,
+        ..Default::default()
+    };
+    (dir, app)
+}
+
+fn press(
+    app: &mut App,
+    code: crossterm::event::KeyCode,
+    modifiers: crossterm::event::KeyModifiers,
+) {
+    app.handle_event(crossterm::event::Event::Key(
+        crossterm::event::KeyEvent::new(code, modifiers),
+    ));
+}
+
+fn click_at(app: &mut App, rect: Rect) {
+    app.handle_event(crossterm::event::Event::Mouse(
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: rect.x + rect.width / 2,
+            row: rect.y,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    ));
+}
+
+#[test]
+fn design_header_v89_key_tokens_follow_the_configured_binding() {
+    assert_eq!(key_token("alt+left"), "Alt-←");
+    assert_eq!(key_token("ctrl+b"), "Ctrl-b");
+    assert_eq!(key_token("alt+ctrl+pagedown"), "Alt-Ctrl-PgDn");
+    assert_eq!(key_token("f5"), "F5");
+    assert_eq!(key_token("backspace"), "Backspace");
+    assert_eq!(key_token("q"), "q");
+    assert_eq!(key_token("+"), "+");
+    assert_eq!(key_token("ctrl++"), "Ctrl-+");
+}
+
+#[test]
+fn design_header_v89_back_is_a_one_row_key_token_clicked_or_pressed_alike() {
+    for (width, height) in [(80, 24), (140, 42)] {
+        for mouse in [false, true] {
+            let mut app = App::default();
+            let buffer = draw_app(&mut app, width, height);
+            assert_eq!(header_rows(&app, width), 1, "{width}");
+            let header = row(&buffer, 0);
+            assert!(!header.contains('[') && !header.contains(']'), "{header}");
+            // The pane border follows on the very next row: nothing wrapped.
+            assert!(row(&buffer, 1).starts_with("╭─"), "{}", row(&buffer, 1));
+            let back = app.hits[5].clone();
+            assert_eq!(
+                back.action,
+                Action::Navigation(crate::navigation_trail::NavigationAction::Back)
+            );
+            assert_eq!(back.rect.y, 0);
+            assert!(back.rect.right() <= width);
+            assert_eq!(cells(&buffer, back.rect), "Alt-← Back");
+            // Footer style: the key in the accent hue and bold, the label muted.
+            let key = buffer[(back.rect.x, 0)].clone();
+            assert!(key.modifier.contains(Modifier::BOLD));
+            assert_eq!(Some(key.fg), app.theme().role(Role::Accent).fg);
+            let label = &buffer[(back.rect.right() - 1, 0)];
+            assert!(!label.modifier.contains(Modifier::BOLD));
+            assert_ne!(label.fg, key.fg);
+            if mouse {
+                click_at(&mut app, back.rect);
+                assert_eq!(app.focus, 5);
+            } else {
+                press(
+                    &mut app,
+                    crossterm::event::KeyCode::Left,
+                    crossterm::event::KeyModifiers::ALT,
+                );
+            }
+            // No earlier page: the same explanation either way, nothing navigated.
+            assert_eq!(app.overlay, Some(crate::app::Overlay::Notice), "{mouse}");
+            assert!(
+                app.notice.contains("No earlier navigation page"),
+                "{}",
+                app.notice
+            );
+            assert_eq!(app.view, View::Inbox);
+        }
+    }
+}
+
+#[test]
+fn design_header_v89_back_keeps_its_label_when_a_long_key_does_not_fit() {
+    let mut app = App::default();
+    let mut bindings = crate::config::default_bindings();
+    bindings.insert("back".into(), "alt+ctrl+pagedown".into());
+    app.set_bindings(bindings);
+    let buffer = draw_app(&mut app, 80, 24);
+    assert_eq!(header_rows(&app, 80), 1);
+    let back = app.hits[5].rect;
+    assert_eq!(cells(&buffer, back), "Back");
+    assert!(back.right() <= 80);
+    assert!(row(&buffer, 1).starts_with("╭─"));
+    let buffer = draw_app(&mut app, 140, 42);
+    assert_eq!(cells(&buffer, app.hits[5].rect), "Alt-Ctrl-PgDn Back");
+    // Keyboard focus underlines the whole token.
+    app.focus = 5;
+    app.github_content_focused = false;
+    let buffer = draw_app(&mut app, 140, 42);
+    let back = app.hits[5].rect;
+    assert!((back.x..back.right()).all(|x| buffer[(x, 0)].modifier.contains(Modifier::UNDERLINED)));
+}
+
+#[test]
+fn design_header_v89_source_identity_closes_the_pane_border_and_keeps_hit_order() {
+    for (width, height, label) in [(80, 24, "I Source"), (140, 42, "I Source identity")] {
+        for mouse in [false, true] {
+            let (_dir, mut app) = source_app();
+            let buffer = draw_app(&mut app, width, height);
+            assert_eq!(header_rows(&app, width), 1);
+            let header = row(&buffer, 0);
+            assert!(header.contains("Alt-← Back"), "{header}");
+            assert!(
+                !header.contains("Source") && !header.contains('['),
+                "{header}"
+            );
+            // Tabs, Source identity, then Back: the Tab order is unchanged.
+            assert_eq!(app.hits[5].action, Action::RepositorySource);
+            assert_eq!(
+                app.hits[6].action,
+                Action::Navigation(crate::navigation_trail::NavigationAction::Back)
+            );
+            let source = app.hits[5].rect;
+            assert_eq!(source.y, 1);
+            assert_eq!(cells(&buffer, source), label);
+            let top = row(&buffer, 1);
+            assert!(top.starts_with("╭─ ▶ Repository • focused view"), "{top}");
+            assert!(top.ends_with(&format!("─ {label} ─╮")), "{top}");
+            // The scope keeps the rest of the border, one dash clear of the token.
+            assert!(top.contains("no repository selected ─ "), "{top}");
+            assert!(top.contains(&format!(" ─ {label}")), "{top}");
+            assert_eq!(crate::editor::display_width(&top), usize::from(width));
+            assert!(buffer[(source.x, 1)].modifier.contains(Modifier::BOLD));
+            // Tab focus on the token underlines it.
+            app.repository_content_focused = false;
+            app.focus = 5;
+            let buffer = draw_app(&mut app, width, height);
+            assert!((source.x..source.right())
+                .all(|x| buffer[(x, 1)].modifier.contains(Modifier::UNDERLINED)));
+            if mouse {
+                // The overlay takes focus once open; the effect below is the evidence.
+                click_at(&mut app, source);
+            } else {
+                app.repository_content_focused = true;
+                press(
+                    &mut app,
+                    crossterm::event::KeyCode::Char('I'),
+                    crossterm::event::KeyModifiers::NONE,
+                );
+            }
+            assert_eq!(
+                app.overlay,
+                Some(crate::app::Overlay::RepositorySource),
+                "{mouse}"
+            );
+        }
+    }
+}
+
+#[test]
+fn design_header_v89_narrow_terminals_keep_back_on_a_second_row() {
+    let mut app = App::default();
+    // Between the tabs' end and 80 columns Back drops its key before it would wrap.
+    let buffer = draw_app(&mut app, 75, 20);
+    assert_eq!(header_rows(&app, 75), 1);
+    assert_eq!(cells(&buffer, app.hits[5].rect), "Back");
+    assert!(row(&buffer, 1).starts_with("╭─"));
+    let buffer = draw_app(&mut app, 60, 20);
+    assert_eq!(header_rows(&app, 60), 2);
+    assert!(
+        row(&buffer, 1).starts_with("Alt-← Back"),
+        "{}",
+        row(&buffer, 1)
+    );
+    assert!(row(&buffer, 2).starts_with("╭─"));
 }

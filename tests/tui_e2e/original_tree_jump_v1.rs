@@ -139,7 +139,7 @@ fn nested(mouse: bool) {
         &native,
         &mut session,
         mouse,
-        "[Repository • Tree]",
+        "Repository • Tree",
         "▸ nested",
     );
     session.wait_for_screen("[Saved root]");

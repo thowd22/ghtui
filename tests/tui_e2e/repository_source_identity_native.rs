@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 const SOURCE_TITLE: &str = "Repository source identity • read-only";
 const SOURCE_HEADING: &str = "Repository source identity • original prepared read";
-const SOURCE_CONTROL: &str = "[Source identity]";
+const SOURCE_CONTROL: &str = "I Source";
 const SOURCE_KEY: &[u8] = b"I"; // Repository-only source explanation binding.
 
 #[test]

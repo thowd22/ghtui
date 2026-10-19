@@ -100,14 +100,14 @@ fn exact_prepared_repository_source(session: &mut Session, directory: &Path, mou
         |frame| {
             frame.size() == (40, 120)
                 && crate::support::main_footer_visible(frame)
-                && crate::support::locate_screen(frame, "[Source identity]").is_some()
+                && crate::support::locate_screen(frame, "I Source").is_some()
         },
         "actual loaded local source control before its pure explanation",
         Duration::from_secs(8),
     );
     let before = session.completed_cursorless_end();
     if mouse {
-        session.click_visible_action("[Source identity]");
+        session.click_visible_action("I Source");
     } else {
         session.send_key(b"I");
     }
@@ -135,7 +135,7 @@ fn exact_prepared_repository_source(session: &mut Session, directory: &Path, mou
         |frame| {
             crate::support::main_footer_visible(frame)
                 && crate::support::locate_screen(frame, "Repository • focused view").is_some()
-                && crate::support::locate_screen(frame, "[Source identity]").is_some()
+                && crate::support::locate_screen(frame, "I Source").is_some()
                 && crate::support::overlay_body(frame, TITLE).is_none()
         },
         "pure Source identity Close returns to the same actual local Repository",

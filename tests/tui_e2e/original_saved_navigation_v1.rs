@@ -247,7 +247,7 @@ fn fresh_crumb_restore(
     choose(session, mouse, "3 Search", b"3");
     session.wait_for_screen("Exact mode • enter a query, then Search.");
     session.assert_focused_view("Search");
-    choose(session, mouse, "[Back]", b"\x1b[1;3D");
+    choose(session, mouse, "Alt-← Back", b"\x1b[1;3D");
     session.assert_focused_view("Repository");
     session.wait_for_screen("user dirty nested bytes");
     session.resize(120, 40);
@@ -317,7 +317,7 @@ fn happy(mouse: bool) {
             &native,
             &mut session,
             mouse,
-            "[Repository • File history]",
+            "Repository • File history",
             "File history — chosen saved version",
         );
         session.wait_for_screen("File history — chosen saved version");
@@ -338,7 +338,7 @@ fn happy(mouse: bool) {
             &native,
             &mut session,
             mouse,
-            "[Repository • Author]",
+            "Repository • Author",
             "Actor profile — Git author",
         );
         session.wait_for_screen("Actor profile — Git author");
@@ -357,7 +357,7 @@ fn happy(mouse: bool) {
             &native,
             &mut session,
             mouse,
-            "[Repository • Source graph]",
+            "Repository • Source graph",
             "loaded (limit 10000)",
         );
         session.wait_for_screen("loaded (limit 10000)");
@@ -371,7 +371,7 @@ fn happy(mouse: bool) {
             &native,
             &mut session,
             mouse,
-            "[Repository • Original file]",
+            "Repository • Original file",
             "Original immutable file",
         );
         session.wait_for_screen("Original immutable file");
