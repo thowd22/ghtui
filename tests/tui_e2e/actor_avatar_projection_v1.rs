@@ -116,7 +116,7 @@ fn journey(mouse: bool) {
             "unknown actor [unknown]",
         ],
     );
-    session.focus_visible_action("[q Quit]");
+    session.focus_footer_control("[q Quit]");
     assert_commands(&session, &fixture, 7);
     assert_eq!(trace(&fixture), before_input_trace);
     assert_asset_journal(&fixture, false);

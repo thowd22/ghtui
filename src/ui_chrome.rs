@@ -2,6 +2,7 @@
 //! headers and label/value rows. Focus never relies on color alone: a focused pane also gets a
 //! bold title with the `▶` marker, and the keyboard-focused header control stays underlined.
 use crate::app::{safe_text, Action, App, HitRegion, View};
+use crate::footer::{ControlGroup, KeyControl};
 use crate::identity::{ActorIdentity, ActorKind, InitialsChip};
 use crate::theme::{Hue, Role, Theme};
 use ratatui::{
@@ -383,6 +384,55 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
                 Rect::new(right - width, row0.y, width, 1),
             );
         }
+    }
+}
+
+/// A one-row strip of a view's Mode controls (sub-modes such as Runs/Workflows), styled like the
+/// header tabs: the selected mode filled with the view hue, the others with the key in the hue.
+/// Each tab is a click target pushed to `app.hits` in order; a disabled mode is dimmed and its
+/// click explains why. Controls of other groups belong to the footer and are skipped.
+pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyControl]) {
+    let theme = app.theme();
+    if area.is_empty() {
+        return;
+    }
+    let row = Rect::new(area.x, area.y, area.width, 1);
+    frame.render_widget(Paragraph::new("").style(theme.base()), row);
+    let mut x = row.x;
+    for control in controls
+        .iter()
+        .filter(|control| control.group == ControlGroup::Mode)
+    {
+        let key = safe_text(&control.key);
+        let label = safe_text(&control.label);
+        let text = format!(" {key} {label} ");
+        let width = crate::editor::display_width(&text).min(usize::from(u16::MAX)) as u16;
+        if x.saturating_add(width) > row.right() {
+            break;
+        }
+        let rect = Rect::new(x, row.y, width, 1);
+        let mut line = if control.disabled.is_some() {
+            Line::from(Span::styled(text, theme.role(Role::TextDim)))
+        } else if control.selected {
+            Line::from(Span::styled(text, theme.filled(Hue::for_view(app.view))))
+        } else {
+            Line::from(vec![
+                Span::styled(format!(" {key}"), theme.role(Role::Accent)),
+                Span::styled(format!(" {label} "), theme.role(Role::TextMuted)),
+            ])
+        };
+        if app.focus == app.hits.len() {
+            line = line.patch_style(Style::default().add_modifier(Modifier::UNDERLINED));
+        }
+        frame.render_widget(Paragraph::new(line), rect);
+        app.hits.push(HitRegion {
+            rect,
+            action: match &control.disabled {
+                Some(reason) => Action::Explain(reason.clone()),
+                None => control.action.clone(),
+            },
+        });
+        x = x.saturating_add(width).saturating_add(1);
     }
 }
 

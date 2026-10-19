@@ -14,13 +14,19 @@ pub fn restored_main(
     text.contains("Repository • focused view")
         && !text.contains("Repositories • explicit discovery")
         && !text.contains("Action unavailable • explanation only")
-        && [
-            "[? Help]",
-            "[: Commands]",
-            "[r Refresh]",
-            "[s Settings]",
-            "[q Quit]",
-        ]
-        .iter()
-        .all(|label| footer.contains(label))
+        // The main key bar's whole `key label` tokens (two-space separated), never a
+        // bracketed modal row; Commands is `: Cmds` below 100 columns.
+        && {
+            let token = |label: &str| {
+                footer.match_indices(label).any(|(at, _)| {
+                    (at == 0 || footer[..at].ends_with(' '))
+                        && (footer[at + label.len()..].starts_with("  ")
+                            || footer[at + label.len()..].trim().is_empty())
+                })
+            };
+            ["? Help", "r Refresh", "s Settings", "q Quit"]
+                .into_iter()
+                .all(token)
+                && (token(": Commands") || token(": Cmds"))
+        }
 }

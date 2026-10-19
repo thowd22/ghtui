@@ -3,9 +3,9 @@ use super::support::{
 };
 
 fn frame(loading: bool, query: &str, source: &str) -> Vec<u8> {
-    format!("\x1b[2J\x1b[HSearch • focused view\x1b[3;1H{source}\x1b[5;1H[/ Query] {query}\x1b[7;1H1 results • Exact dirty界.txt:1\x1b[23;1H{}\x1b[24;1H[? Help]  [: Commands]  [r Refresh]  [s Settings]  [q Quit]{}\x1b[?25l",
+    format!("\x1b[2J\x1b[HSearch • focused view\x1b[3;1H{source}\x1b[5;1H[/ Query] {query}\x1b[7;1H1 results • Exact dirty界.txt:1\x1b[23;1H{}\x1b[24;1H r Refresh  s Settings  {}? Help  : Commands  q Quit\x1b[?25l",
         if loading { "Loading Search… • Esc Cancel" } else { "Search complete • exact source and exclusions shown" },
-        if loading { "  [Esc Cancel]" } else { "" }).into_bytes()
+        if loading { "Esc Cancel  " } else { "" }).into_bytes()
 }
 fn observer() -> SearchCompletionV1 {
     SearchCompletionV1::new(
@@ -92,7 +92,7 @@ fn test_framework_search_completion_footer_fence_and_focused_cell_markers_are_in
     let mut foreign_footer = observer();
     let changed = String::from_utf8(loading.clone())
         .unwrap()
-        .replace("[? Help]", "[? Nope]");
+        .replace("? Help", "? Nope");
     completed.process_observed(&mut parser, changed.as_bytes(), 1, |f, e| {
         foreign_footer.observe(f, e)
     });

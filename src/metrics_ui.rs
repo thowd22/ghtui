@@ -1,5 +1,7 @@
 //! Prepared native Dashboard rendering/input; no IO or formula work in draw.
 use crate::{
+    app::Action,
+    footer::{ControlGroup, KeyControl},
     identity::{ActorWidget, AvatarState, ListAvatar},
     metrics::MetricsAction,
     metrics_workspace::{MetricsView, MetricsWorkspace, MetricsWorkspaceAction},
@@ -10,7 +12,6 @@ use crossterm::event::{
 };
 use ratatui::{
     layout::{Position, Rect},
-    style::Modifier,
     widgets::{Clear, Paragraph},
     Frame,
 };
@@ -40,77 +41,10 @@ pub fn draw(
         return output;
     }
     frame.render_widget(Clear, area);
+    // The view's controls live in the footer key bar (`footer_keys`), so content starts at
+    // the top of the pane.
     let mut y = area.y;
-    let mut x = area.x;
-    let mut buttons = vec![
-        ("[7 Last7 days]", workspace.window_action(7)),
-        ("[0 Last30 days]", workspace.window_action(30)),
-        ("[R Repositories]", MetricsWorkspaceAction::Repositories),
-        (
-            "[r Refresh]",
-            MetricsWorkspaceAction::Metric(MetricsAction::Refresh),
-        ),
-        (
-            "[i Details]",
-            MetricsWorkspaceAction::Inspect(workspace.selected),
-        ),
-        (
-            "[b Back]",
-            MetricsWorkspaceAction::Metric(MetricsAction::Back),
-        ),
-    ];
-    buttons.extend([
-        ("[L Layout]", MetricsWorkspaceAction::Layout),
-        (
-            "[S Save dashboard]",
-            MetricsWorkspaceAction::Metric(MetricsAction::SaveDashboard),
-        ),
-        (
-            "[O Saved dashboard]",
-            MetricsWorkspaceAction::Metric(MetricsAction::RestoreDashboard),
-        ),
-        (
-            "[D Defaults]",
-            MetricsWorkspaceAction::Metric(MetricsAction::DefaultDashboard),
-        ),
-    ]);
-    if workspace.view == MetricsView::Layout {
-        buttons.extend([
-            (
-                "[Space Show/hide]",
-                MetricsWorkspaceAction::ToggleWidget(workspace.selected),
-            ),
-            ("[< Earlier]", MetricsWorkspaceAction::MoveWidget(false)),
-            ("[> Later]", MetricsWorkspaceAction::MoveWidget(true)),
-        ]);
-    }
-    for (label, action) in buttons {
-        let width = (label.len() as u16).min(area.width);
-        if x > area.x && x.saturating_add(width) > area.right() {
-            x = area.x;
-            y = y.saturating_add(1);
-        }
-        if y >= area.bottom().saturating_sub(1) {
-            break;
-        }
-        let rect = Rect::new(x, y, width, 1);
-        let (action, role) = if workspace.pending.is_some() {
-            (
-                MetricsWorkspaceAction::Explain(PREPARING_REASON.into()),
-                SemanticToken::Muted,
-            )
-        } else {
-            (action, SemanticToken::Focus)
-        };
-        frame.render_widget(
-            Paragraph::new(label).style(theme.style(role).remove_modifier(Modifier::UNDERLINED)),
-            rect,
-        );
-        output.hits.push(MetricsHit { rect, action });
-        x = x.saturating_add(width + 1);
-    }
-    y = y.saturating_add(1);
-    if workspace.view == MetricsView::Layout && y < area.bottom().saturating_sub(1) {
+    if workspace.view == MetricsView::Layout && y < area.bottom() {
         frame.render_widget(
             Paragraph::new(
                 "Layout only • one widget must stay visible • Save replaces this account's default",
@@ -128,7 +62,7 @@ pub fn draw(
         (&workspace.source_coverage_label, SemanticToken::Pending),
     ];
     for (label, role) in headers {
-        if y >= area.bottom().saturating_sub(1) {
+        if y >= area.bottom() {
             break;
         }
         let rect = Rect::new(area.x, y, area.width, 1);
@@ -153,7 +87,7 @@ pub fn draw(
         y += 1;
     }
     if let Some(status) = &workspace.status {
-        if y < area.bottom().saturating_sub(1) {
+        if y < area.bottom() {
             frame.render_widget(
                 Paragraph::new(status.as_str()).style(theme.style(SemanticToken::Pending)),
                 Rect::new(area.x, y, area.width, 1),
@@ -173,7 +107,7 @@ pub fn draw(
                 (&workspace.cards[card].title, SemanticToken::Head),
                 (&workspace.cards[card].summary, SemanticToken::Normal),
             ] {
-                if y < area.bottom().saturating_sub(1) {
+                if y < area.bottom() {
                     frame.render_widget(
                         Paragraph::new(label.as_str()).style(theme.style(role)),
                         Rect::new(area.x, y, area.width, 1),
@@ -182,17 +116,12 @@ pub fn draw(
                 }
             }
         }
-        if workspace.view == MetricsView::Repositories && y < area.bottom().saturating_sub(1) {
+        if workspace.view == MetricsView::Repositories && y < area.bottom() {
             frame.render_widget(Paragraph::new("Choose ALL declared repositories or exactly one; no organization/global fallback").style(theme.style(SemanticToken::Head)),Rect::new(area.x,y,area.width,1));
             y += 1;
         }
     }
-    output.content = Rect::new(
-        area.x,
-        y,
-        area.width,
-        area.bottom().saturating_sub(y.saturating_add(1)),
-    );
+    output.content = Rect::new(area.x, y, area.width, area.bottom().saturating_sub(y));
     output.visible_rows = usize::from(output.content.height);
     if output.visible_rows > 0 {
         if workspace.selected < workspace.top {
@@ -288,16 +217,11 @@ pub fn draw(
             });
         }
     }
-    frame.render_widget(
-        Paragraph::new(
-            "↑/↓ j/k select • Enter open • i details • Tab buttons • wheel/page scroll • b back",
-        )
-        .style(theme.style(SemanticToken::Muted)),
-        Rect::new(area.x, area.bottom() - 1, area.width, 1),
-    );
     output
 }
 
+/// Selection and movement keys, plus Esc as an alias of Back. Keys painted in the footer
+/// resolve through [`footer_keys`] and `footer::resolve_key` instead.
 pub fn keyboard_action(
     event: KeyEvent,
     workspace: &MetricsWorkspace,
@@ -321,25 +245,7 @@ pub fn keyboard_action(
         KeyCode::Home => MetricsWorkspaceAction::Select(0),
         KeyCode::End => MetricsWorkspaceAction::Select(workspace.rows().len().saturating_sub(1)),
         KeyCode::Enter => return workspace.selected_action(),
-        KeyCode::Esc | KeyCode::Char('b') => MetricsWorkspaceAction::Metric(MetricsAction::Back),
-        KeyCode::Char('7') => workspace.window_action(7),
-        KeyCode::Char('0') => workspace.window_action(30),
-        KeyCode::Char('R') => MetricsWorkspaceAction::Repositories,
-        KeyCode::Char('r') => MetricsWorkspaceAction::Metric(MetricsAction::Refresh),
-        KeyCode::Char('i') => MetricsWorkspaceAction::Inspect(workspace.selected),
-        KeyCode::Char('L') => MetricsWorkspaceAction::Layout,
-        KeyCode::Char('S') => MetricsWorkspaceAction::Metric(MetricsAction::SaveDashboard),
-        KeyCode::Char('O') => MetricsWorkspaceAction::Metric(MetricsAction::RestoreDashboard),
-        KeyCode::Char('D') => MetricsWorkspaceAction::Metric(MetricsAction::DefaultDashboard),
-        KeyCode::Char(' ') if workspace.view == MetricsView::Layout => {
-            MetricsWorkspaceAction::ToggleWidget(workspace.selected)
-        }
-        KeyCode::Char('<') if workspace.view == MetricsView::Layout => {
-            MetricsWorkspaceAction::MoveWidget(false)
-        }
-        KeyCode::Char('>') if workspace.view == MetricsView::Layout => {
-            MetricsWorkspaceAction::MoveWidget(true)
-        }
+        KeyCode::Esc => MetricsWorkspaceAction::Metric(MetricsAction::Back),
         _ => return None,
     };
     Some(if workspace.pending.is_some() {
@@ -347,6 +253,77 @@ pub fn keyboard_action(
     } else {
         action
     })
+}
+/// The Dashboard's key bar. While a read is preparing every control is disabled and its key
+/// explains why; a window the cached scope cannot recompute is disabled with that reason.
+pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
+    use MetricsWorkspaceAction as W;
+    let layout = workspace.view == MetricsView::Layout;
+    let metric = |action: MetricsAction| Action::Metrics(W::Metric(action));
+    let window = |key: &str, days: u64, label: &str| {
+        let (action, reason) = match workspace.window_action(days) {
+            W::Explain(reason) => (Action::Explain(reason.clone()), Some(reason)),
+            action => (Action::Metrics(action), None),
+        };
+        let window = &workspace.snapshot.window;
+        let selected = window.end == workspace.snapshot.as_of
+            && window.end.checked_sub(window.start) == Some(days.saturating_mul(86_400));
+        KeyControl::new(key, label, action)
+            .with_priority(if layout { 60 } else { 22 })
+            .disabled_by(reason)
+            .with_selected(selected)
+    };
+    let mut keys = Vec::new();
+    if layout {
+        keys.extend([
+            KeyControl::new(
+                "Space",
+                "Show/hide",
+                Action::Metrics(W::ToggleWidget(workspace.selected)),
+            )
+            .with_priority(10),
+            KeyControl::new("<", "Earlier", Action::Metrics(W::MoveWidget(false)))
+                .with_priority(11),
+            KeyControl::new(">", "Later", Action::Metrics(W::MoveWidget(true))).with_priority(12),
+        ]);
+    }
+    keys.extend([
+        KeyControl::new("r", "Refresh", metric(MetricsAction::Refresh)).with_priority(if layout {
+            50
+        } else {
+            10
+        }),
+        KeyControl::new(
+            "i",
+            "Details",
+            Action::Metrics(W::Inspect(workspace.selected)),
+        )
+        .with_priority(if layout { 52 } else { 12 }),
+        KeyControl::new("b", "Back", metric(MetricsAction::Back))
+            .with_priority(13)
+            .in_group(ControlGroup::Navigate),
+        window("7", 7, "7 days"),
+        window("0", 30, "30 days"),
+        KeyControl::new("R", "Repositories", Action::Metrics(W::Repositories))
+            .with_compact("Repos")
+            .with_priority(if layout { 62 } else { 24 }),
+        KeyControl::new("L", "Layout", Action::Metrics(W::Layout)).with_priority(if layout {
+            14
+        } else {
+            30
+        }),
+        KeyControl::new("S", "Save", metric(MetricsAction::SaveDashboard))
+            .with_priority(if layout { 20 } else { 40 }),
+        KeyControl::new("O", "Open saved", metric(MetricsAction::RestoreDashboard))
+            .with_priority(42),
+        KeyControl::new("D", "Defaults", metric(MetricsAction::DefaultDashboard)).with_priority(44),
+    ]);
+    if workspace.pending.is_some() {
+        for key in &mut keys {
+            key.disabled = Some(PREPARING_REASON.into());
+        }
+    }
+    keys
 }
 /// Common App Tab focus should consume the returned hits; stale render hits are never retained.
 pub fn mouse_action(

@@ -458,7 +458,7 @@ fn journey(mouse: bool, mode: Mode) {
         .unwrap_or_else(|error| panic!("{error}"));
     assert!(!session.screen().contains("@same-login"));
     assert!(!session.screen().contains('▀'));
-    session.focus_visible_action("[q Quit]");
+    session.focus_footer_control("[q Quit]");
     assert_commands(
         &session,
         &fixture,

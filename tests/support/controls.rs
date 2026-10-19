@@ -245,14 +245,10 @@ pub fn footer_control(screen: &vt100::Screen, control: &Control) -> Option<(u16,
     locate_token_in_row(screen, footer_row(screen), &control.footer_form())
 }
 
-/// The restored main key bar: either bracketed `[? Help]` … `[q Quit]` or the
-/// token form `? Help` … `q Quit`, both in the actual last row.
+/// The restored main key bar: the Global tail tokens `? Help` and `q Quit` in the actual last
+/// row. A modal's bracketed `[q Quit]` row is not the main key bar.
 pub fn main_footer_visible(screen: &vt100::Screen) -> bool {
     let row = footer_row(screen);
-    let Some((line, _)) = row_text(screen, row) else {
-        return false;
-    };
-    line.contains("Help]") && line.contains("Quit]")
-        || locate_token_in_row(screen, row, "? Help").is_some()
-            && locate_token_in_row(screen, row, "q Quit").is_some()
+    locate_token_in_row(screen, row, "? Help").is_some()
+        && locate_token_in_row(screen, row, "q Quit").is_some()
 }

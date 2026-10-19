@@ -462,7 +462,7 @@ impl Session {
         self.wait_for_cursorless_condition(
             |frame| {
                 frame.contents().contains("[Home First loaded]")
-                    && !frame.contents().contains("[Esc Cancel]")
+                    && locate_control(frame, "[Esc Cancel]").is_none()
             },
             "completed original graph before selecting a loaded member",
             timeout,
@@ -480,7 +480,7 @@ impl Session {
                 && self.completed_cursorless_screen().is_some_and(|frame| {
                     let text = frame.contents();
                     text.contains("First loaded graph projection ready")
-                        && !text.contains("[Esc Cancel]")
+                        && locate_control(frame, "[Esc Cancel]").is_none()
                 })
             {
                 break;
@@ -550,7 +550,7 @@ impl Session {
                     && frame
                         .contents()
                         .contains("Repository loaded • read-only exploration")
-                    && !frame.contents().contains("[Esc Cancel]")
+                    && locate_control(frame, "[Esc Cancel]").is_none()
                     && locate_screen(frame, "[g Graph]").is_some_and(|(column, row)| {
                         frame.cell(row, column).is_some_and(|cell| cell.inverse())
                     })
@@ -1643,6 +1643,32 @@ impl Session {
         }
     }
 
+    /// Tab until the key-bar token for `label` shows keyboard focus (underline), without
+    /// activating it. Footer tokens stay last in Tab order, so this proves that earlier input
+    /// was processed, as Tab-focusing the old bracketed `[q Quit]` did.
+    pub fn focus_footer_control(&mut self, label: &str) {
+        let control = Control::parse(label);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if let Some((column, row)) = controls::footer_control(self.parser.screen(), &control) {
+                if self.cell_underlined(row, column) {
+                    return;
+                }
+            }
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "Key-bar control {label:?} never gained keyboard focus\n{}; artifacts: {}",
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
+            self.send_key(b"\t");
+            self.poll_output(Duration::from_millis(50));
+        }
+    }
+
     /// Forms show focus with reverse video. Follow real Tab events until that
     /// attribute is visible on the exact button, including Unicode-width offsets.
     pub fn focus_visible_form_action(&mut self, label: &str) {
@@ -1727,6 +1753,23 @@ impl Session {
             cols,
             rows,
             Some((title, &[action], ResizeToolbarV1::Bottom)),
+        );
+    }
+    /// A view whose toolbar moved to the key bar: after the actual new-size redraw, every
+    /// `required` control must be painted in the last row (as a `key text` token or bracketed)
+    /// and `title` above it. Narrow rows may drop other controls to Commands and Help.
+    pub fn resize_owned_footer(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        title: &str,
+        required: &'static [&'static str],
+    ) {
+        assert!(!required.is_empty() && required.iter().all(|label| !label.is_empty()));
+        self.resize_with_footer(
+            cols,
+            rows,
+            Some((title, required, ResizeToolbarV1::Footer { required })),
         );
     }
     /// A full-screen owned view with a wrapped toolbar in its first three
@@ -2099,11 +2142,7 @@ impl Session {
     }
 
     pub fn quit_and_assert_restored_terminal(&mut self, mouse: bool) {
-        if mouse {
-            self.click_visible_action("[q Quit]");
-        } else {
-            self.send_key(b"q");
-        }
+        self.choose(mouse, "[q Quit]", b"q");
         self.assert_exit_and_restored(true);
     }
 

@@ -394,16 +394,12 @@ fn v1_navigation_inbox_f8_before_load_explains_refresh_instead_of_doing_nothing(
 fn v1_navigation_inbox_mouse_palette_explains_notifications_before_load() {
     let mut app = App::default();
     let screen = draw(&mut app, 120, 40);
-    let row = screen
-        .lines()
-        .position(|line| line.contains("[: Commands]"))
+    let lines = screen.lines().collect::<Vec<_>>();
+    let row = lines
+        .iter()
+        .rposition(|line| line.contains(": Commands"))
         .unwrap();
-    let column = screen
-        .lines()
-        .nth(row)
-        .unwrap()
-        .find("[: Commands]")
-        .unwrap();
+    let column = screen.lines().nth(row).unwrap().find(": Commands").unwrap();
     click(&mut app, Rect::new(column as u16, row as u16, 1, 1));
     assert_eq!(app.overlay, Some(Overlay::Palette), "{}", app.status);
     app.handle_event(Event::Paste("notif".into()));

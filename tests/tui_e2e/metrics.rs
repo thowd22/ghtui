@@ -14,6 +14,8 @@ use std::{collections::BTreeMap, fs, time::Duration};
 mod boundaries;
 #[path = "dashboards_v1.rs"]
 mod dashboards_v1;
+#[path = "design_footer_v90.rs"]
+mod design_footer_v90;
 
 const APP: &str = "example/app";
 const TOOLS: &str = "example/tools";
@@ -454,13 +456,13 @@ fn happy(mouse: bool) {
     let created_bot = fixture_clock.bot_created();
     let mean = (u128::from(clock - created_alpha) + u128::from(clock - created_bot)) / 2;
     session.wait_for_screen(&format!("Mean open PR age: {mean}s mean / 2 measured"));
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     count += 8;
     journal(&mut session, &fixture, count);
     cards_ready(&mut session, 3, 1);
     assert_eq!(as_of(&mut session), clock);
     assert_window(&mut session, 30, clock);
-    choose(&mut session, mouse, "[7 Last7 days]", b"7");
+    choose(&mut session, mouse, "[7 7 days]", b"7");
     count += 8;
     journal(&mut session, &fixture, count);
     cards_ready(&mut session, 3, 1);
@@ -472,12 +474,7 @@ fn happy(mouse: bool) {
     for (index, formula) in FORMULAS.iter().enumerate() {
         card(&mut session, mouse, index);
         if index < 6 {
-            if !mouse && index == 0 {
-                session.focus_visible_action("[i Details]");
-                session.send_key(b"\r");
-            } else {
-                choose(&mut session, mouse, "[i Details]", b"i");
-            }
+            choose(&mut session, mouse, "[i Details]", b"i");
             session.wait_for_screen("Repository ID: 410");
             session.wait_for_screen("PR ID: 1001");
             session.wait_for_screen("Genuine PR node: PR_dashboard_1");
@@ -562,7 +559,7 @@ fn happy(mouse: bool) {
     session.wait_for_screen(&format!("Repository: {APP}"));
     let one_clock = as_of(&mut session);
     assert_window(&mut session, 7, one_clock);
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     count += 6;
     journal(&mut session, &fixture, count);
     cards_ready(&mut session, 1, 1);
@@ -661,7 +658,7 @@ fn access_loss(mouse: bool) {
     card(&mut session, mouse, 0);
     session.wait_for_screen(TITLE);
     let stale_open = session.locate(TITLE).unwrap();
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     session.wait_for_screen("prior values hidden");
     assert!(!session.screen().contains(TITLE));
     assert!(!session.screen().contains("Loaded open PRs: 1"));
@@ -682,7 +679,7 @@ fn access_loss(mouse: bool) {
     }
     // Actual Tab/focus rendering proves the input stream advanced beyond the
     // stale Open event; the final post-exit journal also covers late workers.
-    session.focus_visible_action("[q Quit]");
+    session.focus_footer_control("[q Quit]");
     journal(&mut session, &fixture, 12);
     assert_eq!(session.inspect_command_journal(&fixture),commands,"A stale contributor cannot reopen/refetch after access loss; only explicit Refresh may recover");
     assert!(!session.screen().contains(BODY));

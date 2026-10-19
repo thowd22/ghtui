@@ -9,9 +9,7 @@ use crate::{
     metrics_ui,
     providers::gh::{Actor, HostIdentity, MetricsActor, MetricsPrState, MetricsRepository},
 };
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
 fn prepared() -> MetricsWorkspace {
@@ -341,52 +339,66 @@ fn metrics_dashboard_utc_labels_handle_epoch_leap_centuries_and_unavailable_extr
     assert!(utc_label(u64::MAX).contains("calendar unavailable"));
 }
 #[test]
-fn metrics_dashboard_widget_controls_keyboard_mouse_layout_and_resize_have_same_actions() {
-    for (width, height) in [(120, 40), (80, 24)] {
+fn design_footer_v90_dashboard_controls_keyboard_mouse_and_resize_have_same_actions() {
+    for (width, height) in [(140, 42), (120, 40), (80, 24)] {
         let mut workspace = prepared();
+        let controls = metrics_ui::footer_keys(&workspace);
+        let theme = crate::theme::Theme::new(
+            crate::config::ThemeName::CatppuccinMocha,
+            crate::theme::ColorMode::NoColor,
+        );
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         let mut rendered = None;
+        let mut targets = Vec::new();
         terminal
             .draw(|frame| {
                 rendered = Some(metrics_ui::draw(
                     frame,
                     &mut workspace,
-                    Rect::new(0, 0, width, height),
-                    crate::theme::Theme::new(
-                        crate::config::ThemeName::CatppuccinMocha,
-                        crate::theme::ColorMode::NoColor,
-                    ),
+                    Rect::new(0, 0, width, height - 1),
+                    theme,
                     &Default::default(),
                 ));
+                targets = crate::footer::render(
+                    frame,
+                    Rect::new(0, height - 1, width, 1),
+                    theme,
+                    &controls,
+                    None,
+                );
             })
             .unwrap();
         let rendered = rendered.unwrap();
         assert!(rendered.visible_rows >= 8);
-        for key in ['7', '0', 'R', 'r', 'i', 'b'] {
-            let keyboard = metrics_ui::keyboard_action(
+        for (key, expected) in [
+            ('7', workspace.window_action(7)),
+            ('0', workspace.window_action(30)),
+            ('R', MetricsWorkspaceAction::Repositories),
+            ('r', MetricsWorkspaceAction::Metric(MetricsAction::Refresh)),
+            ('i', MetricsWorkspaceAction::Inspect(workspace.selected)),
+            ('b', MetricsWorkspaceAction::Metric(MetricsAction::Back)),
+        ] {
+            let expected = crate::app::Action::Metrics(expected);
+            let keyboard = crate::footer::resolve_key(
+                &controls,
                 KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
-                &workspace,
             )
             .unwrap();
-            let hit = rendered
-                .hits
-                .iter()
-                .find(|hit| hit.action == keyboard)
-                .unwrap();
-            let mouse = metrics_ui::mouse_action(
-                Event::Mouse(MouseEvent {
-                    kind: MouseEventKind::Down(MouseButton::Left),
-                    column: hit.rect.x,
-                    row: hit.rect.y,
-                    modifiers: KeyModifiers::NONE,
-                }),
-                &workspace,
-                &rendered,
-            )
-            .unwrap();
-            assert_eq!(mouse, keyboard);
-            assert!(hit.rect.right() <= width && hit.rect.bottom() <= height);
+            assert_eq!(keyboard, expected);
+            // Repositories leaves the 80-column bar; every other key stays clickable.
+            match targets.iter().find(|(_, action)| *action == keyboard) {
+                Some((rect, _)) => {
+                    assert!(rect.right() <= width && rect.bottom() <= height)
+                }
+                None => assert!(key == 'R' && width < 100, "{key} painted at {width}"),
+            }
         }
+        // Selection and movement stay hand-written; painted keys are not duplicated there.
+        assert!(metrics_ui::keyboard_action(
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+            &workspace
+        )
+        .is_none());
         let text = terminal
             .backend()
             .buffer()
@@ -476,11 +488,21 @@ fn metrics_dashboard_pending_controls_explain_and_never_render_obsolete_counts_o
             ))
         })
         .unwrap();
-    assert!(output
-        .unwrap()
-        .hits
-        .iter()
-        .all(|hit| matches!(hit.action, MetricsWorkspaceAction::Explain(_))));
+    // Pending hides every row; every footer control leaves the bar and its key explains.
+    assert!(output.unwrap().hits.is_empty());
+    let controls = metrics_ui::footer_keys(&workspace);
+    assert!(crate::footer::layout(&controls, 140).is_empty());
+    for key in ['7', '0', 'R', 'r', 'i', 'b', 'L', 'S', 'O', 'D'] {
+        assert_eq!(
+            crate::footer::resolve_key(
+                &controls,
+                KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)
+            ),
+            Some(crate::app::Action::Explain(
+                "Dashboard is preparing; previous values/Open are hidden".into()
+            ))
+        );
+    }
     let text = terminal
         .backend()
         .buffer()

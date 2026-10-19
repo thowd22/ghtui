@@ -21,6 +21,7 @@ pub mod dashboard_profile_v1;
 pub mod diff;
 pub mod drafts;
 pub mod editor;
+pub mod footer;
 pub mod forms;
 pub mod git;
 pub mod git_actor_labels_v1;

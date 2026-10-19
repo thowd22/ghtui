@@ -27,10 +27,8 @@ fn absent(session: &mut Session, text: &str) {
         )
         .unwrap();
 }
-fn exit(session: &mut Session) {
-    session.focus_visible_action("[q Quit]");
-    session.send_key(b"\r");
-    session.assert_exit_and_restored(true);
+fn exit(session: &mut Session, mouse: bool) {
+    session.quit_and_assert_restored_terminal(mouse);
 }
 
 #[test]
@@ -65,7 +63,7 @@ fn happy_dashboard(mouse: bool) {
     steps.extend(open_steps());
     assert_eq!(steps.len(), 86);
     fixture.scripted_gh(&steps);
-    let mut session = Session::launch(&fixture, 120, 40);
+    let mut session = Session::launch(&fixture, 140, 42);
     start(&mut session, mouse);
     journal(&mut session, &fixture, 10);
     choose(&mut session, mouse, "[R Repositories]", b"R");
@@ -79,7 +77,7 @@ fn happy_dashboard(mouse: bool) {
     session.wait_for_screen(&format!("Repository: {APP}"));
     journal(&mut session, &fixture, 17);
     let clock = as_of(&mut session);
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     assert_window(&mut session, 30, clock);
     journal(&mut session, &fixture, 23);
     choose(&mut session, mouse, "[L Layout]", b"L");
@@ -104,15 +102,15 @@ fn happy_dashboard(mouse: bool) {
     choose(&mut session, mouse, "[< Earlier]", b"<");
     selected(&mut session, "Needs my review");
     session.resize(80, 24);
-    session.wait_for_screen("[Space Show/hide]");
+    session.wait_for_control("[Space Show/hide]");
     back(&mut session, mouse);
     session.wait_for_screen("Needs my review: 1");
     absent(&mut session, "Loaded open PRs:");
     choose(&mut session, mouse, "[i Details]", b"i");
     scroll_to(&mut session, mouse, "non-draft PRs", "Unknown");
     back(&mut session, mouse);
-    session.resize(120, 40);
-    choose(&mut session, mouse, "[S Save dashboard]", b"S");
+    session.resize(140, 42);
+    choose(&mut session, mouse, "[S Save]", b"S");
     session.wait_for_screen("Default dashboard saved");
     journal(&mut session, &fixture, 29);
     assert_eq!(as_of(&mut session), clock);
@@ -133,20 +131,20 @@ fn happy_dashboard(mouse: bool) {
     cards_ready(&mut session, 3, 1);
     journal(&mut session, &fixture, 39);
     assert_eq!(saved(&fixture), profile);
-    exit(&mut session);
+    exit(&mut session, mouse);
     preserve(&fixture, &head, &index, &status);
 
-    let mut session = Session::launch(&fixture, 120, 40);
+    let mut session = Session::launch(&fixture, 140, 42);
     start(&mut session, mouse);
     cards_ready(&mut session, 3, 1); // No automatic cached evidence restoration.
-    choose(&mut session, mouse, "[O Saved dashboard]", b"O");
+    choose(&mut session, mouse, "[O Open saved]", b"O");
     session.wait_for_screen("Saved scope");
     session.wait_for_screen("Needs my review: 1");
     absent(&mut session, "Loaded open PRs:");
     journal(&mut session, &fixture, 56);
     let restored_clock = as_of(&mut session);
     assert_window(&mut session, 30, restored_clock);
-    choose(&mut session, mouse, "[7 Last7 days]", b"7");
+    choose(&mut session, mouse, "[7 7 days]", b"7");
     assert_window(&mut session, 7, restored_clock);
     journal(&mut session, &fixture, 62);
     let before_refresh = session.completed_cursorless_end();
@@ -159,13 +157,9 @@ fn happy_dashboard(mouse: bool) {
             frame
                 .contents()
                 .contains("Dashboard loaded • repository-wide snapshot")
-                && crate::support::completed_navigation_controls_v1::owned_action_position(
-                    frame,
-                    "Dashboard • focused view",
-                    "[r Refresh]",
-                    &["[Esc Cancel]"],
-                )
-                .is_some()
+                && frame.contents().contains("Dashboard • focused view")
+                && crate::support::locate_control(frame, "[r Refresh]").is_some()
+                && crate::support::locate_control(frame, "[Esc Cancel]").is_none()
         },
         "fresh completed restored-scope refresh before opening a card",
         Duration::from_secs(8),
@@ -187,7 +181,7 @@ fn happy_dashboard(mouse: bool) {
     session.wait_for_screen(BODY);
     session.wait_for_screen("@alice");
     journal(&mut session, &fixture, 86);
-    exit(&mut session);
+    exit(&mut session, mouse);
     assert_eq!(saved(&fixture), profile);
     let cache = Cache::open(&database(&fixture)).unwrap();
     assert_eq!(
@@ -253,10 +247,10 @@ fn refused_dashboard(mouse: bool, outside: bool) {
     steps.extend(refresh(&[APP, TOOLS])); // Only explicit refresh recovers.
     assert_eq!(steps.len(), 24);
     fixture.scripted_gh(&steps);
-    let mut session = Session::launch(&fixture, 120, 40);
+    let mut session = Session::launch(&fixture, 140, 42);
     start(&mut session, mouse);
     cards_ready(&mut session, 3, 1);
-    choose(&mut session, mouse, "[O Saved dashboard]", b"O");
+    choose(&mut session, mouse, "[O Open saved]", b"O");
     session.wait_for_screen("Dashboard values unavailable");
     session.wait_for_screen(if outside {
         "Saved scope outside"
@@ -276,7 +270,7 @@ fn refused_dashboard(mouse: bool, outside: bool) {
     assert_eq!(saved(&fixture), payload);
     session.resize(80, 24);
     session.wait_for_screen("Dashboard values unavailable");
-    session.focus_visible_action("[r Refresh]");
+    session.focus_footer_control("[r Refresh]");
     if mouse {
         session.click_visible_action("[r Refresh]");
     } else {
@@ -284,7 +278,7 @@ fn refused_dashboard(mouse: bool, outside: bool) {
     }
     cards_ready(&mut session, 3, 1);
     journal(&mut session, &fixture, 24);
-    exit(&mut session);
+    exit(&mut session, mouse);
     assert_eq!(saved(&fixture), payload);
     assert_eq!(
         Cache::open(&database(&fixture))
@@ -345,10 +339,10 @@ fn fenced_save(mouse: bool, cancelled: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     start(&mut session, mouse);
     cards_ready(&mut session, 1, 1);
-    choose(&mut session, mouse, "[S Save dashboard]", b"S");
+    choose(&mut session, mouse, "[S Save]", b"S");
     session.wait_for_command_count(&fixture, count);
     if cancelled {
-        session.wait_for_screen("[Esc Cancel]");
+        session.wait_for_control("[Esc Cancel]");
         let rows = session
             .inspect_command_journal(&fixture)
             .lines()
@@ -360,7 +354,9 @@ fn fenced_save(mouse: bool, cancelled: bool) {
             0,
             "Controlled saved-profile read really is live before Cancel"
         );
-        choose(&mut session, mouse, "[L Layout]", b"L");
+        // Disabled while the save runs: Layout leaves the key bar, its key explains why.
+        session.assert_control_absent("[L Layout]");
+        session.press_disabled_key(b"L", "Action unavailable");
         let close =
             session.wait_for_owned_completed_action("Action unavailable", "[Esc Close]", &[]);
         absent(&mut session, "Loaded open PRs:");
@@ -374,7 +370,7 @@ fn fenced_save(mouse: bool, cancelled: bool) {
         session.wait_for_cursorless_condition(
             |frame| {
                 let text = frame.contents();
-                text.contains("[Esc Cancel]")
+                crate::support::locate_control(frame, "[Esc Cancel]").is_some()
                     && !text.contains("Action unavailable")
                     && !text.contains("Loaded open PRs:")
             },
@@ -403,7 +399,7 @@ fn fenced_save(mouse: bool, cancelled: bool) {
     }
     session.resize(80, 24);
     session.wait_for_screen(hidden_label);
-    exit(&mut session);
+    exit(&mut session, mouse);
     journal(&mut session, &fixture, count);
     assert_eq!(saved(&fixture), original);
     let cache = Cache::open(&database(&fixture)).unwrap();

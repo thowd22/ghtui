@@ -235,67 +235,9 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         )),
         rows[4],
     );
-    let mut x = rows[5].x;
-    let compact_footer = rows[5].width < 80;
-    let mut buttons = vec![
-        (format!("[{} Help]", app.shortcut("help")), Action::Help),
-        (
-            format!("[{} Commands]", app.shortcut("palette")),
-            Action::Palette,
-        ),
-        (
-            format!("[{} Refresh]", app.shortcut("refresh")),
-            Action::Refresh,
-        ),
-        (
-            format!("[{} Settings]", app.shortcut("settings")),
-            Action::Settings,
-        ),
-        (format!("[{} Quit]", app.shortcut("quit")), Action::Quit),
-    ];
-    if app.overlay.is_none()
-        && app.view == View::Inbox
-        && app.github.as_ref().is_some_and(|github| {
-            github
-                .pr
-                .as_ref()
-                .is_some_and(|page| page.tab == crate::github_workspace::PrTab::Files)
-                && github.scoped_pr_resource.as_ref().is_some_and(|view| {
-                    view.observed().kind() == crate::providers::gh::PrResourceKindV1::Files
-                })
-        })
-    {
-        buttons.insert(0, ("[F10 Reviews]".into(), Action::OpenScopedReviewsV2));
-    }
-    if compact_footer {
-        // Preserve discoverable Help/Commands/Quit and active cancellation;
-        // Refresh/Settings remain clickable through the same command palette.
-        buttons.retain(|(_, action)| !matches!(action, Action::Refresh | Action::Settings));
-        if let Some((label, _)) = buttons
-            .iter_mut()
-            .find(|(_, action)| *action == Action::Palette)
-        {
-            *label = format!("[{} Cmds]", app.shortcut("palette"));
-        }
-    }
-    if app.loading[app.view.index()] || app.navigation_restore_inflight {
-        buttons.push(("[Esc Cancel]".into(), Action::Cancel));
-    }
-    for (label, action) in buttons {
-        let rect = Rect::new(
-            x.min(rows[5].right()),
-            rows[5].y,
-            (label.len() as u16).min(rows[5].right().saturating_sub(x)),
-            1,
-        );
-        let focused = app.focus == app.hits.len();
-        frame.render_widget(
-            Paragraph::new(label).style(if focused { accent } else { theme.base() }),
-            rect,
-        );
-        app.hits.push(HitRegion { rect, action });
-        x = x.saturating_add(rect.width + if compact_footer { 1 } else { 2 });
-    }
+    // The key bar is registered last, after every view hit, so Tab order ends with it.
+    let controls = crate::footer::main_controls(app);
+    crate::footer::draw(frame, app, rows[5], &controls);
     crate::navigation_state::restore_focus(app);
     if let Some(overlay) = app.overlay {
         crate::scoped_pr_observed_tabs_v1::resources::immutable_images::native::retire_invalid(app);
@@ -837,7 +779,9 @@ mod tests {
             let mut app = App::default();
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal.draw(|frame| draw(frame, &mut app)).unwrap();
-            assert_eq!(app.hits.len(), if width < 80 { 9 } else { 11 });
+            // Six chrome hits, then the key bar: Refresh, Settings and the Global tail; Settings
+            // leaves the 40-column bar first.
+            assert_eq!(app.hits.len(), if width < 80 { 10 } else { 11 });
             assert!(app.hits.iter().any(|hit| hit.action
                 == Action::Navigation(crate::navigation_trail::NavigationAction::Back)));
             assert!(app

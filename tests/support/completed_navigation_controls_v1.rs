@@ -104,7 +104,7 @@ pub fn saved_graph_position(
     let frame = completed.last.as_ref()?;
     let text = frame.contents();
     if !text.contains(status)
-        || text.contains("[Esc Cancel]")
+        || super::controls::locate_control(frame, "[Esc Cancel]").is_some()
         || text.contains("Reading original local source")
         || text.contains("Restoring original repository source")
     {

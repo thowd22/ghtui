@@ -372,7 +372,7 @@ fn journey(mouse: bool) {
             profile_trace,
             "Resize does not re-resolve the selected actor"
         );
-        session.focus_visible_action("[q Quit]");
+        session.focus_footer_control("[q Quit]");
         assert!(
             session.inspect_command_journal(fixture).is_empty(),
             "Strict fake-gh rejects all unexpected local identity requests"

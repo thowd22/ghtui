@@ -877,7 +877,7 @@ fn principal_change(mouse: bool) {
     } else {
         session.send_key(b"\r");
     }
-    session.focus_visible_action("[q Quit]"); // Input processed, not merely queued.
+    session.focus_footer_control("[q Quit]"); // Input processed, not merely queued.
     assert!(!session.screen().contains(LAST));
     assert_commands(&session, &fixture, 18);
     assert_eq!(

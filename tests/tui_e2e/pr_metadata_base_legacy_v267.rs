@@ -1393,7 +1393,7 @@ pub(super) fn changed_account(mouse: bool) {
     } else {
         s.send_key(b"\r");
     }
-    s.focus_visible_action("[q Quit]");
+    s.focus_footer_control("[q Quit]");
     account_hidden(&mut s, after);
     assert_eq!(exact_current(&mut s, &f, &steps, steps.len()), commands);
     let cache = Cache::open(&cache_path(&f)).unwrap();

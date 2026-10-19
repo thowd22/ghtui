@@ -70,7 +70,7 @@ fn stale_input_is_not_open(
     }
     // Keyboard focus readiness proves this input was processed; final post-exit
     // journal below independently catches any late duplicate/background request.
-    session.focus_visible_action("[q Quit]");
+    session.focus_footer_control("[q Quit]");
     journal(session, fixture, count);
     assert_eq!(session.inspect_command_journal(fixture), before);
     assert!(!session.screen().contains(BODY));
@@ -190,7 +190,7 @@ fn account_switch(mouse: bool) {
     session.wait_for_screen(TITLE);
     session.wait_for_screen("@alice");
     let old = session.locate(TITLE).unwrap();
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     journal(&mut session, &fixture, 13);
     hidden(
         &mut session,
@@ -243,7 +243,7 @@ fn journal_race(mouse: bool) {
     card(&mut session, mouse, 0);
     session.wait_for_screen(TITLE);
     let old = session.locate(TITLE).unwrap();
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     session.wait_for_screen("prior values hidden");
     session.wait_for_command_count(&fixture, 13);
     let records = session
@@ -370,10 +370,10 @@ fn cancel_refresh(mouse: bool) {
     session.wait_for_screen(&format!("Repository: {APP}"));
     let original_clock = as_of(&mut session);
     assert_window(&mut session, 7, original_clock);
-    choose(&mut session, mouse, "[0 Last30 days]", b"0");
+    choose(&mut session, mouse, "[0 30 days]", b"0");
     session.wait_for_command_count(&fixture, 20);
     session.wait_for_screen("prior values hidden");
-    session.wait_for_screen("[Esc Cancel]");
+    session.wait_for_control("[Esc Cancel]");
     let requests = session
         .inspect_command_journal(&fixture)
         .lines()
@@ -405,7 +405,8 @@ fn cancel_refresh(mouse: bool) {
     );
     journal(&mut session, &fixture, 20);
     let after_cancel = session.inspect_command_journal(&fixture);
-    session.focus_visible_action("[r Refresh]");
+    // Tab-focusing the key bar proves the resize and cancellation were processed.
+    session.focus_footer_control("[r Refresh]");
     assert_eq!(
         session.inspect_command_journal(&fixture),
         after_cancel,

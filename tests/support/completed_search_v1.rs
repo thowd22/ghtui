@@ -38,12 +38,14 @@ impl SearchCompletionV1 {
         {
             return;
         }
-        if text.contains("Loading Search") && text.contains("[Esc Cancel]") {
+        // Cancel is a key-bar token (or a bracketed modal button) while a read runs.
+        let cancel = super::controls::locate_control(frame, "[Esc Cancel]").is_some();
+        if text.contains("Loading Search") && cancel {
             self.loading.get_or_insert(end);
         } else if self.loading.is_some_and(|loading| end > loading)
             && text.contains("Search complete • exact source and exclusions shown")
             && text.contains(&self.result)
-            && !text.contains("[Esc Cancel]")
+            && !cancel
         {
             self.ready = Some(end);
         }

@@ -2873,9 +2873,14 @@ impl App {
                     && (key.code != KeyCode::Enter || self.metrics_content_focused)
                     && (key.code != KeyCode::Esc || !self.loading[View::Dashboard.index()])
                 {
+                    let metrics = self.metrics.as_ref().unwrap();
                     if let Some(action) =
-                        crate::metrics_ui::keyboard_action(key, self.metrics.as_ref().unwrap())
+                        crate::footer::resolve_key(&crate::metrics_ui::footer_keys(metrics), key)
                     {
+                        self.dispatch(action);
+                        return;
+                    }
+                    if let Some(action) = crate::metrics_ui::keyboard_action(key, metrics) {
                         self.dispatch(Action::Metrics(action));
                         return;
                     }

@@ -77,27 +77,39 @@ fn dashboards_layout_return_clamps_hidden_cards_and_never_hides_last_widget() {
 }
 
 #[test]
-fn dashboards_layout_and_persistence_buttons_share_mouse_keyboard_semantics_after_resize() {
-    for (width, height) in [(120, 38), (80, 24)] {
+fn design_footer_v90_dashboard_layout_keys_click_and_press_the_same_action_after_resize() {
+    for (width, height) in [(140, 42), (80, 24)] {
         let mut workspace = prepared();
         workspace.apply(MetricsWorkspaceAction::Layout).unwrap();
+        let theme = crate::theme::Theme::new(
+            crate::config::ThemeName::CatppuccinMocha,
+            crate::theme::ColorMode::NoColor,
+        );
+        let controls = metrics_ui::footer_keys(&workspace);
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         let mut rendered = None;
+        let mut targets = Vec::new();
         terminal
             .draw(|frame| {
                 rendered = Some(metrics_ui::draw(
                     frame,
                     &mut workspace,
-                    Rect::new(0, 0, width, height),
-                    crate::theme::Theme::new(
-                        crate::config::ThemeName::CatppuccinMocha,
-                        crate::theme::ColorMode::NoColor,
-                    ),
+                    Rect::new(0, 0, width, height - 1),
+                    theme,
                     &Default::default(),
                 ));
+                targets = crate::footer::render(
+                    frame,
+                    Rect::new(0, height - 1, width, 1),
+                    theme,
+                    &controls,
+                    None,
+                );
             })
             .unwrap();
         let rendered = rendered.unwrap();
+        // Layout editing keys stay painted at 80 columns; the rest reach by key (and palette).
+        let painted = [' ', '<', '>', 'L'];
         for (key, action) in [
             (KeyCode::Char('L'), MetricsWorkspaceAction::Layout),
             (
@@ -119,30 +131,32 @@ fn dashboards_layout_and_persistence_buttons_share_mouse_keyboard_semantics_afte
             ),
             (KeyCode::Char('>'), MetricsWorkspaceAction::MoveWidget(true)),
         ] {
-            let hit = rendered
-                .hits
-                .iter()
-                .find(|hit| hit.action == action)
-                .unwrap();
+            let expected = crate::app::Action::Metrics(action);
             assert_eq!(
-                metrics_ui::keyboard_action(KeyEvent::new(key, KeyModifiers::NONE), &workspace),
-                Some(action.clone())
+                crate::footer::resolve_key(&controls, KeyEvent::new(key, KeyModifiers::NONE)),
+                Some(expected.clone())
             );
-            assert_eq!(
-                metrics_ui::mouse_action(
-                    Event::Mouse(MouseEvent {
-                        kind: MouseEventKind::Down(MouseButton::Left),
-                        column: hit.rect.x,
-                        row: hit.rect.y,
-                        modifiers: KeyModifiers::NONE
-                    }),
-                    &workspace,
-                    &rendered
-                ),
-                Some(action)
-            );
+            let target = targets.iter().find(|(_, action)| *action == expected);
+            let KeyCode::Char(character) = key else {
+                unreachable!()
+            };
+            if width >= 140 || painted.contains(&character) {
+                let (rect, _) = target.unwrap_or_else(|| panic!("{key:?} painted at {width}"));
+                assert!(rect.right() <= width && rect.y == height - 1);
+            }
         }
+        // The static hint and the old button rows are gone; rows start at the top.
+        let text = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(!text.contains("Tab buttons") && !text.contains("[L Layout]"));
+        assert!(text.contains("Layout only"));
         assert!(rendered.visible_rows > 0);
+        assert!(rendered.hits.iter().all(|hit| hit.rect.y < height - 1));
     }
 }
 
@@ -161,12 +175,16 @@ fn dashboards_pending_layout_clicks_and_keys_cannot_edit_or_restore_stale_widget
     assert!(workspace
         .apply(MetricsWorkspaceAction::ToggleWidget(0))
         .is_err());
-    assert!(matches!(
-        metrics_ui::keyboard_action(
-            KeyEvent::new(KeyCode::Char('O'), KeyModifiers::NONE),
-            &workspace
-        ),
-        Some(MetricsWorkspaceAction::Explain(_))
-    ));
+    let controls = metrics_ui::footer_keys(&workspace);
+    assert!(crate::footer::layout(&controls, 140).is_empty());
+    for key in ['O', ' ', '<', 'S', 'L'] {
+        assert!(matches!(
+            crate::footer::resolve_key(
+                &controls,
+                KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)
+            ),
+            Some(crate::app::Action::Explain(_))
+        ));
+    }
     assert_eq!(workspace.layout, original);
 }

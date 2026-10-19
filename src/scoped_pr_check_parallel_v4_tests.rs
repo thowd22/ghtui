@@ -58,7 +58,7 @@ fn corrective_pending_escape_and_actual_footer_hit_use_same_cancel_not_back() {
             LoadedLogSearchModeV2::ExactText,
         );
         app.loading[View::Actions.index()] = true;
-        assert!(frame(&mut app).contains("[Esc Cancel]"));
+        assert!(frame(&mut app).contains("  Esc Cancel  ? Help"));
         let event = if mouse {
             let hit = app
                 .hits

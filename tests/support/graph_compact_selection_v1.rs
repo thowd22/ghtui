@@ -67,6 +67,10 @@ pub fn first_page_down_batch(
         || !exact_saved
         || !screen.contains("[Home First loaded]")
         || screen.contains("[Esc Cancel]")
+        || frame
+            .rows(0, frame.size().1)
+            .last()
+            .is_some_and(|row| row.contains("Esc Cancel"))
     {
         return Err("Not the exact completed original graph source/projection".into());
     }

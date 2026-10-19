@@ -28,7 +28,7 @@ fn catalogue_close_frame_v1_test_framework_title_and_old_quit_are_not_completed_
 
         // Even a complete main-looking footer in a partial repaint cannot
         // replace the previous completed frame or its geometry.
-        let body = b"\x1b[12;1H\x1b[2K\x1b[23;1H\x1b[2K\x1b[24;1H[? Help]  [: Commands]  [r Refresh]  [s Settings]  [q Quit]";
+        let body = b"\x1b[12;1H\x1b[2K\x1b[23;1H\x1b[2K\x1b[24;1H r Refresh  s Settings  ? Help  : Commands  q Quit";
         frames.process(&mut parser, body, catalogue.len() + title.len());
         assert!(restored_main(Some(parser.screen()), before + 1, before));
         assert!(!restored_main(frames.last.as_ref(), frames.end, before));
@@ -48,7 +48,7 @@ fn catalogue_close_frame_v1_test_framework_title_and_old_quit_are_not_completed_
 fn catalogue_close_frame_v1_test_framework_old_freshness_notice_footer_and_resize_refuse() {
     let mut frames = CursorlessFrames::default();
     let mut parser = vt100::Parser::new(24, 80, 0);
-    let main = "\x1b[4;1HRepository • focused view\x1b[24;1H[? Help]  [: Commands]  [r Refresh]  [s Settings]  [q Quit]\x1b[?25l".as_bytes();
+    let main = "\x1b[4;1HRepository • focused view\x1b[24;1H r Refresh  s Settings  ? Help  : Commands  q Quit\x1b[?25l".as_bytes();
     frames.process(&mut parser, main, 0);
     let before = frames.end;
     assert!(restored_main(frames.last.as_ref(), frames.end, 0));

@@ -470,13 +470,22 @@ fn test_framework_restored_body_without_actual_bottom_toolbar_is_not_complete_fr
             !support::main_footer_visible(terminal.screen()),
             "An old modal Quit is not the restored main toolbar"
         );
-        terminal.process(format!("\x1b[{rows};1H[? Help]").as_bytes());
+        terminal.process(format!("\x1b[{rows};1H ? Help").as_bytes());
         assert!(
             !support::main_footer_visible(terminal.screen()),
             "Partial footer paint still lacks its actual Quit target"
         );
-        terminal.process(format!("\x1b[{rows};48H[q Quit]").as_bytes());
+        terminal.process(format!("\x1b[{rows};48Hq Quit").as_bytes());
         assert!(support::main_footer_visible(terminal.screen()));
+        assert_eq!(
+            support::locate_control(terminal.screen(), "[? Help]"),
+            Some((1, rows - 1))
+        );
+        terminal.process(format!("\x1b[{rows};1H\x1b[2K[? Help] [q Quit]").as_bytes());
+        assert!(
+            !support::main_footer_visible(terminal.screen()),
+            "A bracketed row is a modal footer, not the main key bar"
+        );
         assert_eq!(
             support::locate_screen(terminal.screen(), "[? Help]"),
             Some((0, rows - 1))
@@ -924,7 +933,7 @@ fn test_framework_locate_control_prefers_exact_brackets_and_reads_tokens_only_in
 }
 
 #[test]
-fn test_framework_main_footer_accepts_bracketed_or_token_form_in_last_row_only() {
+fn test_framework_main_footer_accepts_only_the_token_form_in_last_row() {
     for (rows, cols) in [(24, 80), (42, 140)] {
         let token = footer_frame(rows, cols, "", "r refresh  : commands  ? Help  q Quit");
         assert!(support::main_footer_visible(token.screen()));
@@ -938,7 +947,10 @@ fn test_framework_main_footer_accepts_bracketed_or_token_form_in_last_row_only()
         let glued = footer_frame(rows, cols, "", "x? Help  q Quitting");
         assert!(!support::main_footer_visible(glued.screen()));
         let bracketed = footer_frame(rows, cols, "", "[? Help] [q Quit]");
-        assert!(support::main_footer_visible(bracketed.screen()));
+        assert!(
+            !support::main_footer_visible(bracketed.screen()),
+            "bracketed buttons are modal rows, not the main key bar"
+        );
     }
 }
 
