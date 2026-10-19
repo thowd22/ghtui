@@ -1,6 +1,11 @@
 //! Ordinary real-binary routing after genuine Native pure Back. This does NOT
 //! claim deterministic reproduction of the pre-main poll/take_work interval.
 use super::*;
+// At 80 columns the focused frame title left-ellipsizes the source label
+// ("…al/current @ working files"); the coverage row still names the exact
+// local source and its exclusions in full at every supported width.
+const LOCAL_SOURCE: &str = "local/current working files: ignores excluded";
+const LOCAL_SOURCE_TITLE: &str = "current @ working files";
 
 fn all_sql(fixture: &Fixture) -> Vec<String> {
     let database = rusqlite::Connection::open_with_flags(
@@ -43,8 +48,9 @@ fn search_frame(session: &mut Session, after: usize, required: &[&str]) -> Strin
         if session.completed_cells_end() > after {
             if let Some(frame) = session.completed_cells_screen() {
                 let text = frame.contents();
-                if text.contains("Search • focused view")
-                    && crate::support::main_footer_visible(frame)
+                if text.lines().any(|row| {
+                    row.contains("Search • focused view") && row.contains(LOCAL_SOURCE_TITLE)
+                }) && crate::support::main_footer_visible(frame)
                     && required.iter().all(|word| text.contains(word))
                 {
                     return text;
@@ -214,9 +220,11 @@ fn resubmitted_search_complete(
             && session.completed_cells_screen().is_some_and(|frame| {
                 let text = frame.contents();
                 crate::support::main_footer_visible(frame)
-                    && text.contains("Search • focused view")
+                    && text.lines().any(|row| {
+                        row.contains("Search • focused view") && row.contains(LOCAL_SOURCE_TITLE)
+                    })
                     && text.contains("Search complete • exact source and exclusions shown")
-                    && text.contains("local/current @ working files")
+                    && text.contains(LOCAL_SOURCE)
                     && text.contains("1 results • Exact")
                     && text.contains("dirty界.txt:1")
                     && !text.contains("[Esc Cancel]")
@@ -312,11 +320,7 @@ fn routing(mouse: bool) {
     let retained = search_frame(
         &mut session,
         before,
-        &[
-            "local/current @ working files",
-            "1 results • Exact",
-            "dirty界.txt:1",
-        ],
+        &[LOCAL_SOURCE, "1 results • Exact", "dirty界.txt:1"],
     );
     assert!(retained
         .lines()
@@ -337,7 +341,7 @@ fn routing(mouse: bool) {
         &mut session,
         resized_after,
         &[
-            "local/current @ working files",
+            LOCAL_SOURCE,
             "1 results • Exact",
             "dirty界.txt:1",
             "Search complete • exact source and exclusions shown",

@@ -1,6 +1,11 @@
 //! Normal cross-view routing regression, NOT a deterministic pre-main-tick
 //! reproduction. There is no public pause between main poll and take_work.
 use super::*;
+// At 80 columns the focused frame title left-ellipsizes the source label
+// ("…al/current @ working files"); the coverage row still names the exact
+// local source and its exclusions in full at every supported width.
+const LOCAL_SOURCE: &str = "local/current working files: ignores excluded";
+const LOCAL_SOURCE_TITLE: &str = "current @ working files";
 fn all_sql(fixture: &Fixture) -> Vec<String> {
     let db = rusqlite::Connection::open_with_flags(
         database(fixture),
@@ -36,8 +41,9 @@ fn search_frame(session: &mut Session, after: usize, required: &[&str]) -> Strin
         if session.completed_cells_end() > after {
             if let Some(frame) = session.completed_cells_screen() {
                 let text = frame.contents();
-                if text.contains("Search • focused view")
-                    && crate::support::main_footer_visible(frame)
+                if text.lines().any(|row| {
+                    row.contains("Search • focused view") && row.contains(LOCAL_SOURCE_TITLE)
+                }) && crate::support::main_footer_visible(frame)
                     && required.iter().all(|word| text.contains(word))
                 {
                     return text;
@@ -194,11 +200,7 @@ fn navigation(mouse: bool) {
     let retained = search_frame(
         &mut session,
         before,
-        &[
-            "local/current @ working files",
-            "1 results • Exact",
-            "dirty界.txt:1",
-        ],
+        &[LOCAL_SOURCE, "1 results • Exact", "dirty界.txt:1"],
     );
     assert!(retained
         .lines()
@@ -207,17 +209,17 @@ fn navigation(mouse: bool) {
     choose(&mut session, mouse, "[/ Query]", b"/");
     session.send_key(b"\x01");
     session.paste("dirty checkout");
-    session.begin_search_completion_v1(
-        "dirty checkout",
-        "local/current @ working files",
-        "dirty界.txt:1",
-    );
+    // The Loading frame replaces the coverage row; only the title tail names
+    // the source while this new request is in flight.
+    session.begin_search_completion_v1("dirty checkout", LOCAL_SOURCE_TITLE, "dirty界.txt:1");
     choose(&mut session, mouse, "[Enter Search]", b"\r");
     session.wait_search_completion_v1();
     session.wait_for_screen("1 results • Exact");
+    session.wait_for_screen(LOCAL_SOURCE);
     session.wait_for_screen("dirty界.txt:1");
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
     session.wait_for_screen("dirty界.txt:1");
+    session.wait_for_screen(LOCAL_SOURCE);
     assert_eq!(all_sql(&fixture), sql);
     assert_eq!(session.inspect_command_journal(&fixture), trace);
     // Genuine hidden discovery owner opens/closes with no load request. It
