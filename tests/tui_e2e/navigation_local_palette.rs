@@ -408,7 +408,19 @@ fn journey(mouse: bool) {
     session.paste("working navigation needle");
     choose(&mut session, mouse, "[Enter Search]", b"\r");
     session.wait_for_screen("1 results • Exact");
-    session.wait_for_screen("日本語.txt:1:1");
+    // The hit's Search table row: RESULT `nested/日本語.txt`, then LINE `1:1`.
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen.lines().any(|line| {
+                    line.split_once("nested/日本語.txt ")
+                        .is_some_and(|(_, rest)| rest.trim_start().starts_with("1:1 "))
+                })
+            },
+            "Exact local hit row nested/日本語.txt at 1:1",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
     check_local_storage_only(&local.fixture);
     let count = starts(&local.fixture);
     command(&mut session, mouse, "Help for this view");

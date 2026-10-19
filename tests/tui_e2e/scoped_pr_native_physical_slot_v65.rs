@@ -41,6 +41,19 @@ fn all_sql(fixture: &Fixture) -> Vec<String> {
     }
     all
 }
+/// The one local hit as a Search table row: the `dirty界.txt` RESULT cell, then its `1:1`
+/// LINE cell, whatever the column spacing at this width.
+const HIT: &str = "dirty界.txt:1";
+fn has(text: &str, word: &str) -> bool {
+    if word != HIT {
+        return text.contains(word);
+    }
+    text.lines().any(|line| {
+        line.split_once("dirty界.txt ")
+            .and_then(|(_, rest)| rest.trim_start().strip_prefix("1:1"))
+            .is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_digit()))
+    })
+}
 fn search_frame(session: &mut Session, after: usize, required: &[&str]) -> String {
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
@@ -51,7 +64,7 @@ fn search_frame(session: &mut Session, after: usize, required: &[&str]) -> Strin
                 if text.lines().any(|row| {
                     row.contains("Search • focused view") && row.contains(LOCAL_SOURCE_TITLE)
                 }) && crate::support::main_footer_visible(frame)
-                    && required.iter().all(|word| text.contains(word))
+                    && required.iter().all(|word| has(&text, word))
                 {
                     return text;
                 }
@@ -102,11 +115,7 @@ fn preselect_local_search(session: &mut Session, fixture: &Fixture, mouse: bool)
     let text = search_frame(
         session,
         before,
-        &[
-            "1 results • Exact",
-            "dirty界.txt:1",
-            "local/current @ working files",
-        ],
+        &["1 results • Exact", HIT, "local/current @ working files"],
     );
     assert!(text
         .lines()
@@ -226,7 +235,7 @@ fn resubmitted_search_complete(
                     && text.contains("Search complete • exact source and exclusions shown")
                     && text.contains(LOCAL_SOURCE)
                     && text.contains("1 results • Exact")
-                    && text.contains("dirty界.txt:1")
+                    && has(&text, HIT)
                     && !text.contains("[Esc Cancel]")
                     && text
                         .lines()
@@ -330,7 +339,7 @@ fn routing(mouse: bool) {
     let retained = search_frame(
         &mut session,
         before,
-        &[LOCAL_SOURCE, "1 results • Exact", "dirty界.txt:1"],
+        &[LOCAL_SOURCE, "1 results • Exact", HIT],
     );
     assert!(retained
         .lines()
@@ -353,7 +362,7 @@ fn routing(mouse: bool) {
         &[
             LOCAL_SOURCE,
             "1 results • Exact",
-            "dirty界.txt:1",
+            HIT,
             "Search complete • exact source and exclusions shown",
         ],
     );
@@ -369,7 +378,13 @@ fn routing(mouse: bool) {
     session.wait_for_overlay_close(TITLE);
     session.wait_for_main_frame();
     session.assert_focused_view("Search");
-    session.wait_for_screen("dirty界.txt:1");
+    session
+        .try_wait_for_condition(
+            |screen| has(screen, HIT),
+            "Retained local hit row",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
     let inbox_after = session.completed_cursorless_end();
     choose(&mut session, mouse, "1 Inbox", b"1");
     // These toolbar labels arrive before the actual Files body and its final

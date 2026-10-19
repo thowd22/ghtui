@@ -332,7 +332,7 @@ fn select_comment(session: &mut Session, mouse: bool, body: &str) {
     }
     for _ in 0..35 {
         session.poll_output(Duration::from_millis(10));
-        if session.screen().contains(&format!("> {body}")) {
+        if session.screen().contains(&format!("▌ {body}")) {
             return;
         }
         if !mouse {

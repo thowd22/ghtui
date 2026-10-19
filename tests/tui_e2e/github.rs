@@ -273,7 +273,7 @@ fn inbox(mouse: bool) {
     refresh(&mut session, mouse);
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     session.wait_for_screen("PARTIAL");
-    session.wait_for_screen("@alice");
+    session.wait_for_screen("AL alice");
     journal(&mut session, &fixture, 7);
     choose(&mut session, mouse, "[m Assigned to me]", b"m");
     session.wait_for_screen("Queue: Assigned to me");

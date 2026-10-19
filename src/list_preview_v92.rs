@@ -275,13 +275,13 @@ pub fn inbox(github: &GithubWorkspace, theme: Theme) -> Preview {
     let identity = ActorIdentity::github(&github.identity.host, &pr.author);
     let mut author = vec![label(theme, "Author")];
     author.extend(actor_spans(theme, &identity));
-    author.push(Span::styled(
-        format!(
-            " · opened {} ago",
-            crate::ui_table::relative_age(&pr.created_at)
-        ),
-        theme.role(Role::TextMuted),
-    ));
+    // An unknown opening time stays unknown rather than reading as `opened — ago`.
+    if let Some(age) = crate::ui_table::age_at(&pr.created_at, crate::storage::now()) {
+        author.push(Span::styled(
+            format!(" · opened {age} ago"),
+            theme.role(Role::TextMuted),
+        ));
+    }
     let queues = pr
         .queues
         .iter()

@@ -172,7 +172,8 @@ fn design_table_v91_pr_commits_show_short_sha_rows_and_full_sha_details() {
         assert_eq!(column(row, "c0ffee1"), column(header, "SHA"));
         assert_eq!(column(row, "Fix"), column(header, "MESSAGE"));
         // The full SHA and UTC time stay visible in the commit's detail rows.
-        line_with(&lines, &[&format!("Commit {full} • Parents: ")]);
+        line_with(&lines, &[&format!("Commit {full}")]);
+        line_with(&lines, &["Parents: "]);
         line_with(&lines, &["author Alice A • 2026-01-01T00:00:00Z"]);
     }
 }

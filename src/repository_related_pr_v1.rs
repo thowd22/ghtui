@@ -613,7 +613,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> bool {
                 // all original global view/input state; its actions are scoped
                 // below and cannot reach the general mutation dispatcher.
                 let previous = app.github.replace(viewer);
-                let previous_scroll = std::mem::replace(&mut app.repository_list.top, state.scroll);
+                let previous_scroll = std::mem::replace(&mut app.inbox_list.top, state.scroll);
                 let mapped_focus = state
                     .focus
                     .checked_sub(state.hits.len())
@@ -643,7 +643,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> bool {
                     state.hits.push((hit.rect, action));
                 }
                 state.viewer = std::mem::replace(&mut app.github, previous);
-                app.repository_list.top = previous_scroll;
+                app.inbox_list.top = previous_scroll;
                 app.focus = previous_focus;
                 app.github_content_focused = previous_content;
                 app.github_visible_rows = previous_visible_rows;

@@ -27,7 +27,26 @@ fn ready(session: &mut Session) -> String {
         "complete repository frame",
         Duration::from_secs(8),
     );
-    session.completed_cursorless_screen().unwrap().contents()
+    stable(&session.completed_cursorless_screen().unwrap().contents())
+}
+
+/// The screen with relative ages (`45s`, `3m`) masked: they tick while the journey runs, and
+/// scrolling or Help must be compared on everything else.
+fn stable(text: &str) -> String {
+    text.split(' ')
+        .map(|word| {
+            let digits = word.trim_end_matches(['s', 'm', 'h', 'd']);
+            if word.len() == digits.len() + 1
+                && !digits.is_empty()
+                && digits.chars().all(|c| c.is_ascii_digit())
+            {
+                "~".repeat(word.len())
+            } else {
+                word.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn acknowledge(session: &mut Session, mouse: bool) -> String {
@@ -175,9 +194,36 @@ fn journey(mouse: bool) {
                 "an acknowledged off-pane wheel changed the repository screen"
             );
         }
+        // Overview panels page their own rows: the wheel scrolls the hovered Recent commits
+        // panel and PgDn/PgUp the panel that holds the selection, so the keyboard first moves
+        // the selection bar onto the newest saved version. At 120x40 every loaded row already
+        // fits, so paging must leave the pane exactly as it was; at 80x24 it reaches later rows.
+        let newest = "HOVER_SAVED_39";
+        let (column, row) = session
+            .locate(newest)
+            .expect("observed newest saved version");
+        let mut moves = 0;
+        if !mouse {
+            let selected = |screen: &str| {
+                screen
+                    .lines()
+                    .any(|line| line.contains("▌ ") && line.contains(newest))
+            };
+            while !selected(&session.screen()) {
+                assert!(
+                    moves < 6,
+                    "selection never reached {newest}\n{}",
+                    session.screen()
+                );
+                session.send_key(b"\x1b[B");
+                moves += 1;
+                acknowledge(&mut session, mouse);
+            }
+        }
+        let selected_original = ready(&mut session);
         if mouse {
             for _ in 0..10 {
-                session.wheel(10, 12, true);
+                session.wheel(column + 2, row, true);
                 acknowledge(&mut session, mouse);
             }
         } else {
@@ -186,14 +232,22 @@ fn journey(mouse: bool) {
                 acknowledge(&mut session, mouse);
             }
         }
-        assert_ne!(
-            ready(&mut session),
-            original,
-            "hovered wheel and keyboard paging reach later rows"
-        );
+        let paged = ready(&mut session);
+        if width == 80 {
+            assert_ne!(
+                paged, selected_original,
+                "hovered wheel and keyboard paging reach later rows"
+            );
+            assert!(paged.contains("HOVER_SAVED_28") && !paged.contains(newest));
+        } else {
+            assert_eq!(
+                paged, selected_original,
+                "paging a panel whose rows all fit changes nothing"
+            );
+        }
         if mouse {
             for _ in 0..10 {
-                session.wheel(10, 12, false);
+                session.wheel(column + 2, row, false);
                 acknowledge(&mut session, mouse);
             }
         } else {
@@ -204,9 +258,26 @@ fn journey(mouse: bool) {
         }
         assert_eq!(
             ready(&mut session),
-            original,
-            "both input routes restore the exact initial pane"
+            selected_original,
+            "both input routes page back to the exact pane"
         );
+        if mouse {
+            assert_eq!(
+                ready(&mut session),
+                original,
+                "the hovered wheel never moved the selection"
+            );
+        } else {
+            // The bar leaves the newest saved version again. The initial Branch status row is
+            // not a keyboard stop, so Up rests on the first changed file.
+            for _ in 0..moves {
+                session.send_key(b"\x1b[A");
+                acknowledge(&mut session, mouse);
+            }
+            assert!(!ready(&mut session)
+                .lines()
+                .any(|line| line.contains("▌ ") && line.contains(newest)));
+        }
         popup_journey(&mut session, mouse, height);
     }
     assert_eq!(state(&f), before);

@@ -202,7 +202,7 @@ fn happy(mouse: bool) {
             frame
                 .contents()
                 .lines()
-                .any(|line| line.contains("> File ") && line.contains(history::PATH))
+                .any(|line| line.contains("▌ File ") && line.contains(history::PATH))
         },
         "Actual selected typed Files member after one loaded action",
         Duration::from_secs(8),
@@ -473,7 +473,7 @@ fn unavailable_patch(mouse: bool) {
                 frame
                     .contents()
                     .lines()
-                    .any(|row| row.contains("> File ") && row.contains(history::PATH))
+                    .any(|row| row.contains("▌ File ") && row.contains(history::PATH))
             },
             "A genuine retained file member remains browsable without claiming a patch",
             Duration::from_secs(8),

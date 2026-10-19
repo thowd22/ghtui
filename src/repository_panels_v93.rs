@@ -226,7 +226,8 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
         Action::RepositoryPanelsV93(PanelActionV93::ToggleUntracked),
     )
     .with_compact("Untracked")
-    .with_priority(14)]
+    // After Compare: the panel's untracked row is its own click target at 80 columns.
+    .with_priority(25)]
 }
 
 /// The App action of a row's click target, as the Overview list always mapped it.

@@ -475,6 +475,15 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
             area.width,
             screen.bottom() - area.bottom(),
         );
+        // Beside a preview the token closes the list pane's border, so its hit follows it.
+        let pane = if crate::list_preview_v92::offered(app)
+            && splits()
+            && pane.width >= crate::list_preview_v92::min_width(app)
+        {
+            split_list_preview(pane).list
+        } else {
+            pane
+        };
         if let Some((rect, _)) = source_token(app, pane) {
             app.hits.push(HitRegion {
                 rect,

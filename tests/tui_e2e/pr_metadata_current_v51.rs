@@ -1695,7 +1695,9 @@ pub(super) fn failure(mouse: bool, account_change: bool) {
         // Same-account context denial hides private details, not the actual
         // pre-existing Inbox queue. Back strips every detail/read ticket and
         // restores that genuine cached row without making it a fresh source.
-        let cached_row = format!("{REPOSITORY}#7 {}", original["title"].as_str().unwrap());
+        // The cached Inbox table row: PR cell then TITLE cell on one line.
+        let cached_pr = format!("{REPOSITORY}#7 ");
+        let cached_title = original["title"].as_str().unwrap();
         let before_back_sql = complete_current_sql_v65(&f);
         let before = s.completed_cells_end();
         action(&mut s, mouse, RETURN, CONTROLS[1], CONTROLS);
@@ -1706,7 +1708,13 @@ pub(super) fn failure(mouse: bool, account_change: bool) {
                 && s.completed_cells_screen().is_some_and(|frame| {
                     let text = frame.contents();
                     crate::support::main_footer_visible(frame)
-                        && text.contains(&cached_row)
+                        && text.lines().any(|line| {
+                            line.find(&cached_pr).is_some_and(|at| {
+                                line[at + cached_pr.len()..]
+                                    .trim_start()
+                                    .starts_with(cached_title)
+                            })
+                        })
                         && text.contains("Cached Inbox only")
                         && !text.contains(RETURN)
                         && [

@@ -198,45 +198,27 @@ fn assert_reaped(session: &mut Session, pids: [i32; 2]) {
         }
     }
 }
-fn actual_row_colors(session: &Session, cols: u16, rows: u16) -> bool {
-    // Independently parse actual emitted terminal attributes. This is neither a
-    // direct App invocation nor proof of Kitty/iTerm/Sixel displayed pixels.
-    let mut parser = vt100::Parser::new(rows, cols, 0);
-    parser.process(&session.transcript);
-    for (title, color) in [
-        (RED_TITLE, vt100::Color::Rgb(255, 0, 0)),
-        (GREEN_TITLE, vt100::Color::Rgb(0, 255, 0)),
-    ] {
-        let Some((_, y)) = session.locate(title) else {
-            return false;
-        };
-        let Some(line) = session
-            .screen()
-            .lines()
-            .nth(usize::from(y + 1))
-            .map(str::to_owned)
-        else {
-            return false;
-        };
-        let Some(x) = line.chars().position(|ch| ch == '▀') else {
-            return false;
-        };
-        let Some(cell) = parser.screen().cell(y + 1, x as u16) else {
-            return false;
-        };
-        if cell.contents() != "▀" || cell.fgcolor() != color || cell.bgcolor() != color {
-            return false;
-        }
-    }
-    true
-}
-fn pixels_ready(session: &mut Session, cols: u16, rows: u16) {
+/// List rows draw initials chips only (TASK-95; detail panes keep image avatars): both exact
+/// public images complete in their isolated children while each same-login row keeps its
+/// `SS same-login` chip cell and no half-block pixel is painted into the list.
+fn pixels_ready(session: &mut Session, fixture: &Fixture) {
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !actual_row_colors(session, cols, rows) {
+    loop {
+        let screen = session.screen();
+        let rows = [RED_TITLE, GREEN_TITLE].iter().all(|title| {
+            screen
+                .lines()
+                .any(|line| line.contains(title) && line.contains("SS same-login"))
+        });
+        let complete = ["red", "green"]
+            .iter()
+            .all(|tag| asset_file(fixture, tag, "complete").exists());
+        if rows && complete && !screen.contains('▀') {
+            return;
+        }
         assert!(
             Instant::now() < deadline,
-            "Actual same-login rows must have DIFFERENT exact red/green foreground/background; {}",
-            session.screen()
+            "Both exact images complete while same-login rows keep their chips; {screen}"
         );
         session.poll_output(Duration::from_millis(10));
     }
@@ -347,12 +329,12 @@ fn journey(mouse: bool, mode: Mode) {
         &[
             RED_TITLE,
             GREEN_TITLE,
-            "@same-login",
+            "same-login",
             // The list-row initials chip: bracketed only without color.
             if mode == Mode::NoColor {
-                "[SS]"
+                "[SS] same-login"
             } else {
-                "SS @same-login"
+                "SS same-login"
             },
         ],
     );
@@ -389,7 +371,7 @@ fn journey(mouse: bool, mode: Mode) {
                         && screen.contains("private data hidden")
                         && !screen.contains(RED_TITLE)
                         && !screen.contains(GREEN_TITLE)
-                        && !screen.contains("@same-login")
+                        && !screen.contains("same-login")
                         && !screen.contains('▀')
                 },
                 "Actual accountNone privacy frame drops both previous exact images/actors",
@@ -413,12 +395,12 @@ fn journey(mouse: bool, mode: Mode) {
             b"Explicit release after responsive actual keyboard/mouse filter and resize",
         )
         .unwrap();
-        pixels_ready(&mut session, new_cols, new_rows);
+        pixels_ready(&mut session, &fixture);
         assert_reaped(&mut session, pids.unwrap());
         assert_asset_journal(&fixture, true);
         choose(&mut session, mouse, "[a All]", b"a");
         ready(&mut session, &["Queue: All", RED_TITLE, GREEN_TITLE]);
-        pixels_ready(&mut session, new_cols, new_rows);
+        pixels_ready(&mut session, &fixture);
         assert_asset_journal(&fixture, true);
         assert_commands(&session, &fixture, 7);
     }
@@ -449,14 +431,14 @@ fn journey(mouse: bool, mode: Mode) {
                 screen.contains("Repository • focused view")
                     && screen.contains("author Different Author")
                     && screen.contains("committer Current Committer")
-                    && !screen.contains("@same-login")
+                    && !screen.contains("same-login")
                     && !screen.contains('▀')
             },
             "Complete local actor frame has erased the previous remote actor/image cells",
             Duration::from_secs(8),
         )
         .unwrap_or_else(|error| panic!("{error}"));
-    assert!(!session.screen().contains("@same-login"));
+    assert!(!session.screen().contains("same-login"));
     assert!(!session.screen().contains('▀'));
     session.focus_footer_control("[q Quit]");
     assert_commands(

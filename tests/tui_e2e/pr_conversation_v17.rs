@@ -438,7 +438,7 @@ fn enter(
             |screen| {
                 screen
                     .lines()
-                    .any(|line| line.contains(OLD) && line.contains('>'))
+                    .any(|line| line.contains(OLD) && line.contains('▌'))
             },
             "Exact real comment row selected, not a ReviewComment",
             Duration::from_secs(8),

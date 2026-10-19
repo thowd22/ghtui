@@ -573,8 +573,9 @@ fn git_provider_mouse_distinct_raw_path_labels_open_exact_original_bytes() {
     raw_path_journey(true);
 }
 
-/// Alice's PR author line opens with her filled two-cell `AL` initials chip in her stable identity
-/// hue, separated from `@alice` by one theme-background cell; the bracketed no-color form is absent.
+/// Alice's PR author cells (the selected table row and the preview's Author line) open with her
+/// filled two-cell `AL` initials chip in her stable identity hue, separated from `alice` by one
+/// non-chip cell; the bracketed no-color form is absent.
 fn alice_chip(frame: &vt100::Screen) -> bool {
     use ghtui::identity::{ActorIdentity, ActorKind, InitialsChip};
     let alice = ActorIdentity {
@@ -592,13 +593,11 @@ fn alice_chip(frame: &vt100::Screen) -> bool {
     let contents = frame.contents();
     let mut seen = 0;
     for (row, line) in contents.lines().enumerate() {
-        let Some(at) = line.find("@alice • ") else {
+        let Some(at) = line.find("AL alice ") else {
             continue;
         };
         // Two chip cells and exactly one blank cell before the login.
-        let Some(chip) = (line[..at].chars().count() as u16).checked_sub(3) else {
-            return false;
-        };
+        let chip = line[..at].chars().count() as u16;
         let filled = "AL".chars().enumerate().all(|(offset, letter)| {
             frame
                 .cell(row as u16, chip + offset as u16)
@@ -678,7 +677,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
         session.send_key(b"r");
     }
     session.wait_for_screen("Avatar preview change");
-    session.wait_for_screen("@alice");
+    session.wait_for_screen("AL alice");
     wait_alice_chip(&mut session);
     session.wait_for_command_count(&fixture, 7);
     if mouse {
@@ -687,7 +686,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
         session.send_key(b"c");
     }
     session.wait_for_screen("Queue: Created by me");
-    session.wait_for_screen("@alice");
+    session.wait_for_screen("AL alice");
     if cancel_asset {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         let pid = loop {
@@ -727,22 +726,31 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
     }
     std::fs::write(&release, b"release now").unwrap();
     if !fail_image {
-        if let Err(error) = session.try_wait_for("▀", std::time::Duration::from_secs(3)) {
-            let records =
-                std::fs::read_dir(fixture.root.join("config/ghtui/avatars")).map(|entries| {
-                    entries
-                        .flatten()
-                        .map(|entry| std::fs::read_to_string(entry.path()).unwrap_or_default())
-                        .collect::<Vec<_>>()
-                });
-            panic!(
-                "{error}; asset completed={}, argv={:?}, cached={records:?}",
-                complete.exists(),
-                std::fs::read_to_string(&journal)
-            );
+        // The isolated child completes the real PNG; the list row keeps Alice's initials chip
+        // (TASK-95: list rows draw chips, detail panes keep image avatars).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !complete.exists()
+            || !std::fs::read_dir(fixture.root.join("config/ghtui/avatars"))
+                .is_ok_and(|mut entries| entries.next().is_some())
+        {
+            if std::time::Instant::now() >= deadline {
+                let records =
+                    std::fs::read_dir(fixture.root.join("config/ghtui/avatars")).map(|entries| {
+                        entries
+                            .flatten()
+                            .map(|entry| std::fs::read_to_string(entry.path()).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                    });
+                panic!(
+                    "Avatar never cached; asset completed={}, argv={:?}, cached={records:?}",
+                    complete.exists(),
+                    std::fs::read_to_string(&journal)
+                );
+            }
+            session.poll_output(std::time::Duration::from_millis(10));
         }
-        assert!(String::from_utf8_lossy(&session.transcript).contains("38;2;255;0;0"));
-        assert!(String::from_utf8_lossy(&session.transcript).contains("48;2;0;0;255"));
+        wait_alice_chip(&mut session);
+        assert!(!session.screen().contains('▀'));
     } else {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while !complete.exists() {
@@ -761,7 +769,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
         session.send_key(b"a");
     }
     session.wait_for_screen("Queue: All");
-    session.wait_for_screen("@alice");
+    session.wait_for_screen("AL alice");
     let assets = std::fs::read_to_string(journal).unwrap();
     assert_eq!(
         assets.lines().filter(|line| *line == "--url").count(),

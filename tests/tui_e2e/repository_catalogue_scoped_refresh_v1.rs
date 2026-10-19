@@ -297,6 +297,8 @@ fn seed_old_named(fixture: &Fixture, canonical: &[&str]) {
         .unwrap();
 }
 fn fresh(session: &mut Session, count: usize, title: &str) {
+    // The 80-column TITLE cell ellipsizes long titles, so match their distinct head.
+    let title = title.get(..24).unwrap_or(title);
     ready(
         session,
         &[
@@ -412,7 +414,7 @@ fn happy(mouse: bool, count: usize) {
     } else {
         canonical[0]
     };
-    ready(&mut session, &[&format!("> {selected}#7")]);
+    ready(&mut session, &[&format!("▌ {selected}#7")]);
     refresh(&mut session, mouse);
     session.wait_for_command_count(&fixture, steps.len());
     fresh(&mut session, count, "Refreshed navigation intent PR");
@@ -420,7 +422,7 @@ fn happy(mouse: bool, count: usize) {
     // Re-focus through the already selected filter without changing a valid
     // selected PrKey. A lost second-row intent would now visibly select first.
     choose(&mut session, mouse, "[m Assigned to me]", b"m");
-    ready(&mut session, &[&format!("> {selected}#7")]);
+    ready(&mut session, &[&format!("▌ {selected}#7")]);
     let refreshed = frame(&fixture, &canonical).unwrap();
     assert_eq!(refreshed.generation, 10);
     assert!(refreshed

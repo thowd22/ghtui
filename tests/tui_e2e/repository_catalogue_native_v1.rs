@@ -376,7 +376,10 @@ fn ready(session: &mut Session, required: &[&str]) {
 }
 /// The focused Inbox frame title carries `host / @login / repository / queue`.
 /// Narrow frames ellipsize the repository from the left, so accept only its
-/// full form or a `…` tail that still shows the complete `/name` segment.
+/// full form or a `…` tail that still shows the complete `/name` segment. The
+/// list pane beside the 120-column Preview has room for neither, and its title
+/// then drops the whole repository level (`… / queue`); the journeys pin the
+/// repository through their exact command journals.
 fn inbox_scope_title(screen: &str, repository: &str, queue: &str) -> bool {
     let name = &repository[repository.find('/').unwrap()..];
     screen.lines().take(3).any(|line| {
@@ -390,6 +393,7 @@ fn inbox_scope_title(screen: &str, repository: &str, queue: &str) -> bool {
             return false;
         };
         shown == repository
+            || (shown == "…" && line.contains("╮╭─ Preview "))
             || shown.strip_prefix('…').is_some_and(|tail| {
                 tail.len() >= name.len() && repository.ends_with(tail) && tail.ends_with(name)
             })

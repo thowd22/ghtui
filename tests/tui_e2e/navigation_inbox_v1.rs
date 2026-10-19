@@ -286,14 +286,9 @@ fn table_journey(mouse: bool) {
         !commit.contains(&"a".repeat(40)) && !commit.contains("@alice"),
         "{commit}"
     );
-    wait_line(
-        &mut session,
-        &[&format!(
-            "Commit {} • Parents: {}",
-            "a".repeat(40),
-            "b".repeat(40)
-        )],
-    );
+    let (sha_y, _) = wait_line(&mut session, &[&format!("Commit {}", "a".repeat(40))]);
+    let (parents_y, _) = wait_line(&mut session, &[&format!("Parents: {}", "b".repeat(40))]);
+    assert_eq!(parents_y, sha_y + 1);
     session.wait_for_screen("@build-bot [bot]");
     journal(&mut session, &fixture, 14);
     session.quit_and_assert_restored_terminal(mouse);

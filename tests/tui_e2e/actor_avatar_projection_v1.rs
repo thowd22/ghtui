@@ -64,7 +64,7 @@ fn journey(mouse: bool) {
             RED_TITLE,
             GREEN_TITLE,
             "unknown actor [unknown]",
-            "@same-login",
+            "same-login",
             // The unknown actor's list-row chip (`?` in its blanked two-cell slot), one
             // blank cell, then its label.
             "?  unknown actor [unknown]",
@@ -103,19 +103,12 @@ fn journey(mouse: bool) {
         ],
     );
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
-    ready(
-        &mut session,
-        &[RED_TITLE, GREEN_TITLE, "unknown actor [unknown]"],
-    );
+    // At 80 columns the narrow AUTHOR cell ellipsizes the bounded label after its chip.
+    ready(&mut session, &[RED_TITLE, GREEN_TITLE, "?  unknown actor"]);
     choose(&mut session, mouse, "[a All]", b"a");
     ready(
         &mut session,
-        &[
-            "Queue: All",
-            RED_TITLE,
-            GREEN_TITLE,
-            "unknown actor [unknown]",
-        ],
+        &["Queue: All", RED_TITLE, GREEN_TITLE, "?  unknown actor"],
     );
     session.focus_footer_control("[q Quit]");
     assert_commands(&session, &fixture, 7);
@@ -147,13 +140,13 @@ fn journey(mouse: bool) {
                 screen.contains("Repository • focused view")
                     && screen.contains("author Different Author")
                     && screen.contains("committer Current Committer")
-                    && !screen.contains("@same-login")
+                    && !screen.contains("same-login")
             },
             "Complete local frame has erased previous remote actor cells",
             Duration::from_secs(8),
         )
         .unwrap_or_else(|error| panic!("{error}"));
-    assert!(!session.screen().contains("@same-login"));
+    assert!(!session.screen().contains("same-login"));
     assert_asset_journal(&fixture, false);
     assert_commands(&session, &fixture, 7);
     session.quit_and_assert_restored_terminal(mouse);

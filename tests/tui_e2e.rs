@@ -468,7 +468,8 @@ fn configuration_invalid_set_explains_error_and_keeps_saved_file() {
     let before = std::fs::read(&config_path).unwrap();
     let mut session = Session::launch(&fixture, 80, 24);
     session.wait_for_screen("ghtui");
-    session.send_key(b"s\tMissing\t\t\r");
+    // Set field, then Theme and Density controls, then Save settings.
+    session.send_key(b"s\tMissing\t\t\t\r");
     session.wait_for_screen("does not exist");
     assert_eq!(std::fs::read(config_path).unwrap(), before);
     session.click_visible_action("[Esc Close]");

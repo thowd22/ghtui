@@ -198,7 +198,7 @@ fn journey(mouse: bool) {
         });
         journal(&mut s, &fixture, files);
         choose(&mut s, mouse, "[N Next file]", b"N");
-        s.wait_for_screen("> File src/界.rs");
+        s.wait_for_screen("▌ File src/界.rs");
         let before = s.completed_cursorless_end();
         choose(&mut s, mouse, "[O Old image]", b"O");
         frame(&mut s, before, |f| {

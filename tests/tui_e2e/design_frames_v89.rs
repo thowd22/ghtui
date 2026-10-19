@@ -60,7 +60,15 @@ fn chrome(frame: &vt100::Screen, view: &str, hue: Color, focused: bool) -> bool 
         return false;
     };
     let header = lines.first().copied().unwrap_or_default();
-    let title = lines.get(usize::from(top)).copied().unwrap_or_default();
+    // The content pane's own top border: up to its first `╮` (a Preview or Details pane may
+    // follow it on the same row from 120 columns).
+    let title = lines
+        .get(usize::from(top))
+        .copied()
+        .unwrap_or_default()
+        .split_inclusive('╮')
+        .next()
+        .unwrap_or_default();
     let active = TABS
         .iter()
         .find(|tab| tab.ends_with(view))
@@ -207,10 +215,19 @@ fn header_journey(mouse: bool, size: (u16, u16)) {
     let status = fixture.git(&["status", "--porcelain=v1"]);
     let mut session = Session::launch(&fixture, size.0, size.1);
     session.wait_for_screen("Recent commits");
-    let source = if size.0 >= 100 {
-        "I Source identity"
-    } else {
-        "I Source"
+    // The Repository pane spells the token out from 100 columns; beside the 140-column
+    // Details pane it is narrower than that and keeps the short form.
+    let source = "I Source";
+    let pane_top = |top: &str| {
+        top.split_inclusive('╮')
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let source_closes = |top: &str| {
+        let pane = pane_top(top);
+        pane.ends_with(&format!("─ {source} ─╮"))
+            || pane.ends_with(&format!("─ {source} identity ─╮"))
     };
 
     let after = session.completed_cells_end();
@@ -223,7 +240,7 @@ fn header_journey(mouse: bool, size: (u16, u16)) {
             let (header, top) = rows(frame);
             chrome(frame, "Repository", PEACH, true)
                 && !header.contains("Source")
-                && top.trim_end().ends_with(&format!("─ {source} ─╮"))
+                && source_closes(&top)
                 && top.contains("Local ")
         },
     );

@@ -125,9 +125,9 @@ fn happy(mouse: bool) {
     // Mere file/patch text was already visible before either worker. Require
     // the actual selected target after the page-only completion before issuing
     // another action; preparing pages intentionally suppress loaded controls.
-    ready(&mut session, &["> File src/界.rs"]);
+    ready(&mut session, &["▌ File src/界.rs"]);
     off_bar(&mut session, mouse, "[} Next hunk]", b"}");
-    ready(&mut session, &["> @@ -1,2 +1,2", "new-no-newline"]);
+    ready(&mut session, &["▌ @@ -1,2 +1,2", "new-no-newline"]);
     off_bar(&mut session, mouse, "[X Patch context]", b"X");
     overlay_ready(
         &mut session,
@@ -198,8 +198,13 @@ fn happy(mouse: bool) {
     session.wait_for_command_count(&fixture, 86);
     ready(
         &mut session,
-        &["Run 123 • attempt 2", "test (stable)", &history.h],
+        &["Run 123 • attempt 2", "JOB", "test (stable)", &history.h],
     );
+    // Job 501 is the jobs table row: its name and its ID cell on one line.
+    assert!(session
+        .screen()
+        .lines()
+        .any(|line| line.contains("test (stable)") && line.contains(" 501 ")));
     assert!(!session.screen().contains(DETAIL_BODY));
     assert!(!session.screen().contains(PRIVATE_DRAFT));
     scoped_checks::control(&mut session, mouse, "[l Logs]", b"l");

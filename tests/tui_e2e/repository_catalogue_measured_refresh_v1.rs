@@ -67,13 +67,13 @@ fn three(mouse: bool) {
         session.send_key(b"\x1b[B\x1b[B");
         THIRD
     };
-    ready(&mut session, &[&format!("> {selected}#7")]);
+    ready(&mut session, &[&format!("▌ {selected}#7")]);
     refresh(&mut session, mouse);
     session.wait_for_command_count(&fixture, 60);
     fresh(&mut session, 3, "Measured three-repository refresh");
     ready(&mut session, &["Queue: Assigned to me"]);
     choose(&mut session, mouse, "[m Assigned to me]", b"m");
-    ready(&mut session, &[&format!("> {selected}#7")]);
+    ready(&mut session, &[&format!("▌ {selected}#7")]);
     let current = frame(&fixture, &canonical).unwrap();
     assert_eq!(current.generation, 10);
     assert!(current.complete);

@@ -198,11 +198,11 @@ fn journey(mouse: bool) {
     journal(&mut session, &fixture, files);
     let before = session.completed_cursorless_end();
     choose(&mut session, mouse, "[N Next file]", b"N");
-    frame(&mut session, before, |s| s.contains("> File src/界.rs"));
+    frame(&mut session, before, |s| s.contains("▌ File src/界.rs"));
     let before = session.completed_cursorless_end();
     off_bar(&mut session, mouse, "[} Next hunk]", b"}");
     frame(&mut session, before, |s| {
-        s.contains("> @@ -1,2 +1,2") && s.contains("new-no-newline")
+        s.contains("▌ @@ -1,2 +1,2") && s.contains("new-no-newline")
     });
     let before = session.completed_cursorless_end();
     off_bar(&mut session, mouse, "[X Patch context]", b"X");

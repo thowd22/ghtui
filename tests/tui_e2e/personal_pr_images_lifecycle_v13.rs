@@ -80,7 +80,7 @@ fn journey(mouse: bool) {
         journal(&mut session, &fixture, files);
         let before = session.completed_cursorless_end();
         choose(&mut session, mouse, "[N Next file]", b"N");
-        frame(&mut session, before, |s| s.contains("> File src/界.rs"));
+        frame(&mut session, before, |s| s.contains("▌ File src/界.rs"));
         let before = session.completed_cursorless_end();
         choose(&mut session, mouse, "[v Native diff]", b"v");
         if matches!(outcome, Outcome::Cancel) {

@@ -442,10 +442,11 @@ impl PrPage {
                             commit.committer.clone(),
                         ));
                     }
-                    // The full SHA stays visible and copyable under the short one.
+                    // The full SHA stays visible and copyable under the short one, and the
+                    // full parent SHAs get their own row so 80 columns never cut them.
+                    rows.push(PrRow::text(format!("Commit {}", commit.sha)));
                     rows.push(PrRow::text(format!(
-                        "Commit {} • Parents: {}",
-                        commit.sha,
+                        "Parents: {}",
                         if commit.parents.is_empty() {
                             "Parent links unavailable or none in this response".into()
                         } else {

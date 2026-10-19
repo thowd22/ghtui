@@ -709,7 +709,27 @@ pub fn select_line(buffer: &mut Buffer, line: Rect, focused: bool, theme: Theme)
     if line.is_empty() {
         return;
     }
+    // Initials chips keep their identity hue on the selected row, so a person reads the same
+    // in every row and the chip ink stays legible over the Selection background.
+    let hues: Vec<_> = (0..crate::theme::IDENTITY_HUES)
+        .filter_map(|slot| theme.identity_chip(slot).bg)
+        .collect();
+    let chips: Vec<(u16, ratatui::style::Color)> = if theme.mode == ColorMode::NoColor {
+        Vec::new()
+    } else {
+        (line.x..line.right())
+            .filter_map(|x| {
+                let bg = buffer.cell((x, line.y))?.bg;
+                hues.contains(&bg).then_some((x, bg))
+            })
+            .collect()
+    };
     buffer.set_style(line, selection_style(theme));
+    for (x, bg) in chips {
+        if let Some(cell) = buffer.cell_mut((x, line.y)) {
+            cell.set_bg(bg);
+        }
+    }
     let bar = theme
         .role(if focused { Role::Accent } else { Role::TextDim })
         .patch(selection_style(theme));

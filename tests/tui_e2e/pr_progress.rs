@@ -157,7 +157,7 @@ fn journey_with_preselected(mouse: bool, preselected: bool) {
     session.resize(80, 24);
     if preselected {
         select_file(&mut session, mouse, "UNVIEWED");
-        session.wait_for_screen(&format!("> UNVIEWED • {FILE}"));
+        session.wait_for_screen(&format!("▌ UNVIEWED • {FILE}"));
     }
     select_file(&mut session, mouse, "UNVIEWED");
     menu(&mut session, mouse, "Mark selected file viewed");

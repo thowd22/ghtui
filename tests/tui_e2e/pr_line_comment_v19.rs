@@ -6,7 +6,7 @@ use super::*;
 fn selected_row_contains(screen: &str, text: &str) -> bool {
     screen
         .lines()
-        .any(|line| line.starts_with("│>") && line.contains(text))
+        .any(|line| line.starts_with("│▌") && line.contains(text))
 }
 
 /// Keyboard: move the Files cursor down until the given diff row is selected.

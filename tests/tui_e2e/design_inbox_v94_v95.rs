@@ -88,8 +88,8 @@ fn section_header(frame: &vt100::Screen) -> bool {
         .count() as u16;
     let (_, cols) = frame.size();
     line.contains("Fresh • fetched")
-        // Right-aligned against the pane's right border.
-        && line.trim_end().ends_with("UTC│")
+        // Right-aligned against the list pane's right border (a Preview pane may follow).
+        && line.contains("UTC│")
         && line.chars().count() == usize::from(cols)
         && frame
             .cell(row as u16, heading)
@@ -102,21 +102,23 @@ fn section_header(frame: &vt100::Screen) -> bool {
         && contents.contains("PARTIAL")
 }
 
-/// Every author line opens with that author's filled initials chip in its identity hue.
+/// Every AUTHOR cell (and the Preview's Author line) opens with that author's filled initials
+/// chip in its identity hue, selected row included: two chip cells, one blank, the login.
 fn chips(frame: &vt100::Screen) -> bool {
     let contents = frame.contents();
     let lane = |login: &str| rgb(CATPPUCCIN_MOCHA.lanes()[InitialsChip::slot(&person(login))]);
     let mut seen = [0, 0];
-    for (row, line) in contents.lines().enumerate() {
+    // Pane rows only: the header's account token is not a list author.
+    for (row, line) in contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with('│'))
+    {
         for (index, (login, initials)) in [("octocat", "OC"), ("hubot", "HU")].iter().enumerate() {
-            let Some(at) = line.find(&format!("@{login} • ")) else {
+            let Some(at) = line.find(&format!("{initials} {login} ")) else {
                 continue;
             };
-            let column = line[..at].chars().count() as u16;
-            // Two chip cells and exactly one blank cell before the login.
-            let Some(chip) = column.checked_sub(3) else {
-                return false;
-            };
+            let chip = line[..at].chars().count() as u16;
             let filled = initials.chars().enumerate().all(|(offset, letter)| {
                 frame
                     .cell(row as u16, chip + offset as u16)
@@ -136,7 +138,8 @@ fn chips(frame: &vt100::Screen) -> bool {
             seen[index] += 1;
         }
     }
-    seen == [2, 1] && !contents.contains("[OC]") && !contents.contains("[HU]")
+    // Two octocat rows and one hubot row (plus the Preview's Author line when it is shown).
+    seen[0] >= 2 && seen[1] >= 1 && !contents.contains("[OC]") && !contents.contains("[HU]")
 }
 
 fn journey(mouse: bool, size: (u16, u16), resized: (u16, u16)) {
@@ -173,7 +176,7 @@ fn journey(mouse: bool, size: (u16, u16), resized: (u16, u16)) {
             && frame
                 .contents()
                 .lines()
-                .any(|line| line.contains("> org/design#") && line.contains("Chip"))
+                .any(|line| line.contains("▌ org/design#") && line.contains("Chip"))
     });
     let after = session.completed_cells_end();
     session.resize(resized.0, resized.1);

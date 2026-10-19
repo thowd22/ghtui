@@ -317,7 +317,7 @@ fn journey(mouse: bool) {
             let s = frame.contents();
             crate::support::overlay_body(frame, "Inbox • focused view").as_ref()
                 == Some(&files_before_threads)
-                && s.contains("> File src/view.rs")
+                && s.contains("▌ File src/view.rs")
                 && !s.contains("PR review threads • read only")
                 && !s.contains("actual-personal-file-author")
         },
@@ -338,8 +338,14 @@ fn journey(mouse: bool) {
     journal(&mut session, &fixture, steps.len());
     let before = session.completed_cursorless_end();
     choose(&mut session, mouse, "[b Back]", b"b");
+    // Back to the queue: the PR page and its actions are gone. Its description may only
+    // reappear in the queue's own Preview pane, which shows the search result's body.
     frame(&mut session, before, |s| {
-        s.contains("1 unique PRs across 3 queue matches") && !s.contains(BODY)
+        s.contains("1 unique PRs across 3 queue matches")
+            && !crate::support::controls::text_has_control(s, "[p PR actions]")
+            && s.lines()
+                .filter(|line| line.contains(BODY))
+                .all(|line| line.contains("││ "))
     });
     session.quit_and_assert_restored_terminal(mouse);
     for (path, expected) in [
