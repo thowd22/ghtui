@@ -649,12 +649,18 @@ pub(crate) fn create_cancel_receipt(mouse: bool) {
     refreshed(&mut s, &f, mouse, command, steps.len());
     assert_projection_v19(&f, &[(501, OLD), (10, FIRST_BODY)], &[], 1);
     select_current(&mut s, mouse, "Native café comment 雪");
-    if !mouse && !s.screen().contains("Second line") {
-        // At80x24 the selected first body line can be the last visible row.
-        // ONE normal Down selects its next row, which carries the SAME actual
-        // comment selection. A new owned frame must expose BOTH exact lines.
+    if !s.screen().contains("Second line") {
+        // At 80x24 the merged header leaves the selected first body line as
+        // the last visible row. ONE normal Down selects its next row, which
+        // carries the SAME actual comment selection; ONE wheel notch scrolls
+        // the viewport and keeps the first line selected. A new owned frame
+        // must expose BOTH exact lines.
         let before = s.completed_cursorless_end();
-        s.send_key(b"\x1b[B");
+        if mouse {
+            s.wheel(30, 12, true);
+        } else {
+            s.send_key(b"\x1b[B");
+        }
         s.wait_for_new_cursorless_condition(
             before,
             |screen| {
@@ -663,7 +669,12 @@ pub(crate) fn create_cancel_receipt(mouse: bool) {
                     && text.contains("Inbox • focused view")
                     && text.contains("[c Conversation]")
                     && text.contains("Native café comment 雪")
-                    && text.contains("> Second line")
+                    && text.contains(if mouse {
+                        "> Native café comment 雪"
+                    } else {
+                        "> Second line"
+                    })
+                    && text.contains("Second line")
                     && text.contains("Selected comment #10 by @octocat")
                     && !text.contains("[Confirm action]")
             },
