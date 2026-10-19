@@ -583,6 +583,64 @@ fn git_provider_mouse_distinct_raw_path_labels_open_exact_original_bytes() {
     raw_path_journey(true);
 }
 
+/// Alice's PR author line opens with her filled two-cell `AL` initials chip in her stable identity
+/// hue, separated from `@alice` by one theme-background cell; the bracketed no-color form is absent.
+fn alice_chip(frame: &vt100::Screen) -> bool {
+    use ghtui::identity::{ActorIdentity, ActorKind, InitialsChip};
+    let alice = ActorIdentity {
+        host: Some("github.com".into()),
+        login: Some("alice".into()),
+        name: String::new(),
+        email: None,
+        avatar_url: None,
+        kind: ActorKind::User,
+        git_role: None,
+        host_associated: true,
+    };
+    let hex = ghtui::theme::CATPPUCCIN_MOCHA.lanes()[InitialsChip::slot(&alice)];
+    let hue = vt100::Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+    let contents = frame.contents();
+    let mut seen = 0;
+    for (row, line) in contents.lines().enumerate() {
+        let Some(at) = line.find("@alice • ") else {
+            continue;
+        };
+        let Some(chip) = (line[..at].chars().count() as u16).checked_sub(4) else {
+            return false;
+        };
+        let filled = "AL".chars().enumerate().all(|(offset, letter)| {
+            frame
+                .cell(row as u16, chip + offset as u16)
+                .is_some_and(|cell| {
+                    cell.contents() == letter.to_string() && cell.bgcolor() == hue && cell.bold()
+                })
+        });
+        let gap = frame
+            .cell(row as u16, chip + 2)
+            .is_some_and(|cell| cell.bgcolor() != hue);
+        if !filled || !gap {
+            return false;
+        }
+        seen += 1;
+    }
+    seen > 0 && !contents.contains("[AL]")
+}
+
+fn wait_alice_chip(session: &mut Session) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        session.poll_output(std::time::Duration::from_millis(1));
+        if session.completed_cells_screen().is_some_and(alice_chip) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Alice's initials chip never painted\n{}",
+            session.screen()
+        );
+    }
+}
+
 fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
     use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
     use serde_json::json;
@@ -630,7 +688,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
     }
     session.wait_for_screen("Avatar preview change");
     session.wait_for_screen("@alice");
-    session.wait_for_screen("[AL]");
+    wait_alice_chip(&mut session);
     session.wait_for_command_count(&fixture, 7);
     if mouse {
         session.click_visible_action("[c Created by me]");
@@ -703,7 +761,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
             );
             std::thread::yield_now();
         }
-        session.wait_for_screen("[AL]");
+        wait_alice_chip(&mut session);
     }
     session.resize(80, 24);
     if mouse {

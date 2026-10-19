@@ -993,12 +993,19 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                         .map(|x| buffer[(x, y)].symbol())
                         .collect::<String>()
                 };
+                // The merged header and rounded content frame place the identity line below the
+                // repository controls; it is located by its complete text, never a fixed row.
+                let saved_row = (0..24)
+                    .find(|y| row(*y).contains(&format!("Saved: {saved}")))
+                    .expect(
+                        "The complete immutable identity fits independently of the long breadcrumb",
+                    );
                 assert!(
-                    row(9).contains(&format!("Saved: {saved}")),
-                    "The complete immutable identity fits independently of the long breadcrumb"
+                    (0..24).all(|y| !row(y).contains(&"deep/".repeat(40))),
+                    "The long breadcrumb is bounded rather than painted in full"
                 );
                 if override_count != 0 {
-                    assert!(row(10)
+                    assert!(row(saved_row + 1)
                         .contains("Original snapshots • replacements: 2 • legacy grafts: present"));
                 }
                 let content_start = rows.get(app.scroll).map(|first| {
@@ -1007,6 +1014,12 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                         .find(|y| row(*y).contains(&prefix))
                         .expect("The actual first borrowed Graph row must be visibly painted")
                 });
+                if let Some(start) = content_start {
+                    assert!(
+                        start > saved_row + u16::from(override_count != 0),
+                        "Graph rows start below the identity and override notice"
+                    );
+                }
                 let mut verified_actions = 0;
                 for (position, prepared) in rows
                     .iter()
