@@ -259,7 +259,7 @@ fn select_current(s: &mut Session, mouse: bool, body: &str) {
         after,
         |screen| {
             crate::support::main_footer_visible(screen)
-                && screen.contents().contains("Conversation")
+                && crate::support::controls::control_painted(screen, "[c Conversation]")
         },
         "Actual family-preserving cached Conversation page",
         Duration::from_secs(8),

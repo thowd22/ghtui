@@ -113,7 +113,7 @@ fn back(session: &mut Session, mouse: bool) {
             let text = frame.contents();
             !text.contains(THREAD_TITLE)
                 && !text.contains(THREAD_BODY)
-                && text.contains("[T Threads]")
+                && crate::support::controls::control_painted(frame, "[T Threads]")
                 && text.contains("> File src/界.rs")
         },
         "Actual completed original Files restored and thread private body erased",

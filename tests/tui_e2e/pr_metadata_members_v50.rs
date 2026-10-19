@@ -523,7 +523,7 @@ fn begin(
             after,
             |screen| {
                 crate::support::main_footer_visible(screen)
-                    && screen.contents().contains("Conversation")
+                    && crate::support::controls::control_painted(screen, "[c Conversation]")
             },
             "Actual original Personal Conversation tab",
             Duration::from_secs(8),
