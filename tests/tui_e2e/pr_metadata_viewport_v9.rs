@@ -147,16 +147,35 @@ fn journey(mouse: bool) {
     }
     session.wait_for_command_count(&fixture, 14);
     session.wait_for_screen("[o Summary]");
+    let idle_summary = |frame: &vt100::Screen| {
+        crate::support::main_footer_visible(frame)
+            && frame.contents().contains("Summary original line 00")
+            && !frame.contents().contains("Verifying original")
+            && !frame.contents().contains("[Esc Cancel]")
+    };
+    // The app redraws on every 40ms tick, so a NEW completed frame alone does
+    // not prove the Summary input was handled. Start from an idle frame, then
+    // require the Summary read's own visible Cancel before its idle result:
+    // a Metadata input sent while that read is still loading is refused.
+    session.wait_for_cursorless_condition(
+        idle_summary,
+        "Idle opened Summary before the Summary tab input",
+        Duration::from_secs(8),
+    );
     let before_summary = session.completed_cursorless_end();
     choose(&mut session, mouse, "[o Summary]", b"o");
     session.wait_for_new_cursorless_condition(
         before_summary,
         |frame| {
-            crate::support::main_footer_visible(frame)
-                && frame.contents().contains("Summary original line 00")
-                && !frame.contents().contains("Verifying original")
-                && !frame.contents().contains("[Esc Cancel]")
+            crate::support::main_footer_visible(frame) && frame.contents().contains("[Esc Cancel]")
         },
+        "Summary tab input visibly started its read",
+        Duration::from_secs(8),
+    );
+    let summary_loading = session.completed_cursorless_end();
+    session.wait_for_new_cursorless_condition(
+        summary_loading,
+        idle_summary,
         "NEW completed idle original Summary before the next single tab input",
         Duration::from_secs(8),
     );

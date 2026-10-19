@@ -533,7 +533,11 @@ fn unavailable_selection(mouse: bool) {
         // Split genuine observed bytes immediately after the new dialog's
         // footer text, before its completed-frame boundary. No synthetic frame
         // or input is injected; require Close to wait for the actual full box.
-        session.hold_observed_output_after_literal_v1("[Esc Close]");
+        // The diff renderer skips a cell that already holds the same symbol
+        // and theme style (blank cells now take the theme background), so the
+        // space inside "[Esc Close]" need not be re-sent; "Close]" is the
+        // label's contiguous tail.
+        session.hold_observed_output_after_literal_v1("Close]");
     }
     let before_dialog = session.completed_cursorless_end();
     command(&mut session, mouse, "Delete selected cache");
