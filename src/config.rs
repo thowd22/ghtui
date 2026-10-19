@@ -55,12 +55,49 @@ impl ThemeName {
     }
 }
 
+/// How much the screen spaces its lists (TASK-96). Comfortable is the default: list plus
+/// preview splits, section headers and two-line Search results. Compact keeps the most rows:
+/// no split (Enter drills down), the queue summary carries the freshness, one-line results and
+/// one blank cell between table columns.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Density {
+    #[default]
+    Comfortable,
+    Compact,
+}
+
+impl Density {
+    /// Settings cycles through this order.
+    pub const ALL: [Self; 2] = [Self::Comfortable, Self::Compact];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Comfortable => "Comfortable",
+            Self::Compact => "Compact",
+        }
+    }
+
+    /// The other mode: Settings toggles between the two.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Comfortable => Self::Compact,
+            Self::Compact => Self::Comfortable,
+        }
+    }
+
+    pub fn is_compact(self) -> bool {
+        self == Self::Compact
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub version: u32,
     pub host: String,
     pub theme: ThemeName,
+    pub density: Density,
     pub refresh_seconds: u64,
     pub repository_sets: BTreeMap<String, Vec<String>>,
     pub active_set: Option<String>,
@@ -77,6 +114,7 @@ impl Default for Config {
             version: 1,
             host: "github.com".into(),
             theme: ThemeName::CatppuccinMocha,
+            density: Density::Comfortable,
             refresh_seconds: 60,
             repository_sets: BTreeMap::new(),
             active_set: None,
@@ -424,6 +462,35 @@ mod tests {
             !mapping.exists(),
             "Saving a mapping is not permission to create or clone it"
         );
+    }
+
+    #[test]
+    fn design_density_v96_config_defaults_roundtrips_and_rejects_unknown_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        // A configuration saved before the setting existed opens Comfortable.
+        fs::write(&path, "version = 1\ntheme = \"dark\"\n").unwrap();
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.density, Density::Comfortable);
+        assert_eq!(Config::default().density, Density::Comfortable);
+        let mut compact = config.clone();
+        compact.density = Density::Compact;
+        compact.save(&path).unwrap();
+        assert!(fs::read_to_string(&path)
+            .unwrap()
+            .contains("density = \"compact\""));
+        assert_eq!(Config::load(&path).unwrap(), compact);
+        for body in [
+            "density = \"cozy\"\n",
+            "density = 1\n",
+            "dense = \"compact\"\n",
+        ] {
+            fs::write(&path, body).unwrap();
+            assert!(Config::load(&path).is_err(), "{body}");
+        }
+        assert_eq!(Density::Comfortable.next(), Density::Compact);
+        assert_eq!(Density::Compact.next(), Density::Comfortable);
+        assert_eq!(Density::ALL.map(Density::label), ["Comfortable", "Compact"]);
     }
 
     #[test]

@@ -8,6 +8,8 @@ use ghtui::{
 use serde_json::{json, Value};
 #[path = "cache_named_v2.rs"]
 mod cache_named_v2;
+#[path = "design_density_v96.rs"]
+mod design_density_v96;
 #[path = "navigation_inbox_v1.rs"]
 mod navigation_inbox_v1;
 #[path = "personal_pr_entry_v13.rs"]

@@ -172,6 +172,16 @@ pub struct GhStep {
     pub delay_ms: u64,
 }
 
+/// Saves `density` into the fixture's configuration (keeping every other preference) so a
+/// journey launches at that density (TASK-96). Returns the configuration as saved.
+pub fn with_density(fixture: &Fixture, density: ghtui::config::Density) -> ghtui::config::Config {
+    let path = fixture.root.join("config/ghtui/config.toml");
+    let mut config = ghtui::config::Config::load(&path).unwrap();
+    config.density = density;
+    config.save(&path).unwrap();
+    config
+}
+
 pub fn empty_inbox_steps(login: &str) -> Vec<GhStep> {
     let identity = || {
         vec![

@@ -1003,7 +1003,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         glyphs: false,
         empty: Some("No results in the searched snapshot"),
     };
-    app.search_controls.visible = (panels[0].height.saturating_sub(1) as usize / 2).max(1);
+    // Comfortable: a result is its table row over its snippet line. Compact (TASK-96): one
+    // line per result; the snippet stays in the preview.
+    let lines_per_hit = if crate::ui_chrome::density().is_compact() {
+        1
+    } else {
+        2
+    };
+    app.search_controls.visible =
+        (panels[0].height.saturating_sub(1) as usize / lines_per_hit).max(1);
     if let Some(last) = page.hits.len().checked_sub(1) {
         // Keep the selected result visible after a resize.
         let mut state = ListState {
@@ -1044,34 +1052,35 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .flat_map(|hit| {
             let action = Some(SearchAction::Preview(hit.index));
-            [
-                TableRow::cells(vec![
-                    safe_text(&hit.title).into(),
-                    if hit.line == 0 {
-                        Cell::styled("fragment", Role::TextMuted)
-                    } else {
-                        format!("{}:{}", hit.line, hit.column).into()
-                    },
-                    Cell::styled(safe_text(&hit.repository), Role::TextMuted),
-                ])
-                .with_action(action.clone()),
+            let mut rows = vec![TableRow::cells(vec![
+                safe_text(&hit.title).into(),
+                if hit.line == 0 {
+                    Cell::styled("fragment", Role::TextMuted)
+                } else {
+                    format!("{}:{}", hit.line, hit.column).into()
+                },
+                Cell::styled(safe_text(&hit.repository), Role::TextMuted),
+            ])
+            .with_action(action.clone())];
+            if lines_per_hit == 2 {
                 // The snippet is painted below with its highlights.
-                TableRow::text(String::new()).with_action(action),
-            ]
+                rows.push(TableRow::text(String::new()).with_action(action));
+            }
+            rows
         })
         .collect::<Vec<_>>();
     let selected = hits
         .iter()
         .position(|hit| hit.index == app.search_controls.selected);
     let mut state = ListState {
-        selected: selected.unwrap_or_default() * 2,
+        selected: selected.unwrap_or_default() * lines_per_hit,
         top: 0,
     };
     let theme = app.theme();
     let rendered = draw_table(frame, panels[0], &table, &rows, &mut state, theme);
     let snippet_x = panels[0].x + crate::ui_table::lead(false).min(panels[0].width);
-    for pair in rendered.hits.chunks(2) {
-        let position = pair[0].index / 2;
+    for pair in rendered.hits.chunks(lines_per_hit) {
+        let position = pair[0].index / lines_per_hit;
         let hit = &hits[position];
         let mut rect = pair[0].rect;
         if let Some(snippet) = pair.get(1) {

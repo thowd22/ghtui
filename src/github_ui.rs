@@ -420,25 +420,40 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         crate::github_workspace::queue_summary_v1(filter_label, github.queue_counts())
     };
-    // A narrow list pane (beside a preview) cuts the summary with an ellipsis.
-    frame.render_widget(
-        Paragraph::new(crate::ui_chrome::fit(&queue_line, usize::from(area.width)))
-            .style(theme.style(SemanticToken::Head)),
-        Rect::new(area.x, y, area.width, 1),
-    );
-    y += 1;
-    // Freshness is provenance: a dimmed detail on the list's section header.
-    frame.render_widget(
-        Paragraph::new(crate::ui_chrome::section_header(
-            theme,
-            "Pull requests",
-            &github.freshness.label(),
-            crate::theme::Role::TextMuted,
-            area.width,
-        )),
-        Rect::new(area.x, y, area.width, 1),
-    );
-    y += 1;
+    if crate::ui_chrome::density().is_compact() {
+        // Compact (TASK-96): the queue summary is the section header, so freshness keeps its
+        // dimmed right-hand place and the separate `PULL REQUESTS` row goes to the list.
+        frame.render_widget(
+            Paragraph::new(compact_queue_header(
+                theme,
+                &queue_line,
+                &github.freshness.label(),
+                area.width,
+            )),
+            Rect::new(area.x, y, area.width, 1),
+        );
+        y += 1;
+    } else {
+        // A narrow list pane (beside a preview) cuts the summary with an ellipsis.
+        frame.render_widget(
+            Paragraph::new(crate::ui_chrome::fit(&queue_line, usize::from(area.width)))
+                .style(theme.style(SemanticToken::Head)),
+            Rect::new(area.x, y, area.width, 1),
+        );
+        y += 1;
+        // Freshness is provenance: a dimmed detail on the list's section header.
+        frame.render_widget(
+            Paragraph::new(crate::ui_chrome::section_header(
+                theme,
+                "Pull requests",
+                &github.freshness.label(),
+                crate::theme::Role::TextMuted,
+                area.width,
+            )),
+            Rect::new(area.x, y, area.width, 1),
+        );
+        y += 1;
+    }
     frame.render_widget(
         Paragraph::new(crate::ui_chrome::fit(
             &github.coverage_label(),
@@ -512,6 +527,32 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             action: Action::Github(GithubAction::Open(visible[index].into())),
         });
     }
+}
+
+/// The Compact Inbox's one summary row: the queue summary on the left (cut with an ellipsis
+/// first) and the freshness right-aligned and muted, which is never cut for the summary.
+pub(crate) fn compact_queue_header(
+    theme: crate::theme::Theme,
+    summary: &str,
+    freshness: &str,
+    width: u16,
+) -> ratatui::text::Line<'static> {
+    use ratatui::text::{Line, Span};
+    let width = usize::from(width);
+    let freshness = crate::ui_chrome::fit(&safe_text(freshness), width);
+    let detail = crate::editor::display_width(&freshness);
+    let room = width.saturating_sub(detail + 2);
+    let muted = theme.role(crate::theme::Role::TextMuted);
+    if room < 8 {
+        return Line::from(Span::styled(freshness, muted));
+    }
+    let summary = crate::ui_chrome::fit(summary, room);
+    let gap = width - detail - crate::editor::display_width(&summary);
+    Line::from(vec![
+        Span::styled(summary, theme.style(SemanticToken::Head)),
+        Span::raw(" ".repeat(gap)),
+        Span::styled(freshness, muted),
+    ])
 }
 
 /// Inbox queue columns. The PR reference never leaves; title, author and age share a priority

@@ -203,7 +203,8 @@ fn semantic_journey(mouse: bool) {
     } else {
         session.send_key(b"\r\r\r");
         session.wait_for_screen("[Theme: No color]");
-        session.send_key(b"\t\r");
+        // Past Density to Save settings.
+        session.send_key(b"\t\t\r");
     }
     session.wait_for_screen("Settings saved");
     session.resize(80, 24);

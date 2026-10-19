@@ -459,3 +459,195 @@ fn design_split_v92_actions_runs_preview_shows_the_run_and_its_loaded_jobs() {
     assert_eq!(app.preview_area_v92, None);
     assert!(!holds(&lines, "Jobs load when"), "{}", lines.join("\n"));
 }
+
+/// TASK-96: the same Inbox at both densities.
+fn inbox_at(density: crate::config::Density) -> App {
+    App { density, ..inbox() }
+}
+
+/// The Inbox table's column-title row and the cells from `PR` to `TITLE`.
+fn title_offset(lines: &[String]) -> usize {
+    let header = lines
+        .iter()
+        .find(|line| line.contains(" PR ") && line.contains("TITLE"))
+        .expect("the Inbox column titles");
+    let chars = header.chars().collect::<Vec<_>>();
+    let find = |needle: &str| {
+        (0..chars.len())
+            .find(|start| {
+                chars[*start..]
+                    .iter()
+                    .collect::<String>()
+                    .starts_with(needle)
+            })
+            .unwrap()
+    };
+    find("TITLE") - find("PR ")
+}
+
+#[test]
+fn design_density_v96_layout_helpers_follow_the_frame_density() {
+    use crate::config::Density;
+    use crate::ui_table::{column_gap, layout, Column, COLUMN_GAP, COMPACT_COLUMN_GAP};
+    let columns = [
+        Column::new("A", 4),
+        Column::new("B", 4).flex(1),
+        Column::new("C", 3).right(),
+    ];
+    crate::ui_chrome::set_density(Density::Comfortable);
+    assert_eq!(column_gap(), COLUMN_GAP);
+    assert!(crate::ui_chrome::splits());
+    let comfortable = layout(&columns, &[4, 9, 3], 40);
+    assert_eq!(comfortable[1].x, 4 + COLUMN_GAP);
+    assert!(split_list_preview(Rect::new(0, 0, 140, 30))
+        .preview
+        .is_some());
+
+    crate::ui_chrome::set_density(Density::Compact);
+    assert_eq!(column_gap(), COMPACT_COLUMN_GAP);
+    assert!(!crate::ui_chrome::splits());
+    let compact = layout(&columns, &[4, 9, 3], 40);
+    assert_eq!(compact[1].x, 4 + COMPACT_COLUMN_GAP);
+    assert_eq!(
+        compact[2].x,
+        compact[1].x + compact[1].width + COMPACT_COLUMN_GAP
+    );
+    // Compact fits all three columns where Comfortable's wider gaps drop the last one.
+    assert_eq!(layout(&columns, &[4, 4, 3], 13).len(), 3);
+    crate::ui_chrome::set_density(Density::Comfortable);
+    assert_eq!(layout(&columns, &[4, 4, 3], 13).len(), 2);
+    // Compact never splits, at any width.
+    crate::ui_chrome::set_density(Density::Compact);
+    for width in [SPLIT_MIN_WIDTH, 140, 200] {
+        let split = split_list_preview(Rect::new(0, 1, width, 30));
+        assert_eq!(split.preview, None);
+        assert_eq!(split.list, Rect::new(0, 1, width, 30));
+    }
+    crate::ui_chrome::set_density(Density::Comfortable);
+}
+
+#[test]
+fn design_density_v96_compact_inbox_keeps_the_whole_list_and_one_summary_row() {
+    use crate::config::Density;
+    // Comfortable at 140: list plus preview, the `PULL REQUESTS` section header, gap of two.
+    let mut comfortable = inbox_at(Density::Comfortable);
+    let (_, lines) = paint(&mut comfortable, 140, 42);
+    assert!(comfortable.preview_area_v92.is_some());
+    assert!(holds(&lines, "PULL REQUESTS"), "{}", lines.join("\n"));
+    assert_eq!(title_offset(&lines), "example/actual#1".len() + 2);
+
+    // Compact at 140: no preview, the summary row carries freshness, gap of one.
+    let mut compact = inbox_at(Density::Compact);
+    let (_, lines) = paint(&mut compact, 140, 42);
+    assert_eq!(compact.preview_area_v92, None, "{}", lines.join("\n"));
+    assert!(!holds(&lines, "─ Preview"), "{}", lines.join("\n"));
+    assert!(!holds(&lines, "PULL REQUESTS"), "{}", lines.join("\n"));
+    let freshness = compact.github.as_ref().unwrap().freshness.label();
+    let summary = lines
+        .iter()
+        .find(|line| line.contains("Queue:"))
+        .expect("the queue summary row");
+    assert!(summary.contains(&freshness), "{summary}");
+    // Freshness is right-aligned against the pane border.
+    assert!(
+        summary.trim_end_matches(['│', ' ']).ends_with(&freshness),
+        "{summary}"
+    );
+    assert_eq!(title_offset(&lines), "example/actual#1".len() + 1);
+    for needle in ["example/actual#1", "example/actual#2", "example/actual#3"] {
+        assert!(holds(&lines, needle), "{}", lines.join("\n"));
+    }
+    // The same row actions: a click on a row and Enter open the same PR.
+    let row = lines
+        .iter()
+        .position(|line| line.contains("example/actual#2"))
+        .unwrap() as u16;
+    click(&mut compact, 10, row);
+    let selected = compact.github.as_ref().unwrap().inbox.pull_requests[1].clone();
+    assert_eq!(
+        compact.github_action,
+        Some(GithubAction::Open(PrKey::from(&selected)))
+    );
+    compact.github_action = None;
+    key(&mut compact, KeyCode::Enter);
+    assert!(compact.github_action.is_some());
+
+    // At 80x24 both modes drill down; Compact gives the list one more row.
+    let mut comfortable = inbox_at(Density::Comfortable);
+    paint(&mut comfortable, 80, 24);
+    let mut compact = inbox_at(Density::Compact);
+    let (_, lines) = paint(&mut compact, 80, 24);
+    assert_eq!(
+        compact.github_visible_rows,
+        comfortable.github_visible_rows + 1,
+        "{}",
+        lines.join("\n")
+    );
+    crate::ui_chrome::set_density(Density::Comfortable);
+}
+
+#[test]
+fn design_density_v96_settings_density_is_one_focus_stop_by_key_and_click() {
+    use crate::config::Density;
+    let mut app = inbox();
+    app.dispatch(Action::Settings);
+    let (_, lines) = paint(&mut app, 80, 24);
+    assert!(
+        holds(&lines, "[Density: Comfortable]"),
+        "{}",
+        lines.join("\n")
+    );
+    // Host, Repository set, Theme, Density, Save, Close: hit order is focus order.
+    let order = app
+        .hits
+        .iter()
+        .filter_map(|hit| match hit.action {
+            Action::SettingsField(index) => Some(format!("field{index}")),
+            Action::SettingsTheme => Some("theme".into()),
+            Action::SettingsDensity => Some("density".into()),
+            Action::SettingsSave => Some("save".into()),
+            Action::Close => Some("close".into()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        order,
+        ["field0", "field1", "theme", "density", "save", "close"]
+    );
+    // Keyboard: three Tabs reach Density; Enter toggles it live without saving.
+    for _ in 0..3 {
+        key(&mut app, KeyCode::Tab);
+    }
+    assert_eq!(app.focus, 3);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.density, Density::Compact);
+    assert_eq!(app.settings_theme, 0, "Density is not the theme control");
+    assert!(!app.settings_save_requested);
+    let (_, lines) = paint(&mut app, 80, 24);
+    assert!(holds(&lines, "[Density: Compact]"), "{}", lines.join("\n"));
+    // The next stop is Save; Shift-Tab returns to Density.
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.focus, 4);
+    key(&mut app, KeyCode::BackTab);
+    assert_eq!(app.focus, 3);
+    // Mouse: a click on the control toggles it back.
+    let row = lines
+        .iter()
+        .position(|line| line.contains("[Density: Compact]"))
+        .unwrap() as u16;
+    let column = lines[usize::from(row)]
+        .chars()
+        .position(|c| c == '[')
+        .unwrap() as u16;
+    click(&mut app, column + 2, row);
+    assert_eq!(app.density, Density::Comfortable);
+    let (_, lines) = paint(&mut app, 80, 24);
+    assert!(holds(&lines, "[Density: Comfortable]"));
+    // Save is the fifth stop and Close the sixth.
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.settings_save_requested);
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.overlay, None);
+}

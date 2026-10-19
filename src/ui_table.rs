@@ -4,7 +4,7 @@
 //! module owns layout, selection painting and one click target per visible row.
 //!
 //! Row anatomy: `▌` bar slot, status glyph slot (when the table has glyphs), one blank cell,
-//! then the columns separated by [`COLUMN_GAP`] blanks. Prose rows (details, logs) start where
+//! then the columns separated by [`column_gap`] blanks (density, TASK-96). Prose rows (details, logs) start where
 //! the first column starts so a mixed list stays aligned.
 use crate::{
     editor::display_width,
@@ -23,8 +23,19 @@ use ratatui::{
 
 /// The selection bar painted in the first cell of the selected row.
 pub const SELECTION_BAR: &str = "▌";
-/// Blank cells between two columns.
+/// Blank cells between two columns at Comfortable density.
 pub const COLUMN_GAP: u16 = 2;
+/// Blank cells between two columns at Compact density.
+pub const COMPACT_COLUMN_GAP: u16 = 1;
+
+/// Blank cells between two columns at the frame's density (TASK-96).
+pub fn column_gap() -> u16 {
+    if crate::ui_chrome::density().is_compact() {
+        COMPACT_COLUMN_GAP
+    } else {
+        COLUMN_GAP
+    }
+}
 /// Shown in a cell whose value is not known yet (a running job's duration).
 pub const NONE: &str = "—";
 
@@ -276,6 +287,7 @@ pub fn natural_widths<'r, A: 'r>(
 /// grows flexible columns up to their natural width by `flex` share; what is left stays blank
 /// at the right.
 pub fn layout(columns: &[Column], natural: &[u16], width: u16) -> Vec<Placed> {
+    let gap = column_gap();
     let desired = |index: usize| {
         columns[index]
             .min
@@ -294,7 +306,7 @@ pub fn layout(columns: &[Column], natural: &[u16], width: u16) -> Vec<Placed> {
             .iter()
             .map(|index| u32::from(floor(*index)))
             .sum::<u32>()
-            + u32::from(COLUMN_GAP) * shown.len().saturating_sub(1) as u32
+            + u32::from(gap) * shown.len().saturating_sub(1) as u32
     };
     let least = |shown: &[usize]| {
         (0..shown.len())
@@ -316,7 +328,7 @@ pub fn layout(columns: &[Column], natural: &[u16], width: u16) -> Vec<Placed> {
             .iter()
             .map(|index| u32::from(desired(*index)))
             .sum::<u32>()
-            + u32::from(COLUMN_GAP) * shown.len().saturating_sub(1) as u32
+            + u32::from(gap) * shown.len().saturating_sub(1) as u32
     };
     while shown.len() > 1 && full(&shown) > u32::from(width) {
         let position = least(&shown);
@@ -370,7 +382,7 @@ pub fn layout(columns: &[Column], natural: &[u16], width: u16) -> Vec<Placed> {
                 x,
                 width,
             };
-            x = x.saturating_add(width).saturating_add(COLUMN_GAP);
+            x = x.saturating_add(width).saturating_add(gap);
             placed
         })
         .collect()
@@ -636,7 +648,7 @@ impl<'t> TablePainter<'t> {
                         Rect::new(x, y, area.right().saturating_sub(x), 1),
                         theme.role(Role::Text),
                     );
-                    x = x.saturating_add(COLUMN_GAP).min(area.right());
+                    x = x.saturating_add(column_gap()).min(area.right());
                 }
                 if let Some(cell) = item.cells.first() {
                     let text = fit(

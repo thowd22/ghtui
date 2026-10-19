@@ -179,7 +179,8 @@ fn theme_journey(mouse: bool, size: (u16, u16), resized: (u16, u16)) {
     if mouse {
         session.click_visible_action("[Save settings]");
     } else {
-        session.send_key(b"\t\r");
+        // Past Density to Save settings.
+        session.send_key(b"\t\t\r");
     }
     session.wait_for_screen("Settings saved locally");
     let (bg, hues) = TOKYO.colors();

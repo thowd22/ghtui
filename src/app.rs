@@ -58,6 +58,7 @@ pub enum Action {
     Settings,
     SettingsField(usize),
     SettingsTheme,
+    SettingsDensity,
     SettingsSave,
     RepositoryMode(crate::workspace::RepositoryMode),
     RepositoryRow(crate::workspace::RowAction),
@@ -310,6 +311,8 @@ pub struct App {
     pub settings_host: String,
     pub settings_set: String,
     pub settings_theme: usize,
+    /// List density (TASK-96): applied live like the theme, saved with Save settings.
+    pub density: crate::config::Density,
     pub settings_cursor: usize,
     pub settings_save_requested: bool,
     pub bindings: BTreeMap<String, String>,
@@ -563,6 +566,7 @@ impl Default for App {
             settings_host: "github.com".into(),
             settings_set: String::new(),
             settings_theme: 0,
+            density: crate::config::Density::Comfortable,
             settings_cursor: 0,
             settings_save_requested: false,
             bindings: crate::config::default_bindings(),
@@ -1742,6 +1746,10 @@ impl App {
             Action::SettingsTheme => {
                 self.settings_theme =
                     (self.settings_theme + 1) % crate::config::ThemeName::ALL.len()
+            }
+            Action::SettingsDensity => {
+                self.density = self.density.next();
+                self.status = format!("Density: {} • Save settings keeps it", self.density.label());
             }
             Action::SettingsSave => self.settings_save_requested = true,
             Action::GraphRereadV3(action) => {
@@ -3748,19 +3756,20 @@ impl App {
             KeyCode::Esc => self.dispatch(Action::Close),
             KeyCode::Tab | KeyCode::BackTab => {
                 self.focus = if code == KeyCode::Tab {
-                    (self.focus + 1) % 5
+                    (self.focus + 1) % SETTINGS_CONTROLS
                 } else {
-                    (self.focus + 4) % 5
+                    (self.focus + SETTINGS_CONTROLS - 1) % SETTINGS_CONTROLS
                 };
                 self.settings_cursor = self
                     .settings_field()
                     .map_or(0, |value| value.chars().count());
             }
             KeyCode::Enter if self.focus == 2 => self.dispatch(Action::SettingsTheme),
-            KeyCode::Enter if self.focus == 3 => self.dispatch(Action::SettingsSave),
-            KeyCode::Enter if self.focus == 4 => self.dispatch(Action::Close),
+            KeyCode::Enter if self.focus == 3 => self.dispatch(Action::SettingsDensity),
+            KeyCode::Enter if self.focus == 4 => self.dispatch(Action::SettingsSave),
+            KeyCode::Enter if self.focus == 5 => self.dispatch(Action::Close),
             KeyCode::Enter => {
-                self.focus = (self.focus + 1) % 5;
+                self.focus = (self.focus + 1) % SETTINGS_CONTROLS;
                 self.settings_cursor = self
                     .settings_field()
                     .map_or(0, |value| value.chars().count());
@@ -3817,6 +3826,10 @@ impl App {
         }
     }
 }
+
+/// Settings controls in focus (and hit) order: Host, Repository set, Theme, Density, Save,
+/// Close.
+const SETTINGS_CONTROLS: usize = 6;
 
 fn named_action(name: &str) -> Option<Action> {
     Some(match name {

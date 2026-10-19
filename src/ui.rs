@@ -24,6 +24,8 @@ pub(crate) fn notice_lines(text: &str, width: u16) -> Vec<Line<'static>> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    // One density per frame: layout helpers and tables read it while views paint (TASK-96).
+    crate::ui_chrome::set_density(app.density);
     draw_screen(frame, app);
     // Views clear their areas to the terminal default; the theme background fills those cells
     // so gaps between controls and empty rows never show a different terminal color.
@@ -107,6 +109,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
     // whole content area.
     let content_full = rows[3];
     let split = if crate::list_preview_v92::offered(app)
+        && crate::ui_chrome::splits()
         && content_full.width >= crate::list_preview_v92::min_width(app)
     {
         crate::ui_chrome::split_list_preview(content_full)
@@ -649,7 +652,21 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
                     rect: theme_row,
                     action: Action::SettingsTheme,
                 });
-                frame.render_widget(Paragraph::new("Tab: next control • Enter: activate • Ctrl-U: clear field\nChoose a saved repository set, or leave blank for personal queues."), Rect::new(inner.x, inner.y + 6, inner.width, 2));
+                // Density (TASK-96) applies live like the theme; Save settings keeps it.
+                let density_row = Rect::new(inner.x, inner.y + 5, inner.width, 1);
+                frame.render_widget(
+                    Paragraph::new(crate::ui_chrome::fit(
+                        &format!("[Density: {}]", app.density.label()),
+                        usize::from(inner.width),
+                    ))
+                    .style(if app.focus == 3 { accent } else { theme.base() }),
+                    density_row,
+                );
+                app.hits.push(HitRegion {
+                    rect: density_row,
+                    action: Action::SettingsDensity,
+                });
+                frame.render_widget(Paragraph::new("Tab: next control • Enter: activate • Ctrl-U: clear field\nChoose a saved repository set, or leave blank for personal queues."), Rect::new(inner.x, inner.y + 7, inner.width, 2));
                 let save = Rect::new(
                     inner.x + 18.min(inner.width),
                     rect.bottom().saturating_sub(2),
@@ -657,7 +674,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
                     1,
                 );
                 frame.render_widget(
-                    Paragraph::new("[Save settings]").style(if app.focus == 3 {
+                    Paragraph::new("[Save settings]").style(if app.focus == 4 {
                         accent
                     } else {
                         theme.base()

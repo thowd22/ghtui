@@ -2,6 +2,7 @@
 //! headers and label/value rows. Focus never relies on color alone: a focused pane also gets a
 //! bold title with the `▶` marker, and the keyboard-focused header control stays underlined.
 use crate::app::{safe_text, Action, App, HitRegion, View};
+use crate::config::Density;
 use crate::footer::{ControlGroup, KeyControl};
 use crate::identity::{ActorIdentity, ActorKind, InitialsChip};
 use crate::theme::{Hue, Role, Theme};
@@ -635,6 +636,27 @@ pub fn fill_default_colors(buffer: &mut Buffer, theme: Theme) {
 /// down from the list into the detail instead (TASK-92).
 pub const SPLIT_MIN_WIDTH: u16 = 120;
 
+thread_local! {
+    static DENSITY: std::cell::Cell<Density> = const { std::cell::Cell::new(Density::Comfortable) };
+}
+
+/// The density of the frame being drawn (TASK-96). [`crate::ui::draw`] sets it from the app
+/// before any view paints, so layout helpers and [`crate::ui_table`] read one value per frame.
+pub fn density() -> Density {
+    DENSITY.with(std::cell::Cell::get)
+}
+
+/// Sets the density the next painted views read; see [`density`].
+pub fn set_density(density: Density) {
+    DENSITY.with(|cell| cell.set(density));
+}
+
+/// Whether a list may sit beside its preview at this density: Compact keeps every column for
+/// the list and drills down with Enter at any width.
+pub fn splits() -> bool {
+    !density().is_compact()
+}
+
 /// The list pane and, when the screen is wide enough, the preview pane beside it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ListPreview {
@@ -643,9 +665,10 @@ pub struct ListPreview {
 }
 
 /// Splits a content area into a list pane (60%) and a preview pane at
-/// [`SPLIT_MIN_WIDTH`] columns or more; below that the list keeps the whole area.
+/// [`SPLIT_MIN_WIDTH`] columns or more; below that, or at Compact density, the list keeps the
+/// whole area.
 pub fn split_list_preview(area: Rect) -> ListPreview {
-    if area.width < SPLIT_MIN_WIDTH || area.height < 3 {
+    if area.width < SPLIT_MIN_WIDTH || area.height < 3 || !splits() {
         return ListPreview {
             list: area,
             preview: None,

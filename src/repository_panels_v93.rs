@@ -108,7 +108,7 @@ pub fn active(app: &App) -> bool {
 }
 
 /// The status entry of each file row: the Overview emits one row per entry, in order.
-fn entries<'w>(workspace: &'w Workspace) -> Vec<Option<&'w StatusEntry>> {
+fn entries(workspace: &Workspace) -> Vec<Option<&StatusEntry>> {
     let mut next = workspace.status.entries.iter();
     workspace
         .display_rows_v1()
@@ -133,12 +133,12 @@ pub fn sort(workspace: &Workspace, show_untracked: bool) -> Sorted {
         hidden: vec![false; rows.len()],
         ..Sorted::default()
     };
-    for index in 0..rows.len() {
+    for (index, entry) in entries.iter().enumerate().take(rows.len()) {
         match heading {
             Some(heading) if index == heading => sorted.hidden[index] = true,
             Some(heading) if index > heading => sorted.commits.push(index),
             _ => {
-                if entries[index].is_some_and(StatusEntry::untracked) {
+                if entry.is_some_and(StatusEntry::untracked) {
                     sorted.untracked += 1;
                     if !show_untracked {
                         sorted.hidden[index] = true;

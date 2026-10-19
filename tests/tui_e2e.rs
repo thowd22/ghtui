@@ -387,7 +387,8 @@ fn settings_journey(mouse: bool) {
     if mouse {
         session.click_visible_action("[Save settings]");
     } else {
-        session.send_key(b"\t\r");
+        // Theme, then Density, then Save settings.
+        session.send_key(b"\t\t\r");
     }
     session.wait_for_screen("Settings saved locally");
     let saved = ghtui::config::Config::load(&config_path).unwrap();
