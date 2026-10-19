@@ -285,8 +285,9 @@ impl ActionsControl {
             .any(|(catalog, label)| *catalog == view && *label == self.label))
     }
     /// Key-bar importance; lower stays longer when the row is narrow. Pending recovery comes
-    /// first, then Back and Refresh, the run's own pages, its everyday commands (rerun failed,
-    /// cancel, dispatch), Watch and the failure jumps, the rarer commands, and the scope tools.
+    /// first, then Back, an armed watch's Stop, Refresh, the run's own pages, its everyday
+    /// commands (rerun failed, cancel, dispatch), Watch, the scoped log tools and failure
+    /// jumps, the rarer commands, and the scope tools.
     /// What leaves the bar stays one key or palette entry away.
     pub fn priority(&self) -> u8 {
         use crate::scoped_actions_resources_v2::ScopedActionsReadActionV2 as Read;
@@ -298,6 +299,8 @@ impl ActionsControl {
             | PublicationAcknowledge(_)
             | PublicationAcknowledgeAcceptance(_) => 5,
             Back => 10,
+            // An armed watch keeps its Stop on the bar, even at 80 columns and mid-tick.
+            Watch if self.label == "[w Stop watch]" => 12,
             Refresh => 15,
             View(ActionsView::Run | ActionsView::Jobs)
             | Logs(_)
@@ -306,7 +309,12 @@ impl ActionsControl {
             Compose(RerunFailed | Cancel | DispatchWorkflow | EnableWorkflow | DisableWorkflow) => {
                 22
             }
-            Watch | ScopedReadV2(_)
+            // Watch stops a running timer, so it outranks the log search tools beside it.
+            Watch
+            | ScopedReadV2(Read::Ui(
+                crate::scoped_actions_native_v1::read_ui_v2::ReadUiActionV2::Watch,
+            )) => 24,
+            ScopedReadV2(_)
                 if !matches!(
                     self.action,
                     ScopedReadV2(Read::AllRunStatuses | Read::FailedRuns | Read::ActiveRuns)

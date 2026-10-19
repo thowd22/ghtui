@@ -664,14 +664,16 @@ pub(crate) fn preserve_controls_v1(route: &PrChecksRoute, workspace: &mut Action
             workspace
                 .controls
                 .push(crate::actions_workspace::ActionsControl {
-                    label: "[w Watch / Stop]".into(),
+                    label: "[w Watch]".into(),
                     action: ActionsAction::Watch,
                     disabled_reason: None,
                 });
         }
         for control in &mut workspace.controls {
-            if control.action == ActionsAction::Watch {
-                control.label = "[w Watch / Stop]".into();
+            // The same caption the continuation controls paint, so the key bar and
+            // Commands name one control; drawing turns it into Stop watch while armed.
+            if control.action == ActionsAction::Watch && control.label != "[w Stop watch]" {
+                control.label = "[w Watch]".into();
             }
         }
     }

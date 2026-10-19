@@ -412,7 +412,7 @@ fn journey(mouse: bool, case: Case) {
                 &mut session,
                 &["Original scoped status refreshed", "Run 123 • attempt 2"],
             );
-            control(&mut session, mouse, "[w Watch / Stop]", b"w");
+            control(&mut session, mouse, "[w Watch]", b"w");
             ready(&mut session, &["Finite scoped watch armed"]);
             session.wait_for_command_count(&fixture, 95);
             ready(&mut session, &["tick 1/12"]);
@@ -432,7 +432,7 @@ fn journey(mouse: bool, case: Case) {
             control(&mut session, mouse, "[r Refresh]", b"r");
             session.wait_for_command_count(&fixture, 89);
             ready(&mut session, &[FRESH_LOG]);
-            control(&mut session, mouse, "[w Watch / Stop]", b"w");
+            control(&mut session, mouse, "[w Watch]", b"w");
             session.wait_for_command_count(&fixture, 104);
             ready(&mut session, &[FRESH_LOG, "tick 1/12"]);
             session.wait_for_command_count(&fixture, 112);
@@ -444,7 +444,7 @@ fn journey(mouse: bool, case: Case) {
             assert!(session.screen().contains(FRESH_LOG));
         }
         Case::AttemptAdvance => {
-            control(&mut session, mouse, "[w Watch / Stop]", b"w");
+            control(&mut session, mouse, "[w Watch]", b"w");
             session.wait_for_command_count(&fixture, 75);
             overlay_ready(
                 &mut session,
