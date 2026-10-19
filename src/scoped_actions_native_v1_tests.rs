@@ -342,9 +342,9 @@ fn scoped_actions_native_actor_failure_color_and_key_bar_survive_narrow_resize()
             .all(|hit| hit.rect.right() <= width && hit.rect.bottom() <= height));
         // Refresh is a key-bar token at every size, never paged away.
         let keys = crate::actions_ui::footer_keys(app.actions.as_ref().unwrap());
-        assert!(crate::footer::layout(&keys, width).iter().any(|placed| {
-            keys[placed.index].action == Action::Actions(ActionsAction::Refresh)
-        }));
+        assert!(crate::footer::layout(&keys, width)
+            .iter()
+            .any(|placed| { keys[placed.index].action == Action::Refresh }));
     }
     f::exact(&fixture, &all);
 }

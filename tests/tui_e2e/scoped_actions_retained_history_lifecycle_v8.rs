@@ -17,7 +17,7 @@ fn history_facts_visible_v135(
             if let Some((frame, body)) = session.completed_cursorless_screen().and_then(|frame| {
                 (crate::support::main_footer_visible(frame)
                     && frame.contents().contains("Inspect original Actions")
-                    && !frame.contents().contains("[Esc Cancel]"))
+                    && crate::support::locate_control(frame, "[Esc Cancel]").is_none())
                 .then(|| crate::support::overlay_body(frame, "Actions • focused view"))
                 .flatten()
                 .filter(|_| {

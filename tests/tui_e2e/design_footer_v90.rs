@@ -100,15 +100,11 @@ fn key_bar(mouse: bool) {
     session.assert_control_absent("[Esc Cancel]");
     // 80x24: compact labels, lower-priority controls move to Commands and Help.
     session.resize_owned_footer(80, 24, PANE, NARROW);
-    for label in [
-        "[D Defaults]",
-        "[O Open saved]",
-        "[S Save]",
-        "[L Layout]",
-        "[: Commands]",
-    ] {
+    for label in ["[D Defaults]", "[O Open saved]", "[S Save]", "[L Layout]"] {
         session.assert_control_absent(label);
     }
+    // `: Commands` is compacted, not dropped (the compact `: Cmds` token still locates it).
+    assert!(!last_row(&session).contains(": Commands"));
     assert!(last_row(&session)
         .trim_end()
         .ends_with("? Help  : Cmds  q Quit"));

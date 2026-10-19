@@ -592,7 +592,7 @@ fn committed_ack_visible_v135(session: &mut Session, mouse: bool, after: usize) 
                     && frame
                         .contents()
                         .contains("Inspect original Actions publication")
-                    && !frame.contents().contains("[Esc Cancel]"))
+                    && crate::support::locate_control(frame, "[Esc Cancel]").is_none())
                 .then(|| crate::support::overlay_body(frame, "Actions • focused view"))
                 .flatten()
                 .filter(|body| !body.contains("[Acknowledge inspected state]"))

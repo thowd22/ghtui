@@ -930,6 +930,15 @@ fn test_framework_locate_control_prefers_exact_brackets_and_reads_tokens_only_in
     }
     let parser = footer_frame(24, 80, "", "all Logs");
     assert_eq!(locate_control(parser.screen(), "[l Logs]"), None);
+    // Below 100 columns a compact caption with the same key stands for the full label.
+    let compact = footer_frame(24, 80, "", "r Refresh  : Cmds  b Back  q Quit");
+    assert_eq!(
+        locate_control(compact.screen(), "[: Commands]"),
+        Some((11, 23))
+    );
+    assert_eq!(locate_control(compact.screen(), "[b Cancel read]"), None);
+    let wide = footer_frame(42, 140, "", "r Refresh  : Cmds  q Quit");
+    assert_eq!(locate_control(wide.screen(), "[: Commands]"), None);
 }
 
 #[test]

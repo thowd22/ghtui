@@ -85,13 +85,10 @@ fn global_refresh(session: &mut Session, mouse: bool) {
     if mouse {
         // Deliberately select the physical GLOBAL footer, not the identically
         // labelled Actions toolbar. ASCII footer prefix makes its cell exact.
-        let screen = session.screen();
-        let footer = screen.lines().nth(39).expect("Observed 120x40 footer");
-        let index = footer
-            .find("[r Refresh]")
-            .expect("Actual global Refresh visible");
-        assert!(footer[..index].is_ascii());
-        session.click(u16::try_from(index).unwrap(), 39);
+        // The key bar's single `r Refresh` token carries the global Refresh, as `r` does.
+        let (x, y) = session.wait_for_control("[r Refresh]");
+        assert_eq!(y, 39, "Actual global Refresh is the key-bar token");
+        session.click(x, y);
     } else {
         session.send_key(b":");
         overlay_ready(

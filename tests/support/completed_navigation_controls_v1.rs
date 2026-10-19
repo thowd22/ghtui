@@ -199,9 +199,23 @@ pub fn actions_control_position(
         .filter(|(_, token)| token.contains(wanted.as_str()))
         .collect::<Vec<_>>();
     // Below 100 columns a token can be the compact start of the caption (`Acknowledge`).
+    // or the same key with a shorter caption of the same initial (`P Pubs`).
+    let parsed = Control::parse(label);
+    let keyed = |token: &str| {
+        parsed.key.as_deref().is_some_and(|key| {
+            token
+                .strip_prefix(key)
+                .and_then(|caption| caption.strip_prefix(' '))
+                .is_some_and(|caption| {
+                    caption.len() < parsed.text.len()
+                        && caption.chars().next().map(|c| c.to_ascii_lowercase())
+                            == parsed.text.chars().next().map(|c| c.to_ascii_lowercase())
+                })
+        })
+    };
     let compact = tokens
         .iter()
-        .filter(|(_, token)| token.len() >= 4 && wanted.starts_with(*token))
+        .filter(|(_, token)| token.len() >= 4 && wanted.starts_with(*token) || keyed(token))
         .collect::<Vec<_>>();
     let matches = if !exact.is_empty() {
         exact

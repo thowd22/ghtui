@@ -224,7 +224,7 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
                 && frame
                     .contents()
                     .contains("Attempt source: verified exact endpoint")
-                && !frame.contents().contains("[Esc Cancel]")
+                && crate::support::locate_control(frame, "[Esc Cancel]").is_none()
         },
         "completed original run/attempt/job before control input",
         Duration::from_secs(8),
@@ -402,7 +402,7 @@ fn happy(mouse: bool) {
         |frame| {
             frame.contents().contains("Step 3")
                 && frame.contents().contains("Run tests")
-                && !frame.contents().contains("[Esc Cancel]")
+                && crate::support::locate_control(frame, "[Esc Cancel]").is_none()
         },
         "completed exact selected job details before paged Logs control",
         Duration::from_secs(8),

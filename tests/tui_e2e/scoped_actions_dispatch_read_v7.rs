@@ -188,7 +188,9 @@ fn follow_through(mouse: bool) {
     complete(
         &mut s,
         before,
-        &["Step 2", "Actual failed source step", "[N Annotations]"],
+        // Annotations is a key-bar token or, at 80 columns, a palette entry; it is
+        // chosen below by the same input kind.
+        &["Step 2", "Actual failed source step"],
     );
     let before = s.completed_cursorless_end();
     choose(&mut s, mouse, "[l Logs]", b"l");

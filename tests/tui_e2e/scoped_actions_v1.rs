@@ -199,6 +199,15 @@ fn start(fixture: &Fixture, mouse: bool) -> Session {
     actions_ready(&mut session);
     session
 }
+/// Actions controls are key-bar tokens or catalogue tabs; one that does not fit at this width
+/// is chosen in the command palette by the same input kind. Keyboard sends the control's key.
+fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        session.click_actions_control(label);
+    } else {
+        session.send_key(key);
+    }
+}
 fn configured_native(steps: &[GhStep]) -> Fixture {
     let fixture = configured(steps);
     Cache::open(&database(&fixture))
@@ -275,7 +284,9 @@ fn jobs(session: &mut Session, mouse: bool) {
     complete(
         session,
         before,
-        &["Step 2", "Actual failed source step", "[N Annotations]"],
+        // Annotations is a key-bar token or, at 80 columns, a palette entry; it is
+        // chosen below by the same input kind.
+        &["Step 2", "Actual failed source step"],
     );
 }
 fn end(
@@ -358,7 +369,7 @@ fn happy(mouse: bool) {
     choose(&mut session, mouse, "[b Back]", b"b");
     complete(&mut session, mark, &["PRIVATE_SCOPED_ACTIONS_JOB_501_LOG"]);
     let mark = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[Runs]", b"R");
+    choose(&mut session, mouse, "Runs", b"R");
     complete(
         &mut session,
         mark,

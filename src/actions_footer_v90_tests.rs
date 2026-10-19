@@ -87,8 +87,10 @@ fn design_footer_v90_actions_tabs_replace_toolbar_rows_and_bar_compacts_at_80() 
         }
         // Every key-bar token and tab is a click target with the action its key resolves to.
         let keys = footer_keys(app.actions.as_ref().unwrap());
+        // Refresh is the global binding; its token carries the same global action.
+        assert_eq!(press(&keys, 'r'), Some(Action::Refresh));
+        assert!(app.hits.iter().any(|hit| hit.action == Action::Refresh));
         for (key, action) in [
-            ('r', ActionsAction::Refresh),
             ('W', ActionsAction::View(ActionsView::Workflows)),
             ('P', ActionsAction::PublicationList),
             ('}', ActionsAction::Repository(1)),

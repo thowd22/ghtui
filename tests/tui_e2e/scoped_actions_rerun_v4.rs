@@ -552,7 +552,7 @@ fn invalid_job(mouse: bool) {
                 let text = f.contents();
                 text.contains("scope is fenced")
                     && !text.contains(H)
-                    && !text.contains("[Esc Cancel]")
+                    && crate::support::locate_control(f, "[Esc Cancel]").is_none()
             })
         {
             break;

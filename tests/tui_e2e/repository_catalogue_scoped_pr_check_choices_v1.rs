@@ -286,7 +286,7 @@ fn another_job(session: &mut Session, fixture: &Fixture, mouse: bool, count: usi
     assert_eq!(commands(session, fixture).len(), count);
     // The shared viewer stays read-only even after an explicit choice: refusal
     // must precede every generic private-draft/journal or mutation route.
-    control(session, mouse, "[Runs unavailable:", b"R");
+    control(session, mouse, "Runs", b"R");
     overlay_ready(
         session,
         "Action unavailable",

@@ -261,7 +261,9 @@ pub fn footer_control(screen: &vt100::Screen, control: &Control) -> Option<(u16,
             offset += token.len() + 2;
             let trimmed = token.trim_start();
             let caption = trimmed.get(prefix.len()..).unwrap_or_default();
+            // Only a shorter (compact) caption stands in: `R rerun failed` is not `[R Rerun]`.
             if trimmed.starts_with(&prefix)
+                && caption.trim_end().len() < control.text.len()
                 && caption
                     .chars()
                     .next()

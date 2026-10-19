@@ -188,7 +188,7 @@ fn navigation(mouse: bool) {
         |frame| {
             frame.contents().contains("dirty界.txt")
                 && crate::support::main_footer_visible(frame)
-                && !frame.contents().contains("[Esc Cancel]")
+                && crate::support::locate_control(frame, "[Esc Cancel]").is_none()
         },
         "Actual local Repository refresh completes independently",
         Duration::from_secs(8),

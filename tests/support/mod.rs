@@ -1310,10 +1310,29 @@ impl Session {
     /// does not fit the key bar or tab strip at this width is clicked in the command palette.
     pub fn click_actions_control(&mut self, label: &str) {
         let label = actions_tab_label(label);
+        // A key-bar token is clicked only on an idle completed frame: while a read runs,
+        // controls leave the bar and the remaining tokens move.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            self.poll_output(Duration::from_millis(10));
+            if let Some((x, y)) = self.completed_actions_control(label) {
+                self.click(x, y);
+                return;
+            }
+            // A painted tab, row or modal button needs no idle key bar.
+            if !Control::parse(label).bracketed
+                || self.completed_actions_page().is_none()
+                    && locate_control(self.parser.screen(), label).is_some()
+            {
+                break;
+            }
+        }
         if self
-            .try_wait_for_control(label, Duration::from_secs(2))
+            .try_wait_for_control(label, Duration::from_millis(500))
             .is_some()
+            || self.completed_actions_page().is_none()
         {
+            // Painted, or not an idle Actions frame (a modal button still arriving).
             self.click_visible_action(label);
         } else {
             self.invoke_via_palette(true, label);
@@ -1423,30 +1442,42 @@ impl Session {
         // A prepared control keeps its own caption in the palette, bracketed or not. When
         // the filter ranks another command first, Down walks the selection to it.
         let candidates = [format!("> {text}"), format!("> {label}")];
+        // The selected row's whole caption (`> caption`, then the shortcut column or the
+        // unavailable marker): the label itself, its text, or its text behind a one-character
+        // key (`X Disable workflow`). `Delete run` is never `Delete run logs`.
+        let wanted = |caption: &str| {
+            caption == text
+                || caption == label
+                || caption
+                    .strip_suffix(text.as_str())
+                    .and_then(|key| key.strip_suffix(' '))
+                    .is_some_and(|key| key.chars().count() == 1)
+        };
         let deadline = Instant::now() + Duration::from_secs(8);
         let mut moved = Instant::now();
         let mut downs = 0;
         loop {
             if let Some(body) = self.visible_overlay_body(PALETTE_TITLE) {
-                // The whole caption, not a prefix of a longer one (`Delete run` is not
-                // `Delete run logs`): it ends the row, or the shortcut column or the
-                // unavailable marker follows.
-                let whole = |row: &str| {
-                    body.lines().any(|line| {
-                        line.match_indices(row).any(|(at, _)| {
-                            let rest = line[at + row.len()..].trim_end_matches(['│', ' ']);
-                            rest.is_empty()
-                                || line[at + row.len()..].starts_with("  ")
-                                || rest.starts_with(" [why unavailable]")
-                        })
-                    })
-                };
-                if let Some(selected) = candidates.iter().find(|row| whole(row)) {
-                    return selected.clone();
+                let selected = body.lines().find_map(|line| {
+                    let row = line.trim_start_matches('│').strip_prefix("> ")?;
+                    let end = [
+                        row.find("  "),
+                        row.find(" [why unavailable]"),
+                        row.find('│'),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .unwrap_or(row.len());
+                    Some(row[..end].trim().to_owned())
+                });
+                if let Some(caption) = selected.filter(|caption| wanted(caption)) {
+                    return format!("> {caption}");
                 }
                 let listed = candidates
                     .iter()
-                    .any(|row| body.contains(&format!(" {}", &row[2..])));
+                    .any(|row| body.contains(&format!(" {}", &row[2..])))
+                    || body.contains(&format!(" {text}"));
                 if listed && downs < 24 && moved.elapsed() > Duration::from_millis(300) {
                     self.send_key(b"\x1b[B");
                     downs += 1;

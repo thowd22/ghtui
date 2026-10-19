@@ -315,29 +315,32 @@ pub fn footer_keys(workspace: &ActionsWorkspace) -> Vec<KeyControl> {
         .iter()
         .map(|control| {
             let (key, text) = control.key_and_text();
-            let mut key_control = KeyControl::new(
-                key.unwrap_or_default(),
-                sanitize_terminal(&text),
-                Action::Actions(control.action.clone()),
-            )
-            .with_priority(control.priority())
-            .in_group(if control.is_catalog_tab() {
-                ControlGroup::Mode
-            } else if matches!(
-                control.action,
-                ActionsAction::Back | ActionsAction::Select(_)
-            ) {
-                ControlGroup::Navigate
-            } else {
-                ControlGroup::Act
-            })
-            .with_selected(control.action == ActionsAction::View(workspace.view))
-            .disabled_by(
-                control
-                    .disabled_reason
-                    .as_ref()
-                    .map(|reason| format!("{}: {reason}", control.label)),
-            );
+            // The refresh key is the global Refresh binding, which runs before view keys;
+            // its token carries the same global action so click and key agree.
+            let action = match control.action {
+                ActionsAction::Refresh => Action::Refresh,
+                ref action => Action::Actions(action.clone()),
+            };
+            let mut key_control =
+                KeyControl::new(key.unwrap_or_default(), sanitize_terminal(&text), action)
+                    .with_priority(control.priority())
+                    .in_group(if control.is_catalog_tab() {
+                        ControlGroup::Mode
+                    } else if matches!(
+                        control.action,
+                        ActionsAction::Back | ActionsAction::Select(_)
+                    ) {
+                        ControlGroup::Navigate
+                    } else {
+                        ControlGroup::Act
+                    })
+                    .with_selected(control.action == ActionsAction::View(workspace.view))
+                    .disabled_by(
+                        control
+                            .disabled_reason
+                            .as_ref()
+                            .map(|reason| format!("{}: {reason}", control.label)),
+                    );
             if let Some(compact) = control.compact_text() {
                 key_control = key_control.with_compact(compact);
             }

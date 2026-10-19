@@ -354,7 +354,7 @@ fn initial(s: &mut Session, f: &Fixture, mouse: bool, c: &str) {
             text.contains("Requested ref main")
                 && text.contains(c)
                 && text.contains("Workflow definition")
-                && !text.contains("[Esc Cancel]")
+                && crate::support::locate_control(frame, "[Esc Cancel]").is_none()
                 && !text.contains("Action unavailable")
                 && crate::support::main_footer_visible(frame)
                 && crate::support::locate_control(frame, "[E Edit YAML locally]").is_some()
