@@ -8,7 +8,6 @@ fn render(app: &mut App, width: u16, height: u16) -> crate::actions_ui::ActionsR
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     let mut result = None;
     let theme = app.theme();
-    let avatars = Default::default();
     terminal
         .draw(|frame| {
             let area = frame.area();
@@ -17,7 +16,7 @@ fn render(app: &mut App, width: u16, height: u16) -> crate::actions_ui::ActionsR
                 app.actions.as_mut().unwrap(),
                 area,
                 theme,
-                &avatars,
+                true,
             ));
         })
         .unwrap();

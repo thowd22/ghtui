@@ -11,6 +11,7 @@ pub(super) fn environment_rows(environments: &[Value]) -> (Vec<ActionsRow>, Vec<
             .as_str()
             .unwrap_or("unknown environment");
         rows.push(ActionsRow {
+            cells: Default::default(),
             label: format!(
                 "Environment #{} • {}",
                 id.map_or_else(|| "unknown".into(), |id| id.to_string()),
@@ -61,7 +62,7 @@ pub(super) fn environment_rows(environments: &[Value]) -> (Vec<ActionsRow>, Vec<
                                 reviewer_id
                             )));
                         } else {
-                            rows.push(ActionsRow {
+                            rows.push(ActionsRow { cells: Default::default(),
                                 label: format!("Required reviewer • numeric account {reviewer_id}"),
                                 role: SemanticToken::Actor,
                                 actor: Some(Actor {

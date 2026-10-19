@@ -104,9 +104,9 @@ fn assert_original(database: &Path, state: &str, accepted: bool) {
 fn open_run(session: &mut Session, mouse: bool) {
     session.wait_for_screen("ghtui");
     choose(session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
@@ -295,9 +295,9 @@ fn journey(mouse: bool, interruption: Interrupted) {
     };
     assert_original(&database, expected, interruption == Interrupted::Accepted);
     choose(&mut restarted, mouse, "Runs", b"R");
-    restarted.wait_for_screen("example/repo run 123");
+    restarted.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        restarted.click_visible_action("example/repo run 123");
+        restarted.click_visible_action(&run_cell(123, 2));
     } else {
         restarted.send_key(b"\r");
     }
@@ -449,7 +449,7 @@ fn unavailable_selection(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Caches", b"c");
     session.wait_for_screen("#71 • protected-cache");
     command(&mut session, mouse, "Filter caches");
@@ -478,17 +478,8 @@ fn unavailable_selection(mouse: bool) {
                 session.send_key(b"\x1b[B");
             }
         }
-        session
-            .try_wait_for_condition(
-                |screen| {
-                    screen
-                        .lines()
-                        .any(|line| line.contains(&label) && line.contains('>'))
-                },
-                "Cache selection independently visible after failed publication SQL view",
-                std::time::Duration::from_secs(8),
-            )
-            .unwrap();
+        // Cache selection independently visible after the failed publication SQL view.
+        wait_selected(&mut session, &label);
         let before_dialog = session.completed_cursorless_end();
         command(&mut session, mouse, "Delete selected cache");
         wait_unavailable_dialog(&mut session, before_dialog);

@@ -95,13 +95,13 @@ fn search(session: &mut Session, mouse: bool, query: &str, regex: bool) {
 fn selected_log(session: &Session, label: &str) {
     let screen = session
         .completed_cursorless_screen()
-        .expect("actual complete log selection")
-        .contents();
+        .expect("actual complete log selection");
+    // The one `▌` selected row of the Actions list (TASK-91).
+    let selected = crate::support::selected_row(screen, &crate::support::view_title("Actions"));
     assert!(
-        screen
-            .lines()
-            .any(|row| row.contains("> ") && row.contains(label)),
-        "actual selected canonical captured-log row {label}\n{screen}"
+        selected.as_deref().is_some_and(|row| row.contains(label)),
+        "actual selected canonical captured-log row {label} (selected {selected:?})\n{}",
+        screen.contents()
     );
 }
 fn filters(mouse: bool) {
@@ -150,7 +150,7 @@ fn filters(mouse: bool) {
     complete(
         &mut session,
         after,
-        &["Run page 1", "/10000 reported", "status failure", "run 123"],
+        &["Run page 1", "/10000 reported", "status failure", "123 #2"],
     );
     let after = session.completed_cursorless_end();
     ctl(&mut session, mouse, "[r Refresh]", b"r");

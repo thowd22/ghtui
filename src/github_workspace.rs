@@ -668,14 +668,10 @@ pub fn age_label(timestamp: &str) -> String {
     let Some(created) = timestamp_seconds(timestamp) else {
         return "age unavailable".into();
     };
-    let age = now().saturating_sub(created);
-    if age < 3600 {
-        format!("{}m old", age / 60)
-    } else if age < 86400 {
-        format!("{}h old", age / 3600)
-    } else {
-        format!("{}d old", age / 86400)
-    }
+    format!(
+        "{} old",
+        crate::ui_table::age_from_seconds(now().saturating_sub(created))
+    )
 }
 pub(crate) fn timestamp_seconds(value: &str) -> Option<u64> {
     if value.len() != 20

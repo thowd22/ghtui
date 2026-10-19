@@ -182,3 +182,98 @@ fn design_help_v97_actions_help_and_commands_cover_every_footer_key() {
         assert!(crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&app, state) > 3);
     }
 }
+
+#[test]
+fn design_footer_v90_actions_scope_filter_rerun_and_acknowledge_have_keys() {
+    let mut page = workspace(Some(42));
+    let commands = [
+        (
+            ActionsCommand::ChooseScope,
+            'o',
+            "o Choose Actions scope",
+            "o Scope",
+        ),
+        (ActionsCommand::FilterRuns, 'f', "f Filter runs", "f Filter"),
+        (
+            ActionsCommand::RerunAll,
+            'A',
+            "A Rerun all jobs",
+            "A Rerun all",
+        ),
+        (
+            ActionsCommand::RerunFailed,
+            'F',
+            "F Rerun failed jobs",
+            "F Rerun failed",
+        ),
+    ];
+    page.controls = commands
+        .iter()
+        .map(|(command, ..)| ActionsControl {
+            label: command.label().into(),
+            action: ActionsAction::Compose(*command),
+            disabled_reason: None,
+        })
+        .chain([
+            ActionsControl {
+                label: "Acknowledge inspected state".into(),
+                action: ActionsAction::Acknowledge,
+                disabled_reason: None,
+            },
+            ActionsControl {
+                label: "Acknowledge inspected acceptance (effect unverified)".into(),
+                action: ActionsAction::PublicationAcknowledgeAcceptance(9),
+                disabled_reason: None,
+            },
+        ])
+        .collect();
+    let keys = footer_keys(&page);
+    for (command, key, wide, compact) in commands {
+        assert_eq!(
+            press(&keys, key),
+            Some(Action::Actions(ActionsAction::Compose(command)))
+        );
+        let control = keys
+            .iter()
+            .find(|control| control.key == key.to_string())
+            .unwrap();
+        assert_eq!(control.token(false), wide);
+        assert_eq!(control.token(true), compact);
+    }
+    // Both acknowledgements share K; the first enabled one keeps it and the other stays a
+    // click target and palette entry.
+    assert_eq!(
+        press(&keys, 'K'),
+        Some(Action::Actions(ActionsAction::Acknowledge))
+    );
+    let acceptance = keys
+        .iter()
+        .find(|control| {
+            control.action == Action::Actions(ActionsAction::PublicationAcknowledgeAcceptance(9))
+        })
+        .unwrap();
+    assert!(acceptance.key.is_empty());
+    // Alone on its page, the acceptance acknowledgement owns K.
+    page.controls
+        .retain(|control| control.action == ActionsAction::PublicationAcknowledgeAcceptance(9));
+    assert_eq!(
+        press(&footer_keys(&page), 'K'),
+        Some(Action::Actions(
+            ActionsAction::PublicationAcknowledgeAcceptance(9)
+        ))
+    );
+    // The new keys never shadow a Runs/Run page control or a catalogue tab.
+    let mut runs = workspace(Some(42));
+    for page in [ActionsView::Runs, ActionsView::Run] {
+        runs.view = page;
+        runs.prepare_rows();
+        let keys = footer_keys(&runs);
+        for key in ['o', 'f', 'A', 'F'] {
+            let bearers = keys
+                .iter()
+                .filter(|control| control.key == key.to_string())
+                .count();
+            assert!(bearers <= 1, "{key} has {bearers} bearers on {page:?}");
+        }
+    }
+}

@@ -873,12 +873,14 @@ fn prepare_annotations(workspace: &mut ActionsWorkspace, read: &Arc<PrCheckAnnot
     workspace.prepare_rows();
     workspace.rows = vec![
         ActionsRow {
+            cells: Default::default(),
             label: "API-visible annotations • not a canonical file range".into(),
             role: SemanticToken::Muted,
             actor: None,
             action: None,
         },
         ActionsRow {
+            cells: Default::default(),
             label: format!(
                 "{} observed • {} • job {}",
                 read.rows().len(),
@@ -908,6 +910,7 @@ fn prepare_annotations(workspace: &mut ActionsWorkspace, read: &Arc<PrCheckAnnot
             row.title().unwrap_or("title unavailable")
         ));
         workspace.rows.push(ActionsRow {
+            cells: Default::default(),
             label,
             role: match row.level() {
                 Some("failure") => SemanticToken::Failure,

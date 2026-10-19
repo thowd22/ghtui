@@ -461,6 +461,7 @@ fn actor_avatar_exact_actions_projection_keeps_same_login_url_and_nullable_varia
     workspace.rows = [actor(URL_A), actor(URL_B), actor(URL_A), missing.clone()]
         .into_iter()
         .map(|actor| ActionsRow {
+            cells: Default::default(),
             label: "Actual actor row".into(),
             role: SemanticToken::Actor,
             actor: Some(actor),

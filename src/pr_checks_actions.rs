@@ -81,6 +81,7 @@ impl PreparedPrCheckActions {
         workspace.rows.insert(
             0,
             ActionsRow {
+                cells: Default::default(),
                 label: format!(
                     "PR #{} • CheckRun {} • suite {}",
                     observation.pr_number(),
@@ -95,6 +96,7 @@ impl PreparedPrCheckActions {
         workspace.rows.insert(
             1,
             ActionsRow {
+                cells: Default::default(),
                 label: provenance.into(),
                 role: SemanticToken::Muted,
                 actor: None,

@@ -125,9 +125,9 @@ fn deployment_decisions(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
@@ -294,9 +294,9 @@ fn fork_approval_observed_footer(mouse: bool, controlled: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }

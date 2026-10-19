@@ -41,7 +41,7 @@ fn origin_journey(mouse: bool) {
     // A detected origin is a default, not --repo: the local view keeps focus.
     session.assert_focused_view("Repository");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen(&run_cell(123, 2));
     session.wait_for_screen("1 runs of 451 reported");
     session.wait_for_screen("Loaded 1 of 451 matching runs");
     let rows = journal(&mut session, &fixture, 3);
@@ -49,7 +49,7 @@ fn origin_journey(mouse: bool) {
         .iter()
         .all(|row| !row["args"].to_string().contains("--paginate")));
     session.resize(80, 24);
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     assert_checkout_preserved(&fixture, &head, origin);
     session.quit_and_assert_restored_terminal(mouse);
     assert_eq!(session.inspect_command_journal(&fixture).lines().count(), 3);

@@ -45,6 +45,40 @@ fn fixture() -> Fixture {
     .unwrap();
     fixture
 }
+/// The Runs table's RUN cell (TASK-91): the run id, then `#attempt` after a rerun.
+fn run_cell(id: u64, attempt: u64) -> String {
+    if attempt > 1 {
+        format!("{id} #{attempt}")
+    } else {
+        id.to_string()
+    }
+}
+/// Waits until one painted line holds every part: the cells of one table row.
+fn wait_row(session: &mut Session, parts: &[&str]) {
+    let description = format!("one row with {parts:?}");
+    if let Err(error) = session.try_wait_for_condition(
+        |screen| {
+            screen
+                .lines()
+                .any(|line| parts.iter().all(|part| line.contains(part)))
+        },
+        &description,
+        std::time::Duration::from_secs(8),
+    ) {
+        session.save_artifacts();
+        panic!("{error}; artifacts: {}", session.artifact_dir.display());
+    }
+}
+/// The Actions list's `▌` selected row contains `text`.
+fn selected_has(session: &Session, text: &str) -> bool {
+    session
+        .selected_row(&crate::support::view_title("Actions"))
+        .is_some_and(|row| row.contains(text))
+}
+/// Waits until the Actions list paints its `▌` selection bar on the row containing `text`.
+fn wait_selected(session: &mut Session, text: &str) -> String {
+    session.wait_for_selected_row(&crate::support::view_title("Actions"), text)
+}
 fn api(endpoint: &str) -> Vec<String> {
     [
         "api",
@@ -209,9 +243,10 @@ fn open_original_publication(session: &mut Session, mouse: bool, attempt_id: i64
         session.send_key(b"\x1b[H");
         for _ in 0..768 {
             session.poll_output(std::time::Duration::from_millis(40));
-            if session.screen().lines().any(|line| {
-                line.contains(&heading) && line.contains('>') && line.matches(" • ").count() >= 2
-            }) {
+            if session
+                .selected_row(&crate::support::view_title("Actions"))
+                .is_some_and(|row| row.contains(&heading) && row.matches(" • ").count() >= 2)
+            {
                 session.send_key(b"\r");
                 return;
             }
@@ -248,12 +283,12 @@ fn inventory(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123 attempt 2");
-    session.wait_for_screen("@alice");
+    session.wait_for_screen(&run_cell(123, 2));
+    session.wait_for_screen("AL alice");
     session.wait_for_screen("1 runs of 1 reported");
     journal(&mut session, &fixture, 3);
     session.resize(80, 24);
-    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen(&run_cell(123, 2));
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     assert_eq!(
@@ -284,13 +319,13 @@ fn disabled_control(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Job 501");
+    wait_row(&mut session, &["matrix test linux", "501"]);
     command(&mut session, mouse, "Rerun selected job");
     session.wait_for_screen("Action unavailable");
     session.wait_for_screen("Open the job to rerun before composing");
@@ -350,25 +385,25 @@ fn run_view(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123")
+        session.click_visible_action(&run_cell(123, 2))
     } else {
         session.send_key(b"\r")
     };
-    session.wait_for_screen("Job 501");
+    wait_row(&mut session, &["matrix test linux", "501"]);
     session.wait_for_screen("trigger pull_request");
     session.wait_for_screen("@octocat");
     journal(&mut session, &fixture, 5);
     if mouse {
-        session.click_visible_action("Job 501")
+        session.click_visible_action("matrix test linux")
     } else {
         for _ in 0..5 {
             session.send_key(b"\x1b[B");
         }
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Step 3");
+    session.wait_for_screen("3 Run tests");
     session.wait_for_screen("Run tests");
     choose(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_screen("ERROR fixture assertion failed");
@@ -455,22 +490,22 @@ fn run_control(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123")
+        session.click_visible_action(&run_cell(123, 2))
     } else {
         session.send_key(b"\r")
     };
-    session.wait_for_screen("Job 501");
+    wait_row(&mut session, &["matrix test linux", "501"]);
     if mouse {
-        session.click_visible_action("Job 501")
+        session.click_visible_action("matrix test linux")
     } else {
         for _ in 0..5 {
             session.send_key(b"\x1b[B");
         }
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Step 3");
+    session.wait_for_screen("3 Run tests");
     command(&mut session, mouse, "Rerun selected job");
     session.wait_for_screen("ACTIONS INTENT");
     journal(&mut session, &fixture, rerun_open_count);
@@ -505,9 +540,9 @@ fn run_control(mouse: bool) {
     session.wait_for_screen("Original affected state acknowledged");
     journal(&mut session, &fixture, acknowledged_count);
     choose(&mut session, mouse, "Runs", b"R");
-    session.wait_for_screen("example/repo run 123 attempt 3");
+    session.wait_for_screen(&run_cell(123, 3));
     if mouse {
-        session.click_visible_action("example/repo run 123 attempt 3");
+        session.click_visible_action(&run_cell(123, 3));
     } else {
         session.send_key(b"\r");
     }
@@ -633,7 +668,7 @@ fn secrets_vars(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Secrets", b"S");
     session.wait_for_screen("Existing secret values cannot be read");
     command(&mut session, mouse, "Set secret");
@@ -869,7 +904,7 @@ fn workflow_controls(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Workflows", b"W");
     session.wait_for_screen("Build dispatch");
     journal(&mut session, &fixture, 5);
@@ -945,7 +980,7 @@ fn workflow_controls(mouse: bool) {
         journal(&mut session, &fixture, count);
     }
     choose(&mut session, mouse, "Runs", b"R");
-    session.wait_for_screen("example/repo run 200 attempt 1");
+    wait_row(&mut session, &["main", " 200"]);
     let rows = journal(&mut session, &fixture, final_count);
     let writes = rows
         .iter()
@@ -969,7 +1004,7 @@ fn workflow_controls(mouse: bool) {
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     session.resize(80, 24);
-    session.wait_for_screen("example/repo run 200 attempt 1");
+    wait_row(&mut session, &["main", " 200"]);
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -1062,7 +1097,7 @@ fn cache_management(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Caches", b"c");
     session.wait_for_screen("#71 • cargo/linux/v1");
     session.wait_for_screen("#72 • docs/index");
@@ -1220,9 +1255,9 @@ fn uncertain_cancel(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
@@ -1282,9 +1317,9 @@ fn uncertain_cancel(mouse: bool) {
     assert_eq!(acknowledged[0].context, original[0].context);
     assert!(acknowledged[0].receipt.is_none());
     choose(&mut session, mouse, "Runs", b"R");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
@@ -1448,13 +1483,13 @@ fn artifact_management(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Job 501");
+    wait_row(&mut session, &["matrix test linux", "501"]);
     choose(&mut session, mouse, "[a Artifacts]", b"a");
     session.wait_for_screen("build-output #41");
     session.wait_for_screen("attempt not exposed");
@@ -1614,4 +1649,125 @@ fn artifact_management(mouse: bool) {
     session.resize(80, 24);
     session.wait_for_screen("old-output #42");
     session.quit_and_assert_restored_terminal(mouse);
+}
+
+/// TASK-91: the Runs page is a table under a sticky header with the `▌` selection bar, short
+/// SHAs, initials-chip actors and relative ages; opening a run keeps its full SHA and UTC
+/// times in the detail rows above an inline jobs table. Rows stay keyboard and mouse targets
+/// at 140x42 and 80x24, and browsing never sends a write or touches the checkout.
+fn table_journey(mouse: bool) {
+    let fixture = fixture();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let mut other = raw_run();
+    other["id"] = json!(124);
+    other["name"] = json!("Release");
+    other["head_branch"] = json!("main");
+    other["event"] = json!("push");
+    other["run_attempt"] = json!(1);
+    other["conclusion"] = json!("success");
+    other["head_sha"] = json!("b".repeat(40));
+    other["created_at"] = json!("2026-10-12T12:00:00Z");
+    let mut steps = initial();
+    steps[2].stdout =
+        serde_json::to_vec(&json!({"total_count":2,"workflow_runs":[raw_run(), other]})).unwrap();
+    steps.extend(open_steps());
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 140, 42);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    for size in [(140, 42), (80, 24)] {
+        session.resize(size.0, size.1);
+        // Header, aligned cells, short SHAs, chips with logins, the attempt beside the id.
+        wait_row(
+            &mut session,
+            &["WORKFLOW", "BRANCH", "EVENT", "COMMIT", "ACTOR", "AGE"],
+        );
+        wait_row(
+            &mut session,
+            &[
+                "CI matrix",
+                "feature",
+                "pull_request",
+                "aaaaaaa ",
+                "AL alice",
+                "123 #2",
+            ],
+        );
+        wait_row(
+            &mut session,
+            &["Release", "main", "push", "bbbbbbb ", "124"],
+        );
+        assert!(!session.screen().contains(&"a".repeat(8)));
+        assert!(!session.screen().contains("@alice"));
+        let row = wait_selected(&mut session, "CI matrix");
+        assert!(row.starts_with("✗ CI matrix"), "{row:?}");
+    }
+    journal(&mut session, &fixture, 3);
+    if mouse {
+        session.click_visible_action(&run_cell(123, 2));
+    } else {
+        // Selection moves with the bar; Enter opens the selected run.
+        session.send_key(b"\x1b[B");
+        wait_selected(&mut session, "Release");
+        session.send_key(b"\x1b[A");
+        wait_selected(&mut session, "CI matrix");
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Run 123 • attempt 2");
+    // Full SHA and UTC creation time stay in the detail rows.
+    session.wait_for_screen(&format!("Exact commit {}", "a".repeat(40)));
+    session.resize(140, 42);
+    session.wait_for_screen("2026-10-13T12:00:00Z");
+    wait_row(&mut session, &["JOB", "STATUS", "TOOK", "RUNNER", "ID"]);
+    wait_row(
+        &mut session,
+        &[
+            "matrix test linux",
+            "failure",
+            "hosted [ubuntu-latest]",
+            "501",
+        ],
+    );
+    // The run opens on its failed job; the actors are chips beside their role.
+    wait_selected(&mut session, "matrix test linux");
+    wait_row(&mut session, &["AL alice", "run actor"]);
+    wait_row(&mut session, &["OC octocat", "triggering actor"]);
+    journal(&mut session, &fixture, 5);
+    // The inline jobs header is not a stop: Up from the job lands on the row above it.
+    if mouse {
+        session.click_visible_action("triggering actor");
+        wait_selected(&mut session, "triggering actor");
+        session.click_visible_action("matrix test linux");
+    } else {
+        session.send_key(b"\x1b[A");
+        wait_selected(&mut session, "Attempt source");
+        session.send_key(b"\x1b[B");
+        wait_selected(&mut session, "matrix test linux");
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("3 Run tests");
+    wait_selected(&mut session, "matrix test linux");
+    session.resize(80, 24);
+    wait_selected(&mut session, "matrix test linux");
+    wait_row(&mut session, &["3 Run tests", "failure"]);
+    choose(&mut session, mouse, "Runs", b"R");
+    wait_row(&mut session, &["CI matrix", "123 #2"]);
+    wait_selected(&mut session, "CI matrix");
+    let records = journal(&mut session, &fixture, 5);
+    assert!(!records
+        .iter()
+        .any(|row| row["args"].as_array().is_some_and(|args| args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), Some("POST" | "PUT" | "PATCH" | "DELETE"))))));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+#[test]
+fn design_table_v91_actions_runs_table_keyboard_selection_bar_details_and_resize() {
+    table_journey(false)
+}
+#[test]
+fn design_table_v91_actions_runs_table_mouse_rows_open_and_keep_selection() {
+    table_journey(true)
 }

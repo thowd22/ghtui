@@ -292,6 +292,7 @@ fn navigation_catalogue_actions_uses_actual_exact_run_attempt_and_disabled_reaso
         disabled_reason: Some("Repository permission was not established".into()),
     }];
     actions.rows = vec![ActionsRow {
+        cells: Default::default(),
         label: "PRIVATE_RUN_TITLE_CANARY".into(),
         role: SemanticToken::Pending,
         actor: None,
@@ -465,6 +466,7 @@ fn navigation_catalogue_preflights_oversized_selected_raw_paths_and_actions_cont
     );
     let mut app = actions_app();
     app.actions.as_mut().unwrap().rows = vec![ActionsRow {
+        cells: Default::default(),
         label: "not identity".into(),
         role: SemanticToken::Normal,
         actor: None,

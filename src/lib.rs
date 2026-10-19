@@ -155,6 +155,7 @@ pub mod terminal;
 pub mod theme;
 pub mod ui;
 pub mod ui_chrome;
+pub mod ui_table;
 pub mod workspace;
 
 #[cfg(test)]

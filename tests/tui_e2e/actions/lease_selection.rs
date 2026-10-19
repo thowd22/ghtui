@@ -63,7 +63,7 @@ fn journey(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Caches", b"c");
     session.wait_for_screen("#71 • protected-cache");
     session.wait_for_screen("#72 • unrelated-cache");
@@ -75,17 +75,8 @@ fn journey(mouse: bool) {
     } else {
         session.send_key(b"\x1b[H\x1b[B");
     }
-    session
-        .try_wait_for_condition(
-            |screen| {
-                screen
-                    .lines()
-                    .any(|line| line.contains("#72 • unrelated-cache") && line.contains('>'))
-            },
-            "Unrelated cache72 visibly selected with refreshed control layout",
-            std::time::Duration::from_secs(8),
-        )
-        .unwrap();
+    // Unrelated cache72 visibly selected with refreshed control layout.
+    wait_selected(&mut session, "#72 • unrelated-cache");
     command(&mut session, mouse, "Delete selected cache");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
@@ -98,17 +89,8 @@ fn journey(mouse: bool) {
     } else {
         session.send_key(b"\x1b[H");
     }
-    session
-        .try_wait_for_condition(
-            |screen| {
-                screen
-                    .lines()
-                    .any(|line| line.contains("#71 • protected-cache") && line.contains('>'))
-            },
-            "Original protected cache71 visibly selected with refreshed disabled controls",
-            std::time::Duration::from_secs(8),
-        )
-        .unwrap();
+    // Original protected cache71 visibly selected with refreshed disabled controls.
+    wait_selected(&mut session, "#71 • protected-cache");
     command(&mut session, mouse, "Delete selected cache");
     session.wait_for_screen("Action unavailable");
     session.wait_for_screen("Original attempt #1");

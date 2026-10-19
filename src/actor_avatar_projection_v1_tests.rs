@@ -224,6 +224,7 @@ fn actor_avatar_projection_actions_borrow_preflight_prior_to_actual_dto_clone() 
     let mut source =
         crate::actions_workspace::ActionsWorkspace::new(identity(), vec!["example/repo".into()]);
     source.rows = vec![crate::actions_workspace::ActionsRow {
+        cells: Default::default(),
         label: "Original action row".into(),
         role: crate::theme::SemanticToken::Actor,
         actor: Some(raw),

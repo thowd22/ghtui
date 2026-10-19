@@ -167,8 +167,13 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         };
         crate::pr_checks_native::scoped::draw_pending_v1(frame, app, actions_area);
         if let Some(actions) = &mut app.actions {
-            let rendered =
-                crate::actions_ui::draw(frame, actions, actions_area, theme, &app.avatar_states);
+            let rendered = crate::actions_ui::draw(
+                frame,
+                actions,
+                actions_area,
+                theme,
+                app.actions_content_focused,
+            );
             app.actions_visible_rows = rendered.visible_rows;
             // Focus is a state, not a decoration on every actionable label.
             for hit in &rendered.hits {

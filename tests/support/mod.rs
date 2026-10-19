@@ -7,7 +7,7 @@ pub mod completed_navigation_controls_v1;
 pub mod completed_search_v1;
 pub mod controls;
 pub use controls::{
-    cell_is_corner, locate_control, main_footer_visible, view_title, Control, Corner,
+    cell_is_corner, locate_control, main_footer_visible, selected_row, view_title, Control, Corner,
 };
 pub mod cursorless_frames;
 pub mod fixture_shell_publication_v1;
@@ -1368,6 +1368,40 @@ impl Session {
     }
 
     /// Wait until `label` is a visible control (see `locate_control`).
+    /// The current terminal size as `(columns, rows)`.
+    pub fn size(&self) -> (u16, u16) {
+        let (rows, columns) = self.parser.screen().size();
+        (columns, rows)
+    }
+
+    /// The `▌` selected row of the list in the pane titled `pane_title` on the current screen.
+    pub fn selected_row(&self, pane_title: &str) -> Option<String> {
+        selected_row(self.parser.screen(), pane_title)
+    }
+
+    /// Waits until the list in the pane whose title is `pane_title` paints its `▌` selection
+    /// bar on the row containing `text` ([`selected_row`]), and returns that row's text.
+    pub fn wait_for_selected_row(&mut self, pane_title: &str, text: &str) -> String {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(10));
+            if let Some(row) =
+                selected_row(self.parser.screen(), pane_title).filter(|row| row.contains(text))
+            {
+                return row;
+            }
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "Selected row {text:?} in {pane_title:?} was not painted (selected: {:?})\n{}; artifacts: {}",
+                    selected_row(self.parser.screen(), pane_title),
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
+        }
+    }
+
     pub fn wait_for_control(&mut self, label: &str) -> (u16, u16) {
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {

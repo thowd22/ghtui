@@ -222,12 +222,71 @@ impl ActionsCommand {
         }
     }
 }
+/// How the Actions list paints a row (TASK-91). Prose rows (details, logs, settings) span the
+/// row; table rows fill [`ActionsWorkspace::columns`]; a header row repeats the column titles
+/// inside a mixed list (the jobs under a run's details). `label` stays the row's full text for
+/// the palette, plans and logs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ActionsCells {
+    #[default]
+    Prose,
+    Header,
+    Row(Vec<String>),
+}
 #[derive(Clone, Debug)]
 pub struct ActionsRow {
     pub label: String,
     pub role: SemanticToken,
     pub actor: Option<Actor>,
     pub action: Option<ActionsAction>,
+    pub cells: ActionsCells,
+}
+/// Runs: status glyph, then workflow, branch, event, short commit, actor, age, duration and
+/// the run id (with `#attempt` after a rerun). The run id leaves first on narrow rows; full
+/// SHA, UTC times and the attempt stay in the run's detail rows.
+pub const RUN_COLUMNS: [crate::ui_table::Column; 8] = {
+    use crate::ui_table::Column;
+    [
+        Column::new("WORKFLOW", 8).flex(3).priority(0),
+        Column::new("BRANCH", 6).flex(2).priority(2),
+        Column::new("EVENT", 5).flex(1).priority(5),
+        Column::new("COMMIT", 7).priority(3),
+        Column::new("ACTOR", 6).priority(4).actor(),
+        Column::new("AGE", 3).priority(1).right(),
+        Column::new("TOOK", 4).priority(6).right(),
+        Column::new("RUN", 3).priority(7).right(),
+    ]
+};
+/// Runs across several repositories lead with the repository.
+pub const REPO_COLUMN: crate::ui_table::Column =
+    crate::ui_table::Column::new("REPO", 8).flex(2).priority(2);
+pub const WORKFLOW_COLUMNS: [crate::ui_table::Column; 4] = {
+    use crate::ui_table::Column;
+    [
+        Column::new("WORKFLOW", 8).flex(2).priority(0),
+        Column::new("STATE", 6).priority(1),
+        Column::new("PATH", 10).flex(3).priority(2),
+        Column::new("ID", 2).priority(3).right(),
+    ]
+};
+/// Jobs (and the selected job's steps) under a run's detail rows.
+pub const JOB_COLUMNS: [crate::ui_table::Column; 5] = {
+    use crate::ui_table::Column;
+    [
+        Column::new("JOB", 10).flex(3).priority(0),
+        Column::new("STATUS", 6).priority(1),
+        Column::new("TOOK", 4).priority(2).right(),
+        Column::new("RUNNER", 6).flex(1).priority(4),
+        Column::new("ID", 2).priority(3).right(),
+    ]
+};
+/// A run, job or step outcome as one word: the conclusion once there is one, else the status.
+fn outcome(status: &str, conclusion: &str) -> String {
+    if conclusion.is_empty() {
+        status.replace('_', " ")
+    } else {
+        conclusion.replace('_', " ")
+    }
 }
 impl ActionsRow {
     fn text(label: impl Into<String>) -> Self {
@@ -236,6 +295,7 @@ impl ActionsRow {
             role: SemanticToken::Normal,
             actor: None,
             action: None,
+            cells: ActionsCells::Prose,
         }
     }
     fn clickable(label: impl Into<String>, action: ActionsAction) -> Self {
@@ -253,8 +313,10 @@ pub struct ActionsControl {
 }
 impl ActionsControl {
     /// The key-bar key and caption. `[l Logs]`, `> Next failure` and `X Enable workflow` carry
-    /// their key in the label; catalogue tabs, Publications, Cancel and log search have fixed
-    /// keys; every other control is a click target and a palette entry without a key.
+    /// their key in the label; catalogue tabs, Publications, Cancel, log search, scope (`o`),
+    /// run filter (`f`), rerun all (`A`) and failed (`F`) and acknowledgement (`K`) have fixed
+    /// keys; every other control is a click target and a palette entry without a key. A
+    /// scoped page's own control on the same key (`[f Edit filters]`) keeps it.
     pub fn key_and_text(&self) -> (Option<String>, String) {
         let label = self.label.trim();
         let inner = label
@@ -274,6 +336,13 @@ impl ActionsControl {
             ActionsAction::PublicationList => Some("P"),
             ActionsAction::Compose(ActionsCommand::Cancel) => Some("C"),
             ActionsAction::Compose(ActionsCommand::SearchLogs) => Some("/"),
+            ActionsAction::Compose(ActionsCommand::ChooseScope) => Some("o"),
+            ActionsAction::Compose(ActionsCommand::FilterRuns) => Some("f"),
+            ActionsAction::Compose(ActionsCommand::RerunAll) => Some("A"),
+            ActionsAction::Compose(ActionsCommand::RerunFailed) => Some("F"),
+            ActionsAction::Acknowledge
+            | ActionsAction::PublicationAcknowledge(_)
+            | ActionsAction::PublicationAcknowledgeAcceptance(_) => Some("K"),
             _ => None,
         };
         (fixed.map(str::to_owned), inner.into())
@@ -495,16 +564,8 @@ pub fn status_role(status: &str, conclusion: &str) -> SemanticToken {
 /// Step rows show how long a completed step took; unparsed or still-running
 /// timestamps are shown as reported.
 fn step_timing(started: &str, completed: &str) -> String {
-    use crate::github_workspace::timestamp_seconds;
-    match (timestamp_seconds(started), timestamp_seconds(completed)) {
-        (Some(start), Some(end)) if end >= start => {
-            let seconds = end - start;
-            match seconds {
-                0..60 => format!("{seconds}s"),
-                60..3600 => format!("{}m {:02}s", seconds / 60, seconds % 60),
-                _ => format!("{}h {:02}m", seconds / 3600, seconds % 3600 / 60),
-            }
-        }
+    match crate::ui_table::duration(started, completed) {
+        Some(took) => took,
         _ if started.is_empty() => "not started".into(),
         _ if completed.is_empty() => format!("started {started}"),
         _ => format!("{started} → {completed}"),
@@ -587,6 +648,26 @@ impl ActionsWorkspace {
                     "Choose a repository set or open an exact PR/commit Actions indicator first",
                 )
             })
+    }
+    /// The loaded runs span more than one repository, so the Runs table leads with REPO.
+    pub fn multi_repository_runs(&self) -> bool {
+        self.runs.first().is_some_and(|first| {
+            self.runs
+                .iter()
+                .any(|run| run.repository != first.repository)
+        })
+    }
+    /// The table columns of the current page; prose-only pages have none.
+    pub fn columns(&self) -> Vec<crate::ui_table::Column> {
+        match self.view {
+            ActionsView::Runs if self.multi_repository_runs() => {
+                std::iter::once(REPO_COLUMN).chain(RUN_COLUMNS).collect()
+            }
+            ActionsView::Runs => RUN_COLUMNS.to_vec(),
+            ActionsView::Workflows => WORKFLOW_COLUMNS.to_vec(),
+            ActionsView::Run | ActionsView::Jobs => JOB_COLUMNS.to_vec(),
+            _ => vec![],
+        }
     }
     pub fn context(&self) -> String {
         let repo = self.repository().unwrap_or("no repository selected");
@@ -1381,6 +1462,7 @@ impl ActionsWorkspace {
                 self.controls.push(command(ActionsCommand::FilterRuns));
                 self.controls
                     .push(add(self.watch_label(), ActionsAction::Watch));
+                let multi_repository = self.multi_repository_runs();
                 self.runs
                     .iter()
                     .map(|item| ActionsRow {
@@ -1408,14 +1490,54 @@ impl ActionsWorkspace {
                             id: item.run.id,
                             attempt: item.run.attempt,
                         }),
+                        cells: ActionsCells::Row(
+                            multi_repository
+                                .then(|| item.repository.clone())
+                                .into_iter()
+                                .chain([
+                                    item.run.name.clone(),
+                                    item.run.head_branch.clone(),
+                                    item.run.event.clone(),
+                                    crate::ui_table::short_sha(&item.run.head_sha).into(),
+                                    String::new(),
+                                    crate::ui_table::relative_age(&item.run.created_at),
+                                    if item.run.status == "completed" {
+                                        crate::ui_table::duration(
+                                            &item.run.created_at,
+                                            &item.run.updated_at,
+                                        )
+                                        .unwrap_or_else(|| crate::ui_table::NONE.into())
+                                    } else {
+                                        crate::ui_table::NONE.into()
+                                    },
+                                    if item.run.attempt > 1 {
+                                        format!("{} #{}", item.run.id, item.run.attempt)
+                                    } else {
+                                        item.run.id.to_string()
+                                    },
+                                ])
+                                .collect(),
+                        ),
                     })
                     .collect()
             }
             Workflows => self
                 .workflows
                 .iter()
-                .map(|workflow| {
-                    ActionsRow::clickable(
+                .map(|workflow| ActionsRow {
+                    cells: ActionsCells::Row(vec![
+                        workflow.name.clone(),
+                        workflow_state_label(&workflow.state),
+                        workflow.path.clone(),
+                        workflow.id.to_string(),
+                    ]),
+                    // Disabled workflows read as muted rows; active ones keep the text tone.
+                    role: if workflow.state == "active" {
+                        SemanticToken::Normal
+                    } else {
+                        SemanticToken::Muted
+                    },
+                    ..ActionsRow::clickable(
                         format!(
                             "{} • {} • {} • #{}",
                             workflow.name,
@@ -1478,6 +1600,12 @@ impl ActionsWorkspace {
                         ..ActionsRow::text("triggering actor")
                     });
                     rows.push(ActionsRow::text(&page.attempt.definition_note));
+                    if !page.attempt.jobs.is_empty() {
+                        rows.push(ActionsRow {
+                            cells: ActionsCells::Header,
+                            ..ActionsRow::text("Jobs")
+                        });
+                    }
                     for job in &page.attempt.jobs {
                         rows.push(ActionsRow {
                             label: format!(
@@ -1492,6 +1620,18 @@ impl ActionsWorkspace {
                             role: status_role(&job.status, &job.conclusion),
                             actor: None,
                             action: Some(ActionsAction::OpenJob(job.id)),
+                            cells: ActionsCells::Row(vec![
+                                job.name.clone(),
+                                outcome(&job.status, &job.conclusion),
+                                crate::ui_table::duration(&job.started_at, &job.completed_at)
+                                    .unwrap_or_else(|| crate::ui_table::NONE.into()),
+                                if job.labels.is_empty() {
+                                    job.runner_name.clone()
+                                } else {
+                                    format!("{} [{}]", job.runner_name, job.labels.join(", "))
+                                },
+                                job.id.to_string(),
+                            ]),
                         });
                         if self.view == Jobs && page.selected_job == Some(job.id) {
                             self.controls
@@ -1509,6 +1649,14 @@ impl ActionsWorkspace {
                                     role: status_role(&step.status, &step.conclusion),
                                     actor: None,
                                     action: Some(ActionsAction::Logs(Some(job.id))),
+                                    // Steps nest under their job's name in the same columns.
+                                    cells: ActionsCells::Row(vec![
+                                        format!("  {} {}", step.number, step.name),
+                                        outcome(&step.status, &step.conclusion),
+                                        step_timing(&step.started_at, &step.completed_at),
+                                        String::new(),
+                                        String::new(),
+                                    ]),
                                 });
                             }
                         }
@@ -1558,6 +1706,7 @@ impl ActionsWorkspace {
                                     },
                                     actor: None,
                                     action: None,
+                                    cells: ActionsCells::Prose,
                                 },
                                 ActionsRow::text(&note.message),
                             ]
@@ -1569,6 +1718,7 @@ impl ActionsWorkspace {
                 .artifacts
                 .iter()
                 .map(|artifact| ActionsRow {
+                    cells: Default::default(),
                     label: format!(
                         "{} #{} • {} • run {} • attempt {} • expires {}{}",
                         artifact.name,

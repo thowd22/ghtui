@@ -53,9 +53,9 @@ fn active_account() -> Vec<GhStep> {
 fn open_gates(session: &mut Session, mouse: bool) {
     session.wait_for_screen("ghtui");
     choose(session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123")
+        session.click_visible_action(&run_cell(123, 2))
     } else {
         session.send_key(b"\r")
     }

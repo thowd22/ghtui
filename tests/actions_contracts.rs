@@ -158,7 +158,7 @@ fn actions_keyboard_and_mouse_resolve_same_exact_run_attempt_at_small_and_large_
                         &mut workspace,
                         area,
                         Theme::new(ThemeName::CatppuccinMocha, ColorMode::NoColor),
-                        &Default::default(),
+                        true,
                     )
                     .hits;
                 })
@@ -389,7 +389,7 @@ fn actions_key_bar_keeps_every_available_or_unavailable_action_inspectable() {
                     &mut workspace,
                     frame.area(),
                     Theme::new(ThemeName::CatppuccinMocha, ColorMode::LowColor),
-                    &Default::default(),
+                    true,
                 );
                 for hit in output.hits {
                     seen.insert(format!("{:?}", hit.action));
@@ -889,7 +889,7 @@ fn actions_artifacts_worker_prepares_text_image_binary_and_terminal_fallback_wit
                             &mut workspace,
                             frame.area(),
                             Theme::new(ThemeName::CatppuccinMocha, mode),
-                            &Default::default(),
+                            true,
                         );
                     })
                     .unwrap();
@@ -1148,7 +1148,7 @@ fn v1_actions_controls_sizes_empty_artifacts_and_single_bracket_labels() {
                 &mut workspace,
                 area,
                 Theme::new(ThemeName::CatppuccinMocha, ColorMode::NoColor),
-                &Default::default(),
+                true,
             );
         })
         .unwrap();

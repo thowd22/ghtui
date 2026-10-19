@@ -45,27 +45,13 @@ fn select_row(session: &mut Session, mouse: bool, label: &str) {
     session.wait_for_screen(label);
     if mouse {
         session.click_visible_action(label);
-        session
-            .try_wait_for_condition(
-                |screen| {
-                    screen
-                        .lines()
-                        .any(|line| line.contains(label) && line.contains('>'))
-                },
-                &format!("Exact visible runner {label} gained mouse selection"),
-                std::time::Duration::from_secs(8),
-            )
-            .unwrap();
+        wait_selected(session, label);
         return;
     }
     session.send_key(b"\x1b[H");
     for _ in 0..20 {
         session.poll_output(std::time::Duration::from_millis(40));
-        if session
-            .screen()
-            .lines()
-            .any(|line| line.contains(label) && line.contains('>'))
-        {
+        if selected_has(session, label) {
             return;
         }
         session.send_key(b"\x1b[B");
@@ -186,7 +172,7 @@ fn settings(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Policies", b"p");
     session.wait_for_screen("\"enabled\": true");
     command(&mut session, mouse, "Workflow token");
@@ -387,7 +373,7 @@ fn changed_environment_identity(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Environments", b"e");
     session.wait_for_screen("Environment #9 • prod/eu");
     command(&mut session, mouse, "Edit selected environment protection");

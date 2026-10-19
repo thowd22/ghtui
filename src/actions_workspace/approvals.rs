@@ -9,6 +9,7 @@ pub(super) fn rows(
     let mut identities = vec![];
     for gate in gates {
         rows.push(ActionsRow {
+            cells: Default::default(),
             label: format!(
                 "Gate #{} • {} • pending • wait {} minutes • eligible {}",
                 gate.environment_id,
@@ -45,6 +46,7 @@ pub(super) fn rows(
                 )));
             } else {
                 rows.push(ActionsRow {
+                    cells: Default::default(),
                     label:
                         "Required reviewer • server eligibility decides; username is not authority"
                             .into(),
@@ -77,6 +79,7 @@ pub(super) fn rows(
     identities.push(None);
     for record in history {
         rows.push(ActionsRow {
+            cells: Default::default(),
             label: format!(
                 "{} • environments {} • numeric account {}",
                 record.state,

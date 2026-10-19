@@ -248,7 +248,7 @@ fn journey(case: Case, mouse: bool) {
     let trace = fs::read(&trace_path).unwrap();
     assert!(!trace.is_empty());
     choose(&mut s, mouse, "Actions", b"4");
-    s.wait_for_screen("example/repo run 123");
+    s.wait_for_screen(&run_cell(123, 2));
     command(&mut s, mouse, "Choose Actions scope");
     s.wait_for_screen("ACTIONS INTENT");
     if mouse {

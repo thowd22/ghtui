@@ -3301,7 +3301,8 @@ impl App {
                     )
                 {
                     if let Some(actions) = self.actions.as_ref().filter(|_| hovering) {
-                        let index = actions.selected.saturating_add_signed(
+                        let index = crate::actions_ui::row_step(
+                            actions,
                             if mouse.kind == MouseEventKind::ScrollDown {
                                 3
                             } else {

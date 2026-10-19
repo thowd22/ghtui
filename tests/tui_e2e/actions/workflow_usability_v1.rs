@@ -66,9 +66,12 @@ fn workflow_usability(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "Workflows", b"W");
-    session.wait_for_screen("Build dispatch • active • .github/workflows/ci.yml");
+    wait_row(
+        &mut session,
+        &["Build dispatch", "active", ".github/workflows/ci.yml"],
+    );
     // The catalogue tab strip shows Workflows as the current tab.
     session.wait_for_screen(" W Workflows ");
     journal(&mut session, &fixture, 5);

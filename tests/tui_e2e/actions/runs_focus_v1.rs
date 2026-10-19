@@ -25,24 +25,6 @@ fn jobs_step() -> GhStep {
     )
 }
 
-/// The rendered row containing `text` is the selected one (drawn with "> ").
-fn selected(screen: &str, text: &str) -> bool {
-    screen
-        .lines()
-        .any(|line| line.contains(text) && line.contains("> ") && !line.contains("[> "))
-}
-
-fn wait_selected(session: &mut Session, text: &str) {
-    let description = format!("selected row {text}");
-    if let Err(error) = session.try_wait_for_condition(
-        |screen| selected(screen, text),
-        &description,
-        std::time::Duration::from_secs(8),
-    ) {
-        panic!("{error}\n{}", session.screen());
-    }
-}
-
 fn next_failure(session: &mut Session, mouse: bool) {
     if mouse {
         button(session, "[> Next failure]");
@@ -98,15 +80,15 @@ matrix test linux\tUNKNOWN STEP\t2026-10-13T12:00:04.0000000Z Post job cleanup\n
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
     // Opening a run lands on its first failed job, not the run header.
-    session.wait_for_screen("Job 501");
-    wait_selected(&mut session, "Job 501");
+    wait_row(&mut session, &["matrix test linux", "501"]);
+    wait_selected(&mut session, "matrix test linux");
     journal(&mut session, &fixture, 5);
 
     // Information rows never route Enter/clicks out of Actions.
@@ -122,18 +104,18 @@ matrix test linux\tUNKNOWN STEP\t2026-10-13T12:00:04.0000000Z Post job cleanup\n
     }
     assert!(!session.screen().contains("Inbox • focused view"));
     next_failure(&mut session, mouse);
-    wait_selected(&mut session, "Job 501");
+    wait_selected(&mut session, "matrix test linux");
 
     // Opening the job keeps the selection on that job and shows its steps.
     if mouse {
-        session.click_visible_action("Job 501");
+        session.click_visible_action("matrix test linux");
     } else {
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Step 3 • Run tests • completed / failure • 2m 29s");
-    wait_selected(&mut session, "Job 501");
+    wait_row(&mut session, &["3 Run tests", "failure", "2m 29s"]);
+    wait_selected(&mut session, "matrix test linux");
     next_failure(&mut session, mouse);
-    wait_selected(&mut session, "Step 3 • Run tests");
+    wait_selected(&mut session, "3 Run tests");
 
     // Logs: the byte-order-marked first line loses its timestamp; the next
     // failure jump lands on the runner's error line.
@@ -149,10 +131,10 @@ matrix test linux\tUNKNOWN STEP\t2026-10-13T12:00:04.0000000Z Post job cleanup\n
 
     // Back returns to the run with the opened job still selected.
     choose(&mut session, mouse, "[b Back]", b"b");
-    session.wait_for_screen("Job 500");
-    wait_selected(&mut session, "Job 501");
+    wait_row(&mut session, &["lint", "success", "500"]);
+    wait_selected(&mut session, "matrix test linux");
     session.resize(80, 24);
-    wait_selected(&mut session, "Job 501");
+    wait_selected(&mut session, "matrix test linux");
 
     let records = journal(&mut session, &fixture, 8);
     assert!(!records
@@ -204,14 +186,14 @@ fn logs_at_highlighted_job(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Job 501");
-    wait_selected(&mut session, "Job 501");
+    wait_row(&mut session, &["matrix test linux", "501"]);
+    wait_selected(&mut session, "matrix test linux");
     choose(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_screen("Failed job first line");
     let records = journal(&mut session, &fixture, 6);

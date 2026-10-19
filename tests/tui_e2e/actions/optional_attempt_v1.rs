@@ -124,15 +124,15 @@ fn journey(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123 attempt 2");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123");
+        session.click_visible_action(&run_cell(123, 2));
     } else {
         session.send_key(b"\r");
     }
     session.wait_for_screen("initial optional attempt two");
     session.wait_for_screen("Attempt source: verified exact endpoint");
-    session.wait_for_screen("@alice");
+    session.wait_for_screen("AL alice");
     journal(&mut session, &fixture, 5);
     choose(&mut session, mouse, "[r Refresh]", b"r");
     session.wait_for_screen("fresh optional attempt two");
@@ -163,7 +163,7 @@ fn journey(mouse: bool) {
     session.resize(120, 40);
     session.wait_for_screen("fresh optional attempt two");
     if mouse {
-        session.click_visible_action("Job 501");
+        session.click_visible_action("fresh optional attempt two");
     } else {
         session.send_key(b"\x1b[H");
         for _ in 0..5 {
@@ -171,7 +171,7 @@ fn journey(mouse: bool) {
         }
         session.send_key(b"\r");
     }
-    session.wait_for_screen("Step 3");
+    session.wait_for_screen("3 Run tests");
     choose(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_screen("actual attempt two job log");
     let rows = journal(&mut session, &fixture, 10);

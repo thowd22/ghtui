@@ -280,20 +280,20 @@ fn pages(mouse: bool) {
             "Run page 1",
             "/10000 reported",
             "partial is not absence",
-            "run 123",
+            "123 #2",
         ],
     );
     let after = session.completed_cursorless_end();
     action(&mut session, mouse, "[) Next runs]", b")");
     session.wait_for_command_count(&fixture, 28);
-    current_body(&mut session, after, &["Run page 2", "run 124"]);
+    current_body(&mut session, after, &["Run page 2", "124 #2"]);
     let after = session.completed_cursorless_end();
     action(&mut session, mouse, "[F Failed runs]", b"F");
     session.wait_for_command_count(&fixture, 35);
     current_body(
         &mut session,
         after,
-        &["status failure", "/300 reported", "run 123"],
+        &["status failure", "/300 reported", "123 #2"],
     );
     session.resize(if mouse { 80 } else { 120 }, if mouse { 24 } else { 40 });
     session.wait_for_main_frame();
@@ -438,7 +438,7 @@ fn held_cancel(mouse: bool) {
     );
     let after = session.completed_cursorless_end();
     action(&mut session, mouse, "[b Cancel read]", b"b");
-    current_body(&mut session, after, &["read canceled", "run 123"]);
+    current_body(&mut session, after, &["read canceled", "123 #2"]);
     gone(&mut session, &child);
     assert_eq!(commands(&session, &fixture).len(), 18);
     let after = session.completed_cursorless_end();

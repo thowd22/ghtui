@@ -1,11 +1,14 @@
 //! Pure prepared Actions rendering and keyboard mapping. No subprocess, network or disk I/O.
 use crate::{
-    actions_workspace::{ActionsAction, ActionsControl, ActionsView, ActionsWorkspace},
+    actions_workspace::{
+        ActionsAction, ActionsCells, ActionsControl, ActionsRow, ActionsView, ActionsWorkspace,
+    },
     app::Action,
     footer::{ControlGroup, KeyControl},
-    identity::{ActorIdentity, AvatarState, ListAvatar},
+    identity::ActorIdentity,
     providers::runner::sanitize_terminal,
     theme::{Hue, Role, SemanticToken, Theme},
+    ui_table::{Cell, ListState, RowKind, Table, TableRow},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -34,7 +37,7 @@ pub fn draw(
     workspace: &mut ActionsWorkspace,
     area: Rect,
     theme: Theme,
-    avatars: &crate::actor_avatar_states_v1::ActorAvatarStatesV1,
+    focused: bool,
 ) -> ActionsRender {
     let mut output = ActionsRender::default();
     if area.width == 0 || area.height == 0 {
@@ -136,76 +139,81 @@ pub fn draw(
         y += 1;
     }
     let content_height = area.bottom().saturating_sub(y);
-    output.visible_rows = usize::from(content_height);
     output.content = Rect::new(area.x, y, area.width, content_height);
-    if workspace.selected < workspace.top {
-        workspace.top = workspace.selected;
-    }
-    if workspace.selected >= workspace.top.saturating_add(output.visible_rows)
-        && output.visible_rows > 0
-    {
-        workspace.top = workspace.selected.saturating_sub(output.visible_rows - 1);
-    }
-    for (offset, (index, row)) in workspace
-        .rows
-        .iter()
-        .enumerate()
-        .skip(workspace.top)
-        .take(output.visible_rows)
-        .enumerate()
-    {
-        let rect = Rect::new(area.x, y + offset as u16, area.width, 1);
-        let selected = index == workspace.selected;
-        let style = if selected {
-            theme.selected(row.role)
-        } else {
-            theme.style(row.role)
-        };
-        // The selection marker leads the row, before the actor chip and label.
-        let marker = if selected { "> " } else { "  " };
-        frame.render_widget(
-            Paragraph::new(marker).style(style),
-            Rect::new(rect.x, rect.y, 2.min(rect.width), 1),
-        );
-        let mut row_x = rect.x + 2.min(rect.width);
-        if let Some(actor) = &row.actor {
-            let identity = ActorIdentity::github(&workspace.identity.host, actor);
-            let image = match avatars.get(&identity) {
-                Some(AvatarState::Ready(image)) => Some(image.as_ref()),
-                _ => None,
-            };
-            // The chip and exactly one blank cell, then the actor label.
-            row_x += ListAvatar {
-                identity: &identity,
-                image,
-                theme,
+    // Runs and Workflows are tables under a sticky header; a run keeps its detail rows above an
+    // inline jobs header; every other page is prose in the same rows (TASK-91).
+    let columns = workspace.columns();
+    let glyphs = !matches!(workspace.view, ActionsView::Workflows);
+    let table = Table {
+        columns: &columns,
+        header: matches!(workspace.view, ActionsView::Runs | ActionsView::Workflows)
+            && workspace
+                .rows
+                .iter()
+                .any(|row| matches!(row.cells, ActionsCells::Row(_))),
+        focused,
+        glyphs,
+        empty: None,
+    };
+    let host = workspace.identity.host.clone();
+    let table_row = |index: usize, row: &ActionsRow| {
+        let actor = row
+            .actor
+            .as_ref()
+            .map(|actor| ActorIdentity::github(&host, actor));
+        let base = match &row.cells {
+            ActionsCells::Row(cells) if !columns.is_empty() => {
+                TableRow::cells(cells.iter().map(|cell| Cell::from(cell.as_str())).collect())
             }
-            .render_lead(
-                Rect::new(row_x, rect.y, rect.right().saturating_sub(row_x), 1),
-                frame.buffer_mut(),
-                style,
-            );
-            let label = format!("{} ", identity.label());
-            let actor_width =
-                (Line::from(label.as_str()).width() as u16).min(rect.right().saturating_sub(row_x));
-            frame.render_widget(
-                Paragraph::new(label).style(theme.style(SemanticToken::Actor)),
-                Rect::new(row_x, rect.y, actor_width, 1),
-            );
-            row_x += actor_width;
-        }
-        let text = format!("{} {}", row.role.symbol(), sanitize_terminal(&row.label));
-        let text_width = rect.right().saturating_sub(row_x);
-        frame.render_widget(
-            Paragraph::new(crate::ui_chrome::fit(&text, usize::from(text_width))).style(style),
-            Rect::new(row_x, rect.y, text_width, 1),
-        );
+            ActionsCells::Header if !columns.is_empty() => TableRow::header(),
+            _ => TableRow::text(row.label.as_str()),
+        };
+        // Prose keeps only real status glyphs; a muted table row (a skipped job) shows `○`.
+        let glyph =
+            (base.kind != RowKind::Text || !row.role.symbol().is_empty()).then_some(row.role);
         // One click opens the same exact prepared action as Enter on the selected row.
-        output.hits.push(ActionsHit {
-            rect,
-            action: row.action.clone().unwrap_or(ActionsAction::Select(index)),
-        });
-    }
+        base.with_tone(row.role)
+            .with_glyph(glyph)
+            .with_actor(actor)
+            .with_action(Some(
+                row.action.clone().unwrap_or(ActionsAction::Select(index)),
+            ))
+    };
+    let natural = crate::ui_table::natural_widths(
+        &columns,
+        workspace
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row.cells, ActionsCells::Row(_)))
+            .map(|(index, row)| table_row(index, row))
+            .collect::<Vec<_>>()
+            .iter(),
+        theme.mode,
+    );
+    let mut state = ListState {
+        selected: workspace.selected,
+        top: workspace.top,
+    };
+    let rendered = crate::ui_table::draw_table_with(
+        frame,
+        output.content,
+        &table,
+        &natural,
+        workspace.rows.len(),
+        |index| table_row(index, &workspace.rows[index]),
+        &mut state,
+        theme,
+    );
+    workspace.top = state.top;
+    output.visible_rows = rendered.visible_rows;
+    output.content = rendered.body;
+    output
+        .hits
+        .extend(rendered.hits.into_iter().map(|hit| ActionsHit {
+            rect: hit.rect,
+            action: hit.action.unwrap_or(ActionsAction::Select(hit.index)),
+        }));
     if let Some((image, start, count)) = workspace.artifact_image() {
         let visible_start = start.max(workspace.top);
         let visible_end = (start + count).min(workspace.top + output.visible_rows);
@@ -401,6 +409,36 @@ pub fn footer_keys(workspace: &ActionsWorkspace) -> Vec<KeyControl> {
     }
     keys
 }
+/// The row `delta` rows from the selection, clamped to the list. An inline column-header row
+/// is never a stop: movement passes over it in its own direction (or back when it is the end).
+pub(crate) fn row_step(workspace: &ActionsWorkspace, delta: isize) -> usize {
+    let last = workspace.rows.len().saturating_sub(1);
+    let target = workspace.selected.saturating_add_signed(delta).min(last);
+    let header = |index: usize| {
+        workspace
+            .rows
+            .get(index)
+            .is_some_and(|row| row.cells == ActionsCells::Header)
+    };
+    if !header(target) {
+        return target;
+    }
+    let forward = delta > 0;
+    let beyond = if forward {
+        (target + 1..=last).find(|index| !header(*index))
+    } else {
+        (0..target).rev().find(|index| !header(*index))
+    };
+    beyond
+        .or_else(|| {
+            if forward {
+                (0..target).rev().find(|index| !header(*index))
+            } else {
+                (target + 1..=last).find(|index| !header(*index))
+            }
+        })
+        .unwrap_or(target)
+}
 /// Selection, movement and the Enter/Esc aliases, plus view keys for routes whose prepared
 /// controls omit their tab or page. Keys of prepared controls (Refresh, Logs, failure jumps,
 /// paging, workflow commands, Cancel…) resolve first through [`footer_keys`], so a key does
@@ -414,14 +452,12 @@ pub fn keyboard_action(event: KeyEvent, workspace: &ActionsWorkspace) -> Option<
         return None;
     }
     match event.code {
-        KeyCode::Up => Some(ActionsAction::Select(workspace.selected.saturating_sub(1))),
-        KeyCode::Down => Some(ActionsAction::Select(workspace.selected.saturating_add(1))),
-        KeyCode::PageUp => Some(ActionsAction::Select(workspace.selected.saturating_sub(10))),
-        KeyCode::PageDown => Some(ActionsAction::Select(workspace.selected.saturating_add(10))),
-        KeyCode::Home => Some(ActionsAction::Select(0)),
-        KeyCode::End => Some(ActionsAction::Select(
-            workspace.rows.len().saturating_sub(1),
-        )),
+        KeyCode::Up => Some(ActionsAction::Select(row_step(workspace, -1))),
+        KeyCode::Down => Some(ActionsAction::Select(row_step(workspace, 1))),
+        KeyCode::PageUp => Some(ActionsAction::Select(row_step(workspace, -10))),
+        KeyCode::PageDown => Some(ActionsAction::Select(row_step(workspace, 10))),
+        KeyCode::Home => Some(ActionsAction::Select(row_step(workspace, isize::MIN))),
+        KeyCode::End => Some(ActionsAction::Select(row_step(workspace, isize::MAX))),
         // An information row (run header, actor, log line) has nothing to
         // open; keep Enter here instead of activating an unrelated global hit.
         KeyCode::Enter => workspace

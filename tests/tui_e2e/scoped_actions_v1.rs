@@ -223,35 +223,33 @@ fn configured_native(steps: &[GhStep]) -> Fixture {
 fn open_run(session: &mut Session, fixture: &Fixture, mouse: bool, count: usize, name: &str) {
     let after = session.completed_cursorless_end();
     if mouse {
-        session.click_visible_action("run 123 attempt 2");
+        session.click_visible_action("alice");
     } else {
-        selected_row(session, false, "run 123 attempt 2");
+        selected_row(session, false, "alice");
     }
     session.wait_for_command_count(fixture, count);
     complete(session, after, &["Run 123", "attempt 2", H, name, "alice"]);
 }
+/// Selects the Actions row holding `label` (the `▌` bar, TASK-91) and opens it: a click, or
+/// Home and Down until the bar is on it, then Enter.
 pub(crate) fn selected_row(session: &mut Session, mouse: bool, label: &str) {
     if mouse {
         session.click_visible_action(label);
         return;
     }
+    let title = crate::support::view_title("Actions");
+    let bar = |s: &vt100::Screen| crate::support::selected_row(s, &title);
     let before = session.completed_cursorless_end();
     session.send_key(b"\x1b[H");
     session.wait_for_new_cursorless_condition(
         before,
-        |s| s.contents().lines().any(|line| line.contains("> ")),
+        |s| bar(s).is_some(),
         "Actual Actions Home selected row",
         Duration::from_secs(8),
     );
     for _ in 0..32 {
-        let selected = session
-            .completed_cursorless_screen()
-            .unwrap()
-            .contents()
-            .lines()
-            .find(|line| line.contains("> "))
-            .expect("Actual Actions selected marker")
-            .to_owned();
+        let selected = bar(session.completed_cursorless_screen().unwrap())
+            .expect("Actual Actions selection bar");
         if selected.contains(label) {
             session.send_key(b"\r");
             return;
@@ -260,11 +258,7 @@ pub(crate) fn selected_row(session: &mut Session, mouse: bool, label: &str) {
         session.send_key(b"\x1b[B");
         session.wait_for_new_cursorless_condition(
             after,
-            |s| {
-                s.contents()
-                    .lines()
-                    .any(|line| line.contains("> ") && line != selected)
-            },
+            |s| bar(s).is_some_and(|row| row != selected),
             "Actual next Actions selected member",
             Duration::from_secs(8),
         );
@@ -274,19 +268,20 @@ pub(crate) fn selected_row(session: &mut Session, mouse: bool, label: &str) {
 fn jobs(session: &mut Session, mouse: bool) {
     let before = session.completed_cursorless_end();
     choose(session, mouse, "[j Jobs]", b"j");
-    let point = session.wait_for_scoped_actions_jobs_row_v2(before, "Job 501", H);
+    let point =
+        session.wait_for_scoped_actions_jobs_row_v2(before, "Actual matrix stable linux", H);
     let before = session.completed_cursorless_end();
     if mouse {
         session.click(point.0, point.1);
     } else {
-        selected_row(session, false, "Job 501");
+        selected_row(session, false, "Actual matrix stable linux");
     }
     complete(
         session,
         before,
         // Annotations is a key-bar token or, at 80 columns, a palette entry; it is
         // chosen below by the same input kind.
-        &["Step 2", "Actual failed source step"],
+        &["2 Actual failed source step"],
     );
 }
 fn end(
@@ -373,7 +368,7 @@ fn happy(mouse: bool) {
     complete(
         &mut session,
         mark,
-        &["2 runs of 2 reported", "run 123 attempt 2", "@alice"],
+        &["2 runs of 2 reported", "alice", "ci-bot [bot]"],
     );
     assert_eq!(
         commands(&session, &fixture).len(),
@@ -407,7 +402,7 @@ fn renamed(mouse: bool) {
     jobs(&mut session, mouse);
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
     session.wait_for_cursorless_condition(
-        |s| s.contents().contains("Step 2") && s.contents().contains(name),
+        |s| s.contents().contains("2 Actual failed source step") && s.contents().contains(name),
         "Same actual job/renamed repository after resize",
         Duration::from_secs(8),
     );
@@ -476,7 +471,11 @@ fn cancel(mouse: bool) {
     );
     let after = session.completed_cursorless_end();
     choose(&mut session, mouse, "[b Cancel read]", b"b");
-    complete(&mut session, after, &["read canceled", "Step 2"]);
+    complete(
+        &mut session,
+        after,
+        &["read canceled", "2 Actual failed source step"],
+    );
     gone(&mut session, &child);
     exact_native(&session, &fixture, &steps, 32);
     let after = session.completed_cursorless_end();
@@ -503,9 +502,9 @@ fn uid_loss(mouse: bool) {
     let sql_before = sql(&fixture);
     let after = session.completed_cursorless_end();
     if mouse {
-        session.click_visible_action("run 123 attempt 2");
+        session.click_visible_action("alice");
     } else {
-        selected_row(&mut session, false, "run 123 attempt 2");
+        selected_row(&mut session, false, "alice");
     }
     session.wait_for_command_count(&fixture, 24);
     complete(
@@ -513,7 +512,7 @@ fn uid_loss(mouse: bool) {
         after,
         &["Original Actions read unavailable", "private source hidden"],
     );
-    assert!(!session.screen().contains("run 123 attempt 2"));
+    assert!(!session.screen().contains("alice"));
     assert!(!session.screen().contains("alice"));
     end(
         &mut session,
@@ -574,9 +573,9 @@ fn drift(mouse: bool) {
         if kind == 3 {
             choose(&mut session, mouse, "[N Annotations]", b"N");
         } else if mouse {
-            session.click_visible_action("run 123 attempt 2");
+            session.click_visible_action("alice");
         } else {
-            selected_row(&mut session, false, "run 123 attempt 2");
+            selected_row(&mut session, false, "alice");
         }
         session.wait_for_command_count(&fixture, steps.len());
         complete(

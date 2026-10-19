@@ -17,9 +17,9 @@ fn attempt_steps(run: &Value) -> Vec<GhStep> {
 fn open_run(session: &mut Session, mouse: bool) {
     session.wait_for_screen("ghtui");
     choose(session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     if mouse {
-        session.click_visible_action("example/repo run 123")
+        session.click_visible_action(&run_cell(123, 2))
     } else {
         session.send_key(b"\r")
     };
@@ -105,22 +105,13 @@ fn watch_stop_on_runs(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     choose(&mut session, mouse, "Actions", b"4");
-    session.wait_for_screen("example/repo run 123");
+    session.wait_for_screen(&run_cell(123, 2));
     choose(&mut session, mouse, "[w Watch]", b"w");
     session.wait_for_screen("Watching: refreshes every 5s");
     // A newer run appears without a manual refresh; the selection stays on run 123.
-    wait_long(&mut session, "example/repo run 124");
-    session
-        .try_wait_for_condition(
-            |screen| {
-                screen
-                    .lines()
-                    .any(|line| line.contains("> ") && line.contains("example/repo run 123"))
-            },
-            "selection kept on run 123",
-            Duration::from_secs(8),
-        )
-        .unwrap();
+    wait_long(&mut session, &run_cell(124, 2));
+    // The selection stays on run 123.
+    wait_selected(&mut session, &run_cell(123, 2));
     journal(&mut session, &fixture, watched);
     choose(&mut session, mouse, "[w Stop watch]", b"w");
     session.wait_for_screen("Watch stopped");

@@ -447,3 +447,38 @@ pub fn main_footer_visible(screen: &vt100::Screen) -> bool {
     locate_token_in_row(screen, row, "? Help").is_some()
         && locate_token_in_row(screen, row, "q Quit").is_some()
 }
+
+/// The `▌` selection bar a list table paints in the first inner cell of its selected row.
+pub const SELECTION_BAR: &str = "▌";
+
+/// The selected row of the list in the pane whose top border carries `pane_title` (for a main
+/// view, [`view_title`]): the text after the `▌` bar up to the pane's right border, trimmed.
+/// `None` while the pane is not painted, or when no row or more than one row carries the bar.
+pub fn selected_row(frame: &vt100::Screen, pane_title: &str) -> Option<String> {
+    let (rows, columns) = frame.size();
+    let (title_x, top) = locate_text(frame, pane_title)?;
+    let left = (0..title_x)
+        .rev()
+        .find(|x| cell_is_corner(frame, top, *x, Corner::TopLeft))?;
+    let right = (title_x..columns).find(|x| cell_is_corner(frame, top, *x, Corner::TopRight))?;
+    let bottom = (top + 1..rows).find(|y| cell_is_corner(frame, *y, left, Corner::BottomLeft))?;
+    let mut selected = None;
+    for y in top + 1..bottom {
+        if frame.cell(y, left + 1)?.contents() != SELECTION_BAR {
+            continue;
+        }
+        if selected.is_some() {
+            return None;
+        }
+        let text = (left + 2..right)
+            .filter_map(|x| frame.cell(y, x))
+            .filter(|cell| !cell.is_wide_continuation())
+            .map(|cell| match cell.contents() {
+                contents if contents.is_empty() => " ".to_owned(),
+                contents => contents,
+            })
+            .collect::<String>();
+        selected = Some(text.trim().to_owned());
+    }
+    selected
+}

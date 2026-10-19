@@ -191,7 +191,7 @@ pub(crate) fn prepare_labels(workspace: &mut ActionsWorkspace) {
                 } else {
                     "reported lines unavailable".into()
                 };
-                workspace.rows.push(ActionsRow{label:format!("{} • {location} • {} • {} • API metadata, not canonical Git/review coordinates",if note.path.is_empty(){"Path unavailable"}else{&note.path},note.level,note.title),
+                workspace.rows.push(ActionsRow{ cells: Default::default(), label:format!("{} • {location} • {} • {} • API metadata, not canonical Git/review coordinates",if note.path.is_empty(){"Path unavailable"}else{&note.path},note.level,note.title),
                         role:if note.level=="failure"{SemanticToken::Failure}else{SemanticToken::Pending},actor:None,action:None});
                 for line in note.message.split('\n') {
                     workspace

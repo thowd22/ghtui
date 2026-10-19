@@ -163,38 +163,30 @@ fn discover_with_captured_actions_tab(
     assert_commands(session, fixture, 7);
 }
 
+/// The Runs table (TASK-91): actor chips with logins (`AL alice`, `[AL] alice` without color), the failed run's `✗` glyph, and the
+/// run ids with their attempt where the RUN column fits (it leaves first on narrow rows).
 fn actions_ready(session: &mut Session) {
-    ready(
-        session,
-        &[
-            "Actions • focused view",
-            CURRENT,
-            "2 runs of 2 reported • complete",
-            "@alice",
-            "@ci-bot [bot]",
-            "run 123 attempt 2",
-            "run 124 attempt 2",
-            "failure",
-        ],
-    );
+    let mut required = vec![
+        "Actions • focused view",
+        CURRENT,
+        "2 runs of 2 reported • complete",
+        "alice",
+        "ci-bot [bot]",
+        "✗",
+    ];
+    if session.size().0 >= 100 {
+        required.extend(["123 #2", "124 #2"]);
+    }
+    ready(session, &required);
     assert!(
         !session.screen().contains(TITLE),
         "Destination dismisses the discovery overlay"
     );
 }
 
-fn wait_selected_actor(session: &mut Session, actor: &str, run_id: &str) {
-    session
-        .try_wait_for_condition(
-            |screen| {
-                screen.lines().any(|line| {
-                    line.contains(actor) && line.contains(run_id) && line.contains("> ")
-                })
-            },
-            &format!("Actual selected Actions row {actor} / {run_id}"),
-            Duration::from_secs(8),
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
+/// The `▌` selected Runs row is the run of `actor` (each fixture run has its own actor).
+fn wait_selected_actor(session: &mut Session, actor: &str) {
+    session.wait_for_selected_row(&crate::support::view_title("Actions"), actor);
 }
 
 fn discovery_to_actions(mouse: bool) {
@@ -263,23 +255,23 @@ fn discovery_to_actions(mouse: bool) {
     let journal_before = session.inspect_command_journal(&fixture);
     let trace_before = git_commands(&fixture);
     if mouse {
-        let (column, row) = session.locate("run 123 attempt 2").unwrap();
+        let (column, row) = session.locate("alice").unwrap();
         session.wheel(column, row, true);
     } else {
         session.send_key(b"\x1b[B");
     }
-    wait_selected_actor(&mut session, "@ci-bot [bot]", "run 124");
+    wait_selected_actor(&mut session, "ci-bot [bot]");
     // Actions has dismissed the modal and restores the ordinary footer.
     session.resize(if mouse { 80 } else { 120 }, if mouse { 24 } else { 40 });
     actions_ready(&mut session);
-    wait_selected_actor(&mut session, "@ci-bot [bot]", "run 124");
+    wait_selected_actor(&mut session, "ci-bot [bot]");
     if mouse {
-        let (column, row) = session.locate("run 124 attempt 2").unwrap();
+        let (column, row) = session.locate("ci-bot [bot]").unwrap();
         session.wheel(column, row, false);
     } else {
         session.send_key(b"\x1b[H");
     }
-    wait_selected_actor(&mut session, "@alice", "run 123");
+    wait_selected_actor(&mut session, "alice");
     assert_eq!(
         session.inspect_command_journal(&fixture),
         journal_before,
