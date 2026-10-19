@@ -71,8 +71,8 @@ impl ThreadHistoryIntentV1 {
                         .map_err(|_| "Bounded actual Summary observation unavailable")?,
                 ),
             },
-            selected: app.selected,
-            scroll: app.scroll,
+            selected: app.inbox_list.selected,
+            scroll: app.inbox_list.top,
         });
         if app.overlay.is_some() || !intent.owns(app) {
             return Err("Exact original Summary presentation required".into());
@@ -95,8 +95,8 @@ impl ThreadHistoryIntentV1 {
         }
         Ok(Arc::new(Self {
             origin: HistoryOriginV75::PersonalSummary(original),
-            selected: app.selected,
-            scroll: app.scroll,
+            selected: app.inbox_list.selected,
+            scroll: app.inbox_list.top,
         }))
     }
     pub(crate) fn personal_summary(
@@ -138,8 +138,8 @@ impl ThreadHistoryIntentV1 {
     }
     pub fn owns(&self, app: &App) -> bool {
         app.view == View::Inbox
-            && app.selected == self.selected
-            && app.scroll == self.scroll
+            && app.inbox_list.selected == self.selected
+            && app.inbox_list.top == self.scroll
             && match &self.origin {
                 HistoryOriginV75::PersonalSummary(original) => original.owns_presentation(app),
                 HistoryOriginV75::Read {

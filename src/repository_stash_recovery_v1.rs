@@ -215,8 +215,8 @@ pub fn accept(
         // sealed native diff rows/selection before replacing its workspace.
         crate::repository_native_diff_native_v1::retire(app);
         app.workspace = Some(workspace);
-        app.selected = 0;
-        app.scroll = 0;
+        app.repository_list.selected = 0;
+        app.repository_list.top = 0;
         app.hits.clear();
         app.repository_mode = crate::workspace::RepositoryMode::Overview;
         app.original_stash_recovery_v1 = None;

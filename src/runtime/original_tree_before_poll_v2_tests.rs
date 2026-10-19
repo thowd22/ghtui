@@ -218,8 +218,8 @@ fn completion_before_new_intent(kind: u8) {
         }
         app.status = "new input owns status".into();
         app.loading[View::Repository.index()] = true;
-        app.selected = 7;
-        app.scroll = 3;
+        app.repository_list.selected = 7;
+        app.repository_list.top = 3;
         app.hits = vec![HitRegion {
             rect: Rect::new(4, 5, 6, 1),
             action: Action::RepositoryMode(RepositoryMode::Working),
@@ -240,7 +240,10 @@ fn completion_before_new_intent(kind: u8) {
         assert!(!background.poll(&mut app));
         assert_eq!(app.status, "new input owns status");
         assert!(app.loading[View::Repository.index()]);
-        assert_eq!((app.selected, app.scroll), (7, 3));
+        assert_eq!(
+            (app.repository_list.selected, app.repository_list.top),
+            (7, 3)
+        );
         assert_eq!(app.hits.len(), 1);
         assert_eq!(
             app.hits[0].action,
@@ -516,8 +519,8 @@ fn original_tree_viewport_actual_member_completion_width_and_field_are_owned_at_
             ));
             assert!(owner.can_admit(app.workspace.as_ref().unwrap(),app.original_tree_jump_v1.as_ref(),completion.result.is_ok()),"Only desired metadata epoch/purpose, not a fake source change, must reject this result");
             app.status = "new desired metadata input owns status".into();
-            app.selected = 7;
-            app.scroll = 3;
+            app.repository_list.selected = 7;
+            app.repository_list.top = 3;
             app.hits = vec![HitRegion {
                 rect: Rect::new(2, 3, 4, 1),
                 action: Action::Help,
@@ -529,7 +532,10 @@ fn original_tree_viewport_actual_member_completion_width_and_field_are_owned_at_
             background.completions = receiver;
             assert!(!background.poll(&mut app));
             assert_eq!(app.status, "new desired metadata input owns status");
-            assert_eq!((app.selected, app.scroll), (7, 3));
+            assert_eq!(
+                (app.repository_list.selected, app.repository_list.top),
+                (7, 3)
+            );
             assert_eq!(app.hits[0].action, Action::Help);
             assert!(Arc::ptr_eq(
                 app.original_tree_viewport_v2.pending.as_ref().unwrap(),

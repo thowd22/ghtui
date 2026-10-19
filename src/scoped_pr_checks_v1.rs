@@ -101,7 +101,7 @@ impl PrChecksOrigin {
         let Some(crate::scoped_pr_observed_tabs_v1::resources::PrResourceRowV1::Check(
             false,
             index,
-        )) = resource.row(app.selected)
+        )) = resource.row(app.inbox_list.selected)
         else {
             return Err("Select an actual observed CheckRun. Commit status contexts do not identify an Actions run.".into());
         };
@@ -145,8 +145,8 @@ impl PrChecksOrigin {
             identity: github.identity.clone(),
             summary,
             check,
-            row: app.selected,
-            top: app.scroll,
+            row: app.inbox_list.selected,
+            top: app.inbox_list.top,
             scoped: Some(scoped),
         })
     }
@@ -363,8 +363,8 @@ pub fn install_v1(app: &mut App, mut value: ScopedPrCheckCompletionV1) -> Result
         app.pr_checks_origin = Some(value.origin);
         app.pr_checks_route = value.route;
         app.view = View::Actions;
-        app.selected = 0;
-        app.scroll = 0;
+        app.inbox_list.selected = 0;
+        app.inbox_list.top = 0;
         app.actions_content_focused = true;
         app.actions_load_requested = false;
         app.actions_action = None;
@@ -377,8 +377,8 @@ pub fn install_v1(app: &mut App, mut value: ScopedPrCheckCompletionV1) -> Result
         app.actions_action = None;
         app.actions_load_requested = false;
         app.view = View::Inbox;
-        app.selected = value.origin.row;
-        app.scroll = value.origin.top;
+        app.inbox_list.selected = value.origin.row;
+        app.inbox_list.top = value.origin.top;
         app.github_content_focused = true;
         app.context = github.context();
         app.pr_checks_origin = value.route.as_ref().map(|_| value.origin);

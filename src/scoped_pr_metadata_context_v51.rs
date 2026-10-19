@@ -213,8 +213,8 @@ pub(crate) fn install(
     github.scoped_pr_navigation = prepared.navigation;
     github.personal_pr_page_ticket_v13 = prepared.personal;
     app.context = prepared.caption;
-    app.selected = 0;
-    app.scroll = 0;
+    app.inbox_list.selected = 0;
+    app.inbox_list.top = 0;
     app.focus = 0;
     app.github_content_focused = true;
     app.hits.clear();

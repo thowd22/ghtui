@@ -116,8 +116,8 @@ pub(super) fn hide_current(app: &mut App) {
     }
     app.notice.clear();
     app.notice_scroll = 0;
-    app.selected = 0;
-    app.scroll = 0;
+    app.inbox_list.selected = 0;
+    app.inbox_list.top = 0;
     app.context = "Original scoped read unavailable • private results hidden".into();
     app.refresh_requested = false;
     app.status = "Original scoped read unavailable • private results hidden; original intent/drafts retained".into();

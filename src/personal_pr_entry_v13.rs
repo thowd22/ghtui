@@ -96,8 +96,8 @@ impl OriginalPersonalPresentationV13 {
                 github.identity.host == self.parent.identity().host
                     && github.identity.account_id == self.parent.identity().account_id
             })
-            && app.selected == self.selected_row
-            && app.scroll == self.scroll
+            && app.inbox_list.selected == self.selected_row
+            && app.inbox_list.top == self.scroll
             && app.focus == self.focus
             && app.github_content_focused == self.content_focus
     }
@@ -192,8 +192,8 @@ impl PersonalPrEntryWorkV13 {
                 selected: selected.clone(),
                 scope: app.remote_scope.clone(),
                 catalogue: app.remote_scope_source.clone(),
-                selected_row: app.selected,
-                scroll: app.scroll,
+                selected_row: app.inbox_list.selected,
+                scroll: app.inbox_list.top,
                 focus: app.focus,
                 content_focus: app.github_content_focused,
                 tab: page.tab,
@@ -724,8 +724,8 @@ pub(crate) fn publish(
     app.personal_pr_entry_owner_v13 = None;
     app.personal_pr_entry_work_v13 = None;
     app.loading[View::Inbox.index()] = false;
-    app.selected = 0;
-    app.scroll = 0;
+    app.inbox_list.selected = 0;
+    app.inbox_list.top = 0;
     app.focus = 0;
     app.github_content_focused = true;
     app.hits.clear();
@@ -759,8 +759,8 @@ pub fn back_to_original(app: &mut App) -> bool {
     github.scoped_pr_resource = None;
     app.remote_scope = previous.old_scope;
     app.remote_scope_source = previous.old_catalogue;
-    app.selected = previous.selected;
-    app.scroll = previous.scroll;
+    app.inbox_list.selected = previous.selected;
+    app.inbox_list.top = previous.scroll;
     app.focus = previous.focus;
     app.github_content_focused = previous.content_focus;
     app.pr_file_images = None;

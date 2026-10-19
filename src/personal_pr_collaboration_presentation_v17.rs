@@ -124,8 +124,8 @@ impl PersonalPrCollaborationPresentationV17 {
                         .github
                         .as_ref()
                         .is_some_and(|github| github.scope().ok().as_ref() == Some(self.scope()))
-                    && app.selected == v.original.selected_row
-                    && app.scroll == v.original.scroll
+                    && app.inbox_list.selected == v.original.selected_row
+                    && app.inbox_list.top == v.original.scroll
             }
         }
     }
@@ -139,8 +139,8 @@ impl PersonalPrCollaborationPresentationV17 {
             TabV17::Conversation(v) | TabV17::Metadata(v) => {
                 v.original.retained_pointers_v19(app, github)
                     && github.scope().ok().as_ref() == Some(self.scope())
-                    && app.selected == v.original.selected_row
-                    && app.scroll == v.original.scroll
+                    && app.inbox_list.selected == v.original.selected_row
+                    && app.inbox_list.top == v.original.scroll
             }
         }
     }

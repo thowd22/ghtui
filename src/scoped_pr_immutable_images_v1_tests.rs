@@ -572,13 +572,18 @@ fn immutable_images_actual_factory_display_row_bound_preserves_existing_files_vi
         github: Some(s.workspace),
         remote_scope: Some(s.active.clone()),
         remote_scope_source: Some(s.source.clone()),
-        selected: 2,
-        scroll: 1,
+        inbox_list: crate::ui_table::ListState {
+            selected: 2,
+            top: 1,
+        },
         focus: 3,
         ..Default::default()
     };
     assert!(images::native::install(&mut app, result).unwrap());
-    assert_eq!((app.selected, app.scroll, app.focus), (2, 1, 3));
+    assert_eq!(
+        (app.inbox_list.selected, app.inbox_list.top, app.focus),
+        (2, 1, 3)
+    );
     assert!(app.pr_file_images.is_none());
     assert_eq!(
         app.github

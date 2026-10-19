@@ -22,7 +22,10 @@ fn newer_intent(mode_change: bool) {
             let mut app = App {
                 view: View::Repository,
                 repository_mode: RepositoryMode::Graph,
-                selected: source.graph_focus_row_v1().unwrap(),
+                repository_list: crate::ui_table::ListState {
+                    selected: source.graph_focus_row_v1().unwrap(),
+                    ..Default::default()
+                },
                 workspace: Some(source.clone()),
                 refresh_requested: false,
                 ..Default::default()
@@ -111,7 +114,7 @@ fn newer_intent(mode_change: bool) {
                 .iter()
                 .map(|hit| (hit.rect, hit.action.clone()))
                 .collect::<Vec<_>>();
-            let selected = app.selected;
+            let selected = app.repository_list.selected;
             sender.send(completion).unwrap();
             assert!(
                 !background.poll(&mut app),
@@ -126,7 +129,7 @@ fn newer_intent(mode_change: bool) {
                     .collect::<Vec<_>>(),
                 hits
             );
-            assert_eq!(app.selected, selected);
+            assert_eq!(app.repository_list.selected, selected);
             assert_eq!(app.repository_load_requested, mode_change);
             assert_eq!(
                 app.repository_mode,

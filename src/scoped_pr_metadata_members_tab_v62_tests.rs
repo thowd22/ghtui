@@ -104,8 +104,8 @@ fn install_catalogue(s: &mut Setup) {
     s.app.github = Some(read.workspace);
     s.app.remote_scope = Some(active);
     s.app.remote_scope_source = Some(source);
-    s.app.selected = 0;
-    s.app.scroll = 0;
+    s.app.inbox_list.selected = 0;
+    s.app.inbox_list.top = 0;
     assert!(s.app.personal_pr_source_v13.is_none());
 }
 fn enter_section(s: &mut Setup) {
@@ -561,8 +561,8 @@ fn cached_conversation(s: &mut Setup) {
         .load_tab(PrTab::Conversation, &s.api, &CancellationToken::default())
         .unwrap();
     s.app.github = Some(workspace);
-    s.app.selected = 0;
-    s.app.scroll = 0;
+    s.app.inbox_list.selected = 0;
+    s.app.inbox_list.top = 0;
     s.app.focus = 0;
     s.app.github_content_focused = true;
     assert_eq!(

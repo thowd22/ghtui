@@ -102,7 +102,10 @@ fn real(extra: Vec<GhStep>) -> Real {
         github: Some(workspace),
         remote_scope_source: Some(source),
         remote_scope: Some(active),
-        selected,
+        inbox_list: crate::ui_table::ListState {
+            selected,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let sql = sql_state(&fixture);
@@ -164,10 +167,10 @@ fn review_threads_v1_capture_is_actual_original_allocation_and_selection_without
     let intent = threads::ThreadBrowseIntentV1::capture(&real.app).unwrap();
     assert_eq!(intent.path(), Some("src/view.rs"));
     assert!(intent.owns(&real.app));
-    let old = real.app.selected;
-    real.app.selected += 1;
+    let old = real.app.inbox_list.selected;
+    real.app.inbox_list.selected += 1;
     assert!(!intent.owns(&real.app));
-    real.app.selected = old;
+    real.app.inbox_list.selected = old;
     real.app.remote_scope_source = None;
     assert!(!intent.owns(&real.app));
     assert!(!intent.owns(&App::default()));

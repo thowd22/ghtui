@@ -156,8 +156,10 @@ fn app_checked(fixture: &Fixture) -> App {
         github: Some(github),
         remote_scope: Some(active),
         remote_scope_source: Some(source),
-        selected,
-        scroll: selected.saturating_sub(2),
+        inbox_list: crate::ui_table::ListState {
+            selected,
+            top: selected.saturating_sub(2),
+        },
         ..Default::default()
     }
 }
@@ -362,7 +364,7 @@ fn scoped_check_source18_and_fresh_logs15_exact_actor_provenance_sql_git_and_who
     let source = app.remote_scope_source.clone().unwrap();
     let active = app.remote_scope.clone().unwrap();
     let inbox = app.github.as_ref().unwrap().inbox.pull_requests.as_ptr();
-    let selected = app.selected;
+    let selected = app.inbox_list.selected;
     let retained_provider = provider(&fixture);
     let value = load_bridge_using(&fixture, &mut app, &Default::default(), &retained_provider);
     install(&mut app, value);
@@ -434,7 +436,7 @@ fn scoped_check_source18_and_fresh_logs15_exact_actor_provenance_sql_git_and_who
     );
     app.dispatch(Action::Actions(ActionsAction::Back));
     assert_eq!(app.view, View::Inbox);
-    assert_eq!(app.selected, selected);
+    assert_eq!(app.inbox_list.selected, selected);
     assert!(app.pr_checks_route.is_none());
     assert!(app.actions.is_none());
     assert_eq!(

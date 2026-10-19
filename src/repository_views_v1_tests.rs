@@ -261,7 +261,10 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
     assert_eq!(cells.authored, seconds);
     let mut app = crate::app::App {
         view: crate::app::View::Repository,
-        selected: first,
+        repository_list: crate::ui_table::ListState {
+            selected: first,
+            ..Default::default()
+        },
         workspace: Some(workspace),
         repository_content_focused: true,
         ..Default::default()
@@ -352,9 +355,9 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         );
     }
     // A wheel-scrolled viewport is kept; the selection bar is simply out of view.
-    app.scroll = first + 1;
+    app.repository_list.top = first + 1;
     let (_, lines) = draw_overview(&mut app, 140, 42);
-    assert_eq!(app.scroll, first + 1);
+    assert_eq!(app.repository_list.top, first + 1);
     assert!(!lines.iter().any(|line| line.contains("Second note")));
     assert!(!lines.iter().any(|line| line.contains('▌')));
     // Read-only browsing leaves the checkout alone.

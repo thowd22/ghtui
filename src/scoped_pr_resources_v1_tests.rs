@@ -243,7 +243,7 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
         PrResourceUiActionV1::Layout,
     ] {
         app.dispatch(Action::Close);
-        let selected = app.selected;
+        let selected = app.inbox_list.selected;
         let native::PrResourceWorkV1::Loaded(input) = native::take_work(
             app.github.as_mut().unwrap(),
             GithubAction::Resource(action),
@@ -299,20 +299,21 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         };
         if action == PrResourceUiActionV1::Threads {
-            app.selected = (0..app.github.as_ref().unwrap().pr.as_ref().unwrap().rows.len())
-                .find(|index| {
-                    matches!(
-                        app.github
-                            .as_ref()
-                            .unwrap()
-                            .scoped_pr_resource
-                            .as_ref()
-                            .unwrap()
-                            .row(*index),
-                        Some(PrResourceRowV1::FileList(0))
-                    )
-                })
-                .unwrap();
+            app.inbox_list.selected =
+                (0..app.github.as_ref().unwrap().pr.as_ref().unwrap().rows.len())
+                    .find(|index| {
+                        matches!(
+                            app.github
+                                .as_ref()
+                                .unwrap()
+                                .scoped_pr_resource
+                                .as_ref()
+                                .unwrap()
+                                .row(*index),
+                            Some(PrResourceRowV1::FileList(0))
+                        )
+                    })
+                    .unwrap();
         }
         app.hits.clear();
         let mut terminal =
@@ -443,7 +444,7 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             );
         }
     }
-    let selected = app.selected;
+    let selected = app.inbox_list.selected;
     assert!(matches!(
         native::take_work(
             app.github.as_mut().unwrap(),

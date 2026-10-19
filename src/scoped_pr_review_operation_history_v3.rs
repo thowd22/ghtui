@@ -71,8 +71,8 @@ impl ReviewOperationHistoryIntentV3 {
                         .map_err(|_| "Actual bounded Summary observation unavailable")?,
                 ),
             },
-            selected: app.selected,
-            scroll: app.scroll,
+            selected: app.inbox_list.selected,
+            scroll: app.inbox_list.top,
         });
         if app.overlay.is_some() || !original.owns(app) {
             return Err("Choose the exact fresh scoped Summary presentation".into());
@@ -92,8 +92,8 @@ impl ReviewOperationHistoryIntentV3 {
             )?;
         Ok(Arc::new(Self {
             origin: ReviewSummaryOriginV15::Personal(original),
-            selected: app.selected,
-            scroll: app.scroll,
+            selected: app.inbox_list.selected,
+            scroll: app.inbox_list.top,
         }))
     }
     pub(crate) fn personal_summary_v15(
@@ -173,8 +173,8 @@ impl ReviewOperationHistoryIntentV3 {
     pub fn owns(&self, app: &App) -> bool {
         if let ReviewSummaryOriginV15::Personal(original) = &self.origin {
             return app.view == View::Inbox
-                && app.selected == self.selected
-                && app.scroll == self.scroll
+                && app.inbox_list.selected == self.selected
+                && app.inbox_list.top == self.scroll
                 && original.owns_presentation(app);
         }
         let ReviewSummaryOriginV15::Catalogue {
@@ -187,8 +187,8 @@ impl ReviewOperationHistoryIntentV3 {
             return false;
         };
         app.view == View::Inbox
-            && app.selected == self.selected
-            && app.scroll == self.scroll
+            && app.inbox_list.selected == self.selected
+            && app.inbox_list.top == self.scroll
             && app
                 .remote_scope_source
                 .as_ref()

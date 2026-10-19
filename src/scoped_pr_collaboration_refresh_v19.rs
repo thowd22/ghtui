@@ -428,8 +428,8 @@ impl AdmittedConversationPageV19 {
         app.overlay = None;
         app.form_dismissed = true;
         app.context = frame.context;
-        app.selected = 0;
-        app.scroll = 0;
+        app.inbox_list.selected = 0;
+        app.inbox_list.top = 0;
         app.focus = 0;
         app.github_content_focused = true;
         app.pr_file_images = None;

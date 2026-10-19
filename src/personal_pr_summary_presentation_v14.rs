@@ -62,8 +62,8 @@ impl PersonalPrSummaryPresentationV14 {
                 .github
                 .as_ref()
                 .is_some_and(|github| github.scope().ok().as_ref() == Some(self.scope()))
-            && app.selected == self.opening.original.selected_row
-            && app.scroll == self.opening.original.scroll
+            && app.inbox_list.selected == self.opening.original.selected_row
+            && app.inbox_list.top == self.opening.original.scroll
     }
     /// No numeric-account assertion, deliberately: authentic current account
     /// loss must hide ONLY this exact original private surface even if its old
@@ -85,8 +85,8 @@ impl PersonalPrSummaryPresentationV14 {
     ) -> bool {
         self.retained_same_v19(app, github)
             && github.scope().ok().as_ref() == Some(self.scope())
-            && app.selected == self.opening.original.selected_row
-            && app.scroll == self.opening.original.scroll
+            && app.inbox_list.selected == self.opening.original.selected_row
+            && app.inbox_list.top == self.opening.original.scroll
     }
     /// No Background slot/token/generation/loading/status or shared-avatar-cache
     /// cleanup here. Caller retires ONLY its matching local history/Form ticket.

@@ -82,7 +82,10 @@ fn local_app() -> (tempfile::TempDir, App) {
             view: View::Repository,
             workspace: Some(workspace),
             repository_mode: RepositoryMode::Graph,
-            selected,
+            repository_list: crate::ui_table::ListState {
+                selected,
+                ..Default::default()
+            },
             ..Default::default()
         },
     )
@@ -407,7 +410,7 @@ fn navigation_catalogue_genuine_git_record_and_disabled_selection_preserve_real_
     let before_status = git(directory.path(), &["status", "--porcelain=v2", "-z"]);
     let before_refs = git(directory.path(), &["show-ref"]);
     let before_index = std::fs::read(directory.path().join(".git/index")).unwrap();
-    let original = app.workspace.as_ref().unwrap().display_rows_v1()[app.selected]
+    let original = app.workspace.as_ref().unwrap().display_rows_v1()[app.repository_list.selected]
         .action
         .as_ref()
         .unwrap();
@@ -458,7 +461,7 @@ fn navigation_catalogue_preflights_oversized_selected_raw_paths_and_actions_cont
         action: Some(RowAction::File(crate::git::RawPath(vec![b'x'; 4097]))),
         cells: None,
     });
-    app.selected = workspace.rows.len() - 1;
+    app.repository_list.selected = workspace.rows.len() - 1;
     app.repository_mode = workspace.mode;
     app.workspace = Some(workspace);
     let catalogue = PreparedCatalogue::prepare(&app, 1).unwrap();
@@ -599,7 +602,7 @@ fn navigation_catalogue_borrowed_local_availability_matches_actual_owned_selecti
         let workspace = crate::workspace::Workspace::load(directory.path(), mode, "HEAD", None)
             .unwrap()
             .unwrap();
-        app.selected = workspace
+        app.repository_list.selected = workspace
             .display_rows_v1()
             .iter()
             .position(|row| row.action.is_some())
@@ -608,7 +611,7 @@ fn navigation_catalogue_borrowed_local_availability_matches_actual_owned_selecti
         let owned = app.local_context().unwrap();
         let borrowed = crate::local_availability::LocalAvailability::from_workspace(
             app.workspace.as_ref().unwrap(),
-            app.selected,
+            app.repository_list.selected,
             None,
         );
         for (command, _) in LocalCommand::ALL {

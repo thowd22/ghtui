@@ -90,7 +90,7 @@ fn capture(app: &mut App, kind: WorkKind) {
         active,
         navigation,
         selected_pr,
-        selected: app.selected,
+        selected: app.inbox_list.selected,
         width: width(app),
     }));
     app.pr_native_diff_layout_v1.clear();
@@ -108,7 +108,7 @@ pub fn open_files(app: &mut App) {
         open_personal_images(app, true);
         return;
     }
-    let selected = app.selected;
+    let selected = app.inbox_list.selected;
     let input = app
         .github
         .as_mut()
@@ -126,7 +126,7 @@ pub fn open_files(app: &mut App) {
 pub(crate) fn open_personal_images(app: &mut App, open_native: bool) {
     match immutable_images::personal_v13::PersonalImageInputV13::capture(
         app,
-        app.selected,
+        app.inbox_list.selected,
         open_native.then_some(width(app)),
     ) {
         Ok(input) => capture(app, WorkKind::PersonalImages { input, open_native }),
@@ -227,7 +227,7 @@ impl PrNativeWorkV1 {
     }
     pub(crate) fn matches(&self, app: &App) -> bool {
         if !self.original_pair(app)
-            || self.selected != app.selected
+            || self.selected != app.inbox_list.selected
             || self.width != width(app)
             || app.overlay.is_some()
             || (self.source.is_personal() && crate::personal_pr_entry_v13::newer_intent(app))

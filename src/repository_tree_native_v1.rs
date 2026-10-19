@@ -120,7 +120,9 @@ pub fn draw(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Re
 /// Pure list/breadcrumb input dispatch uses exact prepared original actions.
 pub fn selected_row(app: &App) -> Option<OriginalTreeNavigationActionV1> {
     let workspace = app.workspace.as_ref()?;
-    let row = workspace.display_rows_v1().get(app.selected)?;
+    let row = workspace
+        .display_rows_v1()
+        .get(app.repository_list.selected)?;
     match row.action.as_ref()? {
         RowAction::Tree(action) => Some(action.clone()),
         _ => None,

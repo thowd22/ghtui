@@ -664,7 +664,7 @@ fn review_threads_v3_reaction_same_source_genuine_new_navigation_never_paints_or
     )
     .unwrap();
     install_resource_if_current(&mut workspace, result).unwrap();
-    real.app.selected = (0..workspace.pr.as_ref().unwrap().rows.len())
+    real.app.inbox_list.selected = (0..workspace.pr.as_ref().unwrap().rows.len())
         .find(|index| {
             matches!(
                 workspace.scoped_pr_resource.as_ref().unwrap().row(*index),

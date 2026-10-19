@@ -226,16 +226,16 @@ pub(crate) fn install(app: &mut App, prepared: PreparedNotificationPrV63) -> boo
         previous_active,
         previous_catalogue,
         previous_selected,
-        previous_row: app.selected,
-        previous_scroll: app.scroll,
+        previous_row: app.inbox_list.selected,
+        previous_scroll: app.inbox_list.top,
         previous_focus: app.focus,
         previous_content_focus: app.github_content_focused,
         avatar_projection: None,
     });
     app.remote_scope = Some(prepared.active);
     app.overlay = None;
-    app.selected = 0;
-    app.scroll = 0;
+    app.inbox_list.selected = 0;
+    app.inbox_list.top = 0;
     app.focus = 0;
     app.github_content_focused = true;
     app.hits.clear();
@@ -272,8 +272,8 @@ pub fn back(app: &mut App) -> bool {
     app.remote_scope_source = state.previous_catalogue;
     app.notifications_v63 = state.previous.take();
     app.overlay = Some(Overlay::NotificationsV63);
-    app.selected = state.previous_row;
-    app.scroll = state.previous_scroll;
+    app.inbox_list.selected = state.previous_row;
+    app.inbox_list.top = state.previous_scroll;
     app.focus = state.previous_focus;
     app.github_content_focused = state.previous_content_focus;
     app.hits.clear();

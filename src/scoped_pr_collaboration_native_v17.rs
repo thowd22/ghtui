@@ -2563,8 +2563,8 @@ pub(crate) fn publish(
             if let Some(catalogue) = catalogue {
                 app.remote_scope_source = Some(catalogue);
             }
-            app.selected = app.github.as_ref().map_or(0, |g| g.selected_index());
-            app.scroll = 0;
+            app.inbox_list.selected = app.github.as_ref().map_or(0, |g| g.selected_index());
+            app.inbox_list.top = 0;
             app.hits.clear();
             app.status = "Fresh complete State queue observation • read only • no resend".into();
         }

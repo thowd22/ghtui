@@ -213,7 +213,7 @@ fn notifications_pr_follow_v63_patch_failure_or_inherited_64k_256k_cap_never_iss
             .unwrap();
         assert!(view.observed().raw_patch().is_none());
         assert!(view.observed().patch_failure().is_some());
-        app.selected = (0..app.github.as_ref().unwrap().pr.as_ref().unwrap().rows.len())
+        app.inbox_list.selected = (0..app.github.as_ref().unwrap().pr.as_ref().unwrap().rows.len())
             .find(|row| {
                 matches!(
                     view.row(*row),
@@ -911,7 +911,7 @@ fn app_with_genuine_native() -> (
         .unwrap();
     app.original_tree_viewport_v2.width = 120;
     let g = app.github.as_ref().unwrap();
-    app.selected = (0..g.pr.as_ref().unwrap().rows.len())
+    app.inbox_list.selected = (0..g.pr.as_ref().unwrap().rows.len())
         .find(|row| {
             matches!(
                 g.scoped_pr_resource.as_ref().unwrap().row(*row),

@@ -101,13 +101,13 @@ fn commit_graph_v3_runtime_same_source_two_actual_operations_cannot_replay_retai
     let status = app.status.clone();
     let context = app.context.clone();
     let loading = app.loading;
-    let selection = app.selected;
+    let selection = app.repository_list.selected;
     tx.send(completion).unwrap();
     assert!(!background.poll(&mut app));
     assert_eq!(app.status, status);
     assert_eq!(app.context, context);
     assert_eq!(app.loading, loading);
-    assert_eq!(app.selected, selection);
+    assert_eq!(app.repository_list.selected, selection);
     assert!(Arc::ptr_eq(
         &original,
         app.workspace

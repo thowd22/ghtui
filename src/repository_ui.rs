@@ -540,14 +540,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         && visible_rows != app.repository_visible_rows
         && visible_rows != 0
     {
-        if app.selected < app.scroll {
-            app.scroll = app.selected;
-        } else if app.selected >= app.scroll.saturating_add(visible_rows) {
-            app.scroll = app.selected + 1 - visible_rows;
+        if app.repository_list.selected < app.repository_list.top {
+            app.repository_list.top = app.repository_list.selected;
+        } else if app.repository_list.selected
+            >= app.repository_list.top.saturating_add(visible_rows)
+        {
+            app.repository_list.top = app.repository_list.selected + 1 - visible_rows;
         }
     }
     app.repository_visible_rows = visible_rows;
-    for (visible, index) in (app.scroll..workspace.display_rows_v1().len())
+    for (visible, index) in (app.repository_list.top..workspace.display_rows_v1().len())
         .take(app.repository_visible_rows)
         .enumerate()
     {
@@ -560,7 +562,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         let token = SemanticToken::from(row.role);
         let range_selected = matches!(&row.action, Some(RowAction::DiffLine(anchor)) if app.repository_anchor_selected(anchor));
-        let style = if range_selected || (index == app.selected && app.repository_content_focused) {
+        let style = if range_selected
+            || (index == app.repository_list.selected && app.repository_content_focused)
+        {
             theme.selected(token)
         } else {
             theme.style(token)
@@ -712,8 +716,9 @@ fn draw_overview_v91(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     // The wheel moves the viewport without the selection, so the list keeps `app.scroll`;
     // keyboard movement already scrolls the selected row into view.
-    let top = app.scroll.min(rows.len().saturating_sub(1));
-    let selected = (app.selected < rows.len()).then_some(app.selected);
+    let top = app.repository_list.top.min(rows.len().saturating_sub(1));
+    let selected =
+        (app.repository_list.selected < rows.len()).then_some(app.repository_list.selected);
     let rendered = crate::ui_table::draw_table_at(
         frame,
         area,
@@ -751,7 +756,7 @@ fn draw_overview_v91(frame: &mut Frame, app: &mut App, area: Rect) {
             action,
         });
     }
-    app.scroll = top;
+    app.repository_list.top = top;
     app.repository_visible_rows = rendered.visible_rows;
     app.hits.extend(hits);
 }

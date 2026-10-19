@@ -111,6 +111,22 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
     let chrome_hits = app.hits.len();
     // `rows` keeps the content/status/footer indices the view adapters below expect.
     let rows = [rows[0], rows[0], rows[0], rows[1], rows[2], rows[3]];
+    // A list with a preview splits its pane at wide widths (TASK-92); overlays keep the
+    // whole content area.
+    let content_full = rows[3];
+    let split = if crate::list_preview_v92::offered(app) {
+        crate::ui_chrome::split_list_preview(content_full)
+    } else {
+        crate::ui_chrome::ListPreview {
+            list: content_full,
+            preview: None,
+        }
+    };
+    app.preview_area_v92 = split.preview;
+    if split.preview.is_none() {
+        app.content_pane = crate::list_preview_v92::Pane::List;
+    }
+    let rows = [rows[0], rows[1], rows[2], split.list, rows[4], rows[5]];
     if app.overlay.is_none() {
         app.pointer_region.capture(app.view, app.overlay, rows[3]);
     }
@@ -118,12 +134,13 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         .iter()
         .map(|line| Line::from(safe_text(line)))
         .collect();
-    let focused = crate::ui_chrome::content_focused(app, chrome_hits);
+    let focused = crate::ui_chrome::content_focused(app, chrome_hits)
+        && crate::list_preview_v92::list_focused(app);
     frame.render_widget(
         Paragraph::new(content)
             .block(crate::ui_chrome::main_pane(app, theme, rows[3], focused))
             .wrap(Wrap { trim: false })
-            .scroll((app.scroll.min(u16::MAX as usize) as u16, 0)),
+            .scroll((app.view_list().top.min(u16::MAX as usize) as u16, 0)),
         rows[3],
     );
     if app.view == View::Repository {
@@ -166,14 +183,11 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
             )
         };
         crate::pr_checks_native::scoped::draw_pending_v1(frame, app, actions_area);
+        let list_focused =
+            app.actions_content_focused && crate::list_preview_v92::list_focused(app);
         if let Some(actions) = &mut app.actions {
-            let rendered = crate::actions_ui::draw(
-                frame,
-                actions,
-                actions_area,
-                theme,
-                app.actions_content_focused,
-            );
+            let rendered =
+                crate::actions_ui::draw(frame, actions, actions_area, theme, list_focused);
             app.actions_visible_rows = rendered.visible_rows;
             // Focus is a state, not a decoration on every actionable label.
             for hit in &rendered.hits {
@@ -233,6 +247,9 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         } else {
             app.metrics_content = Default::default();
         }
+    }
+    if let Some(preview) = app.preview_area_v92 {
+        crate::list_preview_v92::draw(frame, app, preview);
     }
     frame.render_widget(
         Paragraph::new(crate::ui_chrome::fit(
@@ -294,7 +311,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         }
         if overlay == Overlay::Palette {
             if let Some(palette) = &mut app.command_palette {
-                let region = crate::ui_chrome::overlay_region(area, rows[3]);
+                let region = crate::ui_chrome::overlay_region(area, content_full);
                 crate::ui_chrome::clear_overlay_gutter(frame, theme, region, region);
                 let hits = palette.draw(frame, region, theme);
                 app.hits.extend(hits.into_iter().map(|hit| HitRegion {
@@ -305,7 +322,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
             return;
         }
         if overlay == Overlay::Help {
-            let region = crate::ui_chrome::overlay_region(area, rows[3]);
+            let region = crate::ui_chrome::overlay_region(area, content_full);
             crate::navigation_ui::draw_help(frame, app, region);
             return;
         }
@@ -436,7 +453,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
                 let context = app.workspace.as_ref().map(|workspace| {
                     crate::local_availability::LocalAvailability::from_workspace(
                         workspace,
-                        app.selected,
+                        app.repository_list.selected,
                         app.repository_selection
                             .as_ref()
                             .map(|selection| &selection.start),

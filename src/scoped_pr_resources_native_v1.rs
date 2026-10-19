@@ -395,13 +395,13 @@ pub fn apply_effects(app: &mut App, effects: ResourceInstallEffectsV1) {
     }
     if !effects.display_limited {
         if let Some(selected) = effects.selected {
-            app.selected = selected;
+            app.inbox_list.selected = selected;
             let visible = app.github_visible_rows.max(1);
-            if selected < app.scroll {
-                app.scroll = selected;
+            if selected < app.inbox_list.top {
+                app.inbox_list.top = selected;
             }
-            if selected >= app.scroll.saturating_add(visible) {
-                app.scroll = selected + 1 - visible;
+            if selected >= app.inbox_list.top.saturating_add(visible) {
+                app.inbox_list.top = selected + 1 - visible;
             }
         }
         if effects.content_focus {

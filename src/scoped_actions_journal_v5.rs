@@ -622,8 +622,8 @@ pub(super) fn intercept(app: &mut App, action: &ActionsAction) -> bool {
             } else if let Some(origin) = &state.source.history_pr_v5 {
                 let (selected, scroll) = origin.return_position();
                 app.view = View::Inbox;
-                app.selected = selected;
-                app.scroll = scroll;
+                app.inbox_list.selected = selected;
+                app.inbox_list.top = scroll;
                 app.actions_content_focused = false;
             } else {
                 state.journal_v5 = None;

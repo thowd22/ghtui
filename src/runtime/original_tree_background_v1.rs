@@ -256,8 +256,9 @@ pub(super) fn publish_original_tree_v1(
             let workspace = app.workspace.as_mut().expect("original source checked");
             match result.publish_v2(workspace, &mut app.original_tree_jump_v1) {
                 Ok(crate::repository_tree_worker_v1::TreePublishEffectV2::Navigation(focus)) => {
-                    app.selected = focus.min(workspace.display_rows_v1().len().saturating_sub(1));
-                    app.scroll = app.selected.saturating_sub(2);
+                    app.repository_list.selected =
+                        focus.min(workspace.display_rows_v1().len().saturating_sub(1));
+                    app.repository_list.top = app.repository_list.selected.saturating_sub(2);
                     app.repository_selection = None;
                     app.repository_content_focused = true;
                     app.status =

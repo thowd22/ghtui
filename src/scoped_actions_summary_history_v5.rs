@@ -53,8 +53,8 @@ impl ActionsSummaryHistoryOriginV5 {
                 .clone(),
             expected: ThreadHistoryParentObservationV1::capture(&page.details.summary)
                 .map_err(|_| "Bounded actual Summary unavailable")?,
-            selected: app.selected,
-            scroll: app.scroll,
+            selected: app.inbox_list.selected,
+            scroll: app.inbox_list.top,
         });
         if app.view != View::Inbox || app.overlay.is_some() || !value.current(app) {
             return Err("Choose the actual current scoped Summary first".into());
@@ -76,7 +76,7 @@ impl ActionsSummaryHistoryOriginV5 {
     pub(crate) fn current(&self, app: &App) -> bool {
         matches!(app.view, View::Inbox | View::Actions)
             && (app.view == View::Actions
-                || (app.selected == self.selected && app.scroll == self.scroll))
+                || (app.inbox_list.selected == self.selected && app.inbox_list.top == self.scroll))
             && app
                 .remote_scope_source
                 .as_ref()

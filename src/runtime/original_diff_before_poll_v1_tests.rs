@@ -125,8 +125,8 @@ fn completion_before_new_input(kind: u8) {
         }
         app.status = "new input owns status".into();
         app.loading[View::Repository.index()] = true;
-        app.selected = 7;
-        app.scroll = 3;
+        app.repository_list.selected = 7;
+        app.repository_list.top = 3;
         app.hits = vec![HitRegion {
             rect: Rect::new(4, 5, 6, 1),
             action: Action::RepositoryMode(RepositoryMode::Working),
@@ -147,7 +147,10 @@ fn completion_before_new_input(kind: u8) {
         assert!(!background.poll(&mut app));
         assert_eq!(app.status, "new input owns status");
         assert!(app.loading[View::Repository.index()]);
-        assert_eq!((app.selected, app.scroll), (7, 3));
+        assert_eq!(
+            (app.repository_list.selected, app.repository_list.top),
+            (7, 3)
+        );
         assert_eq!(app.hits.len(), 1);
         assert_eq!(
             app.hits[0].action,
@@ -435,8 +438,10 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
     let worker = restored.clone();
     let mut app = App {
         view: View::Repository,
-        selected: restored.graph_focus_row_v1().unwrap(),
-        scroll: 40,
+        repository_list: crate::ui_table::ListState {
+            selected: restored.graph_focus_row_v1().unwrap(),
+            top: 40,
+        },
         repository_visible_rows: 10,
         repository_content_focused: true,
         workspace: Some(restored),
@@ -481,11 +486,17 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
         (Some(102), Some(102))
     );
     assert_eq!(
-        workspace.display_rows_v1()[app.selected].action,
+        workspace.display_rows_v1()[app.repository_list.selected].action,
         Some(RowAction::FileProvenance(FileAction::BlameLine(102)))
     );
-    assert_eq!(workspace.provenance_focus_row(), Some(app.selected));
-    assert!(app.selected >= app.scroll && app.selected < app.scroll + app.repository_visible_rows);
+    assert_eq!(
+        workspace.provenance_focus_row(),
+        Some(app.repository_list.selected)
+    );
+    assert!(
+        app.repository_list.selected >= app.repository_list.top
+            && app.repository_list.selected < app.repository_list.top + app.repository_visible_rows
+    );
     assert!(!real.children().is_empty());
     fixture::assert_no_discovery(&real);
     assert_eq!(real.snapshot(), before);

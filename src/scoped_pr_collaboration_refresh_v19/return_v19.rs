@@ -670,8 +670,8 @@ pub(crate) fn back(app: &mut App) -> bool {
     app.form = None;
     app.form_dismissed = true;
     app.overlay = None;
-    app.selected = app.github.as_ref().unwrap().selected_index();
-    app.scroll = 0;
+    app.inbox_list.selected = app.github.as_ref().unwrap().selected_index();
+    app.inbox_list.top = 0;
     app.focus = 0;
     app.github_content_focused = true;
     app.hits.clear();

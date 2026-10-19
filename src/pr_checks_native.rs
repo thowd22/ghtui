@@ -119,7 +119,7 @@ pub fn open_action(app: &App) -> Action {
         .github
         .as_ref()
         .ok_or_else(|| "No exact PR Checks page is loaded".to_owned())
-        .and_then(|github| selected_source(github, app.selected))
+        .and_then(|github| selected_source(github, app.inbox_list.selected))
     {
         Ok(_) => Action::PrChecks(PrChecksUiAction::Open),
         Err(reason) => Action::Explain(reason),
@@ -274,7 +274,9 @@ pub fn dispatch(app: &mut App, action: PrChecksUiAction) {
                 app.github
                     .as_ref()
                     .ok_or_else(|| "No exact PR Checks page is loaded".to_owned())
-                    .and_then(|github| PrChecksOrigin::capture(github, app.selected, app.scroll))
+                    .and_then(|github| {
+                        PrChecksOrigin::capture(github, app.inbox_list.selected, app.inbox_list.top)
+                    })
             };
             match captured {
                 Ok(origin) => {
@@ -304,8 +306,8 @@ pub fn dispatch(app: &mut App, action: PrChecksUiAction) {
             retire(app, true);
             app.pr_checks_cancel_actions = true;
             app.view = View::Inbox;
-            app.selected = row;
-            app.scroll = top;
+            app.inbox_list.selected = row;
+            app.inbox_list.top = top;
             app.github_content_focused = true;
             app.actions_content_focused = false;
             app.context = app.github.as_ref().unwrap().context();

@@ -176,7 +176,7 @@ fn pr_metadata_members_history_v296_grafted_fields_busy_pending_and_foreign_pres
             8 => s.app.scoped_inline_cancel_v1 = true,
             9 => s.app.loading[View::Inbox.index()] = true,
             10 => s.app.github.as_mut().unwrap().identity.account_id = Some(43),
-            11 => s.app.selected = s.app.selected.checked_add(1).unwrap(),
+            11 => s.app.inbox_list.selected = s.app.inbox_list.selected.checked_add(1).unwrap(),
             12 => {
                 let reference = member_ui::history::state(s.app.form.as_ref().unwrap())
                     .unwrap()

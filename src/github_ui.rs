@@ -333,11 +333,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         let mut line = y;
         let mut rendered = 0usize;
-        for (offset, row) in page.rows.iter().skip(app.scroll).enumerate() {
+        for (offset, row) in page.rows.iter().skip(app.inbox_list.top).enumerate() {
             if line >= area.bottom() {
                 break;
             }
-            let index = app.scroll + offset;
+            let index = app.inbox_list.top + offset;
             let selectable = github.pr_row_is_interactive(index);
             if wrap_prose && !selectable && row.actor.is_none() {
                 let text = safe_text(&row.label);
@@ -394,7 +394,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             if selectable {
                 // The cursor rests only on interactive rows: the `▌` bar on the Selection
                 // background, accent while the page content has focus.
-                if index == app.selected {
+                if index == app.inbox_list.selected {
                     crate::ui_table::select_line(
                         frame.buffer_mut(),
                         row_area,
@@ -420,8 +420,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         crate::github_workspace::queue_summary_v1(filter_label, github.queue_counts())
     };
+    // A narrow list pane (beside a preview) cuts the summary with an ellipsis.
     frame.render_widget(
-        Paragraph::new(queue_line).style(theme.style(SemanticToken::Head)),
+        Paragraph::new(crate::ui_chrome::fit(&queue_line, usize::from(area.width)))
+            .style(theme.style(SemanticToken::Head)),
         Rect::new(area.x, y, area.width, 1),
     );
     y += 1;
@@ -438,26 +440,32 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     y += 1;
     frame.render_widget(
-        Paragraph::new(github.coverage_label()).style(theme.style(
-            if github.inbox.coverage.complete {
-                SemanticToken::Normal
-            } else {
-                SemanticToken::Pending
-            },
-        )),
+        Paragraph::new(crate::ui_chrome::fit(
+            &github.coverage_label(),
+            usize::from(area.width),
+        ))
+        .style(theme.style(if github.inbox.coverage.complete {
+            SemanticToken::Normal
+        } else {
+            SemanticToken::Pending
+        })),
         Rect::new(area.x, y, area.width, 1),
     );
     y += 1;
     let warning = github.inbox.coverage.reasons.join(" • ");
     if !warning.is_empty() {
         frame.render_widget(
-            Paragraph::new(safe_text(&warning)).style(theme.style(SemanticToken::Pending)),
+            Paragraph::new(crate::ui_chrome::fit(
+                &safe_text(&warning),
+                usize::from(area.width),
+            ))
+            .style(theme.style(SemanticToken::Pending)),
             Rect::new(area.x, y, area.width, 1),
         );
         y += 1;
     }
     // One table row per pull request under sticky column titles (TASK-91). The Inbox keeps
-    // its own scroll (`app.scroll`; the wheel may leave the cursor off screen).
+    // its own scroll (`app.inbox_list.top`; the wheel may leave the cursor off screen).
     let visible = github.visible();
     let host = github.identity.host.clone();
     let rows = visible
@@ -467,7 +475,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let table = crate::ui_table::Table {
         columns: &INBOX_COLUMNS,
         header: true,
-        focused: app.github_content_focused,
+        focused: app.github_content_focused && crate::list_preview_v92::list_focused(app),
         glyphs: false,
         empty: None,
     };
@@ -490,7 +498,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     let selected = github.selected_index();
-    for (offset, index) in (app.scroll..visible.len())
+    for (offset, index) in (app.inbox_list.top..visible.len())
         .take(app.github_visible_rows)
         .enumerate()
     {

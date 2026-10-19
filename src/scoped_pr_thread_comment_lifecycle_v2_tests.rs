@@ -255,7 +255,7 @@ fn review_threads_v2_comment_actual_patch_held_readback_orphan_preserves_new_slo
             "pending"
         );
         if let Some(workspace) = replacement_workspace {
-            real.app.selected = (0..workspace.pr.as_ref().unwrap().rows.len())
+            real.app.inbox_list.selected = (0..workspace.pr.as_ref().unwrap().rows.len())
                 .find(|index| {
                     matches!(
                         workspace.scoped_pr_resource.as_ref().unwrap().row(*index),
@@ -266,7 +266,7 @@ fn review_threads_v2_comment_actual_patch_held_readback_orphan_preserves_new_slo
             real.app.github = Some(workspace);
         }
         if let Some(newer) = &mut independent {
-            real.app.selected = newer.app.selected;
+            real.app.inbox_list.selected = newer.app.inbox_list.selected;
             real.app.github = newer.app.github.take();
             real.app.remote_scope = newer.app.remote_scope.take();
             real.app.remote_scope_source = newer.app.remote_scope_source.take();

@@ -78,7 +78,7 @@ fn file_comments_v82_foreign_view_source_overlay_or_pending_intent_cannot_consum
             2 => real.app.overlay = Some(Overlay::Notice),
             3 => real.app.form_dismissed = true,
             4 => real.app.loading[View::Inbox.index()] = true,
-            5 => real.app.selected += 1,
+            5 => real.app.inbox_list.selected += 1,
             6 => real.app.github.as_mut().unwrap().identity.account_id = Some(43),
             7 => real.app.remote_scope_source = None,
             8 => real.app.refresh_requested = true,

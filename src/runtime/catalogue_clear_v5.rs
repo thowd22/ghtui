@@ -99,8 +99,8 @@ impl CatalogueClearOwnerV5 {
             selection: g.selected.clone(),
             filter: g.filter,
             position: (
-                app.selected,
-                app.scroll,
+                app.inbox_list.selected,
+                app.inbox_list.top,
                 app.focus,
                 app.github_content_focused,
             ),
@@ -132,8 +132,8 @@ impl CatalogueClearOwnerV5 {
                 .as_ref()
                 .is_some_and(|s| Arc::ptr_eq(s, &self.source))
             && (
-                app.selected,
-                app.scroll,
+                app.inbox_list.selected,
+                app.inbox_list.top,
                 app.focus,
                 app.github_content_focused,
             ) == self.position
@@ -425,8 +425,7 @@ impl Background {
             g.personal_pr_page_ticket_v13 = None;
             g.needs_refresh = false;
             g.freshness = Freshness::Empty;
-            app.selected = 0;
-            app.scroll = 0;
+            app.inbox_list = Default::default();
             app.focus = 0;
             app.context = g.context();
             app.hits.clear();

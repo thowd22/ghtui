@@ -252,8 +252,12 @@ pub struct App {
     pub content: [Vec<String>; 5],
     pub hits: Vec<HitRegion>,
     pub focus: usize,
-    pub selected: usize,
-    pub scroll: usize,
+    /// The Inbox (GitHub view) list: queue or open PR page rows.
+    pub inbox_list: crate::ui_table::ListState,
+    /// The Repository list (Overview, Graph, Tree, … display rows).
+    pub repository_list: crate::ui_table::ListState,
+    /// The plain content scroll of the remaining views (Search, Actions, Dashboard).
+    pub content_list: crate::ui_table::ListState,
     pub palette_index: usize,
     pub command_palette: Option<crate::command_palette::CommandPalette>,
     pub command_palette_context: Option<crate::navigation_catalogue::CatalogueContext>,
@@ -332,6 +336,13 @@ pub struct App {
     pub github: Option<crate::github_workspace::GithubWorkspace>,
     pub github_action: Option<crate::github_workspace::GithubAction>,
     pub github_content_focused: bool,
+    /// Which pane of a list plus preview split owns the content focus (TASK-92).
+    pub content_pane: crate::list_preview_v92::Pane,
+    /// The painted preview pane, when the current view shows one beside its list.
+    pub preview_area_v92: Option<ratatui::layout::Rect>,
+    /// Lines the preview pane is scrolled by, and the item it was scrolled on.
+    pub preview_scroll_v92: usize,
+    pub preview_item_v92: String,
     pub github_visible_rows: usize,
     pub pr_checks_origin: Option<std::sync::Arc<crate::pr_checks_native::PrChecksOrigin>>,
     pub pr_checks_route: Option<std::sync::Arc<crate::pr_checks_native::PrChecksRoute>>,
@@ -503,8 +514,9 @@ impl Default for App {
             ],
             hits: Vec::new(),
             focus: 0,
-            selected: 0,
-            scroll: 0,
+            inbox_list: Default::default(),
+            repository_list: Default::default(),
+            content_list: Default::default(),
             palette_index: 0,
             command_palette: None,
             command_palette_context: None,
@@ -573,6 +585,10 @@ impl Default for App {
             github: None,
             github_action: None,
             github_content_focused: true,
+            content_pane: Default::default(),
+            preview_area_v92: None,
+            preview_scroll_v92: 0,
+            preview_item_v92: String::new(),
             github_visible_rows: 10,
             pr_checks_origin: None,
             pr_checks_route: None,
@@ -652,6 +668,35 @@ impl Default for App {
 }
 
 impl App {
+    /// The list state each view keeps (Inbox and Repository own theirs; the remaining
+    /// views share the plain content scroll).
+    pub fn list_for(&self, view: View) -> &crate::ui_table::ListState {
+        match view {
+            View::Inbox => &self.inbox_list,
+            View::Repository => &self.repository_list,
+            _ => &self.content_list,
+        }
+    }
+    pub fn list_for_mut(&mut self, view: View) -> &mut crate::ui_table::ListState {
+        match view {
+            View::Inbox => &mut self.inbox_list,
+            View::Repository => &mut self.repository_list,
+            _ => &mut self.content_list,
+        }
+    }
+    /// The current view's list state.
+    pub fn view_list(&self) -> &crate::ui_table::ListState {
+        self.list_for(self.view)
+    }
+    pub fn view_list_mut(&mut self) -> &mut crate::ui_table::ListState {
+        self.list_for_mut(self.view)
+    }
+    /// Every view's list back to its first row (a view switch or a cleared scope).
+    pub fn reset_lists_v92(&mut self) {
+        self.inbox_list = Default::default();
+        self.repository_list = Default::default();
+        self.content_list = Default::default();
+    }
     /// Start with the library-owned empty lifecycle, including private draft
     /// protection. Callers may then configure the ordinary public UI fields.
     pub fn new() -> Self {
@@ -693,13 +738,13 @@ impl App {
         let selected = github
             .pr
             .as_ref()
-            .and_then(|page| page.rows.get(self.selected))
+            .and_then(|page| page.rows.get(self.inbox_list.selected))
             .and_then(|row| row.comment.as_deref().cloned());
         let mut context = crate::pr_actions::PrActionContext::from_workspace(github, selected)?;
         context.selected_file = github
             .pr
             .as_ref()
-            .and_then(|page| page.selected_progress_file(self.selected));
+            .and_then(|page| page.selected_progress_file(self.inbox_list.selected));
         Ok(context)
     }
     /// Render-time controls borrow prepared rows only; no large workspace cloning or I/O.
@@ -924,7 +969,7 @@ impl App {
             }
         }
         let comment = page
-            .and_then(|page| page.rows.get(self.selected))
+            .and_then(|page| page.rows.get(self.inbox_list.selected))
             .and_then(|row| row.comment.as_ref());
         for (command, label) in &PrCommand::ALL {
             if *command == PrCommand::Merge || PrCommand::LIFECYCLE.contains(command) {
@@ -935,7 +980,8 @@ impl App {
             } else if !self.pr_pending_message.is_empty() {
                 Some(self.pr_pending_message.clone())
             } else if matches!(command, PrCommand::MarkViewed | PrCommand::MarkUnviewed) {
-                let file = page.and_then(|page| page.selected_progress_file(self.selected));
+                let file =
+                    page.and_then(|page| page.selected_progress_file(self.inbox_list.selected));
                 match (self.github.as_ref(), page, file) {
                     (Some(github), Some(page), Some(file))
                         if page.review_progress.as_ref().is_some_and(|progress| {
@@ -1499,11 +1545,11 @@ impl App {
                 self.repository_selection = None;
                 self.user_navigated = true;
                 self.view = view;
+                self.content_pane = crate::list_preview_v92::Pane::List;
                 self.repository_content_focused = view == View::Repository;
                 self.github_content_focused = view == View::Inbox;
                 self.overlay = None;
-                self.scroll = 0;
-                self.selected = 0;
+                self.reset_lists_v92();
                 self.status = format!("{} • focused view", view.label());
                 self.search_controls.editing = None;
                 self.actions_content_focused = view == View::Actions;
@@ -1709,8 +1755,8 @@ impl App {
                 self.repository_selection = None;
                 self.repository_mode = mode;
                 self.repository_load_requested = true;
-                self.selected = 0;
-                self.scroll = 0;
+                self.repository_list.selected = 0;
+                self.repository_list.top = 0;
                 self.user_navigated = true;
                 self.repository_content_focused = true;
             }
@@ -1757,7 +1803,7 @@ impl App {
                             .position(|row| row.action.as_ref() == Some(&action))
                     };
                     if let Some(index) = index {
-                        self.selected = index;
+                        self.repository_list.selected = index;
                     }
                 }
                 if let crate::workspace::RowAction::DiffLine(anchor) = action {
@@ -1782,7 +1828,7 @@ impl App {
                 );
                 self.repository_action = Some(action);
                 if !keep_viewport {
-                    self.scroll = 0;
+                    self.repository_list.top = 0;
                 }
                 self.user_navigated = true;
                 self.repository_content_focused = true;
@@ -1813,23 +1859,24 @@ impl App {
                     self.content[self.view.index()].len()
                 }
                 .saturating_sub(1);
-                self.scroll = self.scroll.saturating_add_signed(delta as isize).min(max);
+                let top = self.view_list().top.saturating_add_signed(delta as isize).min(max);
+                self.view_list_mut().top = top;
             }
-            Action::Select(index) => self.selected = index,
+            Action::Select(index) => self.view_list_mut().selected = index,
             Action::GithubRow(index) => {
                 if let Some(page) = self.github.as_ref().and_then(|github| github.pr.as_ref()) {
-                    self.selected = index.min(page.rows.len().saturating_sub(1));
+                    self.inbox_list.selected = index.min(page.rows.len().saturating_sub(1));
                     self.github_content_focused = true;
                     let visible = self.github_visible_rows.max(1);
-                    if self.selected < self.scroll {
-                        self.scroll = self.selected;
+                    if self.inbox_list.selected < self.inbox_list.top {
+                        self.inbox_list.top = self.inbox_list.selected;
                     }
-                    if self.selected >= self.scroll + visible {
-                        self.scroll = self.selected + 1 - visible;
+                    if self.inbox_list.selected >= self.inbox_list.top + visible {
+                        self.inbox_list.top = self.inbox_list.selected + 1 - visible;
                     }
                     if let Some(comment) = page
                         .rows
-                        .get(self.selected)
+                        .get(self.inbox_list.selected)
                         .and_then(|row| row.comment.as_ref())
                     {
                         self.status = format!(
@@ -1837,7 +1884,7 @@ impl App {
                             comment.observed.id,
                             comment.observed.author.label()
                         );
-                    } else if let Some(file) = page.progress_file_at(self.selected) {
+                    } else if let Some(file) = page.progress_file_at(self.inbox_list.selected) {
                         self.status = format!(
                             "Selected file {} • {} • p PR actions",
                             safe_text(&file.path),
@@ -1947,8 +1994,8 @@ impl App {
                         _ => self.github_action = Some(action),
                     }
                     if !preserve_scoped_view {
-                        self.selected = github.selected_index();
-                        self.scroll = 0;
+                        self.inbox_list.selected = github.selected_index();
+                        self.inbox_list.top = 0;
                         self.github_content_focused = true;
                     }
                     self.context = github.context();
@@ -2040,7 +2087,7 @@ impl App {
                     if let Some(reason) =
                         crate::local_availability::LocalAvailability::from_workspace(
                             workspace,
-                            self.selected,
+                            self.repository_list.selected,
                             self.repository_selection
                                 .as_ref()
                                 .map(|selection| &selection.start),
@@ -2805,6 +2852,10 @@ impl App {
                         return;
                     }
                 }
+                // List plus preview split: Tab between the panes, keys of the focused preview.
+                if crate::list_preview_v92::key(self, key) {
+                    return;
+                }
                 if matches!(self.view, View::Inbox | View::Actions)
                     && self
                         .pr_checks_route
@@ -3006,11 +3057,11 @@ impl App {
                         if key.modifiers.contains(KeyModifiers::SHIFT)
                             && matches!(key.code, KeyCode::Up | KeyCode::Down)
                         {
-                            let previous = self.selected;
+                            let previous = self.repository_list.selected;
                             let start = self.repository_anchor(previous);
                             self.move_repository_selection(key.code == KeyCode::Down);
                             if let (Some(start), Some(end)) =
-                                (start, self.repository_anchor(self.selected))
+                                (start, self.repository_anchor(self.repository_list.selected))
                             {
                                 if self.repository_selection.is_none() {
                                     self.repository_selection = Some(DiffSelection {
@@ -3019,7 +3070,7 @@ impl App {
                                     });
                                 }
                                 if !self.extend_repository_selection(end) {
-                                    self.selected = previous;
+                                    self.repository_list.selected = previous;
                                 }
                             }
                             return;
@@ -3038,7 +3089,9 @@ impl App {
                                     .workspace
                                     .as_ref()
                                     .and_then(|workspace| {
-                                        workspace.display_rows_v1().get(self.selected)
+                                        workspace
+                                            .display_rows_v1()
+                                            .get(self.repository_list.selected)
                                     })
                                     .and_then(|row| row.action.clone())
                                 {
@@ -3146,14 +3199,16 @@ impl App {
                                     .github
                                     .as_ref()
                                     .and_then(|github| github.pr.as_ref())
-                                    .is_some_and(|page| page.check_at(self.selected).is_some())
+                                    .is_some_and(|page| {
+                                        page.check_at(self.inbox_list.selected).is_some()
+                                    })
                                 {
                                     self.dispatch(Action::PrChecks(
                                         crate::pr_checks_native::PrChecksUiAction::Open,
                                     ));
                                     return;
                                 }
-                                self.dispatch(Action::GithubRow(self.selected));
+                                self.dispatch(Action::GithubRow(self.inbox_list.selected));
                                 return;
                             }
                             _ => {}
@@ -3229,6 +3284,20 @@ impl App {
                 }
             }
             Event::Mouse(mouse) => {
+                let wheel = match mouse.kind {
+                    MouseEventKind::ScrollDown => Some(3),
+                    MouseEventKind::ScrollUp => Some(-3),
+                    _ => None,
+                };
+                if crate::list_preview_v92::mouse(
+                    self,
+                    mouse.column,
+                    mouse.row,
+                    mouse.kind == MouseEventKind::Down(MouseButton::Left),
+                    wheel,
+                ) {
+                    return;
+                }
                 let hovering =
                     self.pointer_region
                         .contains(self.view, self.overlay, mouse.column, mouse.row);
@@ -3418,7 +3487,7 @@ impl App {
         if let Some(index) = self.workspace.as_ref().and_then(|workspace| {
             workspace.display_rows_v1().iter().position(|row|matches!(&row.action,Some(crate::workspace::RowAction::DiffLine(candidate)) if candidate == &anchor))
         }) {
-            self.selected = index;
+            self.repository_list.selected = index;
         }
         self.status = format!(
             "Selected {} canonical lines • h selects hunk • + Stage • - Unstage • m Local operations",
@@ -3445,14 +3514,21 @@ impl App {
         // A cursor on a diff line with no explicit range stages its whole hunk.
         if quick != crate::local_actions::QuickLocal::Commit
             && self.repository_selection.is_none()
-            && self.repository_anchor(self.selected).is_some()
+            && self
+                .repository_anchor(self.repository_list.selected)
+                .is_some()
         {
             self.select_repository_hunk();
         }
         let row = self
             .workspace
             .as_ref()
-            .and_then(|workspace| workspace.display_rows_v1().get(self.selected).cloned())
+            .and_then(|workspace| {
+                workspace
+                    .display_rows_v1()
+                    .get(self.repository_list.selected)
+                    .cloned()
+            })
             .and_then(|row| row.action);
         match quick.command(row.as_ref(), self.repository_selection.is_some()) {
             Ok(command) => {
@@ -3464,7 +3540,7 @@ impl App {
         }
     }
     fn select_repository_hunk(&mut self) {
-        let Some(anchor) = self.repository_anchor(self.selected) else {
+        let Some(anchor) = self.repository_anchor(self.repository_list.selected) else {
             self.status = "Select a diff line before selecting its hunk".into();
             return;
         };
@@ -3503,7 +3579,7 @@ impl App {
         let Some(selection) = &self.repository_selection else {
             return Some(crate::local_actions::LocalContext::from_row(
                 workspace,
-                self.selected,
+                self.repository_list.selected,
             ));
         };
         let mut context = crate::local_actions::LocalContext::from_workspace(
@@ -3561,11 +3637,11 @@ impl App {
                 index.saturating_sub(1)
             };
             github.select_index(next);
-            self.selected = next;
-            if next < self.scroll {
-                self.scroll = next;
-            } else if next >= self.scroll + self.github_visible_rows {
-                self.scroll = next + 1 - self.github_visible_rows.max(1);
+            self.inbox_list.selected = next;
+            if next < self.inbox_list.top {
+                self.inbox_list.top = next;
+            } else if next >= self.inbox_list.top + self.github_visible_rows {
+                self.inbox_list.top = next + 1 - self.github_visible_rows.max(1);
             }
         }
     }
@@ -3574,7 +3650,7 @@ impl App {
         if let Some(next) = self
             .github
             .as_ref()
-            .and_then(|github| github.pr_row_navigation_target(self.selected, down))
+            .and_then(|github| github.pr_row_navigation_target(self.inbox_list.selected, down))
         {
             self.dispatch(Action::GithubRow(next));
         } else {
@@ -3588,23 +3664,24 @@ impl App {
             return;
         };
         // A refreshed workspace can be shorter than the previous one.
-        self.selected = self
+        self.repository_list.selected = self
+            .repository_list
             .selected
             .min(workspace.display_rows_v1().len().saturating_sub(1));
         let next = if down {
-            (self.selected + 1..workspace.display_rows_v1().len())
+            (self.repository_list.selected + 1..workspace.display_rows_v1().len())
                 .find(|index| workspace.display_rows_v1()[*index].action.is_some())
         } else {
-            (0..self.selected)
+            (0..self.repository_list.selected)
                 .rev()
                 .find(|index| workspace.display_rows_v1()[*index].action.is_some())
         };
         if let Some(next) = next {
-            self.selected = next;
-            if next < self.scroll {
-                self.scroll = next;
-            } else if next >= self.scroll + self.repository_visible_rows {
-                self.scroll = next + 1 - self.repository_visible_rows.max(1);
+            self.repository_list.selected = next;
+            if next < self.repository_list.top {
+                self.repository_list.top = next;
+            } else if next >= self.repository_list.top + self.repository_visible_rows {
+                self.repository_list.top = next + 1 - self.repository_visible_rows.max(1);
             }
         } else {
             self.dispatch(Action::Scroll(if down { 1 } else { -1 }));

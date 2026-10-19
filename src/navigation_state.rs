@@ -244,7 +244,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
             .ok_or("Original Graph snapshot unavailable • no body/source/HEAD fallback")?;
         let selected_key = workspace
             .display_rows_v1()
-            .get(app.selected)
+            .get(app.repository_list.selected)
             .and_then(|row| row.action.as_ref())
             .map(row_key)
             .transpose()?;
@@ -262,7 +262,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
                     .get(app.focus)
                     .and_then(|hit| focused_id(&hit.action)),
                 content_focused: app.repository_content_focused,
-                scroll: app.scroll.min(1_000_000),
+                scroll: app.repository_list.top.min(1_000_000),
                 graph_v2: Some(workspace.graph_position_v2()?),
             },
         );
@@ -373,7 +373,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
     };
     let selected_key = workspace
         .display_rows_v1()
-        .get(app.selected)
+        .get(app.repository_list.selected)
         .and_then(|row| row.action.as_ref())
         .map(row_key)
         .transpose()?;
@@ -398,7 +398,7 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
                 .get(app.focus)
                 .and_then(|hit| focused_id(&hit.action)),
             content_focused: app.repository_content_focused,
-            scroll: app.scroll.min(1_000_000),
+            scroll: app.repository_list.top.min(1_000_000),
             graph_v2: workspace
                 .graph_retention_visible_v2()
                 .then(|| workspace.graph_position_v2())
@@ -429,7 +429,7 @@ pub fn capture(app: &App) -> Result<Option<NavigationBookmark>, String> {
                 hash.field(selection.repository.as_bytes())?; hash.field(selection.directory.as_os_str().as_bytes())?; hash.json(&selection.source)?;
             }
             if let Some(page) = &search.page { hash.json(&page.query)?; }
-            NavigationBookmark::new(View::Search, NavigationScope::local(first.directory.clone())?, hash.finish(), "local-search-v1".into(), vec![], "Search • local source".into(), NavigationPosition { scroll: app.scroll.min(1_000_000), ..Default::default() }).map(Some)
+            NavigationBookmark::new(View::Search, NavigationScope::local(first.directory.clone())?, hash.finish(), "local-search-v1".into(), vec![], "Search • local source".into(), NavigationPosition { scroll: app.content_list.top.min(1_000_000), ..Default::default() }).map(Some)
         }
         _ => Err("This page's exact source restoration is not yet available; no broader repository or private page will be opened".into()),
     }
@@ -607,8 +607,7 @@ impl App {
         self.actions_content_focused = false;
         self.metrics_content_focused = false;
         self.search_content_focused = false;
-        self.scroll = position.scroll;
-        self.selected = if destination == View::Repository {
+        let selected = if destination == View::Repository {
             self.workspace
                 .as_ref()
                 .and_then(|workspace| {
@@ -629,6 +628,11 @@ impl App {
                 .unwrap_or(0)
         } else {
             0
+        };
+        self.reset_lists_v92();
+        *self.list_for_mut(destination) = crate::ui_table::ListState {
+            selected,
+            top: position.scroll,
         };
         if let Some(workspace) = &self.workspace {
             if destination == View::Repository {

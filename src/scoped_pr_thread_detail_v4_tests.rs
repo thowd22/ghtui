@@ -20,8 +20,10 @@ fn detail_real(timeline: bool, extra: Vec<GhStep>) -> Real {
         remote_scope_source: Some(source),
         remote_scope: Some(active),
         github: Some(github),
-        selected: 0,
-        scroll: 0,
+        inbox_list: crate::ui_table::ListState {
+            selected: 0,
+            top: 0,
+        },
         ..Default::default()
     };
     let sql = sql_state(&fixture);
@@ -228,12 +230,12 @@ fn review_threads_v4_detail_capture_is_scalar_original_source_tab_selection_scro
     assert!(intent.owns(&real.app));
     assert_eq!(intent.path(), None);
     assert!(intent.selected_path_v4().is_none());
-    real.app.scroll += 1;
+    real.app.inbox_list.top += 1;
     assert!(!intent.owns(&real.app));
-    real.app.scroll -= 1;
-    real.app.selected += 1;
+    real.app.inbox_list.top -= 1;
+    real.app.inbox_list.selected += 1;
     assert!(!intent.owns(&real.app));
-    real.app.selected -= 1;
+    real.app.inbox_list.selected -= 1;
     let old = real.app.github.as_ref().unwrap().identity.account_id;
     real.app.github.as_mut().unwrap().identity.account_id = Some(43);
     assert!(!intent.owns(&real.app));

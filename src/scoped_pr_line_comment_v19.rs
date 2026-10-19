@@ -50,7 +50,7 @@ fn selected_target(app: &App) -> Option<LineCommentTargetV19> {
     if page.tab != PrTab::Files {
         return None;
     }
-    target(page.rows.get(app.selected)?.anchor.as_ref()?)
+    target(page.rows.get(app.inbox_list.selected)?.anchor.as_ref()?)
 }
 
 /// Both the visible control and the `i` key arrive here.

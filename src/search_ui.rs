@@ -984,7 +984,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         body.width,
         body.height.saturating_sub(header_rows),
     );
-    let panels = if available.width >= 100 {
+    // The shared list plus preview threshold (TASK-92); `available` is inside the pane border.
+    let panels = if available.width + 2 >= crate::ui_chrome::SPLIT_MIN_WIDTH {
         Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
             .split(available)
     } else {

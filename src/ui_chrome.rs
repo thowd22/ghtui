@@ -631,6 +631,38 @@ pub fn fill_default_colors(buffer: &mut Buffer, theme: Theme) {
     }
 }
 
+/// From this terminal width a list and its preview sit side by side; narrower screens drill
+/// down from the list into the detail instead (TASK-92).
+pub const SPLIT_MIN_WIDTH: u16 = 120;
+
+/// The list pane and, when the screen is wide enough, the preview pane beside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListPreview {
+    pub list: Rect,
+    pub preview: Option<Rect>,
+}
+
+/// Splits a content area into a list pane (60%) and a preview pane at
+/// [`SPLIT_MIN_WIDTH`] columns or more; below that the list keeps the whole area.
+pub fn split_list_preview(area: Rect) -> ListPreview {
+    if area.width < SPLIT_MIN_WIDTH || area.height < 3 {
+        return ListPreview {
+            list: area,
+            preview: None,
+        };
+    }
+    let list = area.width * 3 / 5;
+    ListPreview {
+        list: Rect::new(area.x, area.y, list, area.height),
+        preview: Some(Rect::new(
+            area.x + list,
+            area.y,
+            area.width - list,
+            area.height,
+        )),
+    }
+}
+
 /// Whether the main view content, rather than header or footer chrome, owns focus.
 pub fn content_focused(app: &App, chrome_hits: usize) -> bool {
     if app.overlay.is_some() {

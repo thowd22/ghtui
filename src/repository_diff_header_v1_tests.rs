@@ -29,8 +29,10 @@ fn original_diff_sides_header_pins_exact_comparison_while_member_focus_scrolls_a
     let mut app = App {
         view: View::Repository,
         workspace: Some(workspace),
-        selected,
-        scroll: selected,
+        repository_list: crate::ui_table::ListState {
+            selected,
+            top: selected,
+        },
         repository_content_focused: true,
         ..Default::default()
     };
@@ -57,7 +59,7 @@ fn original_diff_sides_header_pins_exact_comparison_while_member_focus_scrolls_a
                 .as_ref()
                 .unwrap()
         ));
-        assert_eq!(app.selected, selected);
+        assert_eq!(app.repository_list.selected, selected);
     }
     assert!(real.children().is_empty());
     assert_eq!(real.snapshot(), before);
@@ -87,8 +89,10 @@ fn original_diff_sides_header_pins_original_old_title_with_actual_c_body_at80_12
     let mut app = App {
         view: View::Repository,
         workspace: Some(workspace),
-        selected,
-        scroll: selected,
+        repository_list: crate::ui_table::ListState {
+            selected,
+            top: selected,
+        },
         repository_content_focused: true,
         ..Default::default()
     };
@@ -114,7 +118,7 @@ fn original_diff_sides_header_pins_original_old_title_with_actual_c_body_at80_12
                 .as_ref()
                 .unwrap()
         ));
-        assert_eq!(app.selected, selected);
+        assert_eq!(app.repository_list.selected, selected);
     }
     assert!(real.children().is_empty());
     assert_eq!(real.snapshot(), before);

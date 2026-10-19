@@ -64,8 +64,10 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
                 github: Some(workspace),
                 remote_scope: Some(scope.clone()),
                 remote_scope_source: Some(source.clone()),
-                selected: row,
-                scroll: row - 1,
+                inbox_list: crate::ui_table::ListState {
+                    selected: row,
+                    top: row - 1,
+                },
                 focus: 3,
                 github_content_focused: content_focus,
                 ..Default::default()
@@ -123,8 +125,8 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
             let prior_view = (row, row - 1, content_focus, expected_focus);
             assert_eq!(
                 (
-                    app.selected,
-                    app.scroll,
+                    app.inbox_list.selected,
+                    app.inbox_list.top,
                     app.github_content_focused,
                     app.focus
                 ),
@@ -149,8 +151,8 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
             app.dispatch(Action::Scroll(3));
             assert_eq!(
                 (
-                    app.selected,
-                    app.scroll,
+                    app.inbox_list.selected,
+                    app.inbox_list.top,
                     app.github_content_focused,
                     app.focus
                 ),
@@ -182,8 +184,8 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
             }
             assert_eq!(
                 (
-                    app.selected,
-                    app.scroll,
+                    app.inbox_list.selected,
+                    app.inbox_list.top,
                     app.github_content_focused,
                     app.focus
                 ),
@@ -193,11 +195,11 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
             assert_eq!(page.tab, PrTab::Conversation);
             assert_eq!(page.rows.as_ptr(),old_rows,"cap returns the unchanged actual previous prepared rows, not a rebuilt/truncated clone");
             assert!(Arc::ptr_eq(
-                page.rows[app.selected].comment.as_ref().unwrap(),
+                page.rows[app.inbox_list.selected].comment.as_ref().unwrap(),
                 &old_payload
             ));
             assert_eq!(
-                page.rows[app.selected]
+                page.rows[app.inbox_list.selected]
                     .comment
                     .as_ref()
                     .unwrap()
@@ -206,7 +208,7 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
                 301
             );
             assert_eq!(
-                page.rows[app.selected]
+                page.rows[app.inbox_list.selected]
                     .comment
                     .as_ref()
                     .unwrap()
@@ -231,8 +233,8 @@ fn scoped_pr_observed_tabs_cap_preserves_current_comment_row_scroll_and_content_
             terminal
                 .draw(|frame| crate::ui::draw(frame, &mut app))
                 .unwrap();
-            assert_eq!(app.selected, row);
-            assert_eq!(app.scroll, row - 1);
+            assert_eq!(app.inbox_list.selected, row);
+            assert_eq!(app.inbox_list.top, row - 1);
             assert!(app
                 .hits
                 .iter()

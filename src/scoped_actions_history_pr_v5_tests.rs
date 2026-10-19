@@ -149,10 +149,10 @@ fn scoped_actions_control_v5_summary_history_original_navigation_pointer_and_new
     let origin = Origin::capture(&app).unwrap();
     let before = sql_state(&fixture);
     let git = git_state_resource(&fixture);
-    let selected = app.selected;
-    app.selected = selected + 1;
+    let selected = app.inbox_list.selected;
+    app.inbox_list.selected = selected + 1;
     assert!(!origin.current(&app));
-    app.selected = selected;
+    app.inbox_list.selected = selected;
     app.overlay = Some(crate::app::Overlay::Help);
     let status = app.status.clone();
     let hits = format!("{:?}", app.hits);

@@ -268,9 +268,9 @@ fn review_threads_v5_historical_genuine_form_ticket_input_epoch_and_numeric_scop
         .selection
         .clone();
     assert!(selection.owns(&real.app));
-    real.app.selected += 1;
+    real.app.inbox_list.selected += 1;
     assert!(!selection.owns(&real.app));
-    real.app.selected -= 1;
+    real.app.inbox_list.selected -= 1;
     let original_form = real.app.form.as_ref().unwrap().clone();
     real.app
         .form

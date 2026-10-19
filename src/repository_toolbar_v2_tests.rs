@@ -32,7 +32,10 @@ fn staging_repository_toolbar_v2_full_hunk_hit_and_key_mouse_canonical_effect_at
         let mut app = App {
             view: View::Repository,
             workspace: Some(workspace.clone()),
-            selected,
+            repository_list: crate::ui_table::ListState {
+                selected,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
@@ -63,7 +66,10 @@ fn staging_repository_toolbar_v2_full_hunk_hit_and_key_mouse_canonical_effect_at
         let mut keyboard = App {
             view: View::Repository,
             workspace: Some(workspace.clone()),
-            selected,
+            repository_list: crate::ui_table::ListState {
+                selected,
+                ..Default::default()
+            },
             ..Default::default()
         };
         keyboard.handle_event(Event::Key(KeyEvent::new(

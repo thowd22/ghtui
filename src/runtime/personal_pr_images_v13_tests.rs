@@ -128,14 +128,17 @@ fn personal_pr_entry_v13_images_runtime_newer_same_source_navigation_and_foreign
     let mut background = Background::new();
     queue(&mut s, &mut background, true);
     let mut old = native_completion(&mut background);
-    let input = personal_v13::PersonalImageInputV13::capture(&s.app, s.app.selected, None)
-        .err()
-        .expect("pending owner/loading prevents a second input");
+    let input =
+        personal_v13::PersonalImageInputV13::capture(&s.app, s.app.inbox_list.selected, None)
+            .err()
+            .expect("pending owner/loading prevents a second input");
     assert!(input.contains("Wait/cancel"));
     // Capture a genuinely new read only after the exact old slot drains. The
     // retained old Completion must not displace that source's newer Nav.
     assert!(background.cancel_pr_native_diff_v1(&mut s.app));
-    let input = personal_v13::PersonalImageInputV13::capture(&s.app, s.app.selected, None).unwrap();
+    let input =
+        personal_v13::PersonalImageInputV13::capture(&s.app, s.app.inbox_list.selected, None)
+            .unwrap();
     let result = personal_v13::read(
         input.clone(),
         &s.api,

@@ -163,7 +163,7 @@ impl PrCollaborationOpenIntentV17 {
         }
         let selected_comment = if matches!(purpose, CapturePurposeV51::ConversationV17) {
             page.rows
-                .get(app.selected)
+                .get(app.inbox_list.selected)
                 .and_then(|row| row.comment.clone())
         } else {
             None
@@ -209,8 +209,8 @@ impl PrCollaborationOpenIntentV17 {
                     .map_err(|e| e.to_string())?,
                     selected,
                     tab: page.tab,
-                    row: app.selected,
-                    scroll: app.scroll,
+                    row: app.inbox_list.selected,
+                    scroll: app.inbox_list.top,
                     database: database.into(),
                     cancellation: CancellationToken::default(),
                     deadline: Instant::now()
@@ -503,7 +503,7 @@ impl PrCollaborationOpenIntentV17 {
             && match &self.presentation {
                 PresentationV17::Personal(p) => p.owns_presentation(app),
                 PresentationV17::Catalogue { row, scroll, .. } => {
-                    app.selected == *row && app.scroll == *scroll
+                    app.inbox_list.selected == *row && app.inbox_list.top == *scroll
                 }
             }
     }
@@ -573,8 +573,8 @@ impl PrCollaborationOpenIntentV17 {
                     && github.pr.as_ref().is_some_and(|p| {
                         p.tab == *tab && parent.matches_observed_page_v13(&p.details.summary)
                     })
-                    && app.selected == *row
-                    && app.scroll == *scroll
+                    && app.inbox_list.selected == *row
+                    && app.inbox_list.top == *scroll
             }
         }
     }

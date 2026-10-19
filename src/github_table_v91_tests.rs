@@ -235,7 +235,7 @@ fn design_table_v91_pr_checks_are_a_table_with_glyphs_bar_and_row_targets() {
             check(3, "deploy", "in_progress", ""),
         ]);
     });
-    app.selected = 1;
+    app.inbox_list.selected = 1;
     let (buffer, lines) = paint(&mut app, 80, 24);
     no_marker(&lines);
     line_with(&lines, &[&format!("Head {head}")]);

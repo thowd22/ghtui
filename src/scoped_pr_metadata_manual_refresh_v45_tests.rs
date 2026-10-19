@@ -93,8 +93,8 @@ fn install_actual_catalogue(s: &mut Setup, field: Field) {
     s.app.github = Some(read.workspace);
     s.app.remote_scope = Some(active);
     s.app.remote_scope_source = Some(source);
-    s.app.selected = 0;
-    s.app.scroll = 0;
+    s.app.inbox_list.selected = 0;
+    s.app.inbox_list.top = 0;
     assert!(s.app.personal_pr_source_v13.is_none());
     assert_eq!(field, Field::Title);
 }

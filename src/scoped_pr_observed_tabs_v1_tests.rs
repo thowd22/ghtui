@@ -221,7 +221,10 @@ fn scoped_pr_observed_tabs_large_comment_shares_one_payload_and_preserves_exact_
         .unwrap();
     let mut app = App {
         github: Some(result.workspace),
-        selected,
+        inbox_list: crate::ui_table::ListState {
+            selected,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let context = app.pr_context().unwrap();

@@ -106,14 +106,18 @@ fn prepared_with_history_v14(
     assert!(publish(&mut s.app, &owner, result));
     let github = s.app.github.as_ref().unwrap();
     let view = github.scoped_pr_resource.as_ref().unwrap();
-    s.app.selected = (0..github.pr.as_ref().unwrap().rows.len())
+    s.app.inbox_list.selected = (0..github.pr.as_ref().unwrap().rows.len())
         .find(|r| matches!(view.row(*r), Some(PrResourceRowV1::FileList(0))))
         .unwrap();
     (s, h)
 }
 fn input(s: &Setup, native: bool) -> Arc<personal_v13::PersonalImageInputV13> {
-    personal_v13::PersonalImageInputV13::capture(&s.app, s.app.selected, native.then_some(118))
-        .unwrap()
+    personal_v13::PersonalImageInputV13::capture(
+        &s.app,
+        s.app.inbox_list.selected,
+        native.then_some(118),
+    )
+    .unwrap()
 }
 #[path = "personal_pr_publication_v14_tests.rs"]
 mod publication_v14;

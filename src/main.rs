@@ -1883,7 +1883,7 @@ fn run() -> Result<()> {
             use ghtui::scoped_pr_observed_tabs_v1::resources::{self, native};
             let action = app.github_action.take().unwrap();
             app.refresh_requested = false;
-            let selected = app.selected;
+            let selected = app.inbox_list.selected;
             let deadline = Instant::now() + Duration::from_secs(30);
             let owners = app
                 .remote_scope

@@ -337,14 +337,17 @@ fn repo_catalog_scope_consumers_retirement_preserves_real_local_git_form_and_sql
     };
     pending(&mut app);
     app.loading[View::Repository.index()] = true;
-    app.selected = 81;
-    app.scroll = 53;
+    app.inbox_list.selected = 81;
+    app.inbox_list.top = 53;
     app.focus = 7;
     let mut background = Background::new();
     assert!(enforce_stopped_intent(&mut app, &mut background));
     assert_retired(&app);
     assert!(app.workspace.is_some() && app.loading[View::Repository.index()]);
-    assert_eq!((app.selected, app.scroll, app.focus), (81, 53, 7));
+    assert_eq!(
+        (app.inbox_list.selected, app.inbox_list.top, app.focus),
+        (81, 53, 7)
+    );
     assert_eq!(app.form.as_ref().unwrap().draft(), local_draft);
     assert_eq!(app.context, "Local original breadcrumb");
     assert!(
@@ -391,8 +394,10 @@ fn repo_catalog_immutable_images_fenced_scroll_cannot_hide_actual_narrow_explana
         .unwrap();
     let mut app = App {
         view: View::Inbox,
-        selected: 41,
-        scroll: 35,
+        inbox_list: crate::ui_table::ListState {
+            selected: 41,
+            top: 35,
+        },
         focus: 7,
         github_content_focused: true,
         remote_scope: Some(Arc::new(active)),
@@ -400,7 +405,10 @@ fn repo_catalog_immutable_images_fenced_scroll_cannot_hide_actual_narrow_explana
     };
     let mut background = Background::new();
     assert!(enforce_stopped_intent(&mut app, &mut background));
-    assert_eq!((app.selected, app.scroll, app.focus), (0, 0, 0));
+    assert_eq!(
+        (app.inbox_list.selected, app.inbox_list.top, app.focus),
+        (0, 0, 0)
+    );
     assert!(!app.github_content_focused);
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal

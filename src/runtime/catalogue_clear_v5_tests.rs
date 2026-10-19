@@ -82,8 +82,8 @@ fn observe(app: &App) -> PresentationWitnessV5 {
         app.loading,
         app.view,
         app.overlay,
-        app.selected,
-        app.scroll,
+        app.inbox_list.selected,
+        app.inbox_list.top,
         app.focus,
     )
 }
@@ -374,7 +374,7 @@ fn cache_storage_catalogue_clear_v5_actual_late_success_error_panic_wrong_facet_
         let mut replacement = None;
         match mode {
             0 => app.overlay = Some(Overlay::Notice),
-            1 => app.scroll += 1,
+            1 => app.inbox_list.top += 1,
             2 => {
                 let (next, new, _, _) = fixture();
                 replacement = Some(next);

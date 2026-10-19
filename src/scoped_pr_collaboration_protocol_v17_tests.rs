@@ -96,7 +96,7 @@ fn fixture(command: PrCommand, tail: Vec<GhStep>) -> Setup {
             .load_tab(PrTab::Conversation, &s.api, &CancellationToken::default())
             .unwrap();
         s.app.github = Some(workspace);
-        s.app.selected = s
+        s.app.inbox_list.selected = s
             .app
             .github
             .as_ref()
@@ -108,7 +108,7 @@ fn fixture(command: PrCommand, tail: Vec<GhStep>) -> Setup {
             .iter()
             .position(|r| r.comment.is_some())
             .unwrap();
-        s.app.scroll = 0;
+        s.app.inbox_list.top = 0;
     }
     s
 }

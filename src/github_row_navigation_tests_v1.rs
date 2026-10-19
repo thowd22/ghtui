@@ -132,10 +132,10 @@ fn completed_frame_actions_pr_navigation_first_down_skips_notice_rows_and_matche
         let mut keyboard = app(true);
         draw(&mut keyboard, width, height);
         assert_eq!(targets(&keyboard), vec![2, 4]);
-        assert_eq!(keyboard.selected, 0);
+        assert_eq!(keyboard.inbox_list.selected, 0);
         key(&mut keyboard, KeyCode::Down);
         assert_eq!(
-            keyboard.selected, 2,
+            keyboard.inbox_list.selected, 2,
             "FIRST Down must select a genuinely painted/clickable row, not invisible metadata"
         );
         let frame = draw(&mut keyboard, width, height);
@@ -184,7 +184,7 @@ fn completed_frame_actions_pr_navigation_first_down_skips_notice_rows_and_matche
             row: hit.y,
             modifiers: KeyModifiers::NONE,
         }));
-        assert_eq!(mouse.selected, keyboard.selected);
+        assert_eq!(mouse.inbox_list.selected, keyboard.inbox_list.selected);
         assert!(
             keyboard.github_action.is_none()
                 && keyboard.pr_action.is_none()
@@ -206,14 +206,14 @@ fn completed_frame_actions_pr_navigation_skips_metadata_both_directions_and_clam
         (KeyCode::Up, 2),
     ] {
         key(&mut app, code);
-        assert_eq!(app.selected, expected);
+        assert_eq!(app.inbox_list.selected, expected);
     }
-    app.selected = 0;
+    app.inbox_list.selected = 0;
     key(&mut app, KeyCode::Up);
-    assert_eq!(app.selected, 2);
-    app.selected = usize::MAX;
+    assert_eq!(app.inbox_list.selected, 2);
+    app.inbox_list.selected = usize::MAX;
     key(&mut app, KeyCode::Down);
-    assert_eq!(app.selected, 4);
+    assert_eq!(app.inbox_list.selected, 4);
     assert!(app.github_action.is_none() && app.pr_action.is_none());
 }
 #[test]
@@ -223,14 +223,14 @@ fn completed_frame_actions_pr_navigation_noninteractive_detail_still_scrolls_wit
     draw(&mut app, 80, 24);
     assert!(targets(&app).is_empty());
     key(&mut app, KeyCode::Down);
-    assert_eq!(app.scroll, 1);
-    assert_eq!(app.selected, 0);
+    assert_eq!(app.inbox_list.top, 1);
+    assert_eq!(app.inbox_list.selected, 0);
     key(&mut app, KeyCode::Up);
-    assert_eq!(app.scroll, 0);
+    assert_eq!(app.inbox_list.top, 0);
     for _ in 0..50 {
         key(&mut app, KeyCode::Down);
     }
-    assert_eq!(app.scroll, 29);
-    assert_eq!(app.selected, 0);
+    assert_eq!(app.inbox_list.top, 29);
+    assert_eq!(app.inbox_list.selected, 0);
     assert!(app.github_action.is_none() && app.pr_action.is_none());
 }

@@ -926,8 +926,7 @@ impl Background {
         if app.view == View::Search {
             app.context = "GitHub identity unavailable • private search hidden".into();
             app.status = "Private search cleared • verify identity and search again".into();
-            app.scroll = 0;
-            app.selected = 0;
+            app.reset_lists_v92();
         }
     }
 
@@ -1677,8 +1676,7 @@ impl Background {
                             continue;
                         }
                         if app.view == View::Inbox && !preserve_scoped_view {
-                            app.selected = 0;
-                            app.scroll = 0;
+                            app.reset_lists_v92();
                             app.github_content_focused = true;
                         }
                         app.hits.clear();
@@ -1853,20 +1851,25 @@ impl Background {
                             .or_else(|| workspace.graph_focus_row_v1())
                             .or_else(|| workspace.tree_focus_row_v1())
                         {
-                            app.selected =
+                            app.repository_list.selected =
                                 index.min(workspace.display_rows_v1().len().saturating_sub(1));
                             let visible = app.repository_visible_rows.max(1);
-                            if app.selected < app.scroll {
-                                app.scroll = app.selected;
-                            } else if app.selected >= app.scroll + visible {
-                                app.scroll = app.selected + 1 - visible;
+                            if app.repository_list.selected < app.repository_list.top {
+                                app.repository_list.top = app.repository_list.selected;
+                            } else if app.repository_list.selected
+                                >= app.repository_list.top + visible
+                            {
+                                app.repository_list.top =
+                                    app.repository_list.selected + 1 - visible;
                             }
                         }
                         if app.view == View::Repository {
                             // Keep the cursor inside a refreshed (often shorter) diff.
                             let rows = workspace.display_rows_v1().len();
-                            app.selected = app.selected.min(rows.saturating_sub(1));
-                            app.scroll = app.scroll.min(app.selected);
+                            app.repository_list.selected =
+                                app.repository_list.selected.min(rows.saturating_sub(1));
+                            app.repository_list.top =
+                                app.repository_list.top.min(app.repository_list.selected);
                         }
                         let _ = app.local_commit_actors.install(&workspace);
                         app.local_actor_layout.clear();
@@ -1926,7 +1929,7 @@ impl Background {
                             app.github
                                 .as_ref()
                                 .and_then(|previous| previous.pr.as_ref())
-                                .and_then(|page| page.rows.get(app.selected))
+                                .and_then(|page| page.rows.get(app.inbox_list.selected))
                                 .and_then(|row| row.comment.as_ref())
                                 .cloned()
                         } else {
@@ -1936,12 +1939,14 @@ impl Background {
                             app.github
                                 .as_ref()
                                 .and_then(|previous| previous.pr.as_ref())
-                                .and_then(|page| page.selected_progress_file(app.selected))
+                                .and_then(|page| {
+                                    page.selected_progress_file(app.inbox_list.selected)
+                                })
                                 .map(|file| file.path)
                         } else {
                             None
                         };
-                        app.selected = selected_comment
+                        app.inbox_list.selected = selected_comment
                             .and_then(|selected| {
                                 github.pr.as_ref().and_then(|page| {
                                     page.rows.iter().position(|row| {
@@ -2003,7 +2008,7 @@ impl Background {
                         // rows. Never apply its viewport to a different tab;
                         // preserve intentional same-tab refresh scrolling.
                         if changed_pr_tab && app.view == View::Inbox {
-                            app.scroll = 0;
+                            app.inbox_list.top = 0;
                         }
                         app.github = Some(github);
                         if let Some(origin) = prepared.github_origin {
@@ -2202,8 +2207,7 @@ impl Background {
                                     crate::workspace::RepositoryMode::Overview,
                                     |workspace| workspace.mode,
                                 );
-                            app.scroll = 0;
-                            app.selected = 0;
+                            app.reset_lists_v92();
                         }
                     }
                     if prepared.activate_if_untouched && !app.user_navigated {

@@ -21,7 +21,10 @@ fn commit_graph_v3_resize_keeps_real_selected_commit_painted_without_resetting_m
     let action = loaded.display_rows_v1()[selected].action.clone().unwrap();
     let mut app = crate::app::App {
         view: crate::app::View::Repository,
-        selected,
+        repository_list: crate::ui_table::ListState {
+            selected,
+            ..Default::default()
+        },
         workspace: Some(loaded),
         repository_visible_rows: 30,
         repository_content_focused: true,
@@ -34,8 +37,8 @@ fn commit_graph_v3_resize_keeps_real_selected_commit_painted_without_resetting_m
         .draw(|frame| crate::ui::draw(frame, &mut app))
         .unwrap();
     assert!(app.repository_visible_rows > 0);
-    assert!(app.selected >= app.scroll);
-    assert!(app.selected < app.scroll + app.repository_visible_rows);
+    assert!(app.repository_list.selected >= app.repository_list.top);
+    assert!(app.repository_list.selected < app.repository_list.top + app.repository_visible_rows);
     let expected = Action::RepositoryRow(action);
     let hit = app.hits.iter().find(|hit| hit.action == expected).unwrap();
     let text = (hit.rect.x..hit.rect.right())
@@ -45,12 +48,12 @@ fn commit_graph_v3_resize_keeps_real_selected_commit_painted_without_resetting_m
     assert!(terminal.backend().buffer()[(hit.rect.x, hit.rect.y)]
         .modifier
         .contains(ratatui::style::Modifier::REVERSED));
-    app.scroll = 0;
+    app.repository_list.top = 0;
     terminal
         .draw(|frame| crate::ui::draw(frame, &mut app))
         .unwrap();
     assert_eq!(
-        app.scroll, 0,
+        app.repository_list.top, 0,
         "An unchanged frame must preserve deliberate body scrolling"
     );
     assert!(real.children().is_empty());

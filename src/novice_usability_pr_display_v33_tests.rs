@@ -45,7 +45,7 @@ fn actual(bot: bool, preview: bool) -> (Setup, crate::forms::Form) {
         .load_tab(PrTab::Conversation, &s.api, &CancellationToken::default())
         .unwrap();
     s.app.github = Some(workspace);
-    s.app.selected = s
+    s.app.inbox_list.selected = s
         .app
         .github
         .as_ref()
@@ -57,7 +57,7 @@ fn actual(bot: bool, preview: bool) -> (Setup, crate::forms::Form) {
         .iter()
         .position(|r| r.comment.is_some())
         .unwrap();
-    s.app.scroll = 0;
+    s.app.inbox_list.top = 0;
     let original = PrCollaborationOpenIntentV17::capture(&s.app, &database(&s.fixture)).unwrap();
     let provider = s
         .api

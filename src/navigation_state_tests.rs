@@ -84,10 +84,10 @@ fn navigation_native_back_restores_original_commit_by_key_after_row_reordering()
         .iter()
         .position(|row| row.action == Some(RowAction::Commit(first.clone())))
         .unwrap();
-    app.selected = original;
+    app.repository_list.selected = original;
     app.observe_navigation();
     app.workspace = Some(workspace(directory.path(), RepositoryMode::Graph, &second));
-    app.selected = 0;
+    app.repository_list.selected = 0;
     app.observe_navigation();
     app.request_navigation(NavigationAction::Back);
     let restore = app.navigation_restore.take().unwrap();
@@ -105,10 +105,10 @@ fn navigation_native_back_restores_original_commit_by_key_after_row_reordering()
     app.workspace = Some(observed);
     app.finish_navigation(restore);
     assert_eq!(
-        app.workspace.as_ref().unwrap().display_rows_v1()[app.selected].action,
+        app.workspace.as_ref().unwrap().display_rows_v1()[app.repository_list.selected].action,
         Some(RowAction::Commit(first))
     );
-    assert_ne!(app.selected, original);
+    assert_ne!(app.repository_list.selected, original);
     assert!(app.repository_content_focused);
     assert_eq!(app.navigation_trail.history_len(), 0);
     assert_eq!(state(directory.path()), before);

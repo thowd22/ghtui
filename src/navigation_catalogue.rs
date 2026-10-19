@@ -329,7 +329,7 @@ impl Builder {
                         && workspace.revision.len() <= 128
                         && workspace
                             .rows
-                            .get(app.selected)
+                            .get(app.repository_list.selected)
                             .and_then(|row| row.action.as_ref())
                             .is_none_or(bounded_row)
                         && app
@@ -340,7 +340,7 @@ impl Builder {
                 .map(|workspace| {
                     crate::local_availability::LocalAvailability::from_workspace(
                         workspace,
-                        app.selected,
+                        app.repository_list.selected,
                         app.repository_selection
                             .as_ref()
                             .map(|selection| &selection.start),
@@ -408,7 +408,11 @@ impl Builder {
         let selected = app
             .workspace
             .as_ref()
-            .and_then(|workspace| workspace.display_rows_v1().get(app.selected))
+            .and_then(|workspace| {
+                workspace
+                    .display_rows_v1()
+                    .get(app.repository_list.selected)
+            })
             .and_then(|row| row.action.as_ref());
         self.push(
             "repository.selected".into(),
@@ -507,7 +511,7 @@ impl Builder {
                     .filter(|pr| {
                         github.filter.accepts(pr) && !github.exclusions.contains(&pr.repository)
                     })
-                    .nth(app.selected)
+                    .nth(app.inbox_list.selected)
             });
         self.push(
             "inbox.selected".into(),

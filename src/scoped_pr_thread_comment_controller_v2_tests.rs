@@ -98,8 +98,8 @@ fn history_steps() -> Vec<GhStep> {
 fn summary(real: &mut Real) {
     real.app.overlay = None;
     real.app.scoped_threads_v1 = None;
-    real.app.selected = 0;
-    real.app.scroll = 0;
+    real.app.inbox_list.selected = 0;
+    real.app.inbox_list.top = 0;
     let github = real.app.github.as_mut().unwrap();
     github.scoped_pr_resource = None;
     let page = github.pr.as_mut().unwrap();
@@ -523,7 +523,7 @@ fn review_threads_v2_comment_stale_nested_paint_and_event_cannot_expose_body_und
             )
             .unwrap();
             install_resource_if_current(&mut workspace, result).unwrap();
-            real.app.selected = (0..workspace.pr.as_ref().unwrap().rows.len())
+            real.app.inbox_list.selected = (0..workspace.pr.as_ref().unwrap().rows.len())
                 .find(|index| {
                     matches!(
                         workspace.scoped_pr_resource.as_ref().unwrap().row(*index),

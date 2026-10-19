@@ -204,8 +204,7 @@ pub(crate) fn retire_original_account_mismatch(
         .label();
         app.context = reason.into();
         app.status = reason.into();
-        app.selected = 0;
-        app.scroll = 0;
+        app.reset_lists_v92();
         app.focus = 0;
         app.github_content_focused = false;
     }
@@ -315,8 +314,7 @@ pub fn retire_remote(app: &mut App, background: &mut Background, reason: ScopeEn
     if app.view != View::Repository && !(app.view == View::Search && keep_local_search) {
         // Old private-page scroll must not hide the replacement explanation.
         // Preserve the independent local Repository/Search presentation.
-        app.selected = 0;
-        app.scroll = 0;
+        app.reset_lists_v92();
         app.focus = 0;
         app.github_content_focused = false;
         app.refresh_requested = false;

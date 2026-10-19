@@ -135,7 +135,7 @@ fn conversation_comments_exact_rows_and_paged_menu_share_mouse_keyboard_targets_
             ghtui::github_workspace::GithubAction::Actions,
         ));
         assert_eq!(
-            app.selected, index,
+            app.inbox_list.selected, index,
             "opening menu cannot replace exact selection"
         );
         assert!(app

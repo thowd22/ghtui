@@ -55,9 +55,10 @@ fn journey(mouse: bool) {
 
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    session.wait_for_screen(
-        "Queue: All • All 3 · Created by me 2 · Assigned to me 2 · Needs my review 1",
-    );
+    // At 120 columns the list shares the screen with the preview (TASK-92), so the queue
+    // summary ends in an ellipsis after the counts that fit.
+    session.wait_for_screen("Queue: All • All 3 · Created by me 2 · Assigned to me 2 · Needs my");
+    session.wait_for_screen("Created by me 2 · Assigned to me 2 · Needs my re…");
     journal(&mut session, &fixture, 7);
     choose(&mut session, mouse, "[v Needs my review]", b"v");
     session.wait_for_screen("Queue: Needs my review • All 3");
@@ -305,4 +306,184 @@ fn design_table_v91_inbox_keyboard_table_rows_bar_and_commits_table() {
 #[test]
 fn design_table_v91_inbox_mouse_table_rows_bar_and_commits_table() {
     table_journey(true)
+}
+
+/// The preview pane's columns (from its left border) on every screen line, when the screen
+/// paints a `Preview` pane beside the list (TASK-92).
+fn preview_pane(screen: &str) -> Option<Vec<String>> {
+    let x = screen.lines().find_map(|line| {
+        let chars = line.chars().collect::<Vec<_>>();
+        let x = chars
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, cell)| **cell == '╭')
+            .map(|(x, _)| x)?;
+        chars[x..]
+            .iter()
+            .collect::<String>()
+            .contains("Preview")
+            .then_some(x)
+    })?;
+    Some(
+        screen
+            .lines()
+            .map(|line| line.chars().skip(x).collect())
+            .collect(),
+    )
+}
+
+/// Waits until the preview pane holds every part (each on some line) and returns its lines.
+fn wait_preview(session: &mut Session, parts: &[&str]) -> Vec<String> {
+    session
+        .try_wait_for_condition(
+            |screen| {
+                preview_pane(screen).is_some_and(|lines| {
+                    parts
+                        .iter()
+                        .all(|part| lines.iter().any(|line| line.contains(part)))
+                })
+            },
+            &format!("a preview pane holding {parts:?}"),
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    preview_pane(&session.screen()).unwrap()
+}
+
+/// The list pane's top border (left of the preview), which carries the list's focus marker.
+fn list_title(session: &Session) -> String {
+    session
+        .screen()
+        .lines()
+        .find(|line| line.contains("Inbox • focused view"))
+        .map(|line| line.split('╮').next().unwrap_or_default().to_owned())
+        .unwrap_or_default()
+}
+
+/// TASK-92: at 140 columns the Inbox queue shows the selected PR's cached summary in a
+/// preview pane beside the list; moving the cursor re-presents it with no gh command. Tab and
+/// a click focus the preview (its `▶` marker moves there, the list's leaves); Shift-Tab
+/// returns. Below 120 columns the preview goes and Enter drills down. Enter in the focused
+/// preview (keyboard) or its `Enter Open` border token (mouse) opens the same PR.
+fn split_journey(mouse: bool) {
+    let fixture = configured();
+    let mut steps = initial(false);
+    steps.extend(pages().into_iter().take(7));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 140, 42);
+    session.wait_for_screen("ghtui");
+    refresh(&mut session, mouse);
+    session.wait_for_screen("Improve auth");
+    journal(&mut session, &fixture, 7);
+    let title = crate::support::view_title("Inbox");
+    session.wait_for_selected_row(&title, "Improve auth");
+    let preview = wait_preview(
+        &mut session,
+        &[
+            "Preview",
+            "Enter Open",
+            "Improve auth",
+            "org/alpha#7",
+            "OPEN",
+            "AL alice",
+            "2026-10-01T00:00:00Z",
+            "2026-10-12T14:00:00Z",
+            "https://github.invalid/org/alpha/pull/7",
+            "DESCRIPTION",
+            "A useful change",
+            "Second paragraph",
+        ],
+    );
+    assert!(!preview.iter().any(|line| line.contains("▶ Preview")));
+    assert!(
+        list_title(&session).contains("▶ Inbox"),
+        "{}",
+        session.screen()
+    );
+    let top = session
+        .screen()
+        .lines()
+        .position(|line| line.contains("╭─ Preview") || line.contains("─ Preview"))
+        .unwrap() as u16;
+    let preview_x = session
+        .screen()
+        .lines()
+        .nth(usize::from(top))
+        .unwrap()
+        .chars()
+        .skip(1)
+        .position(|cell| cell == '╭')
+        .unwrap() as u16
+        + 1;
+    assert_eq!(preview_x, 84, "{}", session.screen());
+    if mouse {
+        // A click on the preview body focuses that pane and reads nothing.
+        session.click(preview_x + 12, top + 6);
+        wait_preview(&mut session, &["▶ Preview", "Improve auth"]);
+        assert!(!list_title(&session).contains('▶'), "{}", session.screen());
+        // The wheel over the preview belongs to the preview: the list cursor stays, and a
+        // summary that fits does not scroll away.
+        session.wheel(preview_x + 12, top + 6, true);
+        session.wait_for_selected_row(&title, "Improve auth");
+        wait_preview(
+            &mut session,
+            &["▶ Preview", "Improve auth", "Second paragraph"],
+        );
+    } else {
+        session.send_key(b"\x1b[B");
+        session.wait_for_selected_row(&title, "Repair parser");
+        let beta = wait_preview(&mut session, &["Repair parser", "org/beta#7"]);
+        assert!(!beta.iter().any(|line| line.contains("Improve auth")));
+        session.send_key(b"\x1b[A");
+        session.wait_for_selected_row(&title, "Improve auth");
+        wait_preview(&mut session, &["Improve auth", "org/alpha#7"]);
+        session.send_key(b"\t");
+        wait_preview(&mut session, &["▶ Preview", "Improve auth"]);
+        assert!(!list_title(&session).contains('▶'), "{}", session.screen());
+        session.send_key(b"\x1b[Z");
+        session
+            .try_wait_for_condition(
+                |screen| screen.contains("▶ Inbox") && !screen.contains("▶ Preview"),
+                "the list pane focused again",
+                std::time::Duration::from_secs(8),
+            )
+            .unwrap();
+    }
+    // Presenting cached summaries ran no gh command.
+    journal(&mut session, &fixture, 7);
+
+    // Below 120 columns the list keeps the whole pane: drill-down instead of a preview.
+    session.resize(80, 24);
+    session
+        .try_wait_for_condition(
+            |screen| preview_pane(screen).is_none() && screen.contains("org/alpha#7"),
+            "the preview gone at 80x24",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    assert!(!session.screen().contains("A useful change"));
+    session.wait_for_selected_row(&title, "Improve auth");
+    session.resize(140, 42);
+    wait_preview(&mut session, &["Improve auth", "Enter Open"]);
+    if mouse {
+        let (x, y) = session.locate("Enter Open").expect("the Open token");
+        session.click(x + 1, y);
+    } else {
+        session.send_key(b"\t");
+        wait_preview(&mut session, &["▶ Preview"]);
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("1 comments");
+    journal(&mut session, &fixture, 14);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn design_split_v92_inbox_keyboard_preview_beside_list_and_drill_down_at_80() {
+    split_journey(false)
+}
+#[test]
+fn design_split_v92_inbox_mouse_preview_beside_list_and_drill_down_at_80() {
+    split_journey(true)
 }

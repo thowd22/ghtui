@@ -386,19 +386,19 @@ impl PersonalLoadedInputV13 {
         let result = Arc::new(Self {
             original,
             action,
-            selected: app.selected,
+            selected: app.inbox_list.selected,
             anchor: app
                 .github
                 .as_ref()
                 .and_then(|g| g.pr.as_ref())
-                .and_then(|p| p.rows.get(app.selected))
+                .and_then(|p| p.rows.get(app.inbox_list.selected))
                 .and_then(|r| r.anchor.clone()),
         });
         result.original.check()?;
         Ok(result)
     }
     pub(crate) fn matches(&self, app: &App) -> bool {
-        self.original.matches(app) && self.selected == app.selected
+        self.original.matches(app) && self.selected == app.inbox_list.selected
     }
     pub(crate) fn cancellation(&self) -> &CancellationToken {
         self.original.cancellation()
@@ -452,8 +452,8 @@ pub(crate) fn install_loaded(app: &mut App, result: PersonalLoadedResultV13) -> 
         app.pr_file_images = None;
     }
     if let Some(selected) = result.prepared.selected {
-        app.selected = selected;
-        app.scroll = selected.saturating_sub(app.github_visible_rows.saturating_sub(1));
+        app.inbox_list.selected = selected;
+        app.inbox_list.top = selected.saturating_sub(app.github_visible_rows.saturating_sub(1));
     }
     if result.prepared.content_focus {
         app.github_content_focused = true;

@@ -46,8 +46,8 @@ fn writable_fixture_sql(fixture: &Fixture) -> rusqlite::Connection {
 }
 fn summary(real: &mut Real) {
     real.app.overlay = None;
-    real.app.selected = 0;
-    real.app.scroll = 0;
+    real.app.inbox_list.selected = 0;
+    real.app.inbox_list.top = 0;
     let github = real.app.github.as_mut().unwrap();
     github.scoped_pr_resource = None;
     github.pr.as_mut().unwrap().tab = crate::github_workspace::PrTab::Summary;
@@ -91,9 +91,9 @@ fn file_comments_v75_intent_captures_real_member_without_gh_and_rejects_changed_
     let intent = file::FileCommentIntentV75::capture(&real.app).unwrap();
     assert_eq!(intent.path(), "src/view.rs");
     assert!(intent.owns(&real.app));
-    real.app.selected += 1;
+    real.app.inbox_list.selected += 1;
     assert!(!intent.owns(&real.app));
-    real.app.selected -= 1;
+    real.app.inbox_list.selected -= 1;
     real.app.github.as_mut().unwrap().identity.account_id = Some(43);
     assert!(!intent.owns(&real.app));
     intact(&real);

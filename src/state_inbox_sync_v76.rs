@@ -315,8 +315,8 @@ impl StateInboxOriginalV76 {
             selected: g.selected.clone(),
             filter: g.filter,
             position: (
-                app.selected,
-                app.scroll,
+                app.inbox_list.selected,
+                app.inbox_list.top,
                 app.focus,
                 app.github_content_focused,
             ),
@@ -409,8 +409,8 @@ impl StateInboxOriginalV76 {
                 _ => false,
             }
             && (
-                app.selected,
-                app.scroll,
+                app.inbox_list.selected,
+                app.inbox_list.top,
                 app.focus,
                 app.github_content_focused,
             ) == self.position

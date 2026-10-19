@@ -29,6 +29,7 @@ pub mod github_ui;
 pub mod github_workspace;
 pub mod history;
 pub mod identity;
+pub mod list_preview_v92;
 pub mod local_actions;
 pub mod local_availability;
 #[cfg(test)]

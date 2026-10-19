@@ -219,8 +219,8 @@ fn queued_native(kind: u8, source_only: bool) {
         }
         app.status = "New Native input owns status".into();
         app.loading[View::Repository.index()] = true;
-        app.selected = 8;
-        app.scroll = 7;
+        app.repository_list.selected = 8;
+        app.repository_list.top = 7;
         app.hits = vec![HitRegion {
             rect: Rect::new(2, 3, 4, 1),
             action: crate::app::Action::Quit,
@@ -249,7 +249,10 @@ fn queued_native(kind: u8, source_only: bool) {
         assert!(!background.poll(&mut app));
         assert_eq!(app.status, "New Native input owns status");
         assert!(app.loading[View::Repository.index()]);
-        assert_eq!((app.selected, app.scroll), (8, 7));
+        assert_eq!(
+            (app.repository_list.selected, app.repository_list.top),
+            (8, 7)
+        );
         assert_eq!(app.hits.len(), 1);
         assert_eq!(app.hits[0].action, crate::app::Action::Quit);
         assert!(app.repository_source_identity.is_none());

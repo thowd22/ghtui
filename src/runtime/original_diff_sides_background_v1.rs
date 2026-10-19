@@ -496,8 +496,9 @@ pub(super) fn publish_original_diff_sides_v1(
             match result.publish(workspace, &mut app.original_diff_picker_v1) {
                 Ok(Some(focus)) => {
                     app.repository_source_identity = Some(source_identity);
-                    app.selected = focus.min(workspace.display_rows_v1().len().saturating_sub(1));
-                    app.scroll = app.selected.saturating_sub(2);
+                    app.repository_list.selected =
+                        focus.min(workspace.display_rows_v1().len().saturating_sub(1));
+                    app.repository_list.top = app.repository_list.selected.saturating_sub(2);
                     app.repository_selection = None;
                     app.repository_content_focused = true;
                     app.status = if workspace.original_diff_side_v1.as_ref().is_some_and(|side|side.visible_for(workspace)) {"Original comparison side ready • read-only; checkout preserved"} else {"Original saved comparison restored • actual Old/New content; checkout preserved"}.into();

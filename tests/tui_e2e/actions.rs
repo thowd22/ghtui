@@ -1771,3 +1771,146 @@ fn design_table_v91_actions_runs_table_keyboard_selection_bar_details_and_resize
 fn design_table_v91_actions_runs_table_mouse_rows_open_and_keep_selection() {
     table_journey(true)
 }
+
+/// The `Run N` preview pane's columns on every screen line, when one is painted (TASK-92).
+fn run_preview(screen: &str) -> Option<Vec<String>> {
+    let x = screen.lines().find_map(|line| {
+        let chars = line.chars().collect::<Vec<_>>();
+        let x = chars
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, cell)| **cell == '╭')
+            .map(|(x, _)| x)?;
+        chars[x..]
+            .iter()
+            .collect::<String>()
+            .contains("Run ")
+            .then_some(x)
+    })?;
+    Some(
+        screen
+            .lines()
+            .map(|line| line.chars().skip(x).collect())
+            .collect(),
+    )
+}
+fn wait_run_preview(session: &mut Session, parts: &[&str]) -> Vec<String> {
+    session
+        .try_wait_for_condition(
+            |screen| {
+                run_preview(screen).is_some_and(|lines| {
+                    parts
+                        .iter()
+                        .all(|part| lines.iter().any(|line| line.contains(part)))
+                })
+            },
+            &format!("a run preview holding {parts:?}"),
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    run_preview(&session.screen()).unwrap()
+}
+/// TASK-92: at 140 columns the Runs list shows the selected run in a preview pane beside it,
+/// with no read: its jobs show only once the run was opened. Tab or a click focuses the
+/// preview (`▶` marker); Enter there or its `Enter Open` token opens the run as Enter on the
+/// row does; back on Runs the preview lists the loaded jobs. Below 120 columns the list keeps
+/// the whole pane. No write and no Git change.
+fn split_journey(mouse: bool) {
+    let fixture = fixture();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let mut other = raw_run();
+    other["id"] = json!(124);
+    other["name"] = json!("Release");
+    other["head_branch"] = json!("main");
+    other["event"] = json!("push");
+    other["run_attempt"] = json!(1);
+    other["conclusion"] = json!("success");
+    other["head_sha"] = json!("b".repeat(40));
+    other["created_at"] = json!("2026-10-12T12:00:00Z");
+    let mut steps = initial();
+    steps[2].stdout =
+        serde_json::to_vec(&json!({"total_count":2,"workflow_runs":[raw_run(), other]})).unwrap();
+    steps.extend(open_steps());
+    // Choosing the Runs catalogue again re-reads the run list.
+    steps.push(steps[2].clone());
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 140, 42);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "Actions", b"4");
+    wait_selected(&mut session, "CI matrix");
+    let preview = wait_run_preview(
+        &mut session,
+        &[
+            "Run 123",
+            "✗ FAILURE",
+            "Enter Open",
+            "CI matrix · pull_request · feature",
+            "aaaaaaa · AL alice",
+            &"a".repeat(40),
+            "2026-10-13T12:00:00Z",
+            "JOBS",
+            "Jobs load when the run opens (Enter)",
+        ],
+    );
+    assert!(!preview.iter().any(|line| line.contains("▶ Run")));
+    journal(&mut session, &fixture, 3);
+    let top = session
+        .screen()
+        .lines()
+        .position(|line| line.contains("─ Run 123"))
+        .unwrap() as u16;
+    if mouse {
+        session.click(110, top + 4);
+        wait_run_preview(&mut session, &["▶ Run 123"]);
+        let (x, y) = session.locate("Enter Open").expect("the Open token");
+        session.click(x + 1, y);
+    } else {
+        session.send_key(b"\x1b[B");
+        wait_selected(&mut session, "Release");
+        wait_run_preview(
+            &mut session,
+            &["Run 124", "✓ SUCCESS", "Release · push · main"],
+        );
+        session.send_key(b"\x1b[A");
+        wait_selected(&mut session, "CI matrix");
+        wait_run_preview(&mut session, &["Run 123"]);
+        journal(&mut session, &fixture, 3);
+        session.send_key(b"\t");
+        wait_run_preview(&mut session, &["▶ Run 123"]);
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Run 123 • attempt 2");
+    journal(&mut session, &fixture, 5);
+    // Back on Runs, the opened attempt's jobs are already loaded and show in the preview.
+    choose(&mut session, mouse, "Runs", b"R");
+    wait_selected(&mut session, "CI matrix");
+    journal(&mut session, &fixture, 6);
+    wait_run_preview(&mut session, &["Run 123", "matrix test linux", "FAILURE"]);
+    session.resize(80, 24);
+    session
+        .try_wait_for_condition(
+            |screen| run_preview(screen).is_none() && screen.contains("CI matrix"),
+            "the run preview gone at 80x24",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    wait_selected(&mut session, "CI matrix");
+    let records = journal(&mut session, &fixture, 6);
+    assert!(!records
+        .iter()
+        .any(|row| row["args"].as_array().is_some_and(|args| args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), Some("POST" | "PUT" | "PATCH" | "DELETE"))))));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+#[test]
+fn design_split_v92_actions_runs_keyboard_preview_jobs_and_drill_down() {
+    split_journey(false)
+}
+#[test]
+fn design_split_v92_actions_runs_mouse_preview_jobs_and_drill_down() {
+    split_journey(true)
+}

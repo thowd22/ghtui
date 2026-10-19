@@ -56,7 +56,7 @@ impl Case {
             images::native::install(&mut app, images).unwrap();
         } else {
             let github = app.github.as_ref().unwrap();
-            app.selected = (0..github.pr.as_ref().unwrap().rows.len())
+            app.inbox_list.selected = (0..github.pr.as_ref().unwrap().rows.len())
                 .find(|row| {
                     matches!(
                         github.scoped_pr_resource.as_ref().unwrap().row(*row),
@@ -1042,7 +1042,7 @@ fn queued_kind(outcome: u8, mixed: bool, external: bool) {
                         crate::github_workspace::PrTab::Summary,
                     ))
                 }
-                7 => case.app.selected = case.app.selected.saturating_add(1),
+                7 => case.app.inbox_list.selected = case.app.inbox_list.selected.saturating_add(1),
                 8 => {
                     case.app
                         .github

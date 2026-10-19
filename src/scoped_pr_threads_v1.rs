@@ -105,7 +105,7 @@ impl ThreadBrowseIntentV1 {
             .scoped_pr_resource
             .as_ref()
             .ok_or("Original Files read unavailable")?;
-        let file_index = match view.row(app.selected) {
+        let file_index = match view.row(app.inbox_list.selected) {
             Some(PrResourceRowV1::FileList(i)) => i,
             Some(
                 PrResourceRowV1::File(i)
@@ -138,7 +138,7 @@ impl ThreadBrowseIntentV1 {
                 view: view.clone(),
                 file: file_index,
             },
-            selected_row: app.selected,
+            selected_row: app.inbox_list.selected,
             #[cfg(test)]
             after_preparation_test: None,
         });
@@ -242,9 +242,9 @@ impl ThreadBrowseIntentV1 {
                     .map_err(|_| "Bounded actual detail observation unavailable")?,
                 ),
                 tab: page.tab,
-                scroll: app.scroll,
+                scroll: app.inbox_list.top,
             },
-            selected_row: app.selected,
+            selected_row: app.inbox_list.selected,
             #[cfg(test)]
             after_preparation_test: None,
         });
@@ -269,7 +269,7 @@ impl ThreadBrowseIntentV1 {
     }
     pub fn owns(&self, app: &App) -> bool {
         app.view == View::Inbox
-            && app.selected == self.selected_row
+            && app.inbox_list.selected == self.selected_row
             && self.source.matches_source(app)
             && app
                 .remote_scope
@@ -297,7 +297,7 @@ impl ThreadBrowseIntentV1 {
                                     scroll,
                                 } => {
                                     page.tab == *tab
-                                        && app.scroll == *scroll
+                                        && app.inbox_list.top == *scroll
                                         && expected.matches(&page.details.summary)
                                 }
                             }

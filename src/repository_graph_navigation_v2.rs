@@ -35,9 +35,9 @@ pub(crate) fn boundary_scroll_v2(app: &crate::app::App, delta: i32) -> Option<Gr
         .display_rows_v1()
         .len()
         .saturating_sub(app.repository_visible_rows);
-    let direction = if delta > 0 && app.scroll >= end {
+    let direction = if delta > 0 && app.repository_list.top >= end {
         GraphWindowActionV2::Older
-    } else if delta < 0 && app.scroll == 0 {
+    } else if delta < 0 && app.repository_list.top == 0 {
         GraphWindowActionV2::Newer
     } else {
         return None;

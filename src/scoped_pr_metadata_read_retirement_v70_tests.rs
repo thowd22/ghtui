@@ -116,11 +116,11 @@ fn finish_read(s: &mut Setup, bg: &mut Background) {
     assert!(page.metadata_display_v51.is_some());
 }
 fn scroll(s: &mut Setup) {
-    let before = s.app.scroll;
+    let before = s.app.inbox_list.top;
     s.app
         .handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
     assert_ne!(
-        s.app.scroll, before,
+        s.app.inbox_list.top, before,
         "Actual original Summary has no interactive row"
     );
 }
@@ -210,7 +210,7 @@ fn conversation_comments_metadata_read_retirement_v70_readonly_scroll_keeps_actu
     assert_eq!(sql(&s.fixture), before_sql);
     finish_read(&mut s, &mut bg);
     drain_child(&mut s, &mut bg, &pid);
-    assert_eq!((s.app.selected, s.app.scroll), (0, 0));
+    assert_eq!((s.app.inbox_list.selected, s.app.inbox_list.top), (0, 0));
     assert_eq!(sql(&s.fixture), before_sql);
     unchanged(&s, s.steps.len());
 }

@@ -81,7 +81,7 @@ fn threads_finish(s: &Setup, app: &mut App, background: &mut Background) {
 fn open_browser(s: &Setup, app: &mut App, background: &mut Background) {
     let github = app.github.as_ref().unwrap();
     let original = github.scoped_pr_resource.as_ref().unwrap();
-    app.selected = (0..github.pr.as_ref().unwrap().rows.len())
+    app.inbox_list.selected = (0..github.pr.as_ref().unwrap().rows.len())
         .find(|row| matches!(original.row(*row), Some(PrResourceRowV1::FileList(0))))
         .unwrap();
     <ScopedPrNativeSourceV1 as crate::repository_native_diff_native_v1::NativeAppV2>::threads(app);

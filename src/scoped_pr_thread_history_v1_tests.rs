@@ -59,8 +59,8 @@ fn seed(real: &Real) -> ThreadOriginSeedV1 {
 fn summary(real: &mut Real) {
     real.app.overlay = None;
     real.app.scoped_threads_v1 = None;
-    real.app.selected = 0;
-    real.app.scroll = 0;
+    real.app.inbox_list.selected = 0;
+    real.app.inbox_list.top = 0;
     let github = real.app.github.as_mut().unwrap();
     github.scoped_pr_resource = None;
     let page = github.pr.as_mut().unwrap();

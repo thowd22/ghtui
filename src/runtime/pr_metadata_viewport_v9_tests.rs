@@ -94,15 +94,15 @@ fn pr_metadata_viewport_v9_held_tab_completion_retires_old_scroll_after_both_inp
                 app.dispatch(crate::app::Action::Scroll(3));
             }
         }
-        assert_eq!(app.scroll, 21);
+        assert_eq!(app.inbox_list.top, 21);
         assert_eq!(
             app.github.as_ref().unwrap().pr.as_ref().unwrap().tab,
             PrTab::Summary
         );
         release_tx.send(()).unwrap();
         poll(&mut background, &mut app);
-        assert_eq!(app.scroll, 0);
-        assert_eq!(app.selected, 0);
+        assert_eq!(app.inbox_list.top, 0);
+        assert_eq!(app.inbox_list.selected, 0);
         assert_eq!(
             app.github.as_ref().unwrap().pr.as_ref().unwrap().tab,
             PrTab::Metadata
@@ -141,8 +141,7 @@ fn pr_metadata_viewport_v9_same_tab_refresh_retains_intentional_viewport_and_com
     let mut app = App {
         view: View::Inbox,
         github: Some(previous),
-        scroll: 20,
-        selected,
+        inbox_list: crate::ui_table::ListState { selected, top: 20 },
         ..Default::default()
     };
     let mut background = Background::new();
@@ -153,9 +152,9 @@ fn pr_metadata_viewport_v9_same_tab_refresh_retains_intentional_viewport_and_com
         }))
     );
     poll(&mut background, &mut app);
-    assert_eq!(app.scroll, 20);
+    assert_eq!(app.inbox_list.top, 20);
     assert_eq!(
-        app.github.as_ref().unwrap().pr.as_ref().unwrap().rows[app.selected]
+        app.github.as_ref().unwrap().pr.as_ref().unwrap().rows[app.inbox_list.selected]
             .comment
             .as_ref()
             .unwrap()
@@ -171,7 +170,7 @@ fn pr_metadata_viewport_v9_same_tab_refresh_retains_intentional_viewport_and_com
     terminal
         .draw(|frame| crate::ui::draw(frame, &mut app))
         .unwrap();
-    assert_eq!(app.scroll, 20);
+    assert_eq!(app.inbox_list.top, 20);
     let painted = terminal
         .backend()
         .buffer()
@@ -186,7 +185,10 @@ fn pr_metadata_viewport_v9_superseded_held_tab_result_cannot_reset_newer_same_ta
     let mut app = App {
         view: View::Inbox,
         github: Some(workspace(PrTab::Summary)),
-        scroll: 20,
+        inbox_list: crate::ui_table::ListState {
+            top: 20,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let (started_tx, started_rx) = mpsc::channel();
@@ -232,7 +234,7 @@ fn pr_metadata_viewport_v9_superseded_held_tab_result_cannot_reset_newer_same_ta
     assert!(delivered.contains(&original_generation) && delivered.contains(&current_generation));
     relay.join().unwrap(); // both REAL worker completions actually enqueued.
     poll(&mut background, &mut app);
-    assert_eq!(app.scroll, 20);
+    assert_eq!(app.inbox_list.top, 20);
     assert_eq!(
         app.github.as_ref().unwrap().pr.as_ref().unwrap().tab,
         PrTab::Summary

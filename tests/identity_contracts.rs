@@ -886,7 +886,7 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
     app.no_color = false;
     app.color_mode = ColorMode::TrueColor;
     app.workspace = Workspace::load(&fixture.root, RepositoryMode::Graph, "HEAD", None).unwrap();
-    app.selected = app
+    app.repository_list.selected = app
         .workspace
         .as_ref()
         .unwrap()
@@ -1014,13 +1014,13 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                 );
                 app.workspace = Some(workspace);
                 if genuine {
-                    app.selected = app
+                    app.repository_list.selected = app
                         .workspace
                         .as_ref()
                         .unwrap()
                         .graph_focus_row_v1()
                         .unwrap();
-                    app.scroll = app.selected;
+                    app.repository_list.top = app.repository_list.selected;
                 }
                 let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
                 terminal
@@ -1047,7 +1047,7 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                     assert!(row(saved_row + 1)
                         .contains("Original snapshots • replacements: 2 • legacy grafts: present"));
                 }
-                let content_start = rows.get(app.scroll).map(|first| {
+                let content_start = rows.get(app.repository_list.top).map(|first| {
                     let prefix = first.label.chars().take(24).collect::<String>();
                     (0..24)
                         .find(|y| row(*y).contains(&prefix))
@@ -1063,7 +1063,7 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                 for (position, prepared) in rows
                     .iter()
                     .enumerate()
-                    .skip(app.scroll)
+                    .skip(app.repository_list.top)
                     .take(app.repository_visible_rows)
                 {
                     if let Some(action) = &prepared.action {
@@ -1073,12 +1073,13 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                             .find(|hit| {
                                 hit.action == Action::RepositoryRow(action.clone())
                                     && hit.rect.y
-                                        == content_start.unwrap() + (position - app.scroll) as u16
+                                        == content_start.unwrap()
+                                            + (position - app.repository_list.top) as u16
                             })
                             .unwrap();
                         assert_eq!(
                             hit.rect.y,
-                            content_start.unwrap() + (position - app.scroll) as u16,
+                            content_start.unwrap() + (position - app.repository_list.top) as u16,
                             "The exact mouse action follows the visible row after header insertion"
                         );
                         assert!(

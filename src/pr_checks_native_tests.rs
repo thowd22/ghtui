@@ -251,7 +251,7 @@ fn pr_checks_native_testbackend_row_focus_open_key_click_and_disabled_status_at_
             let row = hit(&current, &Action::GithubRow(0));
             current.handle_event(click(row));
             assert!(current.github_content_focused);
-            assert_eq!(current.selected, 0);
+            assert_eq!(current.inbox_list.selected, 0);
             assert!(!current.pr_checks_request);
             let terminal = draw(&mut current, width, height);
             let open = hit(&current, &Action::PrChecks(PrChecksUiAction::Open));
@@ -293,7 +293,7 @@ fn pr_checks_native_testbackend_row_focus_open_key_click_and_disabled_status_at_
         }
         for mouse in [false, true] {
             let mut current = app();
-            current.selected = 2;
+            current.inbox_list.selected = 2;
             draw(&mut current, width, height);
             let row = hit(&current, &Action::GithubRow(2));
             current.handle_event(click(row));
