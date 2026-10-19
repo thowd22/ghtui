@@ -34,8 +34,14 @@ fn mouse_keyboard_hover_routing_main_footer_header_and_body_use_current_pane_onl
             draw(&mut mouse, width, height);
             wheel(&mut mouse, 5, height - 1, true);
             assert_eq!(mouse.scroll, 0, "footer wheel must not scroll {view:?}");
-            wheel(&mut mouse, 5, 1, true);
-            assert_eq!(mouse.scroll, 0, "view tabs are not the content pane");
+            // The merged header (one or two rows) ends where the pane's rounded
+            // top border begins; every header row is off-pane.
+            let header = crate::ui_chrome::header_rows(&mouse, width);
+            assert!(header >= 1);
+            for row in 0..header {
+                wheel(&mut mouse, 5, row, true);
+                assert_eq!(mouse.scroll, 0, "header row {row} is not the content pane");
+            }
             wheel(&mut mouse, width, 10, true);
             assert_eq!(mouse.scroll, 0, "outside the last painted column");
             wheel(&mut mouse, 5, 5, true);
@@ -51,7 +57,8 @@ fn mouse_keyboard_hover_routing_main_footer_header_and_body_use_current_pane_onl
             }
             assert_eq!(mouse.scroll, keyboard.scroll);
             mouse.scroll = 0;
-            wheel(&mut mouse, 5, 3, true);
+            // The breadcrumb title is painted in the pane's own top border row.
+            wheel(&mut mouse, 5, header, true);
             assert_eq!(
                 mouse.scroll, 3,
                 "the pane's own painted title belongs to that pane"

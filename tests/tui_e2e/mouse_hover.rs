@@ -1,5 +1,5 @@
 //! Input acknowledgements use a real Help round trip, never a readiness sleep.
-use crate::support::{Fixture, Session};
+use crate::support::{controls::view_title, Fixture, Session};
 use std::{fs, path::Path, time::Duration};
 
 const HELP: &str = "Help • keyboard and mouse";
@@ -21,7 +21,7 @@ fn ready(session: &mut Session) -> String {
     session.wait_for_cursorless_condition(
         |frame| {
             !frame.contents().contains(HELP)
-                && frame.contents().contains("Repository • focused view")
+                && frame.contents().contains(&view_title("Repository"))
                 && frame.contents().contains("[? Help]")
         },
         "complete repository frame",
@@ -157,7 +157,18 @@ fn journey(mouse: bool) {
             );
         }
         let original = ready(&mut session);
-        for point in [(5, height - 1), (5, 1)] {
+        // The pane title sits in its rounded top border directly below the
+        // merged header. The footer, the first header row and the header row
+        // next to the border are all outside the content pane.
+        let (_, title_row) = session
+            .locate(&view_title("Repository"))
+            .expect("observed repository pane title");
+        assert!(title_row > 0, "the merged header precedes the content pane");
+        let mut points = vec![(5, height - 1), (5, 0)];
+        if title_row > 1 {
+            points.push((5, title_row - 1));
+        }
+        for point in points {
             session.wheel(point.0, point.1, true);
             let after = acknowledge(&mut session, mouse);
             assert_eq!(
