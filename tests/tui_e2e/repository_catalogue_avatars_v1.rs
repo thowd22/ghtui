@@ -66,12 +66,13 @@ fn public_asset(fixture: &Fixture, mode: Mode) -> PublicAsset {
     crate::fixture_shell_publication_v1::install(&program, script.as_bytes()).unwrap();
     files
 }
-/// The owner's list-row chip: filled `EO` in color, bracketed `[EO]` without color.
+/// The owner's list-row chip at the row's right edge, against the catalogue border: filled
+/// `EO` in color, bracketed `[EO]` without color.
 fn owner_initials(mode: Mode) -> &'static str {
     if mode == Mode::Monochrome {
         "[EO]"
     } else {
-        "EO  "
+        "EO│"
     }
 }
 fn launch_assets(fixture: &Fixture, mouse: bool, mode: Mode) -> Session {

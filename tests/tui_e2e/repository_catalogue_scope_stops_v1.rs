@@ -180,7 +180,7 @@ fn stopped_views(
     {
         choose(session, mouse, tab, key);
         stopped_frame(session, name, stop);
-        choose(session, mouse, "[r Refresh]", b"r");
+        refresh_control(session, mouse);
         let wide = mouse == (index % 2 == 0);
         session.resize(if wide { 120 } else { 80 }, if wide { 40 } else { 24 });
         stopped_frame(session, name, stop);

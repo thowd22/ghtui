@@ -101,7 +101,7 @@ fn journey(mouse: bool) {
         holders.push(holder);
         if step == 0 {
             session.resize(80, 24);
-            session.wait_for_screen("[r Refresh]");
+            session.wait_for_control("[r Refresh]");
         }
     }
     // Both production worker slots were used by exited parents with live

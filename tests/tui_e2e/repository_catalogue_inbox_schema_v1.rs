@@ -333,7 +333,7 @@ fn journey_observed_input(mouse: bool, failure: Failure, controlled: bool) {
     {
         choose(&mut session, mouse, tab, key);
         session.try_wait_for_condition(|screen|screen.contains(&format!("{name} • focused view"))&&normalized(screen).contains("Original repository scope is fenced • private pages hidden • no fallback or query sent"),"Actual fenced scoped view, never default/all query",Duration::from_secs(8)).unwrap();
-        choose(&mut session, mouse, "[r Refresh]", b"r");
+        refresh_control(&mut session, mouse);
         let wide = mouse == index.is_multiple_of(2);
         session.resize(if wide { 120 } else { 80 }, if wide { 40 } else { 24 });
         ready(

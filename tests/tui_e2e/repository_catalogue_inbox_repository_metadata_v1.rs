@@ -93,7 +93,7 @@ fn metadata_journey(mouse: bool, node: bool) {
     ] {
         choose(&mut session, mouse, label, key);
         session.try_wait_for_condition(|screen|screen.contains(&format!("{name} • focused view"))&&normalized(screen).contains("Original repository scope is fenced • private pages hidden • no fallback or query sent"),"Actual static fenced view after inconsistent optional repository metadata",Duration::from_secs(8)).unwrap();
-        choose(&mut session, mouse, "[r Refresh]", b"r");
+        refresh_control(&mut session, mouse);
         ready(&mut session, &["private pages hidden"]);
         assert!(
             !session.screen().contains(OLD_BODY) && !session.screen().contains(CONTRADICTORY_BODY)

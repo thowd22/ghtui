@@ -4,7 +4,7 @@ use crate::{
     support::{Fixture, Session},
 };
 use ghtui::local_actions::LocalCommand;
-use std::{fs, process::Command};
+use std::{fs, process::Command, time::Duration};
 
 pub(crate) fn operation(session: &mut Session, mouse: bool, command: LocalCommand) {
     let index = LocalCommand::ALL
@@ -65,7 +65,16 @@ fn run(session: &mut Session, mouse: bool, command: LocalCommand, fields: &[(&st
 }
 fn refresh(session: &mut Session, mouse: bool) {
     if mouse {
-        session.click_visible_action("[r Refresh]");
+        // The Repository key bar drops `r Refresh` by priority on narrow rows; the command
+        // palette then runs the same global Refresh by mouse.
+        if session
+            .try_wait_for_control("[r Refresh]", Duration::from_millis(500))
+            .is_some()
+        {
+            session.click_visible_action("[r Refresh]");
+        } else {
+            session.invoke_via_palette(true, "[r Refresh]");
+        }
     } else {
         session.send_key(b"r");
     }

@@ -27,9 +27,6 @@ mod local_mappings_v1;
 #[path = "repository_catalogue_read_limits_v1.rs"]
 mod read_limits_v1;
 
-#[path = "repository_catalogue_close_frame_v1.rs"]
-mod close_frame_v1;
-
 #[path = "repository_catalogue_source_transition_v1.rs"]
 mod source_transition_v1;
 
@@ -319,6 +316,50 @@ fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     } else {
         session.send_key(key);
     }
+}
+/// Refresh by key, or by clicking its key-bar token. Narrow bars drop the token by priority
+/// (Search at 80 columns); the command palette then runs the same global Refresh by mouse.
+fn refresh_control(session: &mut Session, mouse: bool) {
+    if !mouse {
+        session.send_key(b"r");
+    } else if session
+        .try_wait_for_control("[r Refresh]", Duration::from_millis(500))
+        .is_some()
+    {
+        session.click_visible_action("[r Refresh]");
+    } else {
+        session.invoke_via_palette(true, "[r Refresh]");
+    }
+}
+/// Tab until the painted Quit control (the catalogue's `[q Quit]` button, or the main key-bar
+/// `q Quit` token) shows keyboard focus, re-reading its position after every completed frame.
+fn focus_quit(session: &mut Session) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(50));
+        let (column, row) = session.wait_for_control("[q Quit]");
+        if session.cell_underlined(row, column) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Quit never gained keyboard focus\n{}",
+            session.screen()
+        );
+        session.send_key(b"\t");
+    }
+}
+/// The catalogue closed onto the actual current main frame: a newer completed Repository frame
+/// with the main key bar (`? Help` and `q Quit` tokens in the last row), no catalogue or notice.
+fn restored_main(frame: Option<&vt100::Screen>, completed_end: usize, before_close: usize) -> bool {
+    completed_end > before_close
+        && frame.is_some_and(|frame| {
+            let text = frame.contents();
+            text.contains("Repository • focused view")
+                && !text.contains(TITLE)
+                && !text.contains("Action unavailable • explanation only")
+                && crate::support::controls::main_footer_visible(frame)
+        })
 }
 fn ready(session: &mut Session, required: &[&str]) {
     session
@@ -815,7 +856,7 @@ fn partial(mouse: bool) {
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         session.poll_output(Duration::from_millis(1));
-        if close_frame_v1::restored_main(
+        if restored_main(
             session.completed_cursorless_screen(),
             session.completed_cursorless_end(),
             before_close,
@@ -827,10 +868,20 @@ fn partial(mouse: bool) {
             "Catalogue close did not complete the actual current main toolbar"
         );
     }
-    let completed_quit =
-        crate::support::locate_screen(session.completed_cursorless_screen().unwrap(), "[q Quit]")
-            .expect("Current completed main Quit control, not an old catalogue hit");
-    assert_eq!(session.locate("[q Quit]"), Some(completed_quit));
+    let completed_quit = crate::support::controls::locate_control(
+        session.completed_cursorless_screen().unwrap(),
+        "[q Quit]",
+    )
+    .expect("Current completed main Quit control, not an old catalogue hit");
+    assert_eq!(
+        crate::support::controls::footer_control(
+            session.completed_cursorless_screen().unwrap(),
+            &crate::support::controls::Control::parse("[q Quit]"),
+        ),
+        Some(completed_quit),
+        "Quit is the main key-bar token, not the closed catalogue's bracketed button"
+    );
+    assert_eq!(session.wait_for_control("[q Quit]"), completed_quit);
     finish(&mut session, &fixture, mouse, 21, &before, &config);
 }
 
@@ -881,7 +932,9 @@ fn principal_change(mouse: bool) {
     } else {
         session.send_key(b"\r");
     }
-    session.focus_footer_control("[q Quit]"); // Input processed, not merely queued.
+    // Input processed, not merely queued: Tab reaches Quit, whether the catalogue's own
+    // bracketed button (still open) or the main key-bar token (closed by keyboard Enter).
+    focus_quit(&mut session);
     assert!(!session.screen().contains(LAST));
     assert_commands(&session, &fixture, 18);
     assert_eq!(

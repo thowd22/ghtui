@@ -88,6 +88,14 @@ fn open_control(session: &mut Session, mouse: bool) {
         session.send_key(b"\r");
     }
 }
+/// While the original read is pending, `Open check` is unavailable: its token leaves the key
+/// bar and its Enter key explains why instead of starting another read.
+fn disabled_open_control(session: &mut Session) {
+    session.assert_control_absent("[Enter Open check]");
+    session.send_key(b"\r");
+}
+/// The original Checks page. `Enter Open check` is a key-bar token only while a check row is
+/// selected and no read is pending, so [`open_control`] waits for it separately.
 fn original_checks(session: &mut Session) {
     ready(
         session,
@@ -95,7 +103,6 @@ fn original_checks(session: &mut Session) {
             "Exact observed build",
             "Required rules unavailable",
             "ci-actor",
-            "[Enter Open check]",
             "[b Back]",
         ],
     );
@@ -126,9 +133,9 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
     original_checks(&mut session);
     // Loading paints the key-bar `Esc Cancel` token.
     session.wait_for_control("[Esc Cancel]");
-    // An actual click/focused Enter on the visible disabled control explains
-    // the pending original read and does not enqueue a duplicate request.
-    open_control(&mut session, mouse);
+    // The disabled control's Enter key explains the pending original read and does
+    // not enqueue a duplicate request.
+    disabled_open_control(&mut session);
     overlay_ready(&mut session, "Action unavailable", &["[Esc Close]"]);
     let explanation = session
         .wait_for_overlay_body("Action unavailable")

@@ -348,18 +348,24 @@ fn actions_key_bar_keeps_every_available_or_unavailable_action_inspectable() {
         });
         workspace.prepare_rows();
         // Every prepared control is one key-bar entry carrying its exact action, or its
-        // "label: reason" explanation when disabled. Nothing is paged away.
+        // "label: reason" explanation when disabled. Nothing is paged away. Refresh carries
+        // the global Refresh binding, which runs before view keys, so click and key agree.
         let keys = footer_keys(&workspace);
         for control in &workspace.controls {
+            let action = if control.action == ActionsAction::Refresh {
+                Action::Refresh
+            } else {
+                Action::Actions(control.action.clone())
+            };
             let expected = control
                 .disabled_reason
                 .as_ref()
-                .map_or_else(|| Some(Action::Actions(control.action.clone())), |_| None);
+                .map_or_else(|| Some(action.clone()), |_| None);
             assert!(
                 keys.iter().any(|key| match (&expected, &key.disabled) {
                     (Some(action), None) => key.action == *action,
                     (None, Some(reason)) =>
-                        key.action == Action::Actions(control.action.clone())
+                        key.action == action
                             && *reason
                                 == format!(
                                     "{}: {}",

@@ -432,7 +432,8 @@ fn happy(mouse: bool, count: usize) {
     exact(&session, &fixture, &steps);
     let gh = session.inspect_command_journal(&fixture);
     let trace = git_commands(&fixture);
-    let refresh_point = session.locate("[r Refresh]").unwrap();
+    // The Inbox key-bar `r Refresh` token, whose stale hit must not survive under Help.
+    let refresh_point = session.wait_for_control("[r Refresh]");
     choose(&mut session, mouse, "[? Help]", b"?");
     overlay_ready(
         &mut session,
