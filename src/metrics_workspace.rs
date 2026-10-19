@@ -196,7 +196,26 @@ pub struct MetricsPreparedRow {
     pub actor: Option<ActorIdentity>,
     pub avatar_only: bool,
     pub action: Option<MetricsWorkspaceAction>,
+    /// Table cells for the Cards ([`CARD_COLUMNS`]) and Contributors
+    /// ([`CONTRIBUTOR_COLUMNS`]) lists; empty for prose rows, which show `label`.
+    pub cells: Vec<crate::ui_table::Cell>,
 }
+/// Dashboard cards: the metric name, then its value.
+pub const CARD_COLUMNS: [crate::ui_table::Column; 2] = [
+    crate::ui_table::Column::new("METRIC", 12).priority(0),
+    crate::ui_table::Column::new("VALUE", 8).flex(1).priority(1),
+];
+/// One card's contributors: the PR or run, its title, the first actor and the measurement.
+pub const CONTRIBUTOR_COLUMNS: [crate::ui_table::Column; 4] = [
+    crate::ui_table::Column::new("ITEM", 8).flex(1).priority(1),
+    crate::ui_table::Column::new("TITLE", 10)
+        .flex(3)
+        .priority(0),
+    crate::ui_table::Column::new("ACTOR", 6).priority(3).actor(),
+    crate::ui_table::Column::new("MEASURE", 4)
+        .priority(2)
+        .right(),
+];
 #[derive(Clone, Debug)]
 pub struct MetricsPreparedCard {
     pub title: String,
@@ -253,6 +272,7 @@ fn row(
         actor: None,
         avatar_only: false,
         action,
+        cells: Vec::new(),
     }
 }
 pub fn coverage_label(coverage: &EvidenceCoverage) -> String {
@@ -564,6 +584,7 @@ fn contributor_details(
             actor: Some(identity),
             avatar_only: false,
             action: None,
+            cells: Vec::new(),
         });
     }
     for target in &contributor.evidence {
@@ -797,18 +818,48 @@ impl MetricsWorkspace {
                     .first()
                     .map(|actor| actor.identity(&snapshot.scope));
                 contributor_row.avatar_only = true;
+                contributor_row.cells = vec![
+                    crate::ui_table::Cell::styled(
+                        sanitize_terminal(&target_label(&contributor.target)),
+                        crate::theme::Role::TextMuted,
+                    ),
+                    sanitize_terminal(&contributor.title).into(),
+                    String::new().into(),
+                    // The list keeps the cell short; the full wording stays in the label
+                    // and the contributor's details.
+                    match (contributor.health, contributor.measured_seconds) {
+                        (None, None)
+                            if matches!(
+                                card.kind,
+                                MetricKind::OpenPrs | MetricKind::NeedsMyReview
+                            ) =>
+                        {
+                            crate::ui_table::Cell::styled("current", crate::theme::Role::TextMuted)
+                        }
+                        (None, None) => crate::ui_table::Cell::styled(
+                            crate::ui_table::NONE,
+                            crate::theme::Role::TextMuted,
+                        ),
+                        _ => crate::ui_table::Cell::styled(
+                            sanitize_terminal(&measurement),
+                            role.role(),
+                        ),
+                    },
+                ];
                 contributors.push(contributor_row);
                 let rows = contributor_details(&snapshot, &observations, &canonical, contributor)?;
                 prepared_budget(&rows, &mut total_rows, &mut prepared_bytes)?;
                 details.push(Arc::from(rows));
             }
-            card_rows.push(row(
+            let mut card_row = row(
                 format!("{title}: {}", value_label(&card.value)),
                 coverage_role(&card.coverage),
                 Some(MetricsWorkspaceAction::Metric(MetricsAction::Card(
                     card.kind,
                 ))),
-            ));
+            );
+            card_row.cells = vec![title.clone().into(), value_label(&card.value).into()];
+            card_rows.push(card_row);
             cards.push(MetricsPreparedCard {
                 title,
                 summary,

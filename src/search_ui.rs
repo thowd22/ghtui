@@ -4,7 +4,8 @@ use crate::{
     editor::TextBuffer,
     footer::{ControlGroup, KeyControl},
     search::{corpus::LocalSource, workspace::SearchAction, SearchMode},
-    theme::SemanticToken,
+    theme::{Role, SemanticToken},
+    ui_table::{draw_table, Cell, Column, ListState, Table, TableRow},
 };
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
@@ -14,6 +15,78 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
+
+/// Search results: the identifying title first, then where the match is, then the repository.
+const RESULT_COLUMNS: [Column; 3] = [
+    Column::new("RESULT", 12).flex(3).priority(0),
+    Column::new("LINE", 4).priority(1).right(),
+    // Fixed and least important: it leaves before a result title is cut.
+    Column::new("REPOSITORY", 8).priority(2),
+];
+
+/// The snippet with its highlighted ranges, cut to `width` cells with an ellipsis.
+fn snippet_spans(
+    snippet: &str,
+    highlights: &[std::ops::Range<usize>],
+    width: usize,
+    emphasis: ratatui::style::Style,
+) -> Vec<Span<'static>> {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut pieces = Vec::new();
+    let mut at = 0;
+    for range in highlights {
+        if range.start >= at
+            && range.end <= snippet.len()
+            && snippet.is_char_boundary(range.start)
+            && snippet.is_char_boundary(range.end)
+        {
+            pieces.push((safe_text(&snippet[at..range.start]), false));
+            pieces.push((safe_text(&snippet[range.clone()]), true));
+            at = range.end;
+        }
+    }
+    pieces.push((safe_text(&snippet[at..]), false));
+    let total = pieces
+        .iter()
+        .map(|(text, _)| crate::editor::display_width(text))
+        .sum::<usize>();
+    let style = |emphasized: bool| {
+        if emphasized {
+            emphasis
+        } else {
+            ratatui::style::Style::default()
+        }
+    };
+    if total <= width {
+        return pieces
+            .into_iter()
+            .map(|(text, emphasized)| Span::styled(text, style(emphasized)))
+            .collect();
+    }
+    let mut budget = width.saturating_sub(1);
+    let mut spans = Vec::new();
+    for (text, emphasized) in pieces {
+        let mut kept = String::new();
+        for grapheme in text.graphemes(true) {
+            let cells = crate::editor::grapheme_width(grapheme);
+            if cells > budget {
+                budget = 0;
+                break;
+            }
+            budget -= cells;
+            kept.push_str(grapheme);
+        }
+        let cut = budget == 0;
+        spans.push(Span::styled(kept, style(emphasized)));
+        if cut {
+            if width > 0 {
+                spans.push(Span::styled("…", style(emphasized)));
+            }
+            break;
+        }
+    }
+    spans
+}
 
 struct RenderHit {
     index: usize,
@@ -921,7 +994,24 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(available)
     };
-    app.search_controls.visible = (panels[0].height as usize / 2).max(1);
+    // One result is a table row (title, line:column, repository) over its snippet line.
+    let table = Table {
+        columns: &RESULT_COLUMNS,
+        header: true,
+        focused: app.search_content_focused,
+        glyphs: false,
+        empty: Some("No results in the searched snapshot"),
+    };
+    app.search_controls.visible = (panels[0].height.saturating_sub(1) as usize / 2).max(1);
+    if let Some(last) = page.hits.len().checked_sub(1) {
+        // Keep the selected result visible after a resize.
+        let mut state = ListState {
+            selected: app.search_controls.selected.min(last),
+            top: app.search_controls.top.min(last),
+        };
+        state.ensure_visible(app.search_controls.visible);
+        app.search_controls.top = state.top;
+    }
     // Copy only small visible labels/snippets, never entire source documents.
     let hits = page
         .hits
@@ -949,65 +1039,65 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             highlights: hit.highlights.clone(),
         })
         .collect::<Vec<_>>();
-    for (offset, hit) in hits.iter().enumerate() {
-        let index = hit.index;
-        let row = Rect::new(
-            panels[0].x,
-            panels[0].y + offset as u16 * 2,
-            panels[0].width,
-            2.min(
-                panels[0]
-                    .bottom()
-                    .saturating_sub(panels[0].y + offset as u16 * 2),
-            ),
-        );
-        let label = format!(
-            "{} {}{} • {}",
-            if index == app.search_controls.selected {
-                ">"
-            } else {
-                " "
-            },
-            safe_text(&hit.title),
-            if hit.line == 0 {
-                " • provider fragment".into()
-            } else {
-                format!(":{}:{}", hit.line, hit.column)
-            },
-            hit.repository
-        );
-        let mut spans = Vec::new();
-        let mut at = 0;
-        for range in &hit.highlights {
-            if range.start >= at
-                && range.end <= hit.snippet.len()
-                && hit.snippet.is_char_boundary(range.start)
-                && hit.snippet.is_char_boundary(range.end)
-            {
-                spans.push(Span::raw(safe_text(&hit.snippet[at..range.start])));
-                spans.push(Span::styled(
-                    safe_text(&hit.snippet[range.clone()]),
-                    app.theme()
-                        .style(SemanticToken::Focus)
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                ));
-                at = range.end;
+    let rows = hits
+        .iter()
+        .flat_map(|hit| {
+            let action = Some(SearchAction::Preview(hit.index));
+            [
+                TableRow::cells(vec![
+                    safe_text(&hit.title).into(),
+                    if hit.line == 0 {
+                        Cell::styled("fragment", Role::TextMuted)
+                    } else {
+                        format!("{}:{}", hit.line, hit.column).into()
+                    },
+                    Cell::styled(safe_text(&hit.repository), Role::TextMuted),
+                ])
+                .with_action(action.clone()),
+                // The snippet is painted below with its highlights.
+                TableRow::text(String::new()).with_action(action),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let selected = hits
+        .iter()
+        .position(|hit| hit.index == app.search_controls.selected);
+    let mut state = ListState {
+        selected: selected.unwrap_or_default() * 2,
+        top: 0,
+    };
+    let theme = app.theme();
+    let rendered = draw_table(frame, panels[0], &table, &rows, &mut state, theme);
+    let snippet_x = panels[0].x + crate::ui_table::lead(false).min(panels[0].width);
+    for pair in rendered.hits.chunks(2) {
+        let position = pair[0].index / 2;
+        let hit = &hits[position];
+        let mut rect = pair[0].rect;
+        if let Some(snippet) = pair.get(1) {
+            rect.height += snippet.rect.height;
+            let width = snippet.rect.right().saturating_sub(snippet_x);
+            let spans = snippet_spans(
+                &hit.snippet,
+                &hit.highlights,
+                usize::from(width),
+                theme
+                    .style(SemanticToken::Focus)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            );
+            frame
+                .buffer_mut()
+                .set_line(snippet_x, snippet.rect.y, &Line::from(spans), width);
+            if selected == Some(position) {
+                // The selected result's snippet shares its row's Selection background.
+                frame
+                    .buffer_mut()
+                    .set_style(snippet.rect, crate::ui_table::selection_style(theme));
             }
         }
-        spans.push(Span::raw(safe_text(&hit.snippet[at..])));
-        frame.render_widget(
-            Paragraph::new(vec![Line::from(label), Line::from(spans)]).style(
-                if index == app.search_controls.selected {
-                    app.theme().style(SemanticToken::Focus)
-                } else {
-                    app.theme().base()
-                },
-            ),
-            row,
-        );
+        // One click target per result: its title row and snippet line together.
         app.hits.push(HitRegion {
-            rect: row,
-            action: Action::Search(SearchAction::Preview(index)),
+            rect,
+            action: Action::Search(SearchAction::Preview(hit.index)),
         });
     }
     let remote_actor = app.search.as_ref().and_then(|search| {

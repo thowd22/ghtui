@@ -42,9 +42,11 @@ fn hidden(session: &mut Session, status: &str) {
                 screen.contains(status)
                     && !screen.contains(TITLE)
                     && !screen.contains(BODY)
-                    && !screen.contains("@alice")
-                    && !screen.contains("Loaded open PRs:")
-                    && !screen.contains("Needs my review:")
+                    // The contributor ACTOR cell shows the login without `@`.
+                    && !screen.contains("alice")
+                    // No Cards table row (the name after the bar and glyph slot).
+                    && !screen.contains(" Loaded open PRs  ")
+                    && !screen.contains(" Needs my review  ")
                     && !screen.contains("example/app#1")
                     && !screen.contains(APP)
                     && !screen.contains("UTC window [")
@@ -188,7 +190,7 @@ fn account_switch(mouse: bool) {
     cards_ready(&mut session, 1, 1);
     card(&mut session, mouse, 0);
     session.wait_for_screen(TITLE);
-    session.wait_for_screen("@alice");
+    session.wait_for_row(&[TITLE, "alice"]);
     let old = session.locate(TITLE).unwrap();
     choose(&mut session, mouse, "[0 30 days]", b"0");
     journal(&mut session, &fixture, 13);

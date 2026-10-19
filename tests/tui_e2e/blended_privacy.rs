@@ -885,7 +885,10 @@ fn first_source_receipt(mouse: bool) {
                                 "GitHub PRs • COMPLETE • 1 admitted",
                             ].iter().all(|label| body.contains(label))
                                 && body.contains(&format!("[/ Query] {NEEDLE}"))
-                                && body.contains(&format!("> #7 {NEEDLE} remote parent 7"))
+                                && crate::support::selected_row(frame, "Search • focused view")
+                                    .is_some_and(|row| {
+                                        row.contains(&format!("#7 {NEEDLE} remote parent 7"))
+                                    })
                         })
                     && text.contains("Search • focused view")
             })
@@ -949,7 +952,8 @@ fn first_source_receipt(mouse: bool) {
     count += 12;
     publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("2 results • Ranked");
-    session.wait_for_screen("FirstSourceConfirmedPublishedCanary");
+    // The result snippet line starts under the RESULT column and is cut with an ellipsis.
+    session.wait_for_screen("FirstSourceConfirmedPublished");
     assert!(!session.screen().contains("stale indexed fragment"));
     canonical(&mut session, mouse);
     session.resize(80, 24);

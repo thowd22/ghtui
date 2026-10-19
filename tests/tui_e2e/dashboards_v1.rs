@@ -104,8 +104,8 @@ fn happy_dashboard(mouse: bool) {
     session.resize(80, 24);
     session.wait_for_control("[Space Show/hide]");
     back(&mut session, mouse);
-    session.wait_for_screen("Needs my review: 1");
-    absent(&mut session, "Loaded open PRs:");
+    wait_card_value(&mut session, "Needs my review", "1");
+    absent(&mut session, "Loaded open PRs");
     choose(&mut session, mouse, "[i Details]", b"i");
     scroll_to(&mut session, mouse, "non-draft PRs", "Unknown");
     back(&mut session, mouse);
@@ -139,8 +139,8 @@ fn happy_dashboard(mouse: bool) {
     cards_ready(&mut session, 3, 1); // No automatic cached evidence restoration.
     choose(&mut session, mouse, "[O Open saved]", b"O");
     session.wait_for_screen("Saved scope");
-    session.wait_for_screen("Needs my review: 1");
-    absent(&mut session, "Loaded open PRs:");
+    wait_card_value(&mut session, "Needs my review", "1");
+    absent(&mut session, "Loaded open PRs");
     journal(&mut session, &fixture, 56);
     let restored_clock = as_of(&mut session);
     assert_window(&mut session, 30, restored_clock);
@@ -149,7 +149,7 @@ fn happy_dashboard(mouse: bool) {
     journal(&mut session, &fixture, 62);
     let before_refresh = session.completed_cursorless_end();
     choose(&mut session, mouse, "[r Refresh]", b"r");
-    session.wait_for_screen("Needs my review: 1");
+    wait_card_value(&mut session, "Needs my review", "1");
     journal(&mut session, &fixture, 69);
     session.wait_for_new_cursorless_condition(
         before_refresh,
@@ -165,14 +165,24 @@ fn happy_dashboard(mouse: bool) {
         Duration::from_secs(8),
     );
     if mouse {
-        session.click_visible_action("Needs my review:");
+        session.click_visible_action("Needs my review");
     } else {
         session.send_key(b"\x1b[H");
-        selected(&mut session, "Needs my review:");
+        selected(&mut session, "Needs my review");
         session.send_key(b"\r");
     }
     session.wait_for_screen(TITLE);
-    session.wait_for_screen("@alice");
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen
+                    .lines()
+                    .any(|line| line.contains(TITLE) && line.contains("alice"))
+            },
+            "contributor row with its alice actor cell",
+            Duration::from_secs(8),
+        )
+        .unwrap();
     if mouse {
         session.click_visible_action(TITLE);
     } else {
@@ -258,8 +268,8 @@ fn refused_dashboard(mouse: bool, outside: bool) {
         "Saved dashboard is invalid"
     });
     for old in [
-        "Loaded open PRs:",
-        "Needs my review:",
+        "Loaded open PRs",
+        "Needs my review",
         "@alice",
         "UTC window [",
         "never display",
@@ -359,7 +369,7 @@ fn fenced_save(mouse: bool, cancelled: bool) {
         session.press_disabled_key(b"L", "Action unavailable");
         let close =
             session.wait_for_owned_completed_action("Action unavailable", "[Esc Close]", &[]);
-        absent(&mut session, "Loaded open PRs:");
+        absent(&mut session, "Loaded open PRs");
         journal(&mut session, &fixture, count);
         if mouse {
             session.click(close.0, close.1);
@@ -372,7 +382,7 @@ fn fenced_save(mouse: bool, cancelled: bool) {
                 let text = frame.contents();
                 crate::support::locate_control(frame, "[Esc Cancel]").is_some()
                     && !text.contains("Action unavailable")
-                    && !text.contains("Loaded open PRs:")
+                    && !text.contains("Loaded open PRs")
             },
             "disabled explanation closed before explicit live-save cancellation",
             Duration::from_secs(8),
@@ -390,8 +400,8 @@ fn fenced_save(mouse: bool, cancelled: bool) {
     };
     session.wait_for_screen(hidden_label);
     for old in [
-        "Loaded open PRs:",
-        "Needs my review:",
+        "Loaded open PRs",
+        "Needs my review",
         "UTC window [",
         "@alice",
     ] {

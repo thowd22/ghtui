@@ -97,6 +97,7 @@ fn design_footer_v90_dashboard_layout_keys_click_and_press_the_same_action_after
                     Rect::new(0, 0, width, height - 1),
                     theme,
                     &Default::default(),
+                    true,
                 ));
                 targets = crate::footer::render(
                     frame,

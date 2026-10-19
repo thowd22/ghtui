@@ -1402,6 +1402,45 @@ impl Session {
         }
     }
 
+    /// [`Self::wait_for_selected_row`] for a row that must hold every part (its cells).
+    pub fn wait_for_selected_cells(&mut self, pane_title: &str, parts: &[&str]) -> String {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(10));
+            if let Some(row) = selected_row(self.parser.screen(), pane_title)
+                .filter(|row| parts.iter().all(|part| row.contains(part)))
+            {
+                return row;
+            }
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "Selected row with {parts:?} in {pane_title:?} was not painted (selected: {:?})\n{}; artifacts: {}",
+                    selected_row(self.parser.screen(), pane_title),
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
+        }
+    }
+
+    /// Waits until one painted line holds every part: the cells of one table row.
+    pub fn wait_for_row(&mut self, parts: &[&str]) {
+        let description = format!("one row with {parts:?}");
+        if let Err(error) = self.try_wait_for_condition(
+            |screen| {
+                screen
+                    .lines()
+                    .any(|line| parts.iter().all(|part| line.contains(part)))
+            },
+            &description,
+            Duration::from_secs(8),
+        ) {
+            self.save_artifacts();
+            panic!("{error}; artifacts: {}", self.artifact_dir.display());
+        }
+    }
+
     pub fn wait_for_control(&mut self, label: &str) -> (u16, u16) {
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {

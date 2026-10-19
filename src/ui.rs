@@ -209,6 +209,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
                 rows[3].inner(ratatui::layout::Margin::new(1, 1)),
                 theme,
                 &app.avatar_states,
+                app.metrics_content_focused,
             );
             app.metrics_content = rendered.content;
             app.metrics_visible_rows = rendered.visible_rows;

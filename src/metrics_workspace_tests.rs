@@ -358,6 +358,7 @@ fn design_footer_v90_dashboard_controls_keyboard_mouse_and_resize_have_same_acti
                     Rect::new(0, 0, width, height - 1),
                     theme,
                     &Default::default(),
+                    true,
                 ));
                 targets = crate::footer::render(
                     frame,
@@ -437,6 +438,7 @@ fn metrics_dashboard_keyboard_page_scroll_and_hover_wheel_only_move_current_pane
                     crate::theme::ColorMode::NoColor,
                 ),
                 &Default::default(),
+                true,
             ))
         })
         .unwrap();
@@ -485,6 +487,7 @@ fn metrics_dashboard_pending_controls_explain_and_never_render_obsolete_counts_o
                     crate::theme::ColorMode::NoColor,
                 ),
                 &Default::default(),
+                true,
             ))
         })
         .unwrap();
@@ -511,7 +514,8 @@ fn metrics_dashboard_pending_controls_explain_and_never_render_obsolete_counts_o
         .map(|cell| cell.symbol())
         .collect::<String>();
     assert!(text.contains("prior values hidden"));
-    assert!(!text.contains("Loaded open PRs: 1"));
+    // No card row (name or value) and no table header survives while preparing.
+    assert!(!text.contains("Loaded open PRs") && !text.contains("VALUE"));
     assert!(!text.contains("Exact contributor"));
 }
 
@@ -652,4 +656,106 @@ fn design_help_v97_dashboard_help_and_commands_cover_every_footer_key() {
         ..Default::default()
     };
     assert!(crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&app, "Dashboard") > 5);
+}
+
+fn render_v91(
+    workspace: &mut MetricsWorkspace,
+    width: u16,
+    height: u16,
+) -> (ratatui::buffer::Buffer, metrics_ui::MetricsRender) {
+    let theme = crate::theme::Theme::new(
+        crate::config::ThemeName::CatppuccinMocha,
+        crate::theme::ColorMode::TrueColor,
+    );
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    let mut output = None;
+    terminal
+        .draw(|frame| {
+            output = Some(metrics_ui::draw(
+                frame,
+                workspace,
+                Rect::new(0, 0, width, height),
+                theme,
+                &Default::default(),
+                true,
+            ))
+        })
+        .unwrap();
+    (terminal.backend().buffer().clone(), output.unwrap())
+}
+fn lines_v91(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn design_table_v91_metrics_cards_and_contributors_are_tables_with_the_selection_bar() {
+    use ratatui::style::Modifier;
+    let selection = crate::theme::rgb(
+        crate::theme::Palette::for_theme(crate::config::ThemeName::CatppuccinMocha)
+            .unwrap()
+            .selection,
+    );
+    for (width, height) in [(80, 24), (140, 42)] {
+        let mut workspace = prepared();
+        let (buffer, rendered) = render_v91(&mut workspace, width, height);
+        let lines = lines_v91(&buffer);
+        let header = lines
+            .iter()
+            .position(|line| line.contains("METRIC "))
+            .expect("Cards header");
+        // Column titles start after the bar and glyph slot; the value has its own column.
+        assert_eq!(lines[header].find("METRIC "), Some(3), "{width}");
+        assert!(lines[header].contains("VALUE"));
+        assert_eq!(usize::from(rendered.content.y), header);
+        let first = &lines[header + 1];
+        assert!(first.starts_with("▌"), "{first:?}");
+        assert!(first.contains("Loaded open PRs  "), "{first:?}");
+        assert!(
+            !first.contains("Loaded open PRs:"),
+            "the label is not the list text"
+        );
+        // The whole selected row is on the Selection background, never reversed.
+        let y = header as u16 + 1;
+        for x in 0..width {
+            assert_eq!(buffer[(x, y)].bg, selection, "x={x}");
+            assert!(!buffer[(x, y)].modifier.contains(Modifier::REVERSED));
+        }
+        assert_ne!(buffer[(5, y + 1)].bg, selection);
+        // Every card row is one click target with its card action; the header is not.
+        assert_eq!(rendered.hits.len(), workspace.rows().len());
+        assert_eq!(rendered.hits[0].rect, Rect::new(0, y, width, 1));
+        assert_eq!(
+            Some(rendered.hits[0].action.clone()),
+            workspace.rows()[0].action
+        );
+        assert!(lines.iter().all(|line| !line.contains("> ")));
+
+        workspace.selected = 1;
+        assert!(enter(&mut workspace).is_none());
+        let (buffer, rendered) = render_v91(&mut workspace, width, height);
+        let lines = lines_v91(&buffer);
+        let header = lines
+            .iter()
+            .position(|line| line.contains("ITEM") && line.contains("TITLE"))
+            .expect("Contributors header");
+        let row = &lines[header + 1];
+        assert!(row.starts_with("▌"), "{row:?}");
+        // ITEM, TITLE, then the actor chip and login without `@`, then the measurement.
+        let item = row.find("example/a#7").unwrap();
+        let title = row.find("Exact contributor").unwrap();
+        let actor = row.find("OC octocat").unwrap();
+        assert!(item < title && title < actor, "{row:?}");
+        assert!(!row.contains("@octocat") && !row.contains(" • "));
+        assert!(row.trim_end().ends_with("current"), "{row:?}");
+        assert_eq!(
+            Some(rendered.hits[0].action.clone()),
+            workspace.rows()[0].action
+        );
+    }
 }

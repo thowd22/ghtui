@@ -312,20 +312,32 @@ fn start(session: &mut Session, mouse: bool) {
     choose(session, mouse, "5 Dashboard", b"5");
     session.wait_for_screen("Cohort: selected-repository PR inventory (all states)");
 }
+/// The Dashboard list's `▌` selected row contains `label`.
 fn selected(session: &mut Session, label: &str) {
-    session
-        .try_wait_for_condition(
-            |screen| {
-                screen.lines().any(|line| {
-                    let row = line.trim_start();
-                    let row = row.strip_prefix('│').unwrap_or(row).trim_start();
-                    row.starts_with('>') && row.contains(label)
+    session.wait_for_selected_row(&crate::support::view_title("Dashboard"), label);
+}
+/// A painted Cards table row: the METRIC cell `name`, then (after the column gap) the VALUE
+/// cell that is exactly `value`.
+pub(crate) fn has_card_value(screen: &str, name: &str, value: &str) -> bool {
+    screen.lines().any(|line| {
+        line.split_once(name).is_some_and(|(_, rest)| {
+            rest.starts_with("  ")
+                && rest.trim_start().strip_prefix(value).is_some_and(|tail| {
+                    tail.is_empty() || tail.starts_with(' ') || tail.starts_with('│')
                 })
-            },
-            label,
-            Duration::from_secs(8),
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
+        })
+    })
+}
+pub(crate) fn wait_card_value(session: &mut Session, name: &str, value: &str) {
+    let description = format!("card row {name} = {value}");
+    if let Err(error) = session.try_wait_for_condition(
+        |screen| has_card_value(screen, name, value),
+        &description,
+        Duration::from_secs(8),
+    ) {
+        session.save_artifacts();
+        panic!("{error}; artifacts: {}", session.artifact_dir.display());
+    }
 }
 fn select_card(session: &mut Session, index: usize, label: &str) {
     session.send_key(b"\x1b[H");
@@ -338,7 +350,7 @@ fn select_card(session: &mut Session, index: usize, label: &str) {
 }
 fn card(session: &mut Session, mouse: bool, index: usize) {
     if mouse {
-        session.click_visible_action(&format!("{}:", CARDS[index]));
+        session.click_visible_action(CARDS[index]);
     } else {
         select_card(session, index, CARDS[index]);
         session.send_key(b"\r");
@@ -411,8 +423,9 @@ fn assert_window(session: &mut Session, days: u64, clock: u64) {
     ));
 }
 fn cards_ready(session: &mut Session, open: u64, needs: u64) {
-    session.wait_for_screen(&format!("Loaded open PRs: {open}"));
-    session.wait_for_screen(&format!("Needs my review: {needs}"));
+    session.wait_for_screen("METRIC");
+    wait_card_value(session, "Loaded open PRs", &open.to_string());
+    wait_card_value(session, "Needs my review", &needs.to_string());
     for label in &CARDS {
         session.wait_for_screen(label);
     }
@@ -455,7 +468,11 @@ fn happy(mouse: bool) {
     let created_alpha = fixture_clock.alpha_created();
     let created_bot = fixture_clock.bot_created();
     let mean = (u128::from(clock - created_alpha) + u128::from(clock - created_bot)) / 2;
-    session.wait_for_screen(&format!("Mean open PR age: {mean}s mean / 2 measured"));
+    wait_card_value(
+        &mut session,
+        "Mean open PR age",
+        &format!("{mean}s mean / 2 measured"),
+    );
     choose(&mut session, mouse, "[0 30 days]", b"0");
     count += 8;
     journal(&mut session, &fixture, count);
@@ -588,9 +605,22 @@ fn happy(mouse: bool) {
     assert_window(&mut session, 30, fresh_clock);
     card(&mut session, mouse, 1);
     session.wait_for_screen(TITLE);
-    session.wait_for_screen("@alice");
-    // Contributor rows carry the filled two-cell initials chip and exactly one blank cell.
-    session.wait_for_screen("AL @alice");
+    // Contributor rows are table rows: ITEM, TITLE, then the ACTOR cell (the filled two-cell
+    // initials chip, exactly one blank cell and the login without `@`).
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen.contains("ITEM")
+                    && screen.lines().any(|line| {
+                        line.contains(APP)
+                            && line.contains(TITLE)
+                            && (line.contains("AL alice") || line.contains("[AL] alice"))
+                    })
+            },
+            "contributor table row with the alice chip",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
     let before_window = session
         .screen()
         .lines()
@@ -607,7 +637,7 @@ fn happy(mouse: bool) {
     session.wait_for_screen("Inbox • focused view");
     session.wait_for_screen(BODY);
     session.wait_for_screen(HEAD);
-    assert!(!session.screen().contains("Loaded open PRs: 3"));
+    assert!(!session.screen().contains("Loaded open PRs"));
     let open_commands = session.inspect_command_journal(&fixture);
     // Native Back follows the exact Dashboard origin, not a new tab/load. The
     // retained contributor selection, scope and immutable window survive it.
@@ -661,12 +691,12 @@ fn access_loss(mouse: bool) {
     choose(&mut session, mouse, "[0 30 days]", b"0");
     session.wait_for_screen("prior values hidden");
     assert!(!session.screen().contains(TITLE));
-    assert!(!session.screen().contains("Loaded open PRs: 1"));
+    assert!(!has_card_value(&session.screen(), "Loaded open PRs", "1"));
     journal(&mut session, &fixture, 12);
     session.wait_for_screen("Dashboard access changed • previous values hidden");
     assert!(!session.screen().contains(TITLE));
     assert!(!session.screen().contains("example/app#1"));
-    assert!(!session.screen().contains("Loaded open PRs: 1"));
+    assert!(!has_card_value(&session.screen(), "Loaded open PRs", "1"));
     assert!(!session.screen().contains("Repository: example/app"));
     assert!(!session.screen().contains("Cohort: selected-repository"));
     session.resize(80, 24);

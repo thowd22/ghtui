@@ -72,7 +72,7 @@ fn query_modes(mouse: bool) {
     open_search(&mut session, mouse);
     enter_query(&mut session, mouse, "working needle");
     session.wait_for_screen("1 results • Exact");
-    session.wait_for_screen("日本語.txt:1:8");
+    session.wait_for_row(&["日本語.txt", " 1:8 "]);
     session.wait_for_screen("including uncommitted content");
     choose(&mut session, mouse, "x Regex", b"x");
     enter_query(&mut session, mouse, "[");
@@ -103,6 +103,70 @@ fn query_modes(mouse: bool) {
         std::fs::read(fixture.repo().join("nested/日本語.txt")).unwrap(),
         "prefix working needle β\nlocal-only marker\n".as_bytes()
     );
+    let journal = session.inspect_command_journal(&fixture);
+    assert!(journal.is_empty(), "{journal}\n{}", session.screen());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn design_table_v91_search_results_table_keyboard_moves_the_selection_bar() {
+    results_table(false)
+}
+#[test]
+fn design_table_v91_search_results_table_mouse_rows_and_snippets_select() {
+    results_table(true)
+}
+/// Results are table rows (RESULT, LINE, REPOSITORY) over their snippet line, selected with
+/// the `▌` bar; a click on the row or its snippet and Down both select, read-only.
+fn results_table(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("a.txt", b"alpha tablekey\n", "Add a");
+    fixture.commit_file("b.txt", b"beta tablekey\n", "Add b");
+    fixture.commit_file("c.txt", b"gamma tablekey\n", "Add c");
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
+    let pane = crate::support::view_title("Search");
+    let mut session = Session::launch(&fixture, 140, 42);
+    open_search(&mut session, mouse);
+    enter_query(&mut session, mouse, "tablekey");
+    session.wait_for_screen("3 results • Exact");
+    session.wait_for_row(&["RESULT", "LINE", "REPOSITORY"]);
+    session.wait_for_selected_cells(&pane, &["a.txt", " 1:7 "]);
+    // The snippet sits on the line below its row, inside the results panel.
+    session.wait_for_screen("alpha tablekey");
+    session.wait_for_row(&["b.txt", " 1:6 "]);
+    assert!(!session
+        .screen()
+        .lines()
+        .any(|line| line.trim_start_matches('│').starts_with("> ")));
+    if mouse {
+        let (x, y) = session.locate("b.txt").unwrap();
+        session.click(x, y);
+    } else {
+        session.send_key(b"\x1b[B");
+    }
+    session.wait_for_selected_cells(&pane, &["b.txt", " 1:6 "]);
+    if mouse {
+        // The snippet line is part of its result's click target.
+        let (x, y) = session.locate("gamma tablekey").unwrap();
+        session.click(x, y);
+    } else {
+        session.send_key(b"\x1b[B");
+    }
+    session.wait_for_selected_cells(&pane, &["c.txt", " 1:7 "]);
+    session.resize(80, 24);
+    session.wait_for_row(&["RESULT", "LINE"]);
+    session.wait_for_selected_cells(&pane, &["c.txt"]);
+    if mouse {
+        let (x, y) = session.locate("b.txt").unwrap();
+        session.click(x, y);
+    } else {
+        session.send_key(b"\x1b[A");
+    }
+    session.wait_for_selected_cells(&pane, &["b.txt"]);
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2", "-z"]), status);
     let journal = session.inspect_command_journal(&fixture);
     assert!(journal.is_empty(), "{journal}\n{}", session.screen());
     session.quit_and_assert_restored_terminal(mouse);
@@ -251,7 +315,7 @@ fn exact_search(mouse: bool) {
     open_search(&mut session, mouse);
     enter_query(&mut session, mouse, "local-only marker");
     session.wait_for_screen("1 results • Exact");
-    session.wait_for_screen("日本語.txt:2:1");
+    session.wait_for_row(&["日本語.txt", " 2:1 "]);
     session.resize(80, 24);
     choose(&mut session, mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "local-only marker");

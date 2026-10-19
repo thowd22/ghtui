@@ -2,10 +2,13 @@
 use crate::{
     app::Action,
     footer::{ControlGroup, KeyControl},
-    identity::{ActorWidget, AvatarState, ListAvatar},
+    identity::{ActorWidget, AvatarState},
     metrics::MetricsAction,
-    metrics_workspace::{MetricsView, MetricsWorkspace, MetricsWorkspaceAction},
+    metrics_workspace::{
+        MetricsView, MetricsWorkspace, MetricsWorkspaceAction, CARD_COLUMNS, CONTRIBUTOR_COLUMNS,
+    },
     theme::{SemanticToken, Theme},
+    ui_table::{draw_table_with, natural_widths, Column, ListState, Table, TableRow},
 };
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
@@ -15,6 +18,8 @@ use ratatui::{
     widgets::{Clear, Paragraph},
     Frame,
 };
+/// Prose lists (details, formula, layout, repositories): one column from the glyph slot on.
+const PROSE_COLUMNS: [Column; 1] = [Column::new("", 1).flex(1)];
 const PREPARING_REASON: &str = "Dashboard is preparing; previous values/Open are hidden";
 
 #[derive(Clone, Debug)]
@@ -35,6 +40,7 @@ pub fn draw(
     area: Rect,
     theme: Theme,
     avatars: &crate::actor_avatar_states_v1::ActorAvatarStatesV1,
+    focused: bool,
 ) -> MetricsRender {
     let mut output = MetricsRender::default();
     if area.is_empty() {
@@ -122,95 +128,103 @@ pub fn draw(
         }
     }
     output.content = Rect::new(area.x, y, area.width, area.bottom().saturating_sub(y));
-    output.visible_rows = usize::from(output.content.height);
-    if output.visible_rows > 0 {
-        if workspace.selected < workspace.top {
-            workspace.top = workspace.selected;
-        }
-        if workspace.selected >= workspace.top.saturating_add(output.visible_rows) {
-            workspace.top = workspace.selected.saturating_sub(output.visible_rows - 1);
-        }
-    }
+    let pending = workspace.pending.is_some();
+    let (columns, header): (&[Column], bool) = match workspace.view {
+        MetricsView::Cards => (&CARD_COLUMNS, !pending),
+        MetricsView::Contributors(_) => (&CONTRIBUTOR_COLUMNS, !pending),
+        _ => (&PROSE_COLUMNS, false),
+    };
+    let table = Table {
+        columns,
+        header,
+        focused,
+        glyphs: true,
+        empty: (!pending).then_some(
+            "No contributing records • inspect Details for source coverage; absence is not zero",
+        ),
+    };
     let rows = workspace.rows();
-    if rows.is_empty() && workspace.pending.is_none() && output.visible_rows > 0 {
-        frame.render_widget(Paragraph::new("No contributing records • inspect Details for source coverage; absence is not zero").style(theme.style(SemanticToken::Muted)),Rect::new(area.x,y,area.width,1));
-    }
-    for (offset, (index, row)) in rows
-        .iter()
-        .enumerate()
-        .skip(workspace.top)
-        .take(output.visible_rows)
-        .enumerate()
-    {
-        let rect = Rect::new(area.x, y + offset as u16, area.width, 1);
-        let selected = index == workspace.selected;
-        let style = if selected {
-            theme.selected(row.role)
+    let table_row = |index: usize| {
+        let row = &rows[index];
+        let action = row
+            .action
+            .clone()
+            .unwrap_or(MetricsWorkspaceAction::Select(index));
+        let item = if !row.cells.is_empty() {
+            TableRow::cells(row.cells.clone()).with_actor(row.actor.clone())
+        } else if row.actor.is_some() {
+            // A detail actor row: its avatar is painted over the row below.
+            TableRow::text(String::new())
         } else {
-            theme.style(row.role)
+            TableRow::text(row.label.clone())
         };
-        if let Some(actor) = &row.actor {
-            frame.render_widget(
-                Paragraph::new(if selected { "> " } else { "  " }).style(style),
-                Rect::new(rect.x, rect.y, 2.min(rect.width), 1),
-            );
+        item.with_tone(row.role)
+            .with_glyph(Some(row.role))
+            .with_action(Some(action))
+    };
+    let body_rows = usize::from(output.content.height.saturating_sub(u16::from(header)));
+    let mut state = ListState {
+        selected: workspace.selected,
+        top: workspace.top,
+    };
+    if !rows.is_empty() {
+        state.selected = state.selected.min(rows.len() - 1);
+        state.ensure_visible(body_rows);
+    }
+    // Column widths come from the leading rows and the visible window, never every row of a
+    // long contributor list.
+    let measured = (0..rows.len().min(256))
+        .chain(state.top..rows.len().min(state.top.saturating_add(body_rows)))
+        .map(table_row)
+        .collect::<Vec<_>>();
+    let natural = natural_widths(columns, measured.iter(), theme.mode);
+    let rendered = draw_table_with(
+        frame,
+        output.content,
+        &table,
+        &natural,
+        rows.len(),
+        table_row,
+        &mut state,
+        theme,
+    );
+    output.visible_rows = rendered.visible_rows;
+    let glyph_lead = crate::ui_table::lead(true);
+    for hit in rendered.hits {
+        let row = &rows[hit.index];
+        if let Some(actor) = row.actor.as_ref().filter(|_| row.cells.is_empty()) {
+            // Detail panes keep the image avatar when one is ready.
             let image = avatars.get(actor).and_then(|state| match state {
                 AvatarState::Ready(image) => Some(image.as_ref()),
                 _ => None,
             });
-            let actor_area = Rect::new(
-                rect.x.saturating_add(2).min(rect.right()),
-                rect.y,
-                rect.width.saturating_sub(2),
-                1,
-            );
-            if row.avatar_only {
-                // Chip, exactly one blank cell, then the label cut with an ellipsis.
-                ListAvatar {
+            frame.render_widget(
+                ActorWidget {
                     identity: actor,
                     image,
                     theme,
-                }
-                .render_with_label(
-                    actor_area,
-                    frame.buffer_mut(),
-                    &row.label,
-                    style,
-                );
-            } else {
-                frame.render_widget(
-                    ActorWidget {
-                        identity: actor,
-                        image,
-                        theme,
-                    },
-                    actor_area,
-                );
-            }
-        } else {
-            frame.render_widget(
-                Paragraph::new(format!(
-                    "{}{} {}",
-                    if selected { "> " } else { "  " },
-                    row.role.symbol(),
-                    row.label
-                ))
-                .style(style),
-                rect,
+                },
+                Rect::new(
+                    hit.rect.x.saturating_add(glyph_lead).min(hit.rect.right()),
+                    hit.rect.y,
+                    hit.rect.width.saturating_sub(glyph_lead),
+                    1,
+                ),
             );
+            if hit.index == state.selected {
+                frame
+                    .buffer_mut()
+                    .set_style(hit.rect, crate::ui_table::selection_style(theme));
+            }
         }
-        if let Some(action) = &row.action {
-            output.hits.push(MetricsHit {
-                rect,
-                action: action.clone(),
-            });
-        } else {
-            output.hits.push(MetricsHit {
-                rect,
-                action: MetricsWorkspaceAction::Select(index),
-            });
-        }
+        output.hits.push(MetricsHit {
+            rect: hit.rect,
+            action: hit
+                .action
+                .unwrap_or(MetricsWorkspaceAction::Select(hit.index)),
+        });
     }
+    workspace.top = state.top;
     output
 }
 

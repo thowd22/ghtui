@@ -250,7 +250,9 @@ fn journey(mouse: bool) {
     journal(&mut session, &fixture, 4);
     query(&mut session, mouse, "REMOTE type:file");
     session.wait_for_screen("1 results • GitHub");
-    session.wait_for_screen("provider fragment");
+    // A provider fragment has no line:column; its LINE cell says so.
+    session.wait_for_row(&["RESULT", "LINE"]);
+    session.wait_for_screen(" fragment ");
     session.wait_for_screen("@repo-owner");
     session.wait_for_screen("Owner (not author)");
     assert!(!session.screen().contains(":0:0"));

@@ -55,16 +55,22 @@ fn judged_journey(mouse: bool) {
     ranked(&mut session, mouse);
     query(&mut session, mouse, "AuthBoundary");
     session.wait_for_screen("2 results • Ranked");
-    session.wait_for_screen("> src/AuthBoundary.rs:1:4");
+    session.wait_for_selected_cells(
+        &crate::support::view_title("Search"),
+        &["src/AuthBoundary.rs", " 1:4 "],
+    );
     session.wait_for_screen("Why:");
     session.wait_for_screen("title lexical tokens");
     query(&mut session, mouse, "\"keeps safe state\"");
     session.wait_for_screen("1 results • Ranked");
-    session.wait_for_screen("src/AuthBoundary.rs:1:17");
+    session.wait_for_row(&["src/AuthBoundary.rs", " 1:17 "]);
     session.wait_for_screen("body lexical tokens");
     query(&mut session, mouse, "path:src/ AuthBoundary");
     session.wait_for_screen("1 results • Ranked");
-    session.wait_for_screen("> src/AuthBoundary.rs:1:4");
+    session.wait_for_selected_cells(
+        &crate::support::view_title("Search"),
+        &["src/AuthBoundary.rs", " 1:4 "],
+    );
     session.resize(80, 24);
     session.wait_for_screen("Why:");
     session.wait_for_screen("keeps safe state");
