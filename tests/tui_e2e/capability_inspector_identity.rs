@@ -280,7 +280,11 @@ fn wait_identity_completion(session: &mut Session, transition: Transition) {
                                 && screen.contains("0 unique PRs across 0 queue matches • complete")
                         }
                         Transition::AuthenticationExpired => {
-                            screen.contains("identity unavailable • private data hidden")
+                            // The scope context is the content frame's title;
+                            // at 80 columns its host prefix is middle-elided
+                            // ("github.inv…tity unavailable • …"), so match the
+                            // notice tail that is always painted in full.
+                            screen.contains("unavailable • private data hidden")
                                 && screen
                                     .contains("Identity verification failed; private pages hidden")
                         }
