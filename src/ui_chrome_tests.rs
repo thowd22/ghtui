@@ -328,3 +328,71 @@ fn design_chips_v95_chip_fill_meets_contrast_on_every_truecolor_theme() {
         }
     }
 }
+
+#[test]
+fn design_overlay_inset_region_stays_inside_the_content_pane() {
+    let screen = Rect::new(0, 0, 80, 24);
+    let pane = Rect::new(0, 2, 80, 20);
+    assert_eq!(overlay_region(screen, pane), Rect::new(2, 3, 76, 18));
+    // A pane too small for a usable overlay keeps the whole-screen inset so Close stays visible.
+    let tiny = Rect::new(0, 2, 80, 8);
+    assert_eq!(
+        overlay_region(screen, tiny),
+        screen.inner(ratatui::layout::Margin::new(2, 2))
+    );
+}
+
+#[test]
+fn design_overlay_inset_help_and_commands_never_sit_on_the_pane_border() {
+    for (width, height) in [(80u16, 24u16), (140, 42)] {
+        for (overlay, title) in [
+            (Action::Help, "Help • keyboard and mouse"),
+            (Action::Palette, "Commands · current context"),
+        ] {
+            let mut app = App::default();
+            app.dispatch(Action::View(View::Repository));
+            app.dispatch(overlay);
+            let buffer = draw_app(&mut app, width, height);
+            let top = (0..height)
+                .find(|y| buffer[(0, *y)].symbol() == "╭")
+                .expect("pane top border");
+            let pane_title = row(&buffer, top);
+            assert!(!pane_title.contains("╭─╭"), "{pane_title}");
+            assert!(!pane_title.contains(title), "{pane_title}");
+            let overlay_row = (top + 1..height)
+                .find(|y| row(&buffer, *y).contains(title))
+                .unwrap_or_else(|| panic!("{title} at {width}x{height}"));
+            let line = row(&buffer, overlay_row);
+            assert_eq!(buffer[(0, overlay_row)].symbol(), "│", "{line}");
+            assert!(line.contains(&format!("╭─ ▶ {title}")), "{line}");
+            let left = line.chars().position(|c| c == '╭').unwrap() as u16;
+            assert!(left >= 2, "{line}");
+            // The overlay closes above the pane's bottom border, which stays intact.
+            let bottom = (overlay_row + 1..height)
+                .find(|y| buffer[(left, *y)].symbol() == "╰")
+                .expect("overlay bottom border");
+            assert!(bottom < height - 3, "bottom {bottom} at {width}x{height}");
+            assert_eq!(buffer[(0, height - 3)].symbol(), "╰");
+        }
+    }
+}
+
+#[test]
+fn design_overlay_inset_search_entry_focuses_content_until_tab() {
+    let mut app = App::default();
+    let _ = draw_app(&mut app, 80, 24);
+    app.focus = 0;
+    app.dispatch(Action::View(View::Search));
+    assert!(app.search_content_focused);
+    let buffer = draw_app(&mut app, 80, 24);
+    let top = (0..24).find(|y| buffer[(0, *y)].symbol() == "╭").unwrap();
+    assert!(row(&buffer, top).contains("▶ Search • focused view"));
+    // Tab moves focus to the next header control: the marker leaves the pane.
+    app.handle_event(crossterm::event::Event::Key(
+        crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab),
+    ));
+    assert!(!app.search_content_focused);
+    assert_eq!(app.focus, 1);
+    let buffer = draw_app(&mut app, 80, 24);
+    assert!(!row(&buffer, top).contains('▶'));
+}

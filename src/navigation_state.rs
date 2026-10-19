@@ -606,6 +606,7 @@ impl App {
         self.github_content_focused = false;
         self.actions_content_focused = false;
         self.metrics_content_focused = false;
+        self.search_content_focused = false;
         self.scroll = position.scroll;
         self.selected = if destination == View::Repository {
             self.workspace

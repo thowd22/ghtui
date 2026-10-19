@@ -261,8 +261,9 @@ pub fn event(app: &mut App, event: Event) {
 }
 pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme();
-    let width = area.width.saturating_sub(4).min(100);
-    let height = area.height.saturating_sub(4).min(30);
+    // `area` is already the overlay region inset inside the content pane.
+    let width = area.width.min(100);
+    let height = area.height.min(30);
     let rect = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,

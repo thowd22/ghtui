@@ -346,8 +346,8 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         }
         if overlay == Overlay::Palette {
             if let Some(palette) = &mut app.command_palette {
-                let hits =
-                    palette.draw(frame, area.inner(ratatui::layout::Margin::new(2, 2)), theme);
+                let region = crate::ui_chrome::overlay_region(area, rows[3]);
+                let hits = palette.draw(frame, region, theme);
                 app.hits.extend(hits.into_iter().map(|hit| HitRegion {
                     rect: hit.rect,
                     action: Action::PaletteInput(hit.action),
@@ -356,7 +356,8 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
             return;
         }
         if overlay == Overlay::Help {
-            crate::navigation_ui::draw_help(frame, app, area);
+            let region = crate::ui_chrome::overlay_region(area, rows[3]);
+            crate::navigation_ui::draw_help(frame, app, region);
             return;
         }
         if overlay == Overlay::Capabilities {

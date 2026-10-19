@@ -420,6 +420,8 @@ pub struct App {
     pub metrics_action: Option<crate::metrics::MetricsAction>,
     pub metrics_load_requested: bool,
     pub metrics_content_focused: bool,
+    /// Search content owns focus after entering the view, until Tab moves to a control.
+    pub search_content_focused: bool,
     pub metrics_content: Rect,
     pub metrics_visible_rows: usize,
     pub metrics_selected_repository: Option<String>,
@@ -639,6 +641,7 @@ impl Default for App {
             metrics_action: None,
             metrics_load_requested: false,
             metrics_content_focused: true,
+            search_content_focused: false,
             metrics_content: Default::default(),
             metrics_visible_rows: 1,
             metrics_selected_repository: None,
@@ -1505,6 +1508,7 @@ impl App {
                 self.search_controls.editing = None;
                 self.actions_content_focused = view == View::Actions;
                 self.metrics_content_focused = view == View::Dashboard;
+                self.search_content_focused = view == View::Search;
                 if view == View::Dashboard {
                     if let Some(metrics) = &self.metrics {
                         self.context = format!(
@@ -3295,6 +3299,7 @@ impl App {
                         self.actions_content_focused = false;
                         self.repository_content_focused = false;
                         self.github_content_focused = false;
+                        self.search_content_focused = false;
                         self.focus = (self.focus + 1) % self.hits.len().max(1);
                     }
                     KeyCode::BackTab => {
@@ -3302,6 +3307,7 @@ impl App {
                         self.actions_content_focused = false;
                         self.repository_content_focused = false;
                         self.github_content_focused = false;
+                        self.search_content_focused = false;
                         self.focus = (self.focus + self.hits.len().saturating_sub(1))
                             % self.hits.len().max(1)
                     }

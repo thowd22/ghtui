@@ -67,6 +67,19 @@ pub fn overlay_block(theme: Theme, title: &str) -> Block<'static> {
     pane_block(theme, &[title.trim()], true)
 }
 
+/// Where a centered modal overlay (Help, Commands) may draw: inside the content pane, one
+/// column clear of its side borders and below its top border, so the overlay frame never sits
+/// on the pane frame (`╭─╭─`). When the pane is too small to hold a usable overlay, the old
+/// whole-screen inset keeps Close reachable.
+pub fn overlay_region(screen: Rect, pane: Rect) -> Rect {
+    let region = pane.inner(ratatui::layout::Margin::new(2, 1));
+    if region.height >= 12 && region.width >= 24 {
+        region
+    } else {
+        screen.inner(ratatui::layout::Margin::new(2, 2))
+    }
+}
+
 /// Adds right-aligned provenance or context to a pane's top border when it fits in `budget`.
 pub fn with_right_title(
     block: Block<'static>,
@@ -404,7 +417,9 @@ pub fn content_focused(app: &App, chrome_hits: usize) -> bool {
         View::Repository => app.repository_content_focused,
         View::Actions => app.actions_content_focused,
         View::Dashboard => app.metrics_content_focused,
-        View::Search => app.focus >= chrome_hits,
+        // Entering Search focuses its content like the other views; Tab moves focus to an
+        // explicit control and the pane stays marked while a Search control holds focus.
+        View::Search => app.search_content_focused || app.focus >= chrome_hits,
     }
 }
 

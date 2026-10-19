@@ -14,6 +14,8 @@ mod corpus;
 mod design_frames_v89;
 #[path = "tui_e2e/design_inbox_v94_v95.rs"]
 mod design_inbox_v94_v95;
+#[path = "tui_e2e/design_overlay_inset_v89.rs"]
+mod design_overlay_inset_v89;
 #[path = "tui_e2e/design_theme_v98.rs"]
 mod design_theme_v98;
 #[path = "tui_e2e/editor_viewport.rs"]

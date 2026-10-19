@@ -248,6 +248,7 @@ pub fn handle_event(app: &mut App, event: &Event) -> bool {
                 }
                 if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
                     app.search_controls.editing = None;
+                    app.search_content_focused = false;
                     app.focus = (app.focus
                         + if key.code == KeyCode::Tab {
                             1
