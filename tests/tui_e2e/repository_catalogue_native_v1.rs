@@ -329,6 +329,27 @@ fn ready(session: &mut Session, required: &[&str]) {
         )
         .unwrap_or_else(|error| panic!("{error}"));
 }
+/// The focused Inbox frame title carries `host / @login / repository / queue`.
+/// Narrow frames ellipsize the repository from the left, so accept only its
+/// full form or a `…` tail that still shows the complete `/name` segment.
+fn inbox_scope_title(screen: &str, repository: &str, queue: &str) -> bool {
+    let name = &repository[repository.find('/').unwrap()..];
+    screen.lines().take(3).any(|line| {
+        let Some(start) = line.find("Inbox • focused view") else {
+            return false;
+        };
+        let Some(after) = line[start..].split(&format!("{HOST} / @octocat / ")).nth(1) else {
+            return false;
+        };
+        let Some((shown, _)) = after.split_once(&format!(" / {queue} ")) else {
+            return false;
+        };
+        shown == repository
+            || shown.strip_prefix('…').is_some_and(|tail| {
+                tail.len() >= name.len() && repository.ends_with(tail) && tail.ends_with(name)
+            })
+    })
+}
 fn overlay_ready(session: &mut Session, title: &str, required: &[&str]) {
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
@@ -657,16 +678,22 @@ fn happy(mouse: bool) {
     ready(&mut restarted, &[TITLE, LAST, "Active explicit set"]);
     assert_commands(&restarted, &fixture, 44);
     choose(&mut restarted, mouse, "[Open My PRs]", b"\r");
-    ready(
-        &mut restarted,
-        &[
-            "Inbox • focused view",
-            LAST,
-            "My PRs",
-            "0 unique PRs across 0 queue matches",
-            "No pull requests in this queue / scope.",
-        ],
-    );
+    restarted
+        .try_wait_for_condition(
+            |screen| {
+                inbox_scope_title(screen, LAST, "My PRs")
+                    && [
+                        "PULL REQUESTS",
+                        "0 unique PRs across 0 queue matches",
+                        "No pull requests in this queue / scope.",
+                    ]
+                    .iter()
+                    .all(|label| screen.contains(label))
+            },
+            "Exact LAST My PRs inbox in the focused frame title",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
     assert_commands(&restarted, &fixture, 55);
     assert_eq!(assert_intent(&fixture, &[10000, 11000]), original);
     finish(&mut restarted, &fixture, mouse, 55, &before, &config);

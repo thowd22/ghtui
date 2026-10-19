@@ -100,18 +100,15 @@ fn fresh_original_inbox(session: &mut Session) {
     session
         .try_wait_for_condition(
             |screen| {
-                [
-                    "Inbox • focused view",
-                    HOST,
-                    "@octocat",
-                    FIRST,
-                    "My PRs",
-                    "Fresh • fetched",
-                    "0 unique PRs across 0 queue matches • complete",
-                    "No pull requests in this queue / scope.",
-                ]
-                .iter()
-                .all(|label| screen.contains(label))
+                inbox_scope_title(screen, FIRST, "My PRs")
+                    && [
+                        "PULL REQUESTS",
+                        "Fresh • fetched",
+                        "0 unique PRs across 0 queue matches • complete",
+                        "No pull requests in this queue / scope.",
+                    ]
+                    .iter()
+                    .all(|label| screen.contains(label))
                     && !screen.contains("Refreshing")
                     && !screen.contains("Current ID-bound repository access required")
                     && !screen.contains("all repositories on host")
