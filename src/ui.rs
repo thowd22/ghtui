@@ -289,6 +289,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         if overlay == Overlay::Palette {
             if let Some(palette) = &mut app.command_palette {
                 let region = crate::ui_chrome::overlay_region(area, rows[3]);
+                crate::ui_chrome::clear_overlay_gutter(frame, theme, region, region);
                 let hits = palette.draw(frame, region, theme);
                 app.hits.extend(hits.into_iter().map(|hit| HitRegion {
                     rect: hit.rect,

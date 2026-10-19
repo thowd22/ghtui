@@ -183,6 +183,19 @@ pub fn render<A: Clone>(
     controls: &[KeyControl<A>],
     focus: Option<usize>,
 ) -> Vec<(Rect, A)> {
+    render_bar(frame, area, theme, controls, focus, false)
+}
+
+/// [`render`]; `inactive` paints every token muted, keys without their accent, for a bar that an open dialog has taken
+/// the keys and clicks from.
+fn render_bar<A: Clone>(
+    frame: &mut Frame,
+    area: Rect,
+    theme: Theme,
+    controls: &[KeyControl<A>],
+    focus: Option<usize>,
+    inactive: bool,
+) -> Vec<(Rect, A)> {
     if area.is_empty() {
         return Vec::new();
     }
@@ -198,7 +211,10 @@ pub fn render<A: Clone>(
         } else {
             theme.role(Role::TextMuted)
         };
-        if focus == Some(position) {
+        if inactive {
+            key = theme.role(Role::TextMuted);
+            label = theme.role(Role::TextMuted);
+        } else if focus == Some(position) {
             key = key.add_modifier(Modifier::UNDERLINED);
             label = label.add_modifier(Modifier::UNDERLINED);
         }
@@ -231,7 +247,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyControl
             crate::app::View::Search => app.search_content_focused,
         };
     let focus = app.focus.checked_sub(first).filter(|_| !content_owns_enter);
-    let targets = render(frame, area, app.theme(), controls, focus);
+    // An open dialog (Help, Commands, a form…) owns every key and click until it closes, so
+    // the bar under it is painted inactive (no key accent). The image viewer keeps the bar live.
+    let inactive = app
+        .overlay
+        .is_some_and(|overlay| overlay != crate::app::Overlay::PrFileImages);
+    let targets = render_bar(frame, area, app.theme(), controls, focus, inactive);
     app.hits.extend(
         targets
             .into_iter()

@@ -81,6 +81,28 @@ pub fn overlay_region(screen: Rect, pane: Rect) -> Rect {
     }
 }
 
+/// Blanks the one content column between an overlay `rect` and the pane border when the
+/// overlay fills its `region` edge, so no clipped fragments of the view peek out beside it.
+pub fn clear_overlay_gutter(frame: &mut Frame, theme: Theme, region: Rect, rect: Rect) {
+    let screen = frame.area();
+    for (flush, x) in [
+        (
+            rect.x == region.x && region.x > screen.x,
+            region.x.saturating_sub(1),
+        ),
+        (
+            rect.right() == region.right() && region.right() < screen.right(),
+            region.right(),
+        ),
+    ] {
+        if flush && !rect.is_empty() {
+            let column = Rect::new(x, rect.y, 1, rect.height).intersection(screen);
+            frame.render_widget(ratatui::widgets::Clear, column);
+            frame.render_widget(Paragraph::new("").style(theme.base()), column);
+        }
+    }
+}
+
 /// Adds right-aligned provenance or context to a pane's top border when it fits in `budget`.
 pub fn with_right_title(
     block: Block<'static>,
@@ -412,15 +434,43 @@ pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyCo
         .saturating_sub(1);
     let compact = full > usize::from(row.width);
     let (pad, gap) = if compact { ("", 2) } else { (" ", 1) };
+    let tab_text = |control: &KeyControl| {
+        format!(
+            "{pad}{} {}{pad}",
+            safe_text(&control.key),
+            safe_text(control.label_text(compact))
+        )
+    };
+    let tab_width = |control: &KeyControl| {
+        crate::editor::display_width(&tab_text(control)).min(usize::from(u16::MAX)) as u16
+    };
+    // How many tabs fit; when some do not, keep room for a dim `…` so the row does not
+    // pretend to be complete (the rest stay one key or Commands entry away).
+    let total = modes().count();
+    let fitting = |reserve: u16| {
+        let mut x = row.x;
+        let mut count = 0;
+        for control in modes() {
+            let end = x.saturating_add(tab_width(control));
+            if end > row.right() || (count + 1 < total && end.saturating_add(reserve) > row.right())
+            {
+                break;
+            }
+            count += 1;
+            x = end.saturating_add(gap);
+        }
+        count
+    };
+    let mut shown = fitting(0);
+    if shown < total {
+        shown = fitting(gap + 1);
+    }
     let mut x = row.x;
-    for control in modes() {
+    for control in modes().take(shown) {
         let key = safe_text(&control.key);
         let label = safe_text(control.label_text(compact));
-        let text = format!("{pad}{key} {label}{pad}");
-        let width = crate::editor::display_width(&text).min(usize::from(u16::MAX)) as u16;
-        if x.saturating_add(width) > row.right() {
-            break;
-        }
+        let text = tab_text(control);
+        let width = tab_width(control);
         let rect = Rect::new(x, row.y, width, 1);
         let mut line = if control.disabled.is_some() {
             Line::from(Span::styled(text, theme.role(Role::TextDim)))
@@ -444,6 +494,12 @@ pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyCo
             },
         });
         x = x.saturating_add(width).saturating_add(gap);
+    }
+    if shown < total && x < row.right() {
+        frame.render_widget(
+            Paragraph::new(Span::styled("…", theme.role(Role::TextDim))),
+            Rect::new(x, row.y, 1, 1),
+        );
     }
 }
 

@@ -378,6 +378,24 @@ fn design_overlay_inset_help_and_commands_never_sit_on_the_pane_border() {
 }
 
 #[test]
+fn design_overlay_inset_leaves_no_view_fragments_beside_a_full_width_overlay() {
+    let mut app = App::default();
+    app.dispatch(Action::View(View::Repository));
+    app.dispatch(Action::Help);
+    let buffer = draw_app(&mut app, 80, 24);
+    let title = (0..24)
+        .find(|y| row(&buffer, *y).contains("Help • keyboard and mouse"))
+        .expect("Help overlay");
+    // At 80 columns Help fills the overlay region: the columns between it and the pane
+    // borders stay blank on every overlay row.
+    for y in title..title + 10 {
+        let line = row(&buffer, y);
+        assert_eq!(buffer[(1, y)].symbol(), " ", "{line}");
+        assert_eq!(buffer[(78, y)].symbol(), " ", "{line}");
+    }
+}
+
+#[test]
 fn design_overlay_inset_search_entry_focuses_content_until_tab() {
     let mut app = App::default();
     let _ = draw_app(&mut app, 80, 24);

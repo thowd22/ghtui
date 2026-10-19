@@ -272,6 +272,7 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
         height,
     );
     frame.render_widget(Clear, rect);
+    crate::ui_chrome::clear_overlay_gutter(frame, theme, area, rect);
     frame.render_widget(
         crate::ui_chrome::overlay_block(theme, "Help • keyboard and mouse"),
         rect,

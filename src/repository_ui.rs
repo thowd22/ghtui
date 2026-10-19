@@ -36,9 +36,15 @@ pub fn mode_controls(current: RepositoryMode) -> Vec<KeyControl> {
             } else {
                 label.split_whitespace().next().unwrap_or(label)
             };
-            KeyControl::new(key.to_string(), label, Action::RepositoryMode(mode))
+            let control = KeyControl::new(key.to_string(), label, Action::RepositoryMode(mode))
                 .in_group(ControlGroup::Mode)
-                .with_selected(mode == current)
+                .with_selected(mode == current);
+            // `e Edits` lets all eight tabs fit an 80-column pane.
+            if mode == RepositoryMode::Uncommitted {
+                control.with_compact("Edits")
+            } else {
+                control
+            }
         })
         .collect()
 }

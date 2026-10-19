@@ -248,9 +248,11 @@ fn draw_tabs(
     };
     let width = |control: &ActionsControl| Line::from(text(control)).width() as u16;
     let mut shown = (0..tabs.len()).collect::<Vec<_>>();
+    // When tabs leave, two columns stay for a dim `…` so the row does not look complete.
     while shown.len() > 1
         && shown.iter().map(|index| width(tabs[*index])).sum::<u16>()
             + shown.len().saturating_sub(1) as u16
+            + if shown.len() < tabs.len() { 2 } else { 0 }
             > row.width
     {
         let Some(position) = shown.iter().rposition(|index| !selected(tabs[*index])) else {
@@ -258,6 +260,7 @@ fn draw_tabs(
         };
         shown.remove(position);
     }
+    let overflow = shown.len() < tabs.len();
     let mut x = row.x;
     for index in shown {
         let control = tabs[index];
@@ -295,6 +298,12 @@ fn draw_tabs(
             action: unavailable_or(control),
         });
         x = x.saturating_add(tab_width).saturating_add(1);
+    }
+    if overflow && x < row.right() {
+        frame.render_widget(
+            Paragraph::new(Span::styled("…", theme.role(Role::TextDim))),
+            Rect::new(x, row.y, 1, 1),
+        );
     }
     true
 }

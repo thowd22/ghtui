@@ -305,3 +305,57 @@ fn design_footer_v90_tab_strip_holds_mode_controls_and_disabled_tabs_explain() {
     assert!(text.starts_with(" R Runs   W Workflows "));
     assert!(!text.contains("Refresh"));
 }
+
+#[test]
+fn design_footer_v90_tab_strip_marks_tabs_that_do_not_fit() {
+    let tabs = |count: usize| {
+        (0..count)
+            .map(|index| {
+                KeyControl::new(index.to_string(), "Tab", Action::Refresh)
+                    .in_group(ControlGroup::Mode)
+            })
+            .collect::<Vec<_>>()
+    };
+    let paint = |controls: &[KeyControl], width: u16| {
+        let mut app = crate::app::App::default();
+        let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui_chrome::tab_strip(frame, &mut app, Rect::new(0, 0, width, 1), controls)
+            })
+            .unwrap();
+        let text = (0..width)
+            .map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_owned())
+            .collect::<String>();
+        (app.hits.len(), text)
+    };
+    // Compact tabs are 5 columns, two apart: three fit 19 columns whole.
+    let (hits, text) = paint(&tabs(3), 19);
+    assert_eq!(hits, 3, "{text}");
+    assert!(!text.contains('…'), "{text}");
+    // Five tabs in the same row: a dim `…` says the row continues, never a cut tab.
+    let (hits, text) = paint(&tabs(5), 19);
+    assert_eq!(hits, 2, "{text}");
+    assert_eq!(text.trim_end(), "0 Tab  1 Tab  …");
+}
+
+#[test]
+fn design_footer_v90_bar_under_an_open_dialog_is_painted_inactive() {
+    let mut app = crate::app::App::default();
+    let theme = app.theme();
+    let controls = vec![KeyControl::new("r", "Refresh", Action::Refresh)];
+    for (overlay, accent) in [(None, true), (Some(crate::app::Overlay::Help), false)] {
+        app.overlay = overlay;
+        let mut terminal = Terminal::new(TestBackend::new(40, 1)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, &mut app, Rect::new(0, 0, 40, 1), &controls))
+            .unwrap();
+        let key = terminal.backend().buffer()[(1, 0)].clone();
+        assert_eq!(key.symbol(), "r");
+        assert_eq!(
+            key.fg == theme.role(Role::Accent).fg.unwrap(),
+            accent,
+            "{overlay:?}"
+        );
+    }
+}
