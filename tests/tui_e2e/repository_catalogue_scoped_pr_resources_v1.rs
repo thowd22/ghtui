@@ -228,6 +228,9 @@ fn happy(mouse: bool) {
     } else {
         session.close_overlay_by_key("Action unavailable");
     }
+    // The overlay title can vanish while the rest of the closing redraw is
+    // still in flight; wait for the restored Checks rows before targeting one.
+    ready(&mut session, &["Exact observed build", "external-lint"]);
     if mouse {
         let (column, row) = session
             .locate("Exact observed build")
