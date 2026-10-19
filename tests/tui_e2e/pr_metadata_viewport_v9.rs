@@ -146,12 +146,12 @@ fn journey(mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_command_count(&fixture, 14);
-    session.wait_for_screen("[o Summary]");
+    session.wait_for_control("[o Summary]");
     let idle_summary = |frame: &vt100::Screen| {
         crate::support::main_footer_visible(frame)
             && frame.contents().contains("Summary original line 00")
             && !frame.contents().contains("Verifying original")
-            && !frame.contents().contains("[Esc Cancel]")
+            && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
     };
     // The app redraws on every 40ms tick, so a NEW completed frame alone does
     // not prove the Summary input was handled. Start from an idle frame, then
@@ -167,7 +167,8 @@ fn journey(mouse: bool) {
     session.wait_for_new_cursorless_condition(
         before_summary,
         |frame| {
-            crate::support::main_footer_visible(frame) && frame.contents().contains("[Esc Cancel]")
+            crate::support::main_footer_visible(frame)
+                && crate::support::controls::control_painted(frame, "[Esc Cancel]")
         },
         "Summary tab input visibly started its read",
         Duration::from_secs(8),

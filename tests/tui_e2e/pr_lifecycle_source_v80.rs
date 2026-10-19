@@ -344,7 +344,7 @@ fn complete_source(mouse: bool) {
             |screen| {
                 crate::support::main_footer_visible(screen)
                     && screen.contents().contains("counts unavailable")
-                    && !screen.contents().contains("[b Back]")
+                    && !crate::support::controls::control_painted(screen, "[b Back]")
                     && !screen.contents().contains(DETAIL_BODY)
             },
             "NEW exact State-unavailable Inbox after actual Back",
@@ -395,7 +395,7 @@ fn complete_source(mouse: bool) {
                         && text.contains("Fresh complete State queue observation")
                         && !text.contains("counts unavailable")
                         && !text.contains("[Esc Cancel]")
-                        && !text.contains("[b Back]")
+                        && !crate::support::controls::control_painted(screen, "[b Back]")
                         && !text.contains(DETAIL_BODY)
                 },
                 "NEW genuine complete State Inbox after final principal",

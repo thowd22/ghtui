@@ -102,7 +102,7 @@ fn journey_with_recovery(mouse: bool, recovery: Option<recovery_v75::RecoveryV75
             let s = f.contents();
             s.contains("Personal PR Files")
                 && s.contains("File src/view.rs")
-                && s.contains("[K FILE comment]")
+                && crate::support::controls::control_painted(f, "[K FILE comment]")
         },
         "Actual original Personal Files source and FILE control, not Catalogue",
         Duration::from_secs(8),

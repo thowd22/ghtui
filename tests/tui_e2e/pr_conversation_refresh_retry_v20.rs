@@ -165,7 +165,7 @@ fn fresh(s: &mut Session, after: usize) {
             let text = screen.contents();
             crate::support::main_footer_visible(screen)
                 && text.contains("Fresh original PR/search observation")
-                && text.contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
                 && !text.contains(REFRESH)
         },
         "Actual atomic NEW Personal page after full fresh read and final UID",

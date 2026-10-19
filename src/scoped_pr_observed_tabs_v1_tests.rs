@@ -116,8 +116,10 @@ fn scoped_pr_observed_tabs_integration_f8_exact_summary_actions_and_cached_inbox
             }
             let before = sql_state(&fixture);
             let commands = fs::read(fixture.root.join("gh-fixture/commands.jsonl")).unwrap();
+            // 140 columns: the scoped Summary key bar holds Actions history with Back, PR
+            // actions and the thread/review histories (narrower rows drop it by priority).
             let mut terminal =
-                ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(140, 42)).unwrap();
             terminal
                 .draw(|frame| crate::ui::draw(frame, &mut app))
                 .unwrap();
@@ -550,8 +552,10 @@ fn scoped_pr_observed_tabs_pending_back_is_visible_clickable_keyboard_accessible
             .unwrap()
             .rect;
         assert!(back.right() <= 80 && back.bottom() <= 24);
+        // The Back token stays first in the key bar, which follows the bottom row.
         assert_eq!(
-            back, old_hit,
+            (back.x, back.width, back.y),
+            (old_hit.x, old_hit.width, 23),
             "same prepared Back semantics survive narrower terminal"
         );
         if mouse {
@@ -697,11 +701,18 @@ fn conversation_comments_v101_genuine_scoped_menu_click_and_key_match_only_suppo
                     .iter()
                     .find(|hit| hit.action == Action::Github(GithubAction::Actions))
                     .map(|hit| hit.rect);
-                assert_eq!(text.contains("[p PR actions]"), allowed);
+                // A key-bar token: `p PR actions`, `p Actions` below 100 columns.
+                let token = if width < crate::footer::COMPACT_WIDTH {
+                    "p Actions"
+                } else {
+                    "p PR actions"
+                };
+                assert!(!text.contains("[p PR actions]"));
+                assert_eq!(text.contains(token), allowed);
                 assert_eq!(hit.is_some(), allowed);
                 if mouse && allowed {
                     let hit = hit.unwrap();
-                    assert_eq!(hit.width, "[p PR actions]".len() as u16);
+                    assert_eq!(hit.width, token.len() as u16);
                     assert!(hit.right() <= width && hit.bottom() <= height);
                     app.handle_event(Event::Mouse(MouseEvent {
                         kind: MouseEventKind::Down(MouseButton::Left),
@@ -721,7 +732,11 @@ fn conversation_comments_v101_genuine_scoped_menu_click_and_key_match_only_suppo
                     app.dispatch(Action::Close);
                     assert!(app.overlay.is_none());
                 } else {
-                    assert!(app.status.contains("own fresh scoped read"));
+                    // The refused key explains itself instead of doing nothing.
+                    assert_eq!(app.overlay, Some(Overlay::Notice));
+                    assert!(app.notice.contains("own fresh scoped read"));
+                    app.dispatch(Action::Close);
+                    assert!(app.overlay.is_none());
                 }
                 let workspace = app.github.as_ref().unwrap();
                 assert!(Arc::ptr_eq(

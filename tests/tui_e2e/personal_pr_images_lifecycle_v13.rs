@@ -56,7 +56,7 @@ fn journey(mouse: bool) {
             session.send_key(b"\r")
         };
         frame(&mut session, before, |s| {
-            s.contains(BODY) && s.contains("[f Files]")
+            s.contains(BODY) && crate::support::controls::text_has_control(s, "[f Files]")
         });
         journal(&mut session, &fixture, opened);
         let database = fixture.root.join("config/ghtui/cache.sqlite3");
@@ -102,7 +102,7 @@ fn journey(mouse: bool) {
             choose(&mut session, mouse, "[Esc Cancel]", b"\x1b");
             frame(&mut session, cancel_before, |s| {
                 s.contains("File src/界.rs")
-                    && s.contains("[v Native diff]")
+                    && crate::support::controls::text_has_control(s, "[v Native diff]")
                     && !s.contains("[Esc Cancel]")
                     && !s.contains("Native PR diff •")
                     && !s.contains("Immutable file images")
@@ -123,7 +123,7 @@ fn journey(mouse: bool) {
             let back_before = session.completed_cursorless_end();
             choose(&mut session, mouse, "[b Back]", b"b");
             frame(&mut session, back_before, |s| {
-                s.contains(BODY) && s.contains("[p PR actions]")
+                s.contains(BODY) && crate::support::controls::text_has_control(s, "[p PR actions]")
             });
         } else {
             frame(&mut session, before, |s| {

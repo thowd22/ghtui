@@ -316,11 +316,11 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
         }
         app.hits.clear();
         let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(200, 24)).unwrap();
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                crate::github_ui::draw(frame, &mut app, area)
+                draw_with_key_bar(frame, &mut app, area);
             })
             .unwrap();
         let rect = app
@@ -374,7 +374,7 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             terminal
                 .draw(|frame| {
                     let area = frame.area();
-                    crate::github_ui::draw(frame, &mut app, area)
+                    draw_with_key_bar(frame, &mut app, area);
                 })
                 .unwrap();
             let current = app
@@ -412,7 +412,7 @@ fn scoped_pr_resource_files_actual_raw_bytes_full_head_unknown_old_image_and_ori
             terminal
                 .draw(|frame| {
                     let area = frame.area();
-                    crate::github_ui::draw(frame, &mut app, area);
+                    draw_with_key_bar(frame, &mut app, area);
                 })
                 .unwrap();
         } else {
@@ -995,4 +995,13 @@ fn scoped_pr_resource_scope_stop_cancel_back_and_callback_deadline_do_not_reopen
     assert!(install_resource_if_current(&mut workspace, result).is_err());
     assert!(workspace.pr.is_none());
     effects(&fixture, &before, &git, &steps);
+}
+
+/// The PR page and its key bar in one frame: the Files resource controls are footer tokens.
+fn draw_with_key_bar(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Rect) {
+    let content = ratatui::layout::Rect::new(area.x, area.y, area.width, area.height - 1);
+    crate::github_ui::draw(frame, app, content);
+    let controls = crate::footer::main_controls(app);
+    let bar = ratatui::layout::Rect::new(area.x, area.bottom() - 1, area.width, 1);
+    crate::footer::draw(frame, app, bar, &controls);
 }

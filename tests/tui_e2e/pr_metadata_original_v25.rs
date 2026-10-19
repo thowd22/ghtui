@@ -504,7 +504,7 @@ fn happy(mouse: bool, personal: bool, field: Field) {
             before,
             |frame| {
                 crate::support::main_footer_visible(frame)
-                    && frame.contents().contains("Conversation")
+                    && crate::support::controls::control_painted(frame, "[c Conversation]")
             },
             "Actual Personal Conversation, no fabricated Files source",
             Duration::from_secs(8),
@@ -564,7 +564,8 @@ fn happy(mouse: bool, personal: bool, field: Field) {
     s.wait_for_new_cursorless_condition(
         after,
         |frame| {
-            crate::support::main_footer_visible(frame) && !frame.contents().contains("[b Back]")
+            crate::support::main_footer_visible(frame)
+                && !crate::support::controls::control_painted(frame, "[b Back]")
         },
         "Pure Back preserves exact refreshed source without new HTTP",
         Duration::from_secs(8),
@@ -1036,7 +1037,7 @@ fn cleanup_failed(mouse: bool) {
                 && text.contains("Cached Inbox only")
                 && !text.contains(RETURN)
                 && !text.contains(RETURN_CONTROLS[0])
-                && !text.contains("[b Back]")
+                && !crate::support::controls::control_painted(screen, "[b Back]")
                 && !text.contains(DETAIL_BODY)
                 && !text.contains(NEW_TITLE)
         },

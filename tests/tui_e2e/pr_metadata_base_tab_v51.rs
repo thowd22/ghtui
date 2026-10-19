@@ -227,7 +227,7 @@ fn metadata(s: &mut Session, mouse: bool, needle: &str) {
         s.poll_output(Duration::from_millis(1));
         if s.completed_cells_screen().is_some_and(|f| {
             crate::support::main_footer_visible(f)
-                && f.contents().contains("[u Metadata]")
+                && crate::support::controls::control_painted(f, "[u Metadata]")
                 && f.contents().contains(needle)
                 && !f.contents().contains("[Confirm action]")
         }) {
@@ -297,7 +297,7 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
         before,
         |f| {
             crate::support::main_footer_visible(f)
-                && f.contents().contains("[u Metadata]")
+                && crate::support::controls::control_painted(f, "[u Metadata]")
                 && f.contents().contains("Your repository permissions:")
         },
         "Genuine Metadata section10 before Base",
@@ -347,7 +347,7 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
             before,
             |f| {
                 crate::support::main_footer_visible(f)
-                    && f.contents().contains("[u Metadata]")
+                    && crate::support::controls::control_painted(f, "[u Metadata]")
                     && !f.contents().contains(RETURN_CONTROLS[0])
             },
             "NEW17 actual B1 Metadata context, never expired paid binding",
@@ -370,7 +370,7 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
             if s.completed_cells_end() > before
                 && s.completed_cells_screen().is_some_and(|f| {
                     crate::support::main_footer_visible(f)
-                        && f.contents().contains("[u Metadata]")
+                        && crate::support::controls::control_painted(f, "[u Metadata]")
                         && f.contents()
                             .contains("Confirmed • fresh PR/search observation")
                         && !f.contents().contains("[Confirm action]")
@@ -401,7 +401,10 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
     choose(&mut s, mouse, "[b Back]", b"b");
     s.wait_for_new_cursorless_condition(
         before,
-        |f| crate::support::main_footer_visible(f) && !f.contents().contains("[b Back]"),
+        |f| {
+            crate::support::main_footer_visible(f)
+                && !crate::support::controls::control_painted(f, "[b Back]")
+        },
         "Pure Base Metadata Back has no child",
         Duration::from_secs(8),
     );
@@ -461,7 +464,7 @@ fn refusals_from_metadata(mouse: bool) {
             |f| {
                 crate::support::main_footer_visible(f)
                     && f.contents().contains("Your repository permissions:")
-                    && f.contents().contains("[u Metadata]")
+                    && crate::support::controls::control_painted(f, "[u Metadata]")
             },
             "Actual Metadata section before exact no-change/drift",
             Duration::from_secs(8),

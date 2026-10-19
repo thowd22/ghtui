@@ -1,42 +1,240 @@
 //! Native prepared GitHub view, using the same actions for mouse and keyboard.
 use crate::{
     app::{safe_text, Action, App, HitRegion},
+    footer::{ControlGroup, KeyControl},
     github_workspace::{GithubAction, InboxFilter, PrTab},
     identity::{ActorIdentity, AvatarState, ListAvatar},
     theme::SemanticToken,
 };
 use ratatui::{
     layout::Rect,
-    style::Modifier,
     widgets::{Clear, Paragraph},
     Frame,
 };
 
-fn buttons(frame: &mut Frame, app: &mut App, area: Rect, buttons: Vec<(String, Action)>) -> u16 {
-    let theme = app.theme();
-    let mut x = area.x;
-    let mut y = area.y;
-    for (label, action) in buttons {
-        let width = (label.len() as u16).min(area.width);
-        if x > area.x && x + width > area.right() {
-            x = area.x;
-            y += 1;
-        }
-        if y >= area.bottom() {
-            break;
-        }
-        let rect = Rect::new(x, y, width, 1);
-        let mut style = theme
-            .style(SemanticToken::Focus)
-            .remove_modifier(Modifier::UNDERLINED);
-        if !app.github_content_focused && app.focus == app.hits.len() {
-            style = style.add_modifier(Modifier::UNDERLINED);
-        }
-        frame.render_widget(Paragraph::new(label).style(style), rect);
-        app.hits.push(HitRegion { rect, action });
-        x += width + 1;
+/// Why `p` is refused on an observed (scoped) section that has no PR actions.
+const OBSERVED_ACTIONS_REASON: &str =
+    "Observed sections only • PR actions require their own fresh scoped read";
+
+/// Shorter PR tab labels for a tab strip too narrow for the full ones (80 columns). Each is
+/// part of its full label, so the short form still names the same tab.
+fn pr_tab_compact(tab: PrTab) -> &'static str {
+    match tab {
+        PrTab::Summary => "Summary",
+        PrTab::Conversation => "Conv",
+        PrTab::Commits => "Commits",
+        PrTab::Files => "Files",
+        PrTab::Checks => "Checks",
+        PrTab::Timeline => "Time",
+        PrTab::Metadata => "Metadata",
+        PrTab::Progress => "Prog",
     }
-    y.saturating_sub(area.y) + 1
+}
+
+fn inbox_filter_compact(filter: InboxFilter) -> &'static str {
+    match filter {
+        InboxFilter::All => "All",
+        InboxFilter::Authored => "Created",
+        InboxFilter::Assigned => "Assigned",
+        InboxFilter::ReviewRequested => "Review",
+    }
+}
+
+/// The Inbox and PR detail controls: PR tabs or Inbox queues as Mode controls for the tab
+/// strip, then the footer keys by priority. Keys resolve to the same actions the tokens and
+/// tabs carry; a refused action keeps its key and explains why.
+pub fn footer_keys(app: &App) -> Vec<KeyControl> {
+    let Some(github) = app.github.as_ref() else {
+        return Vec::new();
+    };
+    let gh = Action::Github;
+    let scoped = github.scoped_pr_navigation.is_some();
+    let back = KeyControl::new("b", "Back", gh(GithubAction::Back))
+        .with_priority(5)
+        .in_group(ControlGroup::Navigate);
+    let refresh = |priority: u8| {
+        KeyControl::new(app.shortcut("refresh"), "Refresh", Action::Refresh).with_priority(priority)
+    };
+    let clear = |priority: u8| {
+        KeyControl::new("x", "Clear cache", gh(GithubAction::ClearCache))
+            .with_compact("Clear")
+            .with_priority(priority)
+    };
+    let Some(page) = github.pr.as_ref() else {
+        if scoped {
+            // A pending observed section: Back cancels it; nothing else is offered yet.
+            return vec![back];
+        }
+        let mut keys = vec![KeyControl::new(
+            "Enter",
+            "Open",
+            github.selected.clone().map_or_else(
+                || Action::Explain("Select a pull request first.".into()),
+                |key| gh(GithubAction::Open(key)),
+            ),
+        )
+        .with_priority(5)
+        .in_group(ControlGroup::Navigate)
+        .disabled_by(
+            github
+                .visible()
+                .is_empty()
+                .then(|| "No pull request in this queue.".to_string()),
+        )];
+        keys.extend([
+            refresh(10),
+            KeyControl::new(
+                "F8",
+                "Notifications",
+                Action::NotificationsV63(crate::notifications_ui_v63::NotificationActionV63::Open),
+            )
+            .with_priority(20),
+            clear(40),
+        ]);
+        keys.extend(InboxFilter::ALL.iter().map(|(filter, label, key)| {
+            KeyControl::new(key.to_string(), *label, gh(GithubAction::Filter(*filter)))
+                .with_compact(inbox_filter_compact(*filter))
+                .in_group(ControlGroup::Mode)
+                .with_selected(github.filter == *filter)
+        }));
+        return keys;
+    };
+    let tab = page.tab;
+    let mut keys = vec![back];
+    if tab == PrTab::Checks {
+        let action = crate::scoped_pr_observed_tabs_v1::resources::native::check_action(app);
+        let reason = match &action {
+            Action::Explain(reason) => Some(reason.clone()),
+            _ => None,
+        };
+        keys.push(
+            // The primary action of the Checks tab outlasts Back on the narrowest rows.
+            KeyControl::new("Enter", "Open check", action)
+                .with_compact("Check")
+                .with_priority(4)
+                .disabled_by(reason),
+        );
+    }
+    if crate::pr_checks_native::scoped::choices::has_candidates(app)
+        && !crate::pr_checks_native::scoped::choices::pending(app)
+    {
+        keys.push(
+            KeyControl::new(
+                "C",
+                "Candidates",
+                Action::PrCheckChoice(
+                    crate::pr_checks_native::scoped::choices::PrCheckChoiceUiV1::Open,
+                ),
+            )
+            .with_priority(9),
+        );
+    }
+    // The scoped gate matches the dispatcher. Opening this menu is not publication
+    // authority; its chosen operation proves that fresh.
+    let actions_offered = !scoped
+        || matches!(tab, PrTab::Summary | PrTab::Conversation)
+        || tab == PrTab::Metadata && page.metadata_display_v51.is_some();
+    keys.push(
+        KeyControl::new("p", "PR actions", gh(GithubAction::Actions))
+            .with_compact("Actions")
+            .with_priority(10)
+            .disabled_by((!actions_offered).then(|| OBSERVED_ACTIONS_REASON.to_string())),
+    );
+    if scoped && matches!(tab, PrTab::Summary | PrTab::Timeline) {
+        keys.push(
+            KeyControl::new("T", "All threads", gh(GithubAction::ReviewThreadsV4))
+                .with_priority(20),
+        );
+    }
+    if tab == PrTab::Summary {
+        keys.push(
+            KeyControl::new("J", "Thread history", gh(GithubAction::ThreadHistoryV1))
+                .with_compact("History")
+                .with_priority(22),
+        );
+        keys.push(
+            KeyControl::new(
+                "F9",
+                "Review history",
+                gh(GithubAction::ReviewOperationHistoryV3),
+            )
+            .with_compact("Review")
+            .with_priority(24),
+        );
+        if scoped {
+            keys.push(
+                KeyControl::new("F8", "Actions history", gh(GithubAction::ActionsHistoryV5))
+                    .with_priority(26),
+            );
+        }
+    }
+    // Resource keys come before the tabs so `v` and `T` keep their Files meaning.
+    if github.scoped_pr_resource.is_some() && tab == PrTab::Files {
+        keys.extend(resource_keys());
+        if scoped {
+            keys.push(
+                KeyControl::new("K", "FILE comment", gh(GithubAction::FileCommentV75))
+                    .with_priority(17),
+            );
+        }
+        if github.scoped_pr_resource.as_ref().is_some_and(|view| {
+            view.observed().kind() == crate::providers::gh::PrResourceKindV1::Files
+        }) {
+            keys.push(
+                KeyControl::new("F10", "Reviews", Action::OpenScopedReviewsV2).with_priority(14),
+            );
+        }
+    }
+    keys.extend(crate::pr_metadata_quick_v1::footer_keys(app));
+    keys.extend([refresh(45), clear(70)]);
+    keys.extend(
+        PrTab::ALL
+            .iter()
+            .filter(|(candidate, _, _)| {
+                !scoped
+                    || crate::scoped_pr_observed_tabs_v1::ObservedPrTabV1::from_tab(*candidate)
+                        .is_some()
+                    || matches!(candidate, PrTab::Files | PrTab::Checks)
+                    || *candidate == PrTab::Metadata
+                        && matches!(tab, PrTab::Summary | PrTab::Conversation | PrTab::Metadata)
+            })
+            .map(|(candidate, label, key)| {
+                KeyControl::new(key.to_string(), *label, gh(GithubAction::PrTab(*candidate)))
+                    .with_compact(pr_tab_compact(*candidate))
+                    .in_group(ControlGroup::Mode)
+                    .with_selected(*candidate == tab)
+            }),
+    );
+    keys
+}
+
+/// The loaded Files resource controls (`PrResourceUiActionV1::CONTROLS`). At 80 columns the
+/// diff, comment entry (Old image), Reviews, file paging and threads stay; the others keep
+/// their keys. Compact labels are part of the full ones.
+fn resource_keys() -> Vec<KeyControl> {
+    use crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1 as R;
+    R::CONTROLS
+        .iter()
+        .map(|(action, label, key)| {
+            let (priority, compact) = match action {
+                R::NativeDiff => (12, "Diff"),
+                R::OldImage => (13, "Old"),
+                R::NextFile => (15, "Next"),
+                R::Threads => (16, "Threads"),
+                R::CommentLine => (18, "Comment"),
+                R::NextHunk => (19, "Hunk"),
+                R::Layout => (30, "Layout"),
+                R::PatchContext => (32, "Context"),
+            };
+            KeyControl::new(
+                key.to_string(),
+                *label,
+                Action::Github(GithubAction::Resource(*action)),
+            )
+            .with_compact(compact)
+            .with_priority(priority)
+        })
+        .collect()
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -45,133 +243,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     let theme = app.theme();
     frame.render_widget(Clear, area);
-    // Stable FIRST Back slot for both loaded and pending scoped pages.
-    let scoped = github.scoped_pr_navigation.is_some();
-    let pending_observed = scoped && github.pr.is_none();
-    let tabs = if scoped {
-        let mut controls = vec![(String::from("[b Back]"), GithubAction::Back)];
-        if !pending_observed {
-            if github
-                .pr
-                .as_ref()
-                .is_some_and(|page| matches!(page.tab, PrTab::Summary | PrTab::Timeline))
-            {
-                controls.push(("[T All threads]".into(), GithubAction::ReviewThreadsV4));
-            }
-            if github
-                .pr
-                .as_ref()
-                .is_some_and(|page| page.tab == PrTab::Summary)
-            {
-                controls.push(("[J Thread history]".into(), GithubAction::ThreadHistoryV1));
-                controls.push((
-                    "[F9 Review history]".into(),
-                    GithubAction::ReviewOperationHistoryV3,
-                ));
-                controls.push((
-                    "[F8 Actions history]".into(),
-                    GithubAction::ActionsHistoryV5,
-                ));
-            }
-            controls.extend(
-                PrTab::ALL
-                    .iter()
-                    .filter(|(tab, _, _)| {
-                        crate::scoped_pr_observed_tabs_v1::ObservedPrTabV1::from_tab(*tab).is_some()
-                            || matches!(tab, PrTab::Files | PrTab::Checks)
-                            || *tab == PrTab::Metadata
-                                && github.pr.as_ref().is_some_and(|p| {
-                                    matches!(
-                                        p.tab,
-                                        PrTab::Summary | PrTab::Conversation | PrTab::Metadata
-                                    )
-                                })
-                    })
-                    .map(|(tab, label, key)| {
-                        (format!("[{key} {label}]"), GithubAction::PrTab(*tab))
-                    }),
-            );
-            // Match the existing scoped keyboard gate. Opening this menu is
-            // not publication authority; its chosen operation proves that fresh.
-            if github.pr.as_ref().is_some_and(|page| {
-                matches!(page.tab, PrTab::Summary | PrTab::Conversation)
-                    || page.tab == PrTab::Metadata && page.metadata_display_v51.is_some()
-            }) {
-                controls.push(("[p PR actions]".into(), GithubAction::Actions));
-            }
-            if github.scoped_pr_resource.is_some()
-                && github
-                    .pr
-                    .as_ref()
-                    .is_some_and(|page| page.tab == PrTab::Files)
-            {
-                controls.push(("[K FILE comment]".into(), GithubAction::FileCommentV75));
-                controls.extend(
-                    crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::CONTROLS
-                        .iter()
-                        .map(|(action, label, key)| {
-                            (format!("[{key} {label}]"), GithubAction::Resource(*action))
-                        }),
-                );
-            }
-        }
-        controls
-    } else if github.pr.is_some() {
-        let mut controls: Vec<_> = PrTab::ALL
+    let pending_observed = github.scoped_pr_navigation.is_some() && github.pr.is_none();
+    // PR tabs or Inbox queues on one tab-strip row; the other controls are footer keys.
+    let controls = footer_keys(app);
+    let mut y = area.y;
+    if area.height > 0
+        && controls
             .iter()
-            .map(|(tab, label, key)| (format!("[{key} {label}]"), GithubAction::PrTab(*tab)))
-            .chain([
-                (String::from("[p PR actions]"), GithubAction::Actions),
-                (String::from("[b Back]"), GithubAction::Back),
-            ])
-            .chain(
-                github
-                    .pr
-                    .as_ref()
-                    .filter(|page| page.tab == PrTab::Summary)
-                    .map(|_| {
-                        (
-                            String::from("[F9 Review history]"),
-                            GithubAction::ReviewOperationHistoryV3,
-                        )
-                    }),
-            )
-            .collect();
-        if github
-            .pr
-            .as_ref()
-            .is_some_and(|page| page.tab == PrTab::Summary)
-        {
-            controls.push(("[J Thread history]".into(), GithubAction::ThreadHistoryV1));
-        }
-        controls
-    } else {
-        InboxFilter::ALL
-            .iter()
-            .map(|(filter, label, key)| (format!("[{key} {label}]"), GithubAction::Filter(*filter)))
-            .collect()
-    };
-    let notifications_available = github.pr.is_none() && !scoped;
-    let mut tabs: Vec<(String, Action)> = tabs
-        .into_iter()
-        .map(|(label, action)| (label, Action::Github(action)))
-        .collect();
-    // Metadata tab: one-step label/assignee/reviewer/milestone controls.
-    tabs.extend(crate::pr_metadata_quick_v1::controls(app, area.width));
-    let mut y = area.y + buttons(frame, app, area, tabs);
-    if notifications_available && y < area.bottom() {
-        let label = "[F8 Notifications]";
-        let rect = Rect::new(area.x, y, (label.len() as u16).min(area.width), 1);
-        frame.render_widget(
-            Paragraph::new(label).style(theme.style(SemanticToken::Focus)),
-            rect,
-        );
-        app.hits.push(HitRegion {
-            rect,
-            action: Action::NotificationsV63(
-                crate::notifications_ui_v63::NotificationActionV63::Open,
-            ),
-        });
+            .any(|control| control.group == ControlGroup::Mode)
+    {
+        crate::ui_chrome::tab_strip(frame, app, Rect::new(area.x, y, area.width, 1), &controls);
         y += 1;
     }
     if pending_observed {
@@ -187,35 +268,6 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         app.github_visible_rows = 0;
         return;
     }
-    if app
-        .github
-        .as_ref()
-        .and_then(|github| github.pr.as_ref())
-        .is_some_and(|page| page.tab == PrTab::Checks)
-        && y < area.bottom()
-    {
-        let rect = Rect::new(area.x, y, 18.min(area.width), 1);
-        let action = crate::scoped_pr_observed_tabs_v1::resources::native::check_action(app);
-        let mut style = theme
-            .style(if matches!(action, Action::Explain(_)) {
-                SemanticToken::Muted
-            } else {
-                SemanticToken::Reference
-            })
-            .remove_modifier(Modifier::UNDERLINED);
-        if !app.github_content_focused && app.focus == app.hits.len() {
-            style = style.add_modifier(Modifier::UNDERLINED);
-        }
-        frame.render_widget(Paragraph::new("[Enter Open check]").style(style), rect);
-        app.hits.push(HitRegion { rect, action });
-        y += 1;
-    }
-    y = crate::pr_checks_native::scoped::choices::ui::draw_launch(
-        frame,
-        app,
-        Rect::new(area.x, y, area.width, area.bottom().saturating_sub(y)),
-    )
-    .y;
     let github = app.github.as_ref().unwrap();
     if let Some(page) = &github.pr {
         let summary = &page.details.summary;
@@ -353,7 +405,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         y += 1;
     }
-    app.github_visible_rows = area.bottom().saturating_sub(y + 1) as usize / 2;
+    app.github_visible_rows = area.bottom().saturating_sub(y) as usize / 2;
     let visible = github.visible();
     if visible.is_empty() {
         frame.render_widget(
@@ -425,20 +477,6 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             action: Action::Github(GithubAction::Open(pr.into())),
         });
     }
-    let clear = Rect::new(
-        area.x,
-        area.bottom().saturating_sub(1),
-        15.min(area.width),
-        1,
-    );
-    frame.render_widget(
-        Paragraph::new("[x Clear cache]").style(theme.style(SemanticToken::Muted)),
-        clear,
-    );
-    app.hits.push(HitRegion {
-        rect: clear,
-        action: Action::Github(GithubAction::ClearCache),
-    });
 }
 
 /// Splits display text into rows of at most `width` visible cells, breaking
@@ -512,3 +550,7 @@ mod pr_body_wrap_tests {
         assert_eq!(wrap_cells("界", 1), vec!["界".to_owned()]);
     }
 }
+
+#[cfg(test)]
+#[path = "github_ui_footer_v90_tests.rs"]
+mod footer_v90_tests;

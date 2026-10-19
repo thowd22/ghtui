@@ -246,7 +246,7 @@ fn refreshed(s: &mut Session, f: &Fixture, mouse: bool, command: PrCommand, end:
                 && text.contains("Confirmed • fresh PR/search observation")
                 && !text.contains("[Confirm action]")
                 && !text.contains("READ-ONLY PREVIEW")
-                && text.contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
         },
         "Actual newly installed source-family PR page after paid detail+UID and atomic SQL",
         Duration::from_secs(8),
@@ -415,7 +415,7 @@ pub(super) fn wait_fresh_page_v19(s: &mut Session) {
             let text = screen.contents();
             crate::support::main_footer_visible(screen)
                 && text.contains("Confirmed • fresh PR/search observation")
-                && text.contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
                 && !text.contains("[Confirm action]")
                 && !text.contains("READ-ONLY PREVIEW")
         },
@@ -667,7 +667,7 @@ pub(crate) fn create_cancel_receipt(mouse: bool) {
                 let text = screen.contents();
                 crate::support::main_footer_visible(screen)
                     && text.contains("Inbox • focused view")
-                    && text.contains("[c Conversation]")
+                    && crate::support::controls::control_painted(screen, "[c Conversation]")
                     && text.contains("Native café comment 雪")
                     && text.contains(if mouse {
                         "> Native café comment 雪"
@@ -1405,7 +1405,7 @@ fn retained_read(mouse: bool, personal: bool) {
                             && screen
                                 .contents()
                                 .contains("Fresh original PR/search observation")
-                            && screen.contents().contains("[b Back]")
+                            && crate::support::controls::control_painted(screen, "[b Back]")
                             && !screen.contents().contains("[r Refresh PR]")
                     },
                     "NEW13-child actual current page after explicit read-only refresh",

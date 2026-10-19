@@ -44,7 +44,7 @@ fn metadata_frame(s: &mut Session, before: usize) {
         |frame| {
             let text = frame.contents();
             crate::support::main_footer_visible(frame)
-                && text.contains("[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
                 && text.contains(&format!("https://{HOST}/{FIRST}/pull/7"))
                 && text.contains("Your repository permissions:")
                 && !text.contains("[Confirm action]")
@@ -61,7 +61,7 @@ fn enter_metadata(s: &mut Session, f: &Fixture, mouse: bool, end: usize) {
             && crate::support::main_footer_visible(frame)
             && frame.contents().contains(&"a".repeat(40))
             && frame.contents().contains(&format!("{FIRST}#7"))
-            && frame.contents().contains("[u Metadata]")
+            && crate::support::controls::control_painted(frame, "[u Metadata]")
             && !frame.contents().contains("[Esc Cancel]")
             && !frame.contents().contains("[Confirm action]")
             && !frame.contents().contains("Verifying original Conversation")
@@ -144,7 +144,7 @@ fn back_from_metadata(s: &mut Session, mouse: bool) {
         before,
         |frame| {
             crate::support::main_footer_visible(frame)
-                && !frame.contents().contains("[b Back]")
+                && !crate::support::controls::control_painted(frame, "[b Back]")
                 && !frame.contents().contains("[Confirm action]")
         },
         "Pure actual same-family cached Back with no GH",

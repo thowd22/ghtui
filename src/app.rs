@@ -3097,7 +3097,7 @@ impl App {
                     }
                 }
                 if self.view == View::Inbox && self.github.is_some() {
-                    use crate::github_workspace::{GithubAction, InboxFilter, PrTab};
+                    use crate::github_workspace::{GithubAction, PrTab};
                     let pending_observed = self.github.as_ref().is_some_and(|github| {
                         github.pr.is_none() && github.scoped_pr_navigation.is_some()
                     });
@@ -3121,79 +3121,22 @@ impl App {
                         .github
                         .as_ref()
                         .is_some_and(|github| github.pr.is_some());
-                    if let KeyCode::Char(character) = key.code {
-                        if character == 'K'
-                            && self.github.as_ref().is_some_and(|g| {
-                                g.scoped_pr_navigation.is_some()
-                                    && g.scoped_pr_resource.is_some()
-                                    && g.pr.as_ref().is_some_and(|p| p.tab == PrTab::Files)
-                            })
+                    // Footer keys and tabs: the same actions their tokens carry. Enter keeps
+                    // its focus-dependent meaning below.
+                    if key.code != KeyCode::Enter {
+                        if let Some(action) =
+                            crate::footer::resolve_key(&crate::github_ui::footer_keys(self), key)
                         {
-                            self.dispatch(Action::Github(GithubAction::FileCommentV75));
+                            self.dispatch(action);
                             return;
                         }
-                        if character == 'T'
-                            && self.github.as_ref().is_some_and(|github| {
-                                github.scoped_pr_navigation.is_some()
-                                    && github.pr.as_ref().is_some_and(|page| {
-                                        matches!(page.tab, PrTab::Summary | PrTab::Timeline)
-                                    })
-                            })
+                    }
+                    // Tabs an observed section does not offer still answer their keys.
+                    if let (KeyCode::Char(character), true) = (key.code, pr_open) {
+                        if let Some((tab, _, _)) =
+                            PrTab::ALL.iter().find(|(_, _, key)| *key == character)
                         {
-                            self.dispatch(Action::Github(GithubAction::ReviewThreadsV4));
-                            return;
-                        }
-                        if character == 'J'
-                            && self.github.as_ref().is_some_and(|github| {
-                                github
-                                    .pr
-                                    .as_ref()
-                                    .is_some_and(|page| page.tab == PrTab::Summary)
-                            })
-                        {
-                            self.dispatch(Action::Github(GithubAction::ThreadHistoryV1));
-                            return;
-                        }
-                        if self.github.as_ref().is_some_and(|github| {
-                            github.scoped_pr_resource.is_some()
-                                && github
-                                    .pr
-                                    .as_ref()
-                                    .is_some_and(|page| page.tab == PrTab::Files)
-                        }) {
-                            if let Some(action) = crate::scoped_pr_observed_tabs_v1::resources::PrResourceUiActionV1::from_key(character) {
-                                self.dispatch(Action::Github(GithubAction::Resource(action)));
-                                return;
-                            }
-                        }
-                        if crate::pr_metadata_quick_v1::key(self, character) {
-                            return;
-                        }
-                        let action = if pr_open {
-                            PrTab::ALL
-                                .iter()
-                                .find(|(_, _, key)| *key == character)
-                                .map(|(tab, _, _)| GithubAction::PrTab(*tab))
-                        } else {
-                            InboxFilter::ALL
-                                .iter()
-                                .find(|(_, _, key)| *key == character)
-                                .map(|(filter, _, _)| GithubAction::Filter(*filter))
-                        };
-                        if let Some(action) = action {
-                            self.dispatch(Action::Github(action));
-                            return;
-                        }
-                        if character == 'x' {
-                            self.dispatch(Action::Github(GithubAction::ClearCache));
-                            return;
-                        }
-                        if character == 'b' && pr_open {
-                            self.dispatch(Action::Github(GithubAction::Back));
-                            return;
-                        }
-                        if character == 'p' && pr_open {
-                            self.dispatch(Action::Github(GithubAction::Actions));
+                            self.dispatch(Action::Github(GithubAction::PrTab(*tab)));
                             return;
                         }
                     }

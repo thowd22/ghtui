@@ -436,7 +436,9 @@ fn summary_after_restart(session: &mut Session, fixture: &Fixture, mouse: bool, 
     choose(session, mouse, "1 Inbox", b"1");
     choose(session, mouse, ROW_TITLE, b"\r");
     session.wait_for_command_count(fixture, previous + 31);
-    ready(session, &[DETAIL_TITLE, "[F9 Review history]", "[b Back]"]);
+    ready(session, &[DETAIL_TITLE]);
+    session.wait_for_control("[F9 Review history]");
+    session.wait_for_control("[b Back]");
 }
 
 fn journey_v3(mouse: bool, operation: Operation, refusal: Refusal) {

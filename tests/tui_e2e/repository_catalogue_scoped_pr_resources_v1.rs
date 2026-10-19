@@ -137,7 +137,7 @@ fn happy(mouse: bool) {
                 screen
                     .lines()
                     .any(|line| line.matches("context\\r").count() == 2 && line.contains('│'))
-                    && screen.contains("[L Layout]")
+                    && crate::support::controls::text_has_control(screen, "[L Layout]")
                     && !screen.contains("Preparing observed PR section")
             },
             "Actual split diff independently displays the same canonical context on both sides",

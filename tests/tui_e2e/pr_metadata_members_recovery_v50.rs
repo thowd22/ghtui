@@ -545,7 +545,7 @@ fn cleanup_manual(mouse: bool) {
                     && screen
                         .contents()
                         .contains("Fresh original PR/search observation")
-                    && screen.contents().contains("[b Back]")
+                    && crate::support::controls::control_painted(screen, "[b Back]")
                     && !screen.contents().contains(RETURN)
             },
             "Actual15-child member read installs genuine same-family page",

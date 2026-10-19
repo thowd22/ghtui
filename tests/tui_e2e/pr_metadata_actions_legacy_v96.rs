@@ -206,8 +206,11 @@ fn ready(s: &mut Session, before: usize, title: &str, labels: &[&str]) {
         if s.completed_cells_end() > before
             && s.completed_cells_screen().is_some_and(|frame| {
                 crate::support::main_footer_visible(frame)
-                    && crate::support::overlay_body(frame, title)
-                        .is_some_and(|body| labels.iter().all(|label| body.contains(label)))
+                    && crate::support::overlay_body(frame, title).is_some_and(|body| {
+                        labels
+                            .iter()
+                            .all(|label| crate::support::controls::body_has(frame, &body, label))
+                    })
             })
         {
             return;
@@ -822,7 +825,7 @@ fn metadata_frame(s: &mut Session, before: usize) {
     s.wait_for_new_cursorless_condition(before,|frame| {
         let text=frame.contents();crate::support::main_footer_visible(frame)
             && crate::support::overlay_body(frame,"Inbox • focused view ─").is_some_and(|body|body.contains("example/repo#7")&&body.contains("Source: https://github.invalid/example/repo/pull/7")&&body.contains("Your repository permissions: read true • write true")&&body.contains("Locked conversation: false"))
-            && text.contains("[u Metadata]")&&text.contains("[p PR actions]")
+            && crate::support::controls::control_painted(frame, "[u Metadata]")&&crate::support::controls::control_painted(frame, "[p PR actions]")
             && !text.contains("[Esc Cancel]")&&!text.contains("[Confirm action]")
     },"NEW actual same-owned Metadata rows/fullSource/permissions/mainfooter, no Summary substitute",Duration::from_secs(8));
 }

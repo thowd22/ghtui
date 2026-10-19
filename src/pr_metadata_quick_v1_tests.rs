@@ -38,7 +38,7 @@ fn v1_pr_metadata_quick_keys_are_unique_cover_every_command_and_avoid_tab_keys()
     for reserved in ['p', 'b', 'r', 'q', 's', 'x', '?', ':', 'J', 'T', 'K'] {
         assert!(!keys.contains(&reserved), "collides with {reserved}");
     }
-    assert_eq!(label('l', "Add label"), "[l Add label]");
+    assert_eq!(priority(PrMetadataCommand::AddLabel), 20);
 }
 
 #[test]

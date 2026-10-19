@@ -232,7 +232,7 @@ fn enter_metadata_v282(s: &mut Session, mouse: bool) {
                                 && body.contains("Existing starter comment")
                         },
                     )
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && !text.contains("[Esc Cancel]")
                     && !text.contains("Verifying original Conversation")
             })
@@ -254,8 +254,8 @@ fn enter_metadata_v282(s: &mut Session, mouse: bool) {
             && s.completed_cells_screen().is_some_and(|frame| {
                 let text = frame.contents();
                 crate::support::main_footer_visible(frame)
-                    && text.contains("[u Metadata]")
-                    && text.contains("[p PR actions]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[p PR actions]")
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
                             body.contains("example/repo#7")
@@ -299,7 +299,7 @@ fn retired_v282(s: &mut Session, after: usize) {
                         "[Enter Choose]",
                         "[Confirm action]",
                         "[Esc Cancel]",
-                        "[u Metadata]",
+                        " u Metadata ",
                         "Your repository permissions:",
                         "Selected value:",
                         "Private description",
@@ -354,7 +354,7 @@ pub(super) fn source_identity(mouse: bool) {
     let obsolete = crate::support::completed_navigation_controls_v1::owned_action_position(
         s.completed_cells_screen().unwrap(),
         "Inbox • focused view ─",
-        "[u Metadata]",
+        " u Metadata ",
         &[],
     )
     .expect("Actual original Metadata button before same-login numeric loss");
@@ -640,7 +640,7 @@ fn unknown_metadata_v288(s: &mut Session, after: usize, body: Option<&str>, fail
                     })
                     && (!failed || frame.contents_between(rows.saturating_sub(2), 0, rows.saturating_sub(2), columns).trim_end()
                         == "Original Conversation unavailable • nothing resent • draft/journal retained")
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && !["Current PR metadata members", "PR metadata choices", "[Choose member]", "[Enter Choose]", "[Confirm action]", "[Esc Cancel]", "[Clear milestone]", "[Keep draft / Close]"]
                         .iter().any(|forbidden| text.contains(forbidden))
             })
@@ -741,7 +741,10 @@ fn ready_v283(s: &mut Session, after: usize, title: &str, needles: &[&str]) {
             && s.completed_cells_screen().is_some_and(|frame| {
                 crate::support::main_footer_visible(frame)
                     && crate::support::overlay_body(frame, title).is_some_and(|body| {
-                        needles.iter().all(|n| body.contains(n)) && !body.contains("[Esc Cancel]")
+                        needles
+                            .iter()
+                            .all(|n| crate::support::controls::body_has(frame, &body, n))
+                            && !body.contains("[Esc Cancel]")
                     })
             })
         {
@@ -854,7 +857,7 @@ fn failed_open_v290(s: &mut Session, after: usize, expected: Option<&str>, faile
                         && expected.is_none_or(|original|body==original))
                 && (!failed || frame.contents_between(rows.saturating_sub(2),0,rows.saturating_sub(2),columns).trim_end()
                     == "Original Conversation unavailable • nothing resent • draft/journal retained")
-                && text.contains("[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
                 && ![LABEL_FORM,LABEL_PICKER,"[Choose member]","[Enter Choose]","[Confirm action]","[Esc Cancel]","[Keep draft / Close]","Complete catalogue:","PRIVATE_MEMBER_CAPTURE_CANARY"]
                     .iter().any(|forbidden|text.contains(forbidden))
         }) {return;}

@@ -18,7 +18,7 @@ pub(super) fn timeline_ready(session: &mut Session) {
             let text = frame.contents();
             crate::support::main_footer_visible(frame)
                 && text.contains(DETAIL_TITLE)
-                && text.contains("[T All threads]")
+                && crate::support::controls::control_painted(frame, "[T All threads]")
                 && text.contains("review_requested")
                 && !text.contains(DETAIL_BODY)
                 && crate::support::overlay_body(frame, THREAD_TITLE).is_none()
@@ -115,7 +115,7 @@ pub(super) fn pure_timeline_back(session: &mut Session, mouse: bool, original: &
         endpoint,
         |frame| {
             crate::support::main_footer_visible(frame)
-                && frame.contents().contains("[T All threads]")
+                && crate::support::controls::control_painted(frame, "[T All threads]")
                 && crate::support::overlay_body(frame, THREAD_TITLE).is_none()
                 && crate::support::overlay_body(frame, PANEL).is_none()
         },

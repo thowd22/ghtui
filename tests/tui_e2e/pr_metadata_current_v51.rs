@@ -341,8 +341,11 @@ fn ready(s: &mut Session, after: usize, title: &str, labels: &[&str]) {
         s.poll_output(Duration::from_millis(1));
         if s.completed_cells_end() > after
             && s.completed_cells_screen().is_some_and(|frame| {
-                crate::support::overlay_body(frame, title)
-                    .is_some_and(|body| labels.iter().all(|label| body.contains(label)))
+                crate::support::overlay_body(frame, title).is_some_and(|body| {
+                    labels
+                        .iter()
+                        .all(|label| crate::support::controls::body_has(frame, &body, label))
+                })
             })
         {
             return;
@@ -859,7 +862,7 @@ fn metadata_return(s: &mut Session, after: usize) {
             && s.completed_cells_screen().is_some_and(|f| {
                 let text = f.contents();
                 crate::support::main_footer_visible(f)
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(f, "[u Metadata]")
                     && text.contains("Confirmed • fresh PR/search observation")
                     && !text.contains("[Confirm action]")
             })
@@ -883,7 +886,7 @@ fn close_text(s: &mut Session, mouse: bool, field: &str) {
             && s.completed_cells_screen().is_some_and(|f| {
                 let text = f.contents();
                 crate::support::main_footer_visible(f)
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(f, "[u Metadata]")
                     && !text.contains("[Keep draft / Close]")
             })
         {
@@ -909,7 +912,7 @@ fn enter_metadata_from_conversation(s: &mut Session, mouse: bool, opening: usize
                 crate::support::main_footer_visible(frame)
                     && text.contains("example/repo#7")
                     && text.contains(HEAD)
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && text.contains("@octocat PR description")
                     && text.contains("A fixture description")
                     && text.contains("@octocat comment #9 • 2026-10-13T00:00:00Z")
@@ -938,8 +941,8 @@ fn enter_metadata_from_conversation(s: &mut Session, mouse: bool, opening: usize
                 // The complete H was witnessed on Conversation above and is
                 // still independently checked by strict gh and stored records.
                 crate::support::main_footer_visible(frame)
-                    && text.contains("[u Metadata]")
-                    && text.contains("[p PR actions]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[p PR actions]")
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
                             body.contains("example/repo#7")
@@ -1001,7 +1004,7 @@ fn enter_metadata(s: &mut Session, mouse: bool) {
                     frame.size() == original_size
                         && crate::support::main_footer_visible(frame)
                         && text.contains("example/repo#7")
-                        && text.contains("[u Metadata]")
+                        && crate::support::controls::control_painted(frame, "[u Metadata]")
                         && text.contains("Locked conversation: false")
                         && text.contains("Milestone: October release")
                         && !text.contains("[Esc Cancel]")
@@ -1020,8 +1023,8 @@ fn reopened_metadata_v70(s: &mut Session, before: usize, expected: &Value) {
         |frame| {
             let text = frame.contents();
             crate::support::main_footer_visible(frame)
-                && text.contains("[u Metadata]")
-                && text.contains("[p PR actions]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[p PR actions]")
                 && !text.contains("[Esc Cancel]")
                 && !text.contains("Verifying original Conversation")
                 && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
@@ -1525,7 +1528,7 @@ fn hidden_failure(s: &mut Session, after: usize, cols: u16, rows: u16, context_r
                     && text.contains("Confirmed; visibility unavailable; no resend")
                     && (!context_return || text.contains("DURABLY CONFIRMED"))
                     && [
-                        "[u Metadata]",
+                        " u Metadata ",
                         "[Submit]",
                         "[Confirm action]",
                         "[Keep draft / Close]",
@@ -1715,7 +1718,7 @@ pub(super) fn failure(mouse: bool, account_change: bool) {
                             "Edit PR Title",
                             "PR INTENT",
                             "Your repository",
-                            "[u Metadata]",
+                            " u Metadata ",
                             "@triager",
                             "@reviewer",
                         ]

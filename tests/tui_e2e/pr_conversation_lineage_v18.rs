@@ -485,8 +485,8 @@ fn run(command: PrCommand, mouse: bool, personal: bool, mode: ModeV18) {
                     let text = screen.contents();
                     crate::support::main_footer_visible(screen)
                         && text.contains("Inbox • focused view")
-                        && text.contains("[x Clear cache]")
-                        && !text.contains("[p PR actions]")
+                        && crate::support::controls::control_painted(screen, "[x Clear cache]")
+                        && !crate::support::controls::control_painted(screen, "[p PR actions]")
                         && !text.contains(DETAIL_BODY)
                         && !text.contains(BODY)
                 },
@@ -518,7 +518,7 @@ fn run(command: PrCommand, mouse: bool, personal: bool, mode: ModeV18) {
                         && !screen.contents().contains(DETAIL_BODY)
                         && !screen.contents().contains(OLD)
                         && !screen.contents().contains(BODY)
-                        && !screen.contents().contains("[p PR actions]")
+                        && !crate::support::controls::control_painted(screen, "[p PR actions]")
                 },
                 "Exact origin-specific completed Clear view; independent SQL must prove deletion, protected drafts/origins survive",
                 Duration::from_secs(8),

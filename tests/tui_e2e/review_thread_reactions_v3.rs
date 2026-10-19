@@ -327,7 +327,9 @@ fn reaction_ready(session: &mut Session, words: &[&str]) {
                 body.contains("[5 heart]")
                     && body.contains("[r Remove mine]")
                     && body.contains("[Esc Back]")
-                    && words.iter().all(|word| body.contains(word))
+                    && words
+                        .iter()
+                        .all(|word| crate::support::controls::body_has(frame, &body, word))
             })
         },
         "Completed original reaction actor panel, actual controls/body",

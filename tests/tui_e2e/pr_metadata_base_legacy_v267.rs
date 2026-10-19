@@ -531,7 +531,7 @@ fn metadata_return(s: &mut Session, after: usize) {
             && s.completed_cells_screen().is_some_and(|f| {
                 let text = f.contents();
                 crate::support::main_footer_visible(f)
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(f, "[u Metadata]")
                     && text.contains("Confirmed • fresh PR/search observation")
                     && !text.contains("[Confirm action]")
             })
@@ -559,7 +559,7 @@ fn enter_metadata_from_conversation(s: &mut Session, mouse: bool, opening: usize
                 crate::support::main_footer_visible(frame)
                     && text.contains("example/repo#7")
                     && text.contains(HEAD)
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && text.contains("@octocat PR description")
                     && text.contains("A fixture description")
                     && text.contains("@octocat comment #9 • 2026-10-13T00:00:00Z")
@@ -588,8 +588,8 @@ fn enter_metadata_from_conversation(s: &mut Session, mouse: bool, opening: usize
                 // The complete H was witnessed on Conversation above and is
                 // still independently checked by strict gh and stored records.
                 crate::support::main_footer_visible(frame)
-                    && text.contains("[u Metadata]")
-                    && text.contains("[p PR actions]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[p PR actions]")
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
                             body.contains("example/repo#7")
@@ -652,7 +652,7 @@ fn enter_metadata(s: &mut Session, mouse: bool) {
                     frame.size() == original_size
                         && crate::support::main_footer_visible(frame)
                         && text.contains("example/repo#7")
-                        && text.contains("[u Metadata]")
+                        && crate::support::controls::control_painted(frame, "[u Metadata]")
                         && text.contains("Locked conversation: false")
                         && text.contains("Milestone: October release")
                         && !text.contains("[Esc Cancel]")
@@ -673,8 +673,11 @@ fn ready(s: &mut Session, after: usize, title: &str, labels: &[&str]) {
         if s.completed_cells_end() > after
             && s.completed_cells_screen().is_some_and(|frame| {
                 crate::support::main_footer_visible(frame)
-                    && crate::support::overlay_body(frame, title)
-                        .is_some_and(|body| labels.iter().all(|label| body.contains(label)))
+                    && crate::support::overlay_body(frame, title).is_some_and(|body| {
+                        labels
+                            .iter()
+                            .all(|label| crate::support::controls::body_has(frame, &body, label))
+                    })
             })
         {
             return;
@@ -883,7 +886,7 @@ fn close(s: &mut Session, mouse: bool, controls: &[&str]) {
                     && !frame.contents().contains("[Esc Cancel]")
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
-                            body.contains("[u Metadata]")
+                            body.contains(" u Metadata ")
                                 && body.contains("Locked conversation: false")
                                 && !body.contains(BASE_TITLE)
                                 && !body.contains(BASE_PICKER)
@@ -1372,7 +1375,7 @@ pub(super) fn changed_account(mouse: bool) {
     let old = crate::support::completed_navigation_controls_v1::owned_action_position(
         s.completed_cells_screen().unwrap(),
         "Inbox • focused view ─",
-        "[u Metadata]",
+        " u Metadata ",
         &[],
     )
     .expect("Actual old Metadata action before numeric account drift");
@@ -1440,7 +1443,7 @@ fn account_hidden(s: &mut Session, after: usize) {
                         BASE_TITLE,
                         "[F4 Choose]",
                         "[F2 Choose branch]",
-                        "[u Metadata]",
+                        " u Metadata ",
                         "[Confirm action]",
                         "[Esc Cancel]",
                         "Native collaboration",
@@ -1538,7 +1541,7 @@ fn changed_tip_retired_v278(s: &mut Session, after: usize, expected_status: &str
                         "[F2 Choose branch]",
                         "[Confirm action]",
                         "[Esc Cancel]",
-                        "[u Metadata]",
+                        " u Metadata ",
                         "Native collaboration",
                         "A fixture description",
                         REPOSITORY,
@@ -1677,7 +1680,7 @@ fn failed_base_open_v279(s: &mut Session, after: usize) {
                                 && body.contains("Milestone: October release")
                         },
                     )
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && ![
                         BASE_TITLE,
                         BASE_PICKER,

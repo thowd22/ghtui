@@ -212,7 +212,7 @@ fn journey(mouse: bool, personal: bool, lost_uid: bool) {
                 } else {
                     text.contains("Fresh original PR/search observation")
                         && text.contains(requested(field).lines().next().unwrap())
-                        && text.contains("[b Back]")
+                        && crate::support::controls::control_painted(screen, "[b Back]")
                 }
         },
         "Actual new Metadata page or exact numeric-account privacy retirement after full13 read",

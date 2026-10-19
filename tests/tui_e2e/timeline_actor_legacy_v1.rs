@@ -95,7 +95,10 @@ fn journey(mouse: bool) {
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     choose(&mut session, mouse, "Improve auth", b"\r");
     session.wait_for_cursorless_condition(
-        |f| f.contents().contains("Head aaaaaaaaa") && f.contents().contains("[t Timeline]"),
+        |f| {
+            f.contents().contains("Head aaaaaaaaa")
+                && crate::support::controls::control_painted(f, "[t Timeline]")
+        },
         "Completed exact original personal PR",
         Duration::from_secs(8),
     );
@@ -135,7 +138,10 @@ fn journey(mouse: bool) {
     );
     session.resize(80, 24);
     session.wait_for_cursorless_condition(
-        |f| f.contents().contains("comment author") && f.contents().contains("[t Timeline]"),
+        |f| {
+            f.contents().contains("comment author")
+                && crate::support::controls::control_painted(f, "[t Timeline]")
+        },
         "Narrow timeline keeps semantic author role and clickable tab",
         Duration::from_secs(8),
     );

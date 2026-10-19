@@ -36,7 +36,9 @@ pub(super) fn history_ready(session: &mut Session, words: &[&str]) {
                 body.contains("[Esc Back]")
                     && body.contains("[q Quit]")
                     && body.contains("Inspect only")
-                    && words.iter().all(|word| body.contains(word))
+                    && words
+                        .iter()
+                        .all(|word| crate::support::controls::body_has(frame, &body, word))
             })
         },
         "Actual complete owned inspect-only history box/body/controls",
@@ -109,7 +111,9 @@ fn fresh_summary(session: &mut Session, fixture: &Fixture, mouse: bool, start: u
     choose(session, mouse, "1 Inbox", b"1");
     choose(session, mouse, ROW_TITLE, b"\r");
     session.wait_for_command_count(fixture, start + 31);
-    ready(session, &[DETAIL_TITLE, "[J Thread history]", "[b Back]"]);
+    ready(session, &[DETAIL_TITLE]);
+    session.wait_for_control("[J Thread history]");
+    session.wait_for_control("[b Back]");
 }
 fn bind_fresh_head(steps: &mut [GhStep], head: &str) {
     for step in steps {
@@ -410,7 +414,7 @@ fn journey_with_interactions(
                 let text = frame.contents();
                 !text.contains(HISTORY)
                     && !text.contains("Original native reply 界")
-                    && text.contains("[J Thread history]")
+                    && crate::support::controls::control_painted(frame, "[J Thread history]")
                     && text.contains(DETAIL_TITLE)
             },
             "Exact original fresh Summary restored with protected body erased and no I/O",

@@ -297,7 +297,7 @@ fn witness_restart(mouse: bool) {
         first
             .try_wait_for_condition(
                 |screen| {
-                    !screen.contains("[Keep draft / Close]") && screen.contains("[p PR actions]")
+                    !screen.contains("[Keep draft / Close]") && crate::support::controls::text_has_control(&screen, "[p PR actions]")
                 },
                 "draft-only close returned actual PR",
                 Duration::from_secs(8),

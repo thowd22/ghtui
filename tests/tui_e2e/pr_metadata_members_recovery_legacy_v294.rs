@@ -396,7 +396,7 @@ fn capability_retired(s: &mut Session, after: usize) {
                         "[Confirm action]",
                         "[Esc Cancel]",
                         "[Keep draft / Close]",
-                        "[u Metadata]",
+                        " u Metadata ",
                         "Your repository permissions:",
                         "Selected value:",
                         "Selected actual member:",

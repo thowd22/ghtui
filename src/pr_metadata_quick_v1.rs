@@ -1,10 +1,11 @@
 //! One-step label/assignee/reviewer/milestone controls on the PR Metadata tab.
 //!
-//! Each control reuses the exact action the PR actions menu (`p`) exposes for
+//! Each footer key reuses the exact action the PR actions menu (`p`) exposes for
 //! the same command, so the key, the click and the menu share one workflow:
 //! choose a value, Preview, then explicitly Confirm.
 use crate::{
     app::{Action, App},
+    footer::KeyControl,
     github_workspace::PrTab,
     pr_metadata_actions::PrMetadataCommand,
 };
@@ -52,8 +53,22 @@ pub const CONTROLS: [(PrMetadataCommand, char, &str, &str); 10] = [
         "-Milestone",
     ),
 ];
-/// Terminals at least this wide show the full labels.
-pub const WIDE: u16 = 100;
+/// Footer priority per command: the commonly used additions stay on narrow rows, removals
+/// leave first. Every command is also an entry of the `p` menu.
+fn priority(command: PrMetadataCommand) -> u8 {
+    match command {
+        PrMetadataCommand::AddLabel => 20,
+        PrMetadataCommand::AddReviewer => 21,
+        PrMetadataCommand::AddAssignee => 22,
+        PrMetadataCommand::SetMilestone => 23,
+        PrMetadataCommand::RemoveLabel => 30,
+        PrMetadataCommand::RemoveReviewer => 31,
+        PrMetadataCommand::RemoveAssignee => 32,
+        PrMetadataCommand::ClearMilestone => 33,
+        PrMetadataCommand::AddTeam => 34,
+        PrMetadataCommand::RemoveTeam => 35,
+    }
+}
 
 /// Visible only on an observed Metadata tab, where the `p` menu is also offered.
 pub fn available(app: &App) -> bool {
@@ -80,26 +95,10 @@ fn find(controls: &[(String, Action)], command: PrMetadataCommand) -> Action {
         )
 }
 
-pub fn label(key: char, text: &str) -> String {
-    format!("[{key} {text}]")
-}
-
-/// Keyboard shortcut. Returns true when the key was handled.
-pub fn key(app: &mut App, character: char) -> bool {
-    if !available(app) {
-        return false;
-    }
-    let Some((command, _, _, _)) = CONTROLS.iter().find(|(_, key, _, _)| *key == character) else {
-        return false;
-    };
-    let action = action(app, *command);
-    app.dispatch(action);
-    true
-}
-
-/// Controls appended to the PR header buttons, each holding the same action
-/// as the matching `p` menu entry. Empty unless the Metadata tab is showing.
-pub fn controls(app: &App, width: u16) -> Vec<(String, Action)> {
+/// Footer keys for the Metadata tab, each holding the same action as the matching `p` menu
+/// entry. A refused command leaves the bar and its key explains why. Empty unless the
+/// Metadata tab is showing.
+pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     if !available(app) {
         return Vec::new();
     }
@@ -107,10 +106,15 @@ pub fn controls(app: &App, width: u16) -> Vec<(String, Action)> {
     CONTROLS
         .iter()
         .map(|(command, key, text, compact)| {
-            (
-                label(*key, if width >= WIDE { text } else { compact }),
-                find(&menu, *command),
-            )
+            let action = find(&menu, *command);
+            let reason = match &action {
+                Action::Explain(reason) => Some(reason.clone()),
+                _ => None,
+            };
+            KeyControl::new(key.to_string(), *text, action)
+                .with_compact(*compact)
+                .with_priority(priority(*command))
+                .disabled_by(reason)
         })
         .collect()
 }

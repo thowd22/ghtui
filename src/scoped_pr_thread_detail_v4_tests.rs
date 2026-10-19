@@ -80,7 +80,7 @@ fn review_threads_v4_real_summary_timeline_key_click_all_threads_and_pure_back_h
                 .unwrap()
                 .clone();
             let before = paint(&mut real.app);
-            assert!(before.contains("[T All threads]"));
+            assert!(before.contains("T All threads") && !before.contains("[T All threads]"));
             if mouse {
                 let point = real
                     .app

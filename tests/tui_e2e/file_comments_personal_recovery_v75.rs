@@ -230,7 +230,7 @@ pub(super) fn inspect_restart(
         |frame| {
             let s = frame.contents();
             s.contains(BODY)
-                && s.contains("[J Thread history]")
+                && crate::support::controls::control_painted(frame, "[J Thread history]")
                 && !s.contains("Personal PR Files")
                 && !s.contains(FILE_BODY)
         },
@@ -310,7 +310,7 @@ pub(super) fn inspect_restart(
             |frame| {
                 let s = frame.contents();
                 s.contains(BODY)
-                    && s.contains("[J Thread history]")
+                    && crate::support::controls::control_painted(frame, "[J Thread history]")
                     && !s.contains(FILE_HISTORY)
                     && !s.contains(FILE_BODY)
             },

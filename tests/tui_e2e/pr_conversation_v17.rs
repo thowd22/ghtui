@@ -347,7 +347,8 @@ fn enter(
         );
         choose(s, mouse, ROW_TITLE, b"\r");
         s.wait_for_command_count(f, count);
-        ready(s, &[DETAIL_TITLE, DETAIL_BODY, "[b Back]"]);
+        ready(s, &[DETAIL_TITLE, DETAIL_BODY]);
+        s.wait_for_control("[b Back]");
     } else {
         // A restarted fixture has already consumed its first session's strict
         // prefix. Keep the same actual catalogue route, not initial-only counts.
@@ -399,7 +400,8 @@ fn enter(
         choose(s, mouse, "1 Inbox", b"1");
         choose(s, mouse, ROW_TITLE, b"\r");
         s.wait_for_command_count(f, count);
-        ready(s, &[DETAIL_TITLE, DETAIL_BODY, "[b Back]"]);
+        ready(s, &[DETAIL_TITLE, DETAIL_BODY]);
+        s.wait_for_control("[b Back]");
     }
     exact(s, f, expected);
     if selected_comment {
@@ -408,7 +410,7 @@ fn enter(
         s.wait_for_new_cursorless_condition(
             before,
             |screen| {
-                screen.contents().contains("Conversation")
+                crate::support::controls::control_painted(screen, "[c Conversation]")
                     && crate::support::main_footer_visible(screen)
             },
             "Actual cached Conversation tab",
@@ -450,8 +452,11 @@ fn form_frame(s: &mut Session, after: usize, title: &str, labels: &[&str]) {
         s.poll_output(Duration::from_millis(2));
         if s.completed_cells_end() > after
             && s.completed_cells_screen().is_some_and(|screen| {
-                crate::support::overlay_body(screen, title)
-                    .is_some_and(|body| labels.iter().all(|label| body.contains(label)))
+                crate::support::overlay_body(screen, title).is_some_and(|body| {
+                    labels
+                        .iter()
+                        .all(|label| crate::support::controls::body_has(screen, &body, label))
+                })
             })
         {
             return;

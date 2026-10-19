@@ -82,7 +82,7 @@ fn visible_metadata(s: &mut Session, mouse: bool, needle: &str) {
         s.poll_output(Duration::from_millis(1));
         if s.completed_cells_screen().is_some_and(|frame| {
             crate::support::main_footer_visible(frame)
-                && frame.contents().contains("[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
                 && frame.contents().contains(needle)
                 && !frame.contents().contains("[Confirm action]")
         }) {
@@ -152,7 +152,7 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
         before,
         |frame| {
             crate::support::main_footer_visible(frame)
-                && frame.contents().contains("[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
                 && frame.contents().contains("Your repository permissions:")
         },
         "Genuine Metadata section owns SAME original page after ten actual children",
@@ -196,7 +196,7 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
             after,
             |frame| {
                 crate::support::main_footer_visible(frame)
-                    && frame.contents().contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && !frame.contents().contains(RETURN_CONTROLS[0])
             },
             "NEW17 read installs actual B0 Metadata without resend",
@@ -240,7 +240,8 @@ fn journey(mouse: bool, personal: bool, fail_context: bool) {
     s.wait_for_new_cursorless_condition(
         after,
         |frame| {
-            crate::support::main_footer_visible(frame) && !frame.contents().contains("[b Back]")
+            crate::support::main_footer_visible(frame)
+                && !crate::support::controls::control_painted(frame, "[b Back]")
         },
         "Pure Metadata Back has no child",
         Duration::from_secs(8),

@@ -256,7 +256,14 @@ fn pr_checks_native_testbackend_row_focus_open_key_click_and_disabled_status_at_
             let terminal = draw(&mut current, width, height);
             let open = hit(&current, &Action::PrChecks(PrChecksUiAction::Open));
             assert!(open.right() <= width && open.bottom() <= height);
-            assert!(screen(&terminal).contains("Open check"));
+            // The key-bar token, compact below 100 columns.
+            assert!(
+                screen(&terminal).contains(if width < crate::footer::COMPACT_WIDTH {
+                    "Enter Check"
+                } else {
+                    "Enter Open check"
+                })
+            );
             if mouse {
                 current.handle_event(click(open));
             } else {
@@ -293,8 +300,19 @@ fn pr_checks_native_testbackend_row_focus_open_key_click_and_disabled_status_at_
             draw(&mut current, width, height);
             if mouse {
                 // Disabled control exposes its same semantic reason, never a run.
-                let disabled=current.hits.iter().find(|hit|matches!(&hit.action,Action::Explain(reason) if reason.contains("status")||reason.contains("CheckRun"))).expect("Status row has an explanatory disabled Open control").rect;
-                current.handle_event(click(disabled));
+                // A disabled Open check leaves the key bar (no dead click target); the palette
+                // entry carries the same semantic reason, and so does its Enter key.
+                assert!(!current.hits.iter().any(|hit| matches!(&hit.action, Action::Explain(reason) if reason.contains("status") || reason.contains("CheckRun"))));
+                let catalogue =
+                    crate::navigation_catalogue::PreparedCatalogue::prepare(&current, 9).unwrap();
+                let entry = catalogue
+                    .entries
+                    .iter()
+                    .find(|entry| entry.id == "pr.check.selected")
+                    .unwrap()
+                    .action
+                    .clone();
+                current.dispatch(entry);
             } else {
                 current.handle_event(key(KeyCode::Enter));
             }

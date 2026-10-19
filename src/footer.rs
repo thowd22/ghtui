@@ -339,35 +339,24 @@ fn global(key: &str, label: &str, action: Action) -> KeyControl {
 }
 
 /// Keys for views whose toolbars are not converted to the key bar yet: Refresh and Settings
-/// stay one press or click away, and the PR Files tab keeps its Reviews shortcut. They leave
-/// before any pinned Global control when the row is narrow (Settings first).
+/// stay one press or click away. They leave before any pinned Global control when the row is
+/// narrow (Settings first).
 pub fn transitional_keys(app: &App) -> Vec<KeyControl> {
-    let mut keys = Vec::new();
-    if app.overlay.is_none()
-        && app.view == crate::app::View::Inbox
-        && app.github.as_ref().is_some_and(|github| {
-            github
-                .pr
-                .as_ref()
-                .is_some_and(|page| page.tab == crate::github_workspace::PrTab::Files)
-                && github.scoped_pr_resource.as_ref().is_some_and(|view| {
-                    view.observed().kind() == crate::providers::gh::PrResourceKindV1::Files
-                })
-        })
-    {
-        keys.push(KeyControl::new("F10", "Reviews", Action::OpenScopedReviewsV2).with_priority(5));
-    }
-    keys.push(
+    vec![
         KeyControl::new(app.shortcut("refresh"), "Refresh", Action::Refresh)
             .with_priority(60)
             .in_group(ControlGroup::Global),
-    );
-    keys.push(
         KeyControl::new(app.shortcut("settings"), "Settings", Action::Settings)
             .with_priority(70)
             .in_group(ControlGroup::Global),
-    );
-    keys
+    ]
+}
+
+/// Whether the Inbox/PR detail view draws its own content and so owns the key bar.
+fn inbox_adapter(app: &App) -> bool {
+    app.overlay.is_none()
+        && app.github.is_some()
+        && !crate::scoped_pr_collaboration_native_v17::retired_presentation(app)
 }
 
 /// The controls of the main frame's key bar: the focused view's keys, then the Global tail.
@@ -379,6 +368,7 @@ pub fn main_controls(app: &App) -> Vec<KeyControl> {
         (crate::app::View::Actions, _) if app.overlay.is_none() && app.actions.is_some() => {
             crate::actions_ui::footer_keys(app.actions.as_ref().unwrap())
         }
+        (crate::app::View::Inbox, _) if inbox_adapter(app) => crate::github_ui::footer_keys(app),
         _ => transitional_keys(app),
     };
     controls.extend(global_tail(app));

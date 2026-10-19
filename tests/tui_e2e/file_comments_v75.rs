@@ -183,7 +183,8 @@ pub(crate) fn fresh_summary(session: &mut Session, fixture: &Fixture, mouse: boo
     choose(session, mouse, "1 Inbox", b"1");
     choose(session, mouse, ROW_TITLE, b"\r");
     session.wait_for_command_count(fixture, start + 31);
-    ready(session, &[DETAIL_TITLE, "[J Thread history]"]);
+    ready(session, &[DETAIL_TITLE]);
+    session.wait_for_control("[J Thread history]");
 }
 fn history_ready(session: &mut Session, title: &str, words: &[&str]) {
     session.wait_for_cursorless_condition(
@@ -191,7 +192,9 @@ fn history_ready(session: &mut Session, title: &str, words: &[&str]) {
             crate::support::overlay_body(frame, title).is_some_and(|body| {
                 body.contains("[Esc Back]")
                     && body.contains("[q Quit]")
-                    && words.iter().all(|word| body.contains(word))
+                    && words
+                        .iter()
+                        .all(|word| crate::support::controls::body_has(frame, &body, word))
             })
         },
         "Actual complete original owned FILE/history controls/body",
@@ -431,15 +434,17 @@ fn form_action_ready(session: &mut Session, label: &str, required: &[&str]) {
     loop {
         session.poll_output(Duration::from_millis(1));
         if session.completed_cells_screen().is_some_and(|frame| {
-            crate::support::overlay_body(frame, &title)
-                .is_some_and(|body| required.iter().all(|text| body.contains(text)))
-                && crate::support::completed_navigation_controls_v1::owned_action_position(
-                    frame,
-                    &title,
-                    label,
-                    &[],
-                )
-                .is_some()
+            crate::support::overlay_body(frame, &title).is_some_and(|body| {
+                required
+                    .iter()
+                    .all(|text| crate::support::controls::body_has(frame, &body, text))
+            }) && crate::support::completed_navigation_controls_v1::owned_action_position(
+                frame,
+                &title,
+                label,
+                &[],
+            )
+            .is_some()
         }) {
             return;
         }
@@ -790,7 +795,7 @@ fn journey_inner(mouse: bool, finish: Finish, special: Option<Value>) {
         session.wait_for_cursorless_condition(
             |f| {
                 let s = f.contents();
-                s.contains("[K FILE comment]")
+                crate::support::controls::control_painted(f, "[K FILE comment]")
                     && s.contains("> File src/界.rs")
                     && !s.contains(&title())
                     && !s.contains(BODY)
@@ -989,7 +994,7 @@ fn journey_inner(mouse: bool, finish: Finish, special: Option<Value>) {
         };
         let old_source_rows = source_rows(&fixture);
         fresh_summary(&mut session, &fixture, mouse, original_end);
-        session.wait_for_cursorless_condition(|frame|{let s=frame.contents();s.contains("NEW_CURRENT_SUMMARY_AFTER_EXPLICIT_CANCEL")&&s.contains("[J Thread history]")&&!s.contains("PRIVATE_NATIVE_WHOLE_FILE_BODY")&&!s.contains(&title())},"Explicit user reload admits a genuinely fresh source/private Summary, never reuses old canceled Form",Duration::from_secs(8));
+        session.wait_for_cursorless_condition(|frame|{let s=frame.contents();s.contains("NEW_CURRENT_SUMMARY_AFTER_EXPLICIT_CANCEL")&&crate::support::controls::control_painted(frame, "[J Thread history]")&&!s.contains("PRIVATE_NATIVE_WHOLE_FILE_BODY")&&!s.contains(&title())},"Explicit user reload admits a genuinely fresh source/private Summary, never reuses old canceled Form",Duration::from_secs(8));
         assert_ne!(
             source_rows(&fixture),
             old_source_rows,
@@ -998,7 +1003,7 @@ fn journey_inner(mouse: bool, finish: Finish, special: Option<Value>) {
         assert_eq!(protected_sql(&fixture), protected_before);
         let at = session.completed_cursorless_end();
         session.resize(80, 24);
-        ready(&mut session, &["[J Thread history]"]);
+        session.wait_for_control("[J Thread history]");
         session.resize(120, 40);
         session.wait_for_new_cursorless_condition(
             at,
@@ -1025,7 +1030,8 @@ fn journey_inner(mouse: bool, finish: Finish, special: Option<Value>) {
         fresh_summary(&mut session, &fixture, mouse, original_end);
         choose(&mut session, mouse, "[f Files]", b"f");
         session.wait_for_command_count(&fixture, original_end + 41);
-        ready(&mut session, &[PATH, "[T Threads]"]);
+        ready(&mut session, &[PATH]);
+        session.wait_for_control("[T Threads]");
         choose(&mut session, mouse, "[N Next file]", b"N");
         ready(&mut session, &["> File src/界.rs"]);
         publication_v1::file_follow_v75::follow(&mut session, &fixture, mouse, original_end + 41);

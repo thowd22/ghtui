@@ -160,11 +160,11 @@ fn completed_back_to_checks(session: &mut Session, mouse: bool) {
         if session.completed_cursorless_end() > previous
             && session.completed_cursorless_screen().is_some_and(|frame| {
                 let text = frame.contents();
-                text.contains("[f Files]")
-                    && text.contains("[k Checks]")
+                crate::support::controls::control_painted(frame, "[f Files]")
+                    && crate::support::controls::control_painted(frame, "[k Checks]")
                     && text.contains("Exact observed build")
                     && text.contains("Required rules unavailable")
-                    && !text.contains("[C Candidates]")
+                    && !crate::support::controls::control_painted(frame, "[C Candidates]")
                     && !text.contains("[Esc Cancel]")
             })
         {

@@ -113,6 +113,69 @@ fn journey(mouse: bool) {
     session.quit_and_assert_restored_terminal(mouse);
 }
 
+/// TASK-90: the loaded Inbox has no bracketed toolbar rows. Queues are tabs, the rest are
+/// key-bar tokens whose click and key run the same action, compacted at 80 columns.
+fn footer_journey(mouse: bool) {
+    let fixture = configured();
+    let mut steps = initial(false);
+    steps.extend(notifications_read());
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    refresh(&mut session, mouse);
+    session.wait_for_screen("Improve auth");
+    journal(&mut session, &fixture, 7);
+    for control in [
+        "[a All]",
+        "[c Created by me]",
+        "[m Assigned to me]",
+        "[v Needs my review]",
+        "[Enter Open]",
+        "[r Refresh]",
+        "[F8 Notifications]",
+        "[x Clear cache]",
+        "[? Help]",
+        "[: Commands]",
+        "[q Quit]",
+    ] {
+        session.wait_for_control(control);
+    }
+    let screen = session.screen();
+    for retired in ["[x Clear cache]", "[F8 Notifications]", "[c Created by me]"] {
+        assert!(
+            !screen.contains(retired),
+            "{retired} toolbar row remains\n{screen}"
+        );
+    }
+    session.choose_control(mouse, "[c Created by me]");
+    session.wait_for_screen("Queue: Created by me • All 3");
+    session.resize_owned_footer(
+        80,
+        24,
+        &crate::support::view_title("Inbox"),
+        &["[F8 Notifications]", "[: Cmds]"],
+    );
+    session.wait_for_control("[v Needs my review]");
+    session.choose_control(mouse, "[F8 Notifications]");
+    session.wait_for_screen(NOTIFICATIONS);
+    session.wait_for_screen("No notifications observed in this exact query.");
+    journal(&mut session, &fixture, 12);
+    choose(&mut session, mouse, "[b Back / Cancel]", b"b");
+    session.wait_for_overlay_close(NOTIFICATIONS);
+    session.wait_for_screen("Queue: Created by me");
+    journal(&mut session, &fixture, 12);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn design_footer_v90_inbox_keyboard_tabs_tokens_and_compact_resize() {
+    footer_journey(false)
+}
+#[test]
+fn design_footer_v90_inbox_mouse_tabs_tokens_and_compact_resize() {
+    footer_journey(true)
+}
+
 #[test]
 fn v1_navigation_inbox_keyboard_prompt_counts_help_and_palette_notifications() {
     journey(false)

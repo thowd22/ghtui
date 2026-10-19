@@ -1028,7 +1028,7 @@ fn composer(mouse: bool) {
     session.wait_for_screen("Saved alpha");
     readonly_journal(&mut session, &fixture, 14);
     choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
-    session.wait_for_screen("[p PR actions]");
+    session.wait_for_control("[p PR actions]");
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
     let scope = Scope::github("github.invalid", Some(42)).unwrap();
     let resource = "org/alpha/pull/7/composer/comment";
@@ -1066,7 +1066,7 @@ fn composer(mouse: bool) {
         .any(|flag| flag == "icanon" || flag == "icanon;"));
     assert!(!editor_termios.contains("-icanon"));
     choose(&mut restarted, mouse, "[Keep draft / Close]", b"\x1b");
-    restarted.wait_for_screen("[p PR actions]");
+    restarted.wait_for_control("[p PR actions]");
     readonly_journal(&mut restarted, &fixture, steps.len());
     restarted.quit_and_assert_restored_terminal(mouse);
     let saved: Value =
@@ -1191,7 +1191,7 @@ fn editor_failure(mouse: bool) {
     session.wait_for_screen("Keep my café draft");
     session.resize(80, 24);
     choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
-    session.wait_for_screen("[p PR actions]");
+    session.wait_for_control("[p PR actions]");
     readonly_journal(&mut session, &fixture, steps.len());
     session.quit_and_assert_restored_terminal(mouse);
     let saved = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3"))
@@ -1267,14 +1267,14 @@ fn ambiguous(mouse: bool) {
                     && !screen.contains("[Submit]")
                     && !screen.contains("[Keep draft / Close]")
                     && screen.contains("org/alpha#7 • Improve auth • open")
-                    && screen.contains("[p PR actions]")
+                    && crate::support::controls::text_has_control(screen, "[p PR actions]")
             },
             "complete dismissed composer/native PR frame before quit",
             std::time::Duration::from_secs(8),
         )
         .unwrap_or_else(|error| panic!("{error}"));
     assert!(!session.screen().contains("[Submit]"));
-    session.wait_for_screen("[p PR actions]");
+    session.wait_for_control("[p PR actions]");
     session.quit_and_assert_restored_terminal(mouse);
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
     let saved = cache

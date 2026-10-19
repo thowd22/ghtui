@@ -165,7 +165,7 @@ fn journey(mouse: bool) {
         session.send_key(b"\r")
     };
     frame(&mut session, before, |s| {
-        s.contains(BODY) && s.contains("[f Files]")
+        s.contains(BODY) && crate::support::controls::text_has_control(s, "[f Files]")
     });
     journal(&mut session, &fixture, opened);
     let database = fixture.root.join("config/ghtui/cache.sqlite3");
@@ -312,7 +312,9 @@ fn journey(mouse: bool) {
         b"b",
     );
     frame(&mut session, before, |s| {
-        s.contains(BODY) && s.contains("[p PR actions]") && !s.contains("Immutable file images")
+        s.contains(BODY)
+            && crate::support::controls::text_has_control(s, "[p PR actions]")
+            && !s.contains("Immutable file images")
     });
     assert_eq!(sql(&fixture), before_sql);
     journal(&mut session, &fixture, steps.len());

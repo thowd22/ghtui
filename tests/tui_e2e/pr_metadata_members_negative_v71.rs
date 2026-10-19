@@ -220,8 +220,8 @@ fn prepare_held(
         |frame| {
             let text = frame.contents();
             crate::support::main_footer_visible(frame)
-                && text.contains("[u Metadata]")
-                && text.contains("[Esc Cancel]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[Esc Cancel]")
                 && !text.contains(&members_title(command))
                 && !text.contains("[Confirm action]")
         },
@@ -245,8 +245,8 @@ fn clear(mouse: bool) {
             |screen| {
                 let text = screen.contents();
                 crate::support::main_footer_visible(screen)
-                    && text.contains("[x Clear cache]")
-                    && !text.contains("[p PR actions]")
+                    && crate::support::controls::control_painted(screen, "[x Clear cache]")
+                    && !crate::support::controls::control_painted(screen, "[p PR actions]")
                     && !text.contains("[Esc Cancel]")
                     && !text.contains(DETAIL_BODY)
                     && !text.contains(&members_title(Cmd::AddLabel))
@@ -284,7 +284,7 @@ fn clear(mouse: bool) {
                     } else {
                         "Original account cache cleared • drafts and write history retained"
                     })
-                    && !text.contains("[p PR actions]")
+                    && !crate::support::controls::control_painted(screen, "[p PR actions]")
                     && !text.contains(DETAIL_BODY)
                     && !text.contains(&members_title(Cmd::AddLabel))
                     && !text.contains("[Confirm action]")

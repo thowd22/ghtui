@@ -1,4 +1,4 @@
-//! One-step Metadata-tab controls: the visible `[l Add label]`-style buttons and
+//! One-step Metadata-tab controls: the `l Add label`-style key-bar tokens and
 //! their shortcut keys open the SAME member workflow as the `p` menu, then
 //! choose/Preview/Confirm publish exactly one change through strict fake gh.
 use super::*;
@@ -19,15 +19,25 @@ fn quick(command: Cmd) -> (&'static str, &'static str, &'static [u8]) {
     }
 }
 
-/// Every quick control is visible (label chosen by the current width); the
-/// chosen one opens the same member workflow the `p` menu opens.
+/// The additions are key-bar tokens (label chosen by the current width); the removals leave
+/// the bar first on narrow rows but keep their keys and their `p` menu entries. The chosen
+/// one opens the same member workflow the `p` menu opens.
 fn open_quick(s: &mut Session, f: &Fixture, mouse: bool, command: Cmd, end: usize) {
-    let screen = s.screen();
-    let wide = s.completed_cells_screen().unwrap().size().1 >= 100;
-    for every in Cmd::ALL {
+    let frame = s.completed_cells_screen().unwrap();
+    let wide = frame.size().1 >= 100;
+    for every in [
+        Cmd::AddLabel,
+        Cmd::AddReviewer,
+        Cmd::AddAssignee,
+        Cmd::SetMilestone,
+    ] {
         let (long, compact, _) = quick(every);
         let label = if wide { long } else { compact };
-        assert!(screen.contains(label), "{label} missing\n{screen}");
+        assert!(
+            crate::support::controls::control_painted(frame, label),
+            "{label} missing\n{}",
+            frame.contents()
+        );
     }
     let after = s.completed_cells_end();
     let (long, compact, key) = quick(command);
@@ -95,7 +105,10 @@ fn quick_cancel(mouse: bool) {
         s.send_key(b"\x1b");
     }
     metadata_frame(&mut s, before);
-    assert!(s.screen().contains("[l "));
+    assert!(crate::support::controls::control_painted(
+        s.completed_cells_screen().unwrap(),
+        "[l Add label]"
+    ));
     exact(&s, &f, &steps);
     assert_eq!(
         sql(&f)

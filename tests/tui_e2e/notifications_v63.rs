@@ -303,7 +303,7 @@ fn choose_with_controls(
 fn open(session: &mut Session, mouse: bool) -> usize {
     let after = session.completed_cells_end();
     if mouse {
-        let point = crate::support::locate_screen(
+        let point = crate::support::locate_control(
             session
                 .completed_cells_screen()
                 .expect("completed original Inbox"),
@@ -344,7 +344,7 @@ fn start(f: &Fixture) -> Session {
             let text = frame.contents();
             text.contains("Inbox • focused view")
                 && text.contains("Use Refresh to load your authenticated GitHub inbox.")
-                && text.contains("[r Refresh]")
+                && crate::support::controls::control_painted(frame, "[r Refresh]")
         },
         "Actual completed idle Inbox before explicit startup Refresh",
         Duration::from_secs(8),
@@ -356,7 +356,7 @@ fn start(f: &Fixture) -> Session {
             let text = frame.contents();
             text.contains("Fresh • fetched")
                 && text.contains("No pull requests in this queue")
-                && text.contains("[F8 Notifications]")
+                && crate::support::controls::control_painted(frame, "[F8 Notifications]")
         },
         "Actual completed fresh original Inbox before notification input",
         Duration::from_secs(8),
@@ -375,7 +375,7 @@ fn main_back(session: &mut Session, mouse: bool) {
         after,
         |frame| {
             let text = frame.contents();
-            text.contains("[F8 Notifications]")
+            crate::support::controls::control_painted(frame, "[F8 Notifications]")
                 && text.contains("No pull requests in this queue")
                 && !text.contains(TITLE)
                 && !text.contains(PRIVATE)

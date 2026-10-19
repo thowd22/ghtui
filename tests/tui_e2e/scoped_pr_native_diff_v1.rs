@@ -603,7 +603,7 @@ fn cancel(mouse: bool) {
             let screen = frame.contents();
             screen.contains("Files: all")
                 && screen.contains("Old side: current base-branch tip")
-                && screen.contains("[N Next file]")
+                && crate::support::controls::text_has_control(&screen, "[N Next file]")
         },
         "second Files producer publishes its actual completed original page",
         Duration::from_secs(8),

@@ -237,7 +237,127 @@ pub fn locate_control(screen: &vt100::Screen, label: &str) -> Option<(u16, u16)>
     if !control.bracketed {
         return locate_text(screen, label);
     }
-    locate_text(screen, label).or_else(|| footer_control(screen, &control))
+    locate_text(screen, label)
+        .or_else(|| footer_control(screen, &control))
+        .or_else(|| tab_control(screen, &control))
+        .or_else(|| compact_control(screen, &control))
+}
+
+/// Every whole `key label` token in `rows`: it starts at the row edge, after a space or a
+/// border, and its label ends at two spaces, a border or the row tail. Prose that runs on
+/// after one space yields its whole run as the label, so it never equals a control label.
+fn key_tokens(
+    screen: &vt100::Screen,
+    rows: std::ops::Range<u16>,
+    key: &str,
+) -> Vec<(String, (u16, u16))> {
+    let mut tokens = Vec::new();
+    let head = format!("{key} ");
+    for row in rows {
+        let Some((line, starts)) = row_text(screen, row) else {
+            continue;
+        };
+        for (byte, _) in line.match_indices(&head) {
+            let before = line[..byte].chars().next_back();
+            if !before.is_none_or(|c| c == ' ' || c == '│') {
+                continue;
+            }
+            let rest = &line[byte + head.len()..];
+            let end = [rest.find("  "), rest.find('│')]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(rest.len());
+            let label = rest[..end].trim_end();
+            if let (false, Some(column)) = (label.is_empty(), column_at(&starts, byte)) {
+                tokens.push((label.to_owned(), (column, row)));
+            }
+        }
+    }
+    tokens
+}
+
+/// [`control_painted`] for frame text (one line per row): the bracketed label anywhere, or a
+/// whole `key label` token (key bar or tab), compact or full (see [`compact_control`]).
+pub fn text_has_control(text: &str, label: &str) -> bool {
+    if text.contains(label) {
+        return true;
+    }
+    let control = Control::parse(label);
+    let (true, Some(key)) = (control.bracketed, control.key.as_deref()) else {
+        return false;
+    };
+    let head = format!("{key} ");
+    let full = control.text.to_ascii_lowercase();
+    text.lines().any(|line| {
+        line.match_indices(&head).any(|(byte, _)| {
+            let before = line[..byte].chars().next_back();
+            if !before.is_none_or(|c| c == ' ' || c == '│') {
+                return false;
+            }
+            let rest = &line[byte + head.len()..];
+            let end = [rest.find("  "), rest.find('│')]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(rest.len());
+            compact_matches(rest[..end].trim_end(), &full)
+        })
+    })
+}
+
+/// A painted label names the control `full` (lowercase): the same text, or a compact label of
+/// three or more characters that is part of it (`Actions`) or abbreviates it (`Cmds`).
+fn compact_matches(label: &str, full: &str) -> bool {
+    let label = label.to_ascii_lowercase();
+    if label.is_empty() {
+        return false;
+    }
+    if label == full {
+        return true;
+    }
+    if label.len() < 3 {
+        return false;
+    }
+    if full.contains(&label) {
+        return true;
+    }
+    let mut letters = full.chars();
+    label.chars().next() == full.chars().next() && label.chars().all(|c| letters.any(|f| f == c))
+}
+
+/// A view's sub-mode tab (`ui_chrome::tab_strip`) above the key bar: a whole `key text` token,
+/// padded or not. The key bar row is left to [`footer_control`].
+pub fn tab_control(screen: &vt100::Screen, control: &Control) -> Option<(u16, u16)> {
+    let key = control.key.as_deref()?;
+    key_tokens(screen, 0..footer_row(screen), key)
+        .into_iter()
+        .find(|(label, _)| label.eq_ignore_ascii_case(&control.text))
+        .map(|(_, position)| position)
+}
+
+/// Below 100 columns key-bar tokens and tabs show compact labels (`p Actions` for
+/// `[p PR actions]`, `c Conv` for `[c Conversation]`, `: Cmds` for `[: Commands]`). A token
+/// with the same key whose painted label names the full one (see [`compact_matches`]) is it.
+pub fn compact_control(screen: &vt100::Screen, control: &Control) -> Option<(u16, u16)> {
+    let key = control.key.as_deref()?;
+    let full = control.text.to_ascii_lowercase();
+    key_tokens(screen, 0..screen.size().0, key)
+        .into_iter()
+        .find(|(label, _)| compact_matches(label, &full))
+        .map(|(_, position)| position)
+}
+
+/// `body` (a pane's text) contains `word`; a bracketed control label may instead be painted
+/// as a key-bar token or a tab, which live outside the bracketed form.
+pub fn body_has(screen: &vt100::Screen, body: &str, word: &str) -> bool {
+    body.contains(word) || Control::parse(word).bracketed && control_painted(screen, word)
+}
+
+/// Whether `label` is painted as a control (see [`locate_control`]), for frame predicates
+/// that used to search the frame text for a bracketed toolbar label.
+pub fn control_painted(screen: &vt100::Screen, label: &str) -> bool {
+    locate_control(screen, label).is_some()
 }
 
 /// Only the footer token form, never an exact bracketed body match. Below 100 columns the bar

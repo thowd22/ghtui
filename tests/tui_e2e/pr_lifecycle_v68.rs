@@ -179,7 +179,7 @@ fn close_current(s: &mut Session, mouse: bool, controls: &[&str]) {
         before,
         |screen| {
             crate::support::main_footer_visible(screen)
-                && screen.contents().contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
                 && !screen.contents().contains("[Esc Close]")
                 && !screen.contents().contains("READ-ONLY PREVIEW")
         },

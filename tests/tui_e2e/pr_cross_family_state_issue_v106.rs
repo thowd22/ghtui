@@ -358,7 +358,7 @@ fn issue_preview_then_idle_close(
         |screen| {
             screen.size() == (40, 120)
                 && crate::support::main_footer_visible(screen)
-                && screen.contents().contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
         },
         "NEW 120x40 actual original PR before Issue action",
     );
@@ -501,7 +501,7 @@ fn issue_preview_then_idle_close(
         after,
         |screen| {
             crate::support::main_footer_visible(screen)
-                && screen.contents().contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
                 && crate::support::overlay_body(screen, &title).is_none()
                 && !screen.contents().contains("READ-ONLY PREVIEW")
         },
@@ -518,7 +518,7 @@ fn issue_preview_then_idle_close(
         |screen| {
             screen.size() == (24, 80)
                 && crate::support::main_footer_visible(screen)
-                && screen.contents().contains("[b Back]")
+                && crate::support::controls::control_painted(screen, "[b Back]")
         },
         "NEW 80x24 original underlay before separate fresh State action",
     );
@@ -599,7 +599,7 @@ fn cross_family_journey(mouse: bool) {
             |screen| {
                 crate::support::main_footer_visible(screen)
                     && screen.contents().contains("counts unavailable")
-                    && !screen.contents().contains("[b Back]")
+                    && !crate::support::controls::control_painted(screen, "[b Back]")
                     && !screen.contents().contains(DETAIL_BODY)
             },
             "NEW exact State-unavailable Inbox after actual Back",
@@ -650,7 +650,7 @@ fn cross_family_journey(mouse: bool) {
                         && text.contains("Fresh complete State queue observation")
                         && !text.contains("counts unavailable")
                         && !text.contains("[Esc Cancel]")
-                        && !text.contains("[b Back]")
+                        && !crate::support::controls::control_painted(screen, "[b Back]")
                         && !text.contains(DETAIL_BODY)
                 },
                 "NEW genuine complete State Inbox after final principal",

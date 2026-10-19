@@ -73,7 +73,7 @@ fn summary(s: &mut Session, mouse: bool) {
             crate::support::main_footer_visible(frame)
                 && text.contains("feature → main")
                 && text.contains(HEAD)
-                && text.contains("[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
                 && !text.contains("[Esc Cancel]")
         },
         "NEW genuine idle Summary before held Metadata request",
@@ -118,7 +118,7 @@ fn no_busy(s: &mut Session, before: usize) {
         before,
         |frame| {
             crate::support::main_footer_visible(frame)
-                && frame.contents().contains("[u Metadata]")
+                && crate::support::controls::control_painted(frame, "[u Metadata]")
                 && !frame.contents().contains("[Esc Cancel]")
         },
         "NEW old read slot retired without replay or stale page install",
@@ -176,7 +176,7 @@ fn journey(mouse: bool, mode: u8) {
     summary(&mut s, mouse);
     choose(&mut s, mouse, "[u Metadata]", b"u");
     let old = held(&mut s, &f, first_end - 1);
-    s.wait_for_owned_completed_action("Inbox • focused view ─", "[u Metadata]", &[]);
+    s.wait_for_owned_completed_action("Inbox • focused view ─", " u Metadata ", &[]);
     s.wait_for_screen("Verifying original Conversation");
     s.wait_for_screen("[Esc Cancel]");
     match mode {
@@ -216,7 +216,7 @@ fn journey(mouse: bool, mode: u8) {
             s.wait_for_cursorless_condition(
                 |frame| {
                     crate::support::main_footer_visible(frame)
-                        && frame.contents().contains("[u Metadata]")
+                        && crate::support::controls::control_painted(frame, "[u Metadata]")
                         && !frame.contents().contains("[Esc Cancel]")
                 },
                 "Actual cached original Inbox after Repository return",
@@ -247,7 +247,7 @@ fn journey(mouse: bool, mode: u8) {
                 |frame| {
                     let text = frame.contents();
                     crate::support::main_footer_visible(frame)
-                        && text.contains("[u Metadata]")
+                        && crate::support::controls::control_painted(frame, "[u Metadata]")
                         && text.contains("feature → main")
                         && text.contains(HEAD)
                         && text.contains("Fresh • fetched")

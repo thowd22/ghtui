@@ -139,7 +139,7 @@ fn restarted_metadata(s: &mut Session, mouse: bool, raw: &Value) {
                 }) && crate::support::main_footer_visible(frame)
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
-                            body.contains("[u Metadata]")
+                            body.contains(" u Metadata ")
                                 && body.contains("Native collaboration")
                                 && body.contains("@octocat PR description")
                                 && body.contains("A fixture description")

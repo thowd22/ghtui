@@ -172,7 +172,7 @@ fn open(session: &mut Session, mouse: bool) {
         |frame| {
             let text = frame.contents();
             crate::support::main_footer_visible(frame)
-                && text.contains("[c Conversation]")
+                && crate::support::controls::control_painted(frame, "[c Conversation]")
                 && text.contains("@octocat PR description")
                 && text.contains("Existing starter comment")
                 && !text.contains("Verifying original Conversation")

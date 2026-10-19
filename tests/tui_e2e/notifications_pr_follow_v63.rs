@@ -124,12 +124,12 @@ fn fixture_follow(
     (f, h, steps)
 }
 fn action(session: &mut Session, mouse: bool, title: &str, label: &str, key: &[u8]) {
-    let owner = if title == PR_TITLE {
-        "Inbox • focused view"
+    // The PR page's controls are key-bar tokens; other owners keep their bracketed rows.
+    let point = if title == PR_TITLE {
+        session.wait_for_control(label)
     } else {
-        title
+        session.wait_for_owned_completed_action(title, label, &[])
     };
-    let point = session.wait_for_owned_completed_action(owner, label, &[]);
     if mouse {
         session.click(point.0, point.1);
     } else {
@@ -143,7 +143,7 @@ fn files(session: &mut Session, after: usize, patch_observed: bool) -> String {
             let text = frame.contents();
             text.contains(PR_TITLE)
                 && text.contains(history::PATH)
-                && text.contains("[v Native diff]")
+                && crate::support::controls::control_painted(frame, "[v Native diff]")
                 && text.contains(if patch_observed {
                     "Showing the PR patch from gh pr diff"
                 } else {
@@ -189,8 +189,7 @@ fn happy(mouse: bool) {
     });
     // Same loaded action semantics choose the genuine retained file row before
     // a new immutable operation; no label→path or line1/range is invented.
-    let point =
-        session.wait_for_owned_completed_action("Inbox • focused view", "[N Next file]", &[]);
+    let point = session.wait_for_control("[N Next file]");
     let after = session.completed_cells_end();
     if mouse {
         session.click(point.0, point.1);
@@ -290,7 +289,7 @@ fn happy(mouse: bool) {
         |frame| {
             let text = frame.contents();
             text.contains(PR_TITLE)
-                && text.contains("[b Back]")
+                && crate::support::controls::control_painted(frame, "[b Back]")
                 && crate::support::overlay_body(frame, "Immutable file images").is_none()
         },
         "Original genuine Files after closing nested viewer",
@@ -331,7 +330,10 @@ fn changed_parent(mouse: bool) {
     );
     let raw = session.completed_cursorless_screen().unwrap().contents();
     assert!(!raw.contains(PR_TITLE));
-    assert!(!raw.contains("[v Native diff]"));
+    assert!(!crate::support::controls::control_painted(
+        session.completed_cursorless_screen().unwrap(),
+        "[v Native diff]"
+    ));
     exact(&session, &f, &steps);
     assert_eq!(witness(&f), before);
     assert_sql_generation(&f, &[1]);

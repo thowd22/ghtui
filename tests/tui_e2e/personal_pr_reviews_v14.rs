@@ -185,7 +185,7 @@ fn journey(mouse: bool) {
         s.send_key(b"\r")
     };
     frame(&mut s, before, |f| {
-        f.contains(BODY) && f.contains("[f Files]")
+        f.contains(BODY) && crate::support::controls::text_has_control(f, "[f Files]")
     });
     journal(&mut s, &fixture, opened);
     let database = fixture.root.join("config/ghtui/cache.sqlite3");
@@ -273,7 +273,7 @@ fn journey(mouse: bool) {
     form_control(&mut s, mouse, "[Confirm action]");
     frame(&mut s, before, |f| {
         f.contains("Review #810 effect confirmed; snapshot retired; refresh")
-            && f.contains("[q Quit]")
+            && crate::support::controls::text_has_control(f, "[q Quit]")
             && !f.contains("Scoped reviews")
             && !f.contains("Submit comment review •")
             && !f.contains(BODY)

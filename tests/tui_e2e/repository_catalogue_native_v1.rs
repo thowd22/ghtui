@@ -323,7 +323,11 @@ fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
 fn ready(session: &mut Session, required: &[&str]) {
     session
         .try_wait_for_condition(
-            |screen| required.iter().all(|label| screen.contains(label)),
+            |screen| {
+                required
+                    .iter()
+                    .all(|label| crate::support::controls::text_has_control(screen, label))
+            },
             &format!("Actual complete catalogue frame with {required:?}"),
             Duration::from_secs(8),
         )

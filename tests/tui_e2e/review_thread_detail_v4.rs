@@ -6,7 +6,7 @@ fn detail_ready(session: &mut Session, timeline: bool) {
         |frame| {
             let text = frame.contents();
             crate::support::main_footer_visible(frame)
-                && text.contains("[T All threads]")
+                && crate::support::controls::control_painted(frame, "[T All threads]")
                 && text.contains(DETAIL_TITLE)
                 && if timeline {
                     text.contains("review_requested") && !text.contains(DETAIL_BODY)

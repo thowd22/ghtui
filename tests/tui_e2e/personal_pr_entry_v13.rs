@@ -243,7 +243,9 @@ fn journey(mouse: bool) {
         session.send_key(b"\r");
     }
     frame(&mut session, before, |s| {
-        s.contains("[f Files]") && s.contains("[p PR actions]") && s.contains(BODY)
+        crate::support::controls::text_has_control(s, "[f Files]")
+            && crate::support::controls::text_has_control(s, "[p PR actions]")
+            && s.contains(BODY)
     });
     journal(&mut session, &fixture, original);
     let database = fixture.root.join("config/ghtui/cache.sqlite3");
@@ -323,12 +325,14 @@ fn journey(mouse: bool) {
         Duration::from_secs(8),
     );
     session.resize(40, 14);
-    session.wait_for_screen("[b Back]");
+    session.wait_for_control("[b Back]");
     session.resize(120, 40);
     let before = session.completed_cursorless_end();
     choose(&mut session, mouse, "[b Back]", b"b");
     frame(&mut session, before, |s| {
-        s.contains(BODY) && s.contains("[p PR actions]") && !s.contains("Current observed head")
+        s.contains(BODY)
+            && crate::support::controls::text_has_control(s, "[p PR actions]")
+            && !s.contains("Current observed head")
     });
     assert_eq!(sql(&fixture), before_sql);
     journal(&mut session, &fixture, steps.len());

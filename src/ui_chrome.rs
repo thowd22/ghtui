@@ -390,7 +390,8 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
 /// A one-row strip of a view's Mode controls (sub-modes such as Runs/Workflows), styled like the
 /// header tabs: the selected mode filled with the view hue, the others with the key in the hue.
 /// Each tab is a click target pushed to `app.hits` in order; a disabled mode is dimmed and its
-/// click explains why. Controls of other groups belong to the footer and are skipped.
+/// click explains why. Controls of other groups belong to the footer and are skipped. When the
+/// padded full tabs do not fit the row, every tab uses its compact label without padding.
 pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyControl]) {
     let theme = app.theme();
     if area.is_empty() {
@@ -398,14 +399,24 @@ pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyCo
     }
     let row = Rect::new(area.x, area.y, area.width, 1);
     frame.render_widget(Paragraph::new("").style(theme.base()), row);
+    let modes = || {
+        controls
+            .iter()
+            .filter(|control| control.group == ControlGroup::Mode)
+    };
+    // Padded full tabs with one-column gaps when they fit; otherwise compact labels without
+    // padding, two columns apart like the key bar.
+    let full = modes()
+        .map(|control| crate::editor::display_width(&control.token(false)) + 3)
+        .sum::<usize>()
+        .saturating_sub(1);
+    let compact = full > usize::from(row.width);
+    let (pad, gap) = if compact { ("", 2) } else { (" ", 1) };
     let mut x = row.x;
-    for control in controls
-        .iter()
-        .filter(|control| control.group == ControlGroup::Mode)
-    {
+    for control in modes() {
         let key = safe_text(&control.key);
-        let label = safe_text(&control.label);
-        let text = format!(" {key} {label} ");
+        let label = safe_text(control.label_text(compact));
+        let text = format!("{pad}{key} {label}{pad}");
         let width = crate::editor::display_width(&text).min(usize::from(u16::MAX)) as u16;
         if x.saturating_add(width) > row.right() {
             break;
@@ -417,8 +428,8 @@ pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyCo
             Line::from(Span::styled(text, theme.filled(Hue::for_view(app.view))))
         } else {
             Line::from(vec![
-                Span::styled(format!(" {key}"), theme.role(Role::Accent)),
-                Span::styled(format!(" {label} "), theme.role(Role::TextMuted)),
+                Span::styled(format!("{pad}{key}"), theme.role(Role::Accent)),
+                Span::styled(format!(" {label}{pad}"), theme.role(Role::TextMuted)),
             ])
         };
         if app.focus == app.hits.len() {
@@ -432,7 +443,7 @@ pub fn tab_strip(frame: &mut Frame, app: &mut App, area: Rect, controls: &[KeyCo
                 None => control.action.clone(),
             },
         });
-        x = x.saturating_add(width).saturating_add(1);
+        x = x.saturating_add(width).saturating_add(gap);
     }
 }
 

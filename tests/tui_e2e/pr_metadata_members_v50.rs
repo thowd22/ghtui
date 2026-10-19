@@ -952,7 +952,7 @@ fn happy(mouse: bool, command: Cmd) {
             after,
             |screen| {
                 crate::support::main_footer_visible(screen)
-                    && !screen.contents().contains("[b Back]")
+                    && !crate::support::controls::control_painted(screen, "[b Back]")
             },
             "Pure same-family refreshed Back; zero HTTP",
             Duration::from_secs(8),

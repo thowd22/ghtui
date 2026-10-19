@@ -328,7 +328,7 @@ fn enter_metadata_query(s: &mut Session, mouse: bool) {
                                 && body.contains("Existing starter comment")
                         },
                     )
-                    && text.contains("[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && !text.contains("[Esc Cancel]")
                     && !text.contains("Verifying original Conversation")
             })
@@ -350,8 +350,8 @@ fn enter_metadata_query(s: &mut Session, mouse: bool) {
             && s.completed_cells_screen().is_some_and(|frame| {
                 let text = frame.contents();
                 crate::support::main_footer_visible(frame)
-                    && text.contains("[u Metadata]")
-                    && text.contains("[p PR actions]")
+                    && crate::support::controls::control_painted(frame, "[u Metadata]")
+                    && crate::support::controls::control_painted(frame, "[p PR actions]")
                     && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                         |body| {
                             body.contains("example/repo#7")

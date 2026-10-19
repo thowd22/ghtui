@@ -790,7 +790,7 @@ fn cleanup_refresh(mouse: bool) {
                 && text.contains(&format!("Base {TIP}"))
                 && text.contains("feature/scoped-open → next")
                 && text.contains(DETAIL_BODY)
-                && text.contains("[b Back]")
+                && crate::support::controls::control_painted(frame, "[b Back]")
                 && !text.contains(terminal)
                 && !text.contains("[r Refresh PR]")
                 && !text.contains("[Confirm action]")

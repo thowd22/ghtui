@@ -87,7 +87,8 @@ fn load_summary(f: &Fixture, s: &mut Session, mouse: bool, commands: usize) {
         s.send_key(b"\r")
     }
     frame(s, before, |text| {
-        text.contains(BODY) && text.contains("[F9 Review history]")
+        text.contains(BODY)
+            && crate::support::controls::text_has_control(text, "[F9 Review history]")
     });
     journal(s, f, commands);
 }
@@ -249,7 +250,9 @@ fn journey(mouse: bool) {
     let before = first.completed_cursorless_end();
     control(&mut first, mouse, "[Esc Back]", b"\x1b");
     frame(&mut first, before, |text| {
-        text.contains(BODY) && text.contains("[F9 Review history]") && !text.contains(TITLE)
+        text.contains(BODY)
+            && crate::support::controls::text_has_control(text, "[F9 Review history]")
+            && !text.contains(TITLE)
     });
     first.quit_and_assert_restored_terminal(mouse);
     assert_eq!(sql(&fixture), baseline);

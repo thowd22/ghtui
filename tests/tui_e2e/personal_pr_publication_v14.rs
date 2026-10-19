@@ -176,7 +176,7 @@ fn journey(mouse: bool) {
             s.send_key(b"\r")
         };
         frame(&mut s, before, |f| {
-            f.contains(BODY) && f.contains("[f Files]")
+            f.contains(BODY) && crate::support::controls::text_has_control(f, "[f Files]")
         });
         journal(&mut s, &fixture, opened);
         let cache = Cache::open(&database(&fixture)).unwrap();
@@ -324,7 +324,7 @@ fn journey(mouse: bool) {
                 && !f.contains("new-no-newline")
                 && !f.contains(COMMENT)
                 && !f.contains(BODY)
-                && f.contains("[q Quit]")
+                && crate::support::controls::text_has_control(f, "[q Quit]")
         });
         if let Some(original) = child {
             let deadline = std::time::Instant::now() + Duration::from_secs(5);

@@ -115,7 +115,9 @@ fn owned_historical(session: &mut Session, words: &[&str]) {
                 body.contains("[Esc Back]")
                     && body.contains("[c Associated C]")
                     && body.contains("[o Original C0]")
-                    && words.iter().all(|word| body.contains(word))
+                    && words
+                        .iter()
+                        .all(|word| crate::support::controls::body_has(frame, &body, word))
             })
         },
         "Actual completed owned historical role/content frame",
@@ -247,7 +249,7 @@ fn journey(mouse: bool, mode: u8) {
         session.wait_for_cursorless_condition(
             |frame| {
                 crate::support::main_footer_visible(frame)
-                    && frame.contents().contains("[T All threads]")
+                    && crate::support::controls::control_painted(frame, "[T All threads]")
                     && frame.contents().contains("review_requested")
             },
             "Actual original Timeline before fresh All threads",

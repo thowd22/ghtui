@@ -227,7 +227,9 @@ fn panel_ready_v2(session: &mut Session, words: &[&str]) {
                 body.contains("[Esc Back]")
                     && body.contains("[e Edit]")
                     && body.contains("[d Delete]")
-                    && words.iter().all(|word| body.contains(word))
+                    && words
+                        .iter()
+                        .all(|word| crate::support::controls::body_has(frame, &body, word))
             })
         },
         "Completed exact selected-comment panel/header/body",
@@ -380,7 +382,8 @@ fn fresh_summary_v2(session: &mut Session, fixture: &Fixture, mouse: bool, start
     choose(session, mouse, "1 Inbox", b"1");
     choose(session, mouse, ROW_TITLE, b"\r");
     session.wait_for_command_count(fixture, start + 31);
-    ready(session, &[DETAIL_TITLE, "[J Thread history]"]);
+    ready(session, &[DETAIL_TITLE]);
+    session.wait_for_control("[J Thread history]");
 }
 fn detail_v2(session: &mut Session, mouse: bool, target: &str) {
     let deadline = Instant::now() + Duration::from_secs(8);
