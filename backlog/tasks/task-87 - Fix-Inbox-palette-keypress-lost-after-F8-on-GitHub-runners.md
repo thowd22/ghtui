@@ -4,6 +4,7 @@ title: Fix Inbox palette keypress lost after F8 on GitHub runners
 status: To Do
 assignee: []
 created_date: '2026-10-18 18:03'
+updated_date: '2026-10-19 03:51'
 labels:
   - ci
   - flaky
@@ -22,3 +23,9 @@ CI-only intermittent (3 of 7 hosted runs, incl. isolated retry): v1_navigation_i
 - [ ] #1 Root cause identified via a pty_filter CI run with transcript output
 - [ ] #2 Keypress is never dropped; test passes on hosted runners without retry
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-19: reproduced once locally in a full test-all run under load (keyboard ':' after F8 never opened the palette within 8s; the mouse variant passed). In isolation it passed 24/24 (12 runs). Load-dependent, not design-related; the CI retry still covers it.
+<!-- SECTION:NOTES:END -->
