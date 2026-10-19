@@ -205,6 +205,7 @@ fn semantic_colors_canonical_range_selection_and_hunk_keep_narrow_override_notic
         .collect::<Vec<_>>();
     assert!(anchors.len() >= 2);
     let mut app = App::new();
+    app.view = ghtui::app::View::Repository;
     app.workspace = Some(workspace);
     app.repository_selection = Some(DiffSelection {
         start: anchors[0].1.clone(),
@@ -214,11 +215,24 @@ fn semantic_colors_canonical_range_selection_and_hunk_keep_narrow_override_notic
     terminal
         .draw(|frame| {
             let area = frame.area();
-            ghtui::repository_ui::draw(frame, &mut app, area)
+            // The pane above, and the main key bar on the bottom row as the frame paints it.
+            let (pane, bar) = (
+                ratatui::layout::Rect::new(area.x, area.y, area.width, area.height - 1),
+                ratatui::layout::Rect::new(area.x, area.bottom() - 1, area.width, 1),
+            );
+            ghtui::repository_ui::draw(frame, &mut app, pane);
+            let controls = ghtui::footer::main_controls(&app);
+            ghtui::footer::draw(frame, &mut app, bar, &controls);
         })
         .unwrap();
     let text = buffer_text(terminal.backend().buffer());
-    assert!(text.contains("[h Hunk]"));
+    let bar = (0..80)
+        .map(|column| terminal.backend().buffer()[(column, 23)].symbol())
+        .collect::<String>();
+    assert!(
+        bar.contains("h Hunk"),
+        "The Hunk key is on the key bar: {bar}"
+    );
     assert!(text.contains("Original snapshots • replacements: 2 • legacy grafts: present"));
     let hunk = app
         .hits
@@ -900,12 +914,37 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
     let selected =
         terminal.backend().buffer()[(selected_hit.rect.x + 4, selected_hit.rect.y)].modifier;
     assert!(selected.contains(Modifier::REVERSED));
-    assert!(app.hits.iter().any(|hit| {
-        hit.action
-            == Action::RepositoryRow(RowAction::Graph(
-                ghtui::repository_graph_v1::GraphActionV1::Legend,
-            ))
-    }));
+    // The graph Legend is a key-bar control: its key opens the graph legend, and where the
+    // bar paints its token that token is the same action's click target.
+    let legend = Action::RepositoryRow(RowAction::Graph(
+        ghtui::repository_graph_v1::GraphActionV1::Legend,
+    ));
+    let controls = ghtui::footer::main_controls(&app);
+    assert_eq!(
+        ghtui::footer::resolve_key(
+            &controls,
+            crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('l'),
+                crossterm::event::KeyModifiers::NONE
+            )
+        ),
+        Some(legend.clone())
+    );
+    let painted = ghtui::footer::layout(&controls, 120)
+        .into_iter()
+        .any(|placed| controls[placed.index].action == legend);
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            let bar = ratatui::layout::Rect::new(area.x, area.bottom() - 1, area.width, 1);
+            ghtui::footer::draw(frame, &mut app, bar, &controls);
+        })
+        .unwrap();
+    assert_eq!(
+        app.hits.iter().any(|hit| hit.action == legend),
+        painted,
+        "A painted Legend token is clickable; an unpainted one has no stale target"
+    );
     app.settings_theme = ThemeName::NoColor.index();
     app.no_color = true;
     app.hits.clear();
@@ -1075,6 +1114,7 @@ fn semantic_colors_repository_clears_loading_shell_glyphs_before_controls_and_co
     use ratatui::{backend::TestBackend, widgets::Paragraph, Terminal};
     let fixture = git_support::Fixture::linear();
     let mut app = App::new();
+    app.view = ghtui::app::View::Repository;
     app.workspace = Workspace::load(&fixture.root, RepositoryMode::Overview, "HEAD", None).unwrap();
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
@@ -1104,7 +1144,12 @@ fn semantic_colors_repository_clears_loading_shell_glyphs_before_controls_and_co
                 ),
                 frame.area(),
             );
-            ghtui::repository_ui::draw(frame, &mut app, frame.area());
+            // The pane clears all of its own rows; the key bar then takes the bottom row.
+            let area = frame.area();
+            ghtui::repository_ui::draw(frame, &mut app, area);
+            let bar = ratatui::layout::Rect::new(area.x, area.bottom() - 1, area.width, 1);
+            let controls = ghtui::footer::main_controls(&app);
+            ghtui::footer::draw(frame, &mut app, bar, &controls);
         })
         .unwrap();
     let text = buffer_text(terminal.backend().buffer());
@@ -1112,11 +1157,15 @@ fn semantic_colors_repository_clears_loading_shell_glyphs_before_controls_and_co
         !text.contains('Z'),
         "No underlying shell symbols may survive between/after prepared rows"
     );
-    assert!(
-        text.contains("[o Overview]")
-            && text.contains("[C Compare]")
-            && text.contains("Recent commits")
-    );
+    let row = |row: u16| {
+        (0..80)
+            .map(|column| terminal.backend().buffer()[(column, row)].symbol())
+            .collect::<String>()
+    };
+    // The mode tabs lead the pane; Compare is a key-bar token on the bottom row.
+    assert!(row(0).contains("o Overview"), "{}", row(0));
+    assert!(row(23).contains("C Compare"), "{}", row(23));
+    assert!(text.contains("Recent commits"));
     assert!(app.hits.iter().any(|hit| hit.action == Action::Compare));
     assert!(app
         .hits

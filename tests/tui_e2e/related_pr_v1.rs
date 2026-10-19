@@ -266,7 +266,7 @@ fn journey_related(mouse: bool, case: RelatedCase) {
     );
     choose(&mut session, mouse, "[g Graph]", b"g");
     select_original(&mut session, mouse, &source.original);
-    choose(&mut session, mouse, "[a Author]", b"a");
+    choose_key_bar(&mut session, mouse, "[a Author]");
     saved_ready(
         &mut session,
         &source.original,
@@ -796,7 +796,7 @@ fn renamed_line_journey(mouse: bool) {
         ],
         &[],
     );
-    choose(&mut session, mouse, "[a Author]", b"a");
+    choose_key_bar(&mut session, mouse, "[a Author]");
     session.wait_for_screen("Actor profile — Git author");
     choose_repository(&mut session, &fixture, mouse);
     let original_sql = sql(&fixture);

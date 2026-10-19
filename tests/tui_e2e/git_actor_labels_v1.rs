@@ -192,6 +192,34 @@ fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
         session.send_key(key);
     }
 }
+/// A Repository key-bar action such as `[a Author]`: by keyboard its key; by mouse its token
+/// where the settled bar paints it, otherwise its Commands entry (low-priority tokens leave
+/// the bar at narrow widths, yet the same action stays one click path away).
+pub(crate) fn choose_key_bar(session: &mut Session, mouse: bool, label: &str) {
+    choose_key_bar_or_command(session, mouse, label, label);
+}
+/// `choose_key_bar` for a token whose action joins an existing Commands entry with its own
+/// caption (`[l Legend]` is `Inspect Git relationship legend` there).
+pub(crate) fn choose_key_bar_or_command(
+    session: &mut Session,
+    mouse: bool,
+    label: &str,
+    command: &str,
+) {
+    if !mouse {
+        session.choose_control(false, label);
+        return;
+    }
+    session.wait_for_settled_footer();
+    if session
+        .try_wait_for_control(label, Duration::from_millis(500))
+        .is_some()
+    {
+        session.click_visible_action(label);
+    } else {
+        session.invoke_via_palette(true, command);
+    }
+}
 fn saved_ready(session: &mut Session, selected: &str, head: &str, labels: &[&str]) {
     let saved = format!("Saved: {selected}");
     let checkout = format!("HEAD: {head}");
@@ -208,16 +236,12 @@ fn profile(
     expected: &str,
 ) {
     let before = trace(&source.fixture);
-    let (button, key, title) = if author {
-        ("[a Author]", b"a".as_slice(), "Actor profile — Git author")
+    let (button, title) = if author {
+        ("[a Author]", "Actor profile — Git author")
     } else {
-        (
-            "[c Committer]",
-            b"c".as_slice(),
-            "Actor profile — Git committer",
-        )
+        ("[c Committer]", "Actor profile — Git committer")
     };
-    choose(session, mouse, button, key);
+    choose_key_bar(session, mouse, button);
     saved_ready(
         session,
         selected,

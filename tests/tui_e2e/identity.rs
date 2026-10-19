@@ -69,20 +69,12 @@ fn actor_journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     session.wait_for_screen("author Different Author");
     session.wait_for_screen("committer Current Committer");
-    if mouse {
-        session.click_visible_action("[a Author]");
-    } else {
-        session.send_key(b"a");
-    }
+    git_actor_labels_v1::choose_key_bar(&mut session, mouse, "[a Author]");
     session.wait_for_screen("Actor profile — Git author");
     session.wait_for_screen("[DA]");
     session.wait_for_screen("author@example.invalid");
     session.wait_for_screen("GitHub account association: unavailable");
-    if mouse {
-        session.click_visible_action("[c Committer]");
-    } else {
-        session.send_key(b"c");
-    }
+    git_actor_labels_v1::choose_key_bar(&mut session, mouse, "[c Committer]");
     session.wait_for_screen("Actor profile — Git committer");
     session.wait_for_screen("[CC]");
     session.wait_for_screen("committer@example.invalid");
@@ -95,11 +87,7 @@ fn actor_journey(mouse: bool) {
     let original = fixture.git(&["rev-parse", "HEAD^"]);
     session.open_saved_graph_subject(mouse, "Root saved version", original.trim());
     session.wait_for_screen("author First Author");
-    if mouse {
-        session.click_visible_action("[a Author]");
-    } else {
-        session.send_key(b"a");
-    }
+    git_actor_labels_v1::choose_key_bar(&mut session, mouse, "[a Author]");
     session.wait_for_screen("Actor profile — Git author");
     session.wait_for_screen("first@example.invalid");
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
@@ -177,22 +165,28 @@ fn semantic_journey(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
     inspect_graph_and_changed_file(&mut session, mouse, &fixture);
-    if mouse {
-        session.click_visible_action("[l Legend]");
-    } else {
-        session.send_key(b"l");
-    }
+    git_actor_labels_v1::choose_key_bar_or_command(
+        &mut session,
+        mouse,
+        "[l Legend]",
+        "Inspect Git relationship legend",
+    );
     session.wait_for_screen("Git graph legend");
     session.wait_for_screen("never permanent branch identities");
     session.wait_for_screen("+ added");
     session.wait_for_screen("! conflict");
     session.wait_for_screen("✓ passed");
     session.wait_for_screen("Repository loaded • read-only exploration");
+    // Settings leaves a full Repository key bar first; Commands still opens it by mouse.
+    git_actor_labels_v1::choose_key_bar_or_command(
+        &mut session,
+        mouse,
+        "[s Settings]",
+        "Open settings",
+    );
     if mouse {
-        session.click_visible_action("[s Settings]");
         session.click_visible_action("[Theme: Catppuccin Mocha]");
     } else {
-        session.send_key(b"s");
         session.send_key(b"\t\t\r");
     }
     session.wait_for_screen("[Theme: Tokyo Night]");
@@ -214,11 +208,12 @@ fn semantic_journey(mouse: bool) {
     session.wait_for_screen("Settings saved");
     session.resize(80, 24);
     inspect_graph_and_changed_file(&mut session, mouse, &fixture);
-    if mouse {
-        session.click_visible_action("[l Legend]");
-    } else {
-        session.send_key(b"l");
-    }
+    git_actor_labels_v1::choose_key_bar_or_command(
+        &mut session,
+        mouse,
+        "[l Legend]",
+        "Inspect Git relationship legend",
+    );
     session.wait_for_screen("+ added");
     session.wait_for_screen("! conflict");
     session.wait_for_screen("✓ passed");
@@ -323,11 +318,8 @@ fn immutable_overrides_journey(mouse: bool) {
         "The actual narrow redraw stacks actors instead of preserving the old wide right column"
     );
     session.wait_for_screen("new text");
-    if mouse {
-        session.click_visible_action("[m Local operations]");
-    } else {
-        session.send_key(b"m");
-    }
+    // At 80 columns the key bar paints Local operations as its compact `m Git ops`.
+    session.choose_compact(mouse, "[m Local operations]", "[m Git ops]");
     session.wait_for_screen("Local operations • explicit preview and confirmation");
     if mouse {
         session.click_visible_action("Commit staged changes");
@@ -447,11 +439,8 @@ fn raw_ref_override_journey(mouse: bool) {
     assert!(!session.screen().contains("original root bytes"));
     session.resize(80, 24);
     session.wait_for_screen("Original snapshots • replacements: 1 • legacy grafts: absent");
-    if mouse {
-        session.click_visible_action("[m Local operations]");
-    } else {
-        session.send_key(b"m");
-    }
+    // At 80 columns the key bar paints Local operations as its compact `m Git ops`.
+    session.choose_compact(mouse, "[m Local operations]", "[m Git ops]");
     session.wait_for_screen("Local operations • explicit preview and confirmation");
     if mouse {
         session.click_visible_action("Commit staged changes");

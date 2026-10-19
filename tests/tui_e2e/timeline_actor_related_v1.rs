@@ -66,7 +66,7 @@ fn journey(mouse: bool, case: CaseV1) {
     );
     choose(&mut session, mouse, "[g Graph]", b"g");
     select_original(&mut session, mouse, &source.original);
-    choose(&mut session, mouse, "[a Author]", b"a");
+    choose_key_bar(&mut session, mouse, "[a Author]");
     saved_ready(
         &mut session,
         &source.original,
