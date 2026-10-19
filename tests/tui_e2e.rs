@@ -292,6 +292,21 @@ fn delayed_provider_journey(mouse: bool) {
     }
     session.assert_focused_view("Inbox");
     if mouse {
+        // The Inbox title repaints before the key bar: the Search bar's later `Esc Cancel`
+        // column is blank in the Inbox bar, so take coordinates only from the Inbox bar.
+        session
+            .try_wait_for_condition(
+                |screen| {
+                    screen
+                        .lines()
+                        .rev()
+                        .find(|row| !row.trim().is_empty())
+                        .is_some_and(|row| row.contains("r Refresh  s Settings  Esc Cancel"))
+                },
+                "Inbox key bar with Esc Cancel",
+                std::time::Duration::from_secs(8),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
         session.click_visible_action("[Esc Cancel]");
     } else {
         session.send_key(b"\x1b");
