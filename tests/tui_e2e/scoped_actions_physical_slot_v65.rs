@@ -182,7 +182,17 @@ fn navigation(mouse: bool) {
     session.assert_focused_view("Repository");
     session.wait_for_screen("dirty界.txt");
     let before = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[r Refresh]", b"r");
+    // At 80 columns the Repository key bar drops Refresh; the mouse then reaches the same
+    // global Refresh through the command palette.
+    if mouse
+        && session
+            .try_wait_for_control("[r Refresh]", Duration::from_millis(300))
+            .is_none()
+    {
+        session.invoke_via_palette(true, "[r Refresh]");
+    } else {
+        choose(&mut session, mouse, "[r Refresh]", b"r");
+    }
     session.wait_for_new_cursorless_condition(
         before,
         |frame| {

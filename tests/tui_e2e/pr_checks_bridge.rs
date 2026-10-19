@@ -202,7 +202,8 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
     if mouse {
         session.click_visible_action("[Enter Open check]");
     } else {
-        session.focus_visible_action("[Enter Open check]");
+        // `Enter Open check` is a key-bar token: one Enter opens the selected check.
+        session.wait_for_control("[Enter Open check]");
         session.send_key(b"\r");
     }
     session
@@ -439,7 +440,9 @@ fn happy(mouse: bool) {
     session
         .try_wait_for_condition(
             |screen| {
-                screen.contains("[k Checks]") && screen.contains(CHECK) && !screen.contains(LOG)
+                crate::support::controls::text_has_control(screen, "[k Checks]")
+                    && screen.contains(CHECK)
+                    && !screen.contains(LOG)
             },
             "same original PR checks route restored without transport",
             Duration::from_secs(8),

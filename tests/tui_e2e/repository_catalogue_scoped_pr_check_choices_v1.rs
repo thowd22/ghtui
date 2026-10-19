@@ -119,17 +119,16 @@ fn candidate_source(session: &mut Session, fixture: &Fixture, mouse: bool, ambig
     session.wait_for_command_count(fixture, 41);
     ready(
         session,
-        &[
-            "Exact observed build",
-            "Required rules unavailable",
-            "[Enter Open check]",
-        ],
+        &["Exact observed build", "Required rules unavailable"],
     );
     select_observed_row(session, mouse, "Exact observed build");
+    // Open check joins the key bar only once a check row is selected.
+    session.wait_for_control("[Enter Open check]");
     if mouse {
         session.click_visible_action("[Enter Open check]");
     } else {
-        session.focus_visible_action("[Enter Open check]");
+        // `Enter Open check` is a key-bar token: one Enter opens the selected check.
+        session.wait_for_control("[Enter Open check]");
         session.send_key(b"\r");
     }
     session.wait_for_command_count(fixture, if ambiguous { 56 } else { 59 });

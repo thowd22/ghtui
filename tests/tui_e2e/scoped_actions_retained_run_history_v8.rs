@@ -323,14 +323,16 @@ fn open_run_offset_v120(s: &mut Session, f: &Fixture, mouse: bool, offset: usize
             "Required rules unavailable",
             "Exact observed build",
             "ci-actor",
-            "[Enter Open check]",
         ],
     );
     select_observed_row(s, mouse, "Exact observed build");
+    // Open check joins the key bar only once a check row is selected.
+    s.wait_for_control("[Enter Open check]");
     if mouse {
         s.click_visible_action("[Enter Open check]");
     } else {
-        s.focus_visible_action("[Enter Open check]");
+        // `Enter Open check` is a key-bar token: one Enter opens the selected check.
+        s.wait_for_control("[Enter Open check]");
         s.send_key(b"\r");
     }
     s.wait_for_command_count(f, offset + 59);

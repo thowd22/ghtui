@@ -87,7 +87,8 @@ fn search_marker(frame: &vt100::Screen) -> bool {
 
 fn open(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if mouse {
-        let (column, row) = session.locate(label).expect("footer control is painted");
+        // Key-bar tokens: `? Help`, and `: Commands` or its compact `: Cmds` below 100 columns.
+        let (column, row) = session.wait_for_control(label);
         session.click(column, row);
     } else {
         session.send_key(key);

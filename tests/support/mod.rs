@@ -1516,7 +1516,34 @@ impl Session {
                     .unwrap_or(row.len());
                     Some(row[..end].trim().to_owned())
                 });
-                if let Some(caption) = selected.filter(|caption| wanted(caption)) {
+                // When no row is exactly the text, the first selected row whose caption
+                // extends it (`Refresh current view` for `[r Refresh]`) is that command; an
+                // exact row (`Delete run`) always wins over a longer one (`Delete run logs`).
+                let caption_of = |line: &str| {
+                    let row = line.trim_start_matches('│');
+                    let row = row.strip_prefix("> ").or_else(|| row.strip_prefix("  "))?;
+                    let end = [
+                        row.find("  "),
+                        row.find(" [why unavailable]"),
+                        row.find('│'),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .unwrap_or(row.len());
+                    Some(row[..end].trim().to_owned())
+                };
+                let exact_listed = body
+                    .lines()
+                    .filter_map(caption_of)
+                    .any(|caption| wanted(&caption));
+                if let Some(caption) = selected.filter(|caption| {
+                    wanted(caption)
+                        || !exact_listed
+                            && caption
+                                .strip_prefix(text.as_str())
+                                .is_some_and(|rest| rest.starts_with(' '))
+                }) {
                     return format!("> {caption}");
                 }
                 let listed = candidates

@@ -83,7 +83,8 @@ fn open_control(session: &mut Session, mouse: bool) {
     if mouse {
         session.click_visible_action("[Enter Open check]");
     } else {
-        session.focus_visible_action("[Enter Open check]");
+        // `Enter Open check` is a key-bar token: one Enter opens the selected check.
+        session.wait_for_control("[Enter Open check]");
         session.send_key(b"\r");
     }
 }

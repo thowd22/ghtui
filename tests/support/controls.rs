@@ -270,6 +270,18 @@ fn key_tokens(
     rows: std::ops::Range<u16>,
     key: &str,
 ) -> Vec<(String, (u16, u16))> {
+    gapped_key_tokens(screen, rows, key, false)
+}
+
+/// [`key_tokens`]; with `gapped`, only tokens that start a row (after any border and blanks)
+/// or follow a two-space gap, as tab-strip and key-bar tokens do. Prose such as
+/// `next/previous, x clear` never yields `x clear`.
+fn gapped_key_tokens(
+    screen: &vt100::Screen,
+    rows: std::ops::Range<u16>,
+    key: &str,
+    gapped: bool,
+) -> Vec<(String, (u16, u16))> {
     let mut tokens = Vec::new();
     let head = format!("{key} ");
     for row in rows {
@@ -279,6 +291,12 @@ fn key_tokens(
         for (byte, _) in line.match_indices(&head) {
             let before = line[..byte].chars().next_back();
             if !before.is_none_or(|c| c == ' ' || c == '│') {
+                continue;
+            }
+            let lead = line[..byte].trim_start_matches(['│', ' ']);
+            let separated =
+                line[..byte].ends_with("  ") || line[..byte].trim_end_matches(' ').ends_with('│');
+            if gapped && !lead.is_empty() && !separated {
                 continue;
             }
             let rest = &line[byte + head.len()..];
@@ -366,7 +384,7 @@ pub fn compact_control(screen: &vt100::Screen, control: &Control) -> Option<(u16
     let footer = footer_row(screen);
     key_tokens(screen, footer..footer + 1, key)
         .into_iter()
-        .chain(key_tokens(screen, 0..footer, key))
+        .chain(gapped_key_tokens(screen, 0..footer, key, true))
         .find(|(label, _)| compact_matches(label, &full))
         .map(|(_, position)| position)
 }

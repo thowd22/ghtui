@@ -302,7 +302,17 @@ fn routing(mouse: bool) {
     session.assert_focused_view("Repository");
     session.wait_for_screen("dirty界.txt");
     let before = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[r Refresh]", b"r");
+    // At 80 columns the Repository key bar drops Refresh; the mouse then reaches the same
+    // global Refresh through the command palette.
+    if mouse
+        && session
+            .try_wait_for_control("[r Refresh]", Duration::from_millis(300))
+            .is_none()
+    {
+        session.invoke_via_palette(true, "[r Refresh]");
+    } else {
+        choose(&mut session, mouse, "[r Refresh]", b"r");
+    }
     session.wait_for_new_cursorless_condition(
         before,
         |frame| {
@@ -369,9 +379,10 @@ fn routing(mouse: bool) {
         inbox_after,
         |frame| {
             crate::support::main_footer_visible(frame)
+                // The Files tab and the Native diff key-bar token, compact or full.
+                && crate::support::locate_control(frame, "[v Native diff]").is_some()
                 && crate::support::overlay_body(frame, "Inbox • focused view").is_some_and(|body| {
-                    body.contains("[f Files]")
-                        && body.contains("[v Native diff]")
+                    crate::support::controls::text_has_control(&body, "[f Files]")
                         && body.contains("Files: all 1 loaded")
                         && body.contains("File src/界.rs")
                         && body.contains("new-no-newline")
