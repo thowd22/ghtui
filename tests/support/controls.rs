@@ -457,11 +457,19 @@ pub const SELECTION_BAR: &str = "▌";
 pub fn selected_row(frame: &vt100::Screen, pane_title: &str) -> Option<String> {
     let (rows, columns) = frame.size();
     let (title_x, top) = locate_text(frame, pane_title)?;
+    // A panel drawn as a titled rule inside its pane (Repository Files and Commits) starts at
+    // `├`, ends at `┤` and runs until the next rule `├` or the pane's bottom corner.
+    let is = |y: u16, x: u16, corner: Corner, junction: &str| {
+        cell_is_corner(frame, y, x, corner)
+            || frame
+                .cell(y, x)
+                .is_some_and(|cell| cell.contents() == junction)
+    };
     let left = (0..title_x)
         .rev()
-        .find(|x| cell_is_corner(frame, top, *x, Corner::TopLeft))?;
-    let right = (title_x..columns).find(|x| cell_is_corner(frame, top, *x, Corner::TopRight))?;
-    let bottom = (top + 1..rows).find(|y| cell_is_corner(frame, *y, left, Corner::BottomLeft))?;
+        .find(|x| is(top, *x, Corner::TopLeft, "├"))?;
+    let right = (title_x..columns).find(|x| is(top, *x, Corner::TopRight, "┤"))?;
+    let bottom = (top + 1..rows).find(|y| is(*y, left, Corner::BottomLeft, "├"))?;
     let mut selected = None;
     for y in top + 1..bottom {
         if frame.cell(y, left + 1)?.contents() != SELECTION_BAR {

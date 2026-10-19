@@ -659,7 +659,8 @@ pub const OVERVIEW_COLUMNS: [crate::ui_table::Column; 5] = [
         .priority(0),
     crate::ui_table::Column::new("AUTHOR", 6)
         .flex(1)
-        .priority(3),
+        .priority(3)
+        .actor(),
     crate::ui_table::Column::new("AGE", 3).priority(2).right(),
     crate::ui_table::Column::new("DATE", 10).priority(4),
 ];
@@ -699,6 +700,11 @@ pub fn overview_row_v91(
                     crate::theme::Role::TextMuted,
                 ),
             ])
+            // One local actor shows its initials chip and name, like actors in the Inbox and
+            // Actions tables; author and committer that differ keep both roles as text.
+            .with_actor(commit.actor.as_ref().map(|actor| {
+                crate::identity::ActorIdentity::local(actor, crate::identity::GitRole::Author)
+            }))
         }
         None => TableRow::text(row.label.as_str()),
     };

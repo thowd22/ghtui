@@ -241,6 +241,13 @@ pub fn lead(glyphs: bool) -> u16 {
 
 /// The login an actor cell shows after its chip: `@login [bot]` without the `@`.
 pub fn actor_text(identity: &ActorIdentity) -> String {
+    // A local Git actor's cell is its name; the role and email stay in the detail rows.
+    if identity.kind == crate::identity::ActorKind::Local
+        && identity.login.is_none()
+        && !identity.name.trim().is_empty()
+    {
+        return identity.name.clone();
+    }
     let label = identity.label();
     label.strip_prefix('@').map(str::to_owned).unwrap_or(label)
 }

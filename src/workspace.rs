@@ -343,6 +343,8 @@ pub struct CommitCellsV91 {
     pub author: String,
     pub committer: String,
     pub committed: i64,
+    /// The one local actor when author and committer agree, for the AUTHOR initials chip.
+    pub actor: Option<crate::git::GitActor>,
 }
 
 #[derive(Clone, Debug)]
@@ -691,6 +693,9 @@ impl Workspace {
                         author: crate::git_actor_labels_v1::actor_text(&commit.author),
                         committer: crate::git_actor_labels_v1::actor_text(&commit.committer),
                         committed: commit.committer.timestamp,
+                        actor: (commit.author.name == commit.committer.name
+                            && commit.author.email == commit.committer.email)
+                            .then(|| commit.author.clone()),
                     };
                     workspace.push(
                         &label,

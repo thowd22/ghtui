@@ -405,9 +405,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .iter()
             .position(|row| row.action == Some(Line93::Row(selected)));
         let focused = list_focused && position.is_some();
-        let block = pane_block(theme, &[&title], focused);
+        // A panel is a titled rule inside the Repository pane, not a box nested in its frame
+        // (`│╭─`/`╯││`): the rule meets the pane's side borders as `├`/`┤` junctions, and the
+        // row a bottom border would take separates the panels.
+        let block = pane_block(theme, &[&title], focused).borders(ratatui::widgets::Borders::TOP);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
+        join_rule(frame, rect);
         let visible = usize::from(inner.height);
         let top = &mut state.tops[panel.index()];
         let geometry =
@@ -466,6 +470,23 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // Views opened from here (the graph) size their first viewport from the whole body.
     app.repository_visible_rows = usize::from(area.height);
     app.hits.extend(hits);
+}
+
+/// Turns the pane border cells beside a panel rule at `rect.y` into `├`/`┤` junctions.
+fn join_rule(frame: &mut Frame, rect: Rect) {
+    let screen = frame.area();
+    let buffer = frame.buffer_mut();
+    for (x, junction) in [
+        (rect.x.checked_sub(1), "├"),
+        (Some(rect.right()).filter(|x| *x < screen.right()), "┤"),
+    ] {
+        let Some(x) = x else { continue };
+        if let Some(cell) = buffer.cell_mut((x, rect.y)) {
+            if cell.symbol() == "│" {
+                cell.set_symbol(junction);
+            }
+        }
+    }
 }
 
 /// The wheel over a panel scrolls that panel only. Returns whether the event was used.

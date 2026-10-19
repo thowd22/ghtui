@@ -151,7 +151,18 @@ pub fn compact_scope(text: &str, width: u16) -> String {
         return crate::local_identity_readability_v1::compact_context(text, width);
     };
     let lead = format!("{lead} / …");
-    let budget = cells.saturating_sub(crate::editor::display_width(&lead));
+    // Restoring a whole ` / ` separator can add a cell, so the tail shrinks until it all fits.
+    let mut budget = cells.saturating_sub(crate::editor::display_width(&lead));
+    loop {
+        let scope = scope_with_tail(text, lead.clone(), budget);
+        if budget == 0 || crate::editor::display_width(&scope) <= cells {
+            return scope;
+        }
+        budget -= 1;
+    }
+}
+
+fn scope_with_tail(text: &str, lead: String, budget: usize) -> String {
     let mut tail = Vec::new();
     let mut used = 0;
     for grapheme in text.graphemes(true).rev() {

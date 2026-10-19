@@ -155,10 +155,22 @@ fn design_frames_v89_compact_scope_keeps_account_and_specific_end() {
         compact_scope(run, 46),
         "github.com / @octocat / … / run 7 / abcdef0"
     );
+    // One cell narrower, the restored ` / ` would overflow, so the run level is dropped
+    // whole rather than drawn past the width.
     assert_eq!(
         compact_scope(run, 42),
-        "github.com / @octocat / … / run 7 / abcdef0"
+        "github.com / @octocat / … / abcdef0"
     );
+    // A tail cut just after a `/` restores the whole ` / ` and still fits its width, so the
+    // right title never runs into the left one.
+    let runs = "github.com / @octocat / octocat/ghtui / Runs / repository octocat/ghtui";
+    for width in 40..=60 {
+        let compact = compact_scope(runs, width);
+        assert!(
+            crate::editor::display_width(&compact) <= usize::from(width),
+            "{width}: {compact}"
+        );
+    }
 }
 
 #[test]

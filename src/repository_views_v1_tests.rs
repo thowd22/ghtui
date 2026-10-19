@@ -269,6 +269,7 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
     assert_eq!(cells.id, head);
     assert_eq!(cells.subject, "Second note");
     assert_eq!(cells.actors, "Fixture Author");
+    assert_eq!(cells.actor.as_ref().unwrap().name, "Fixture Author");
     assert_eq!(cells.authored, seconds);
     let mut app = crate::app::App {
         view: crate::app::View::Repository,
@@ -323,7 +324,8 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
             "{screen}"
         );
         assert!(!selected.contains(&head[..8]), "{selected}");
-        assert!(selected.contains("Fixture Author"), "{selected}");
+        // The AUTHOR cell is the initials chip and the name (cut with `…` at 80 columns).
+        assert!(selected.contains("FA Fixture Aut"), "{selected}");
         // In the Recent commits panel (TASK-93) the long subject is cut with an ellipsis,
         // never wrapped; at 140 the preview beside the panels takes the rest of the width.
         assert!(
@@ -359,7 +361,13 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         assert_eq!(usize::from(hit.rect.y), *y);
         assert_eq!(buffer[(hit.rect.x, hit.rect.y)].symbol(), "▌");
         assert_eq!(buffer[(hit.rect.x, hit.rect.y)].fg, accent);
+        // The AUTHOR cell is the local actor's initials chip and name, as in Inbox/Actions;
+        // the chip keeps its own colors, every other cell sits on the Selection background.
+        let chip = crate::editor::display_width(&selected[..selected.find("FA Fixture").unwrap()]);
         for x in hit.rect.x..hit.rect.right() {
+            if (chip..chip + 2).contains(&usize::from(x)) {
+                continue;
+            }
             let cell = &buffer[(x, hit.rect.y)];
             assert_eq!(cell.bg, selection, "x={x}\n{screen}");
             assert!(!cell.modifier.contains(ratatui::style::Modifier::REVERSED));

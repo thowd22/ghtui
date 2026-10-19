@@ -985,8 +985,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         body.height.saturating_sub(header_rows),
     );
     // The shared list plus preview threshold (TASK-92); `available` is inside the pane border.
-    let panels = if available.width + 2 >= crate::ui_chrome::SPLIT_MIN_WIDTH {
+    let side_by_side = available.width + 2 >= crate::ui_chrome::SPLIT_MIN_WIDTH;
+    let panels = if side_by_side {
+        // One blank column keeps the results' ellipses off the preview's rule.
         Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
+            .spacing(1)
             .split(available)
     } else {
         Layout::vertical([
@@ -1140,13 +1143,33 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         });
     if let Some(preview) = preview {
         app.search_controls.preview_rect = panels[1];
+        // Beside the list a left rule separates the preview; below it (drill-down widths) a
+        // top rule does, so no stray `│` doubles the pane border.
+        let (borders, pad) = if side_by_side {
+            (Borders::LEFT, 2)
+        } else {
+            (Borders::TOP, 1)
+        };
         frame.render_widget(
             Block::default()
-                .borders(Borders::LEFT)
-                .title(format!(" Preview {} ", safe_text(&preview.title))),
+                .borders(borders)
+                .border_style(app.theme().role(crate::theme::Role::Border))
+                .title(crate::ui_chrome::fit(
+                    &format!(
+                        "{} Preview {} ",
+                        if side_by_side { "" } else { "─" },
+                        safe_text(&preview.title)
+                    ),
+                    usize::from(panels[1].width.saturating_sub(2)),
+                )),
             panels[1],
         );
-        let inner = panels[1].inner(ratatui::layout::Margin::new(1, 0));
+        let inner = Rect::new(
+            panels[1].x + pad.min(panels[1].width),
+            panels[1].y,
+            panels[1].width.saturating_sub(pad + 1),
+            panels[1].height,
+        );
         if let Some((host, role, actor)) = remote_actor {
             let label = if role.starts_with("repository owner") {
                 "Owner (not author): "
