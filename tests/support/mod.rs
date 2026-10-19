@@ -461,7 +461,8 @@ impl Session {
         let timeout = std::time::Duration::from_secs(8);
         self.wait_for_cursorless_condition(
             |frame| {
-                frame.contents().contains("[Home First loaded]")
+                (locate_control(frame, "[Home First loaded]").is_some()
+                    || locate_control(frame, "[Home First]").is_some())
                     && locate_control(frame, "[Esc Cancel]").is_none()
             },
             "completed original graph before selecting a loaded member",
@@ -469,7 +470,16 @@ impl Session {
         );
         let before_home = self.completed_cursorless_end();
         if mouse {
-            self.click_visible_action("[Home First loaded]");
+            // Below 100 columns the key bar shows the compact `Home First`.
+            let label = if self
+                .completed_cursorless_screen()
+                .is_some_and(|frame| locate_control(frame, "[Home First loaded]").is_some())
+            {
+                "[Home First loaded]"
+            } else {
+                "[Home First]"
+            };
+            self.click_visible_action(label);
         } else {
             self.send_key(b"\x1b[H");
         }
@@ -551,8 +561,12 @@ impl Session {
                         .contents()
                         .contains("Repository loaded • read-only exploration")
                     && locate_control(frame, "[Esc Cancel]").is_none()
-                    && locate_screen(frame, "[g Graph]").is_some_and(|(column, row)| {
-                        frame.cell(row, column).is_some_and(|cell| cell.inverse())
+                    // The Graph mode tab is the selected one: filled (bold) or reversed
+                    // without color, unlike the muted labels of the other tabs.
+                    && locate_screen(frame, " g Graph ").is_some_and(|(column, row)| {
+                        frame
+                            .cell(row, column + 3)
+                            .is_some_and(|cell| cell.inverse() || cell.bold())
                     })
             },
             "exact graph member opened and original read completed",
@@ -1401,6 +1415,17 @@ impl Session {
             .key_bytes()
             .unwrap_or_else(|| panic!("Control {label:?} names no key; pass one to choose"));
         self.choose(mouse, label, &key);
+    }
+
+    /// `choose_control` for a key-bar token whose label compacts below 100 columns, such as
+    /// `[v Native diff]` painted as `v Diff` at 80 columns. The terminal width picks the label.
+    pub fn choose_compact(&mut self, mouse: bool, full: &str, compact: &str) {
+        let label = if self.parser.screen().size().1 < 100 {
+            compact
+        } else {
+            full
+        };
+        self.choose_control(mouse, label);
     }
 
     /// Explicit opt-in for actions that live only in the command palette:

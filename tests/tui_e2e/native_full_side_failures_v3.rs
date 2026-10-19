@@ -81,7 +81,7 @@ fn cancel(mouse: bool) {
     observer(&native);
     let mut session = launch(&native, mouse);
     open_comparison(&native, &mut session, mouse, true);
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     patch(&mut session, SAVED, "uppercase actual target");
     show(&mut session, mouse, "New");
     until(
@@ -140,7 +140,7 @@ fn cancel(mouse: bool) {
     );
     gone(&mut session, &pair.0);
     gone(&mut session, &pair.1);
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     patch(&mut session, SAVED, "uppercase actual target");
     show(&mut session, mouse, "New");
     full(&mut session, "New", "uppercase actual target");
@@ -157,13 +157,13 @@ fn stale(mouse: bool) {
     choose(&mut session, mouse, "[w Working]", b"w");
     session.wait_for_cursorless_condition(
         |frame| {
-            frame.contents().contains("[v Native diff]")
+            (frame.contents().contains("v Native diff") || frame.contents().contains("v Diff  "))
                 && frame.contents().contains("user dirty bytes")
         },
         "actual Working comparison",
         Duration::from_secs(8),
     );
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     patch(&mut session, LOCAL, "user dirty bytes");
     show(&mut session, mouse, "New");
     full(&mut session, "New", "user dirty bytes");

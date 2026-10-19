@@ -125,8 +125,19 @@ pub fn saved_graph_position(
     }
     let body = bounds.top + 1..bounds.bottom;
     let columns = bounds.left + 1..bounds.right;
-    let (graph_x, graph_y) = unique_position(frame, "[g Graph]", body.clone(), columns.clone())?;
-    if !frame.cell(graph_y, graph_x)?.inverse() {
+    // The selected Graph mode: a reversed bracketed button, or the selected tab of the
+    // Repository tab strip (its label filled bold, or reversed without color).
+    let graph_selected = match unique_position(frame, "[g Graph]", body.clone(), columns.clone()) {
+        Some((graph_x, graph_y)) => frame.cell(graph_y, graph_x)?.inverse(),
+        None => {
+            let (graph_x, graph_y) =
+                unique_position(frame, " g Graph ", body.clone(), columns.clone())?;
+            frame
+                .cell(graph_y, graph_x + 3)
+                .is_some_and(|cell| cell.inverse() || cell.bold())
+        }
+    };
+    if !graph_selected {
         return None;
     }
     let (x, y) = unique_position(frame, subject, body, columns)?;

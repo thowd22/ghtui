@@ -627,6 +627,8 @@ fn commands_v2(session: &mut Session, mouse: bool, narrow: bool) {
             } else {
                 "[Commands]"
             }
+        } else if session.screen().contains(": Cmds") {
+            "[: Cmds]"
         } else {
             "[: Commands]"
         });
@@ -1226,8 +1228,7 @@ fn cancel_descendant(mouse: bool) {
 
     session.wait_for_cursorless_condition(
         |frame| {
-            frame.contents().contains("Saved file tree")
-                && !frame.contents().contains("[Esc Cancel]")
+            frame.contents().contains("Saved file tree") && !frame.contents().contains("Esc Cancel")
         },
         "Close retires original loading without leaving a disabled tree",
         Duration::from_secs(8),

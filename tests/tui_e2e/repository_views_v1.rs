@@ -124,7 +124,7 @@ fn journey(mouse: bool) {
     select_row(&mut session, mouse, "· main.rs");
     session.wait_for_screen("src/main.rs at saved version");
     session.wait_for_screen("fn main() {}");
-    session.wait_for_screen("[u Back to tree]");
+    session.wait_for_control("[u Back to tree]");
     // Keyboard uses Esc; the mouse clicks the visible Back control.
     choose(&mut session, mouse, "[u Back to tree]", b"\x1b");
     session.wait_for_screen("Saved file tree");
@@ -147,6 +147,129 @@ fn journey(mouse: bool) {
     assert_eq!(
         fs::read(fixture.repo().join("src/main.rs")).unwrap(),
         b"uncommitted edit\n"
+    );
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+const REPOSITORY_PANE: &str = "Repository • focused view";
+
+fn last_row(session: &Session) -> String {
+    session
+        .screen()
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[test]
+fn design_footer_v90_keyboard_repository_tabs_key_bar_and_disabled_keys() {
+    key_bar(false);
+}
+
+#[test]
+fn design_footer_v90_mouse_repository_tabs_key_bar_and_disabled_keys() {
+    key_bar(true);
+}
+
+/// TASK-90 on the actual executable: the Repository modes are one tab row, its actions are
+/// `key label` tokens in the bottom key bar (compact at 80x24), a disabled key explains itself
+/// and a key dropped for width still works. Browsing never changes the repository.
+fn key_bar(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("notes.txt", b"first note\nsecond line\n", "First note");
+    fs::write(
+        fixture.repo().join("notes.txt"),
+        b"first note\nchanged line\n",
+    )
+    .unwrap();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let index = fs::read(fixture.repo().join(".git/index")).unwrap();
+    let status = fixture.git(&["status", "--porcelain=v2"]);
+
+    let mut session = Session::launch(&fixture, 140, 42);
+    session.wait_for_screen("Recent commits");
+    session.wait_for_control("[m Local operations]");
+    let screen = session.screen();
+    // The bracketed toolbar rows above the content are gone.
+    for old in ["[o Overview]", "[l Legend]", "[C Compare]", "[J Jump]"] {
+        assert!(!screen.contains(old), "{old} still painted\n{screen}");
+    }
+    for tab in [
+        " o Overview ",
+        " g Graph ",
+        " t Tree ",
+        " w Working ",
+        " e All edits ",
+    ] {
+        assert!(screen.contains(tab), "{tab} tab missing\n{screen}");
+    }
+    let footer = last_row(&session);
+    for token in [
+        "+ Stage",
+        "K Commit",
+        "C Compare",
+        "m Local operations",
+        "l Legend",
+        "a Author",
+        "c Committer",
+    ] {
+        assert!(footer.contains(token), "{token} not in {footer:?}");
+    }
+    assert!(footer.trim_end().ends_with("? Help  : Commands  q Quit"));
+
+    // Jump needs a saved tree: its token is not painted and its key explains why.
+    session.assert_control_absent("[J Jump]");
+    session.press_disabled_key(b"J", "Choose an original immutable Tree");
+    if mouse {
+        session.close_overlay_by_mouse("Action unavailable");
+    } else {
+        session.close_overlay_by_key("Action unavailable");
+    }
+
+    // A mode tab and a key-bar token act like their keys.
+    choose(&mut session, mouse, "[w Working]", b"w");
+    session.wait_for_screen("+changed line");
+    session.wait_for_control("[h Hunk]");
+    session.choose_control(mouse, "[m Local operations]");
+    session.wait_for_screen("Local operations • explicit preview");
+    session.close_overlay_by_key("Local operations • explicit preview");
+
+    // 80x24: compact labels; Compare left the bar but its key still opens the form.
+    session.resize_owned_footer(
+        80,
+        24,
+        REPOSITORY_PANE,
+        &[
+            "[h Hunk]",
+            "[m Git ops]",
+            "[? Help]",
+            "[: Cmds]",
+            "[q Quit]",
+        ],
+    );
+    session.assert_control_absent("[C Compare]");
+    session.send_key(b"C");
+    session.wait_for_screen("Compare two saved versions");
+    session.send_key(b"\x1b");
+    session
+        .try_wait_for_condition(
+            |screen| !screen.contains("Compare two saved versions"),
+            "comparison form closed",
+            Duration::from_secs(8),
+        )
+        .unwrap();
+    choose(&mut session, mouse, "[i Staged]", b"i");
+    session.wait_for_screen("Staged for the next commit");
+
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2"]), status);
+    assert_eq!(
+        fs::read(fixture.repo().join("notes.txt")).unwrap(),
+        b"first note\nchanged line\n"
     );
     assert!(session.inspect_command_journal(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);

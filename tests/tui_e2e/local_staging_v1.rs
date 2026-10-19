@@ -60,7 +60,7 @@ fn journey(mouse: bool) {
     press(&mut session, mouse, "[w Working]", b"w");
     session.wait_for_screen("+first");
     session.wait_for_screen("+second");
-    session.wait_for_screen("[+ Stage]");
+    session.wait_for_control("[+ Stage]");
     if mouse {
         session.click_visible_action("+first");
         session.click_visible_action("[h Hunk]");
@@ -117,13 +117,11 @@ fn journey(mouse: bool) {
     session.wait_for_screen("Staged for the next commit");
     session.wait_for_screen("+first");
     if mouse {
-        // The direct controls only paint when they fit; the hunk control and
-        // the Local operations route stay clickable.
-        assert!(!session.screen().contains("[- Unstage]"));
+        // The key bar keeps the direct staging keys at 80 columns.
+        session.wait_for_control("[- Unstage]");
         session.click_visible_action("+first");
         session.click_visible_action("[h Hunk]");
         session.wait_for_screen("Selected hunk");
-        session.resize(120, 40);
         session.click_visible_action("[- Unstage]");
     } else {
         session.send_key(b"\x1b[B-");

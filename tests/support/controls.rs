@@ -241,6 +241,25 @@ pub fn locate_control(screen: &vt100::Screen, label: &str) -> Option<(u16, u16)>
         .or_else(|| footer_control(screen, &control))
         .or_else(|| compact_control(screen, &control))
         .or_else(|| tab_control(screen, &control))
+        .or_else(|| padded_tab_control(screen, &control))
+}
+
+/// A padded mode tab (` w Working `) in the tab strip: a keyed `key text` token padded like a
+/// tab, above the key bar. Only keyed labels qualify, so plain body prose never matches.
+fn padded_tab_control(screen: &vt100::Screen, control: &Control) -> Option<(u16, u16)> {
+    control.key.as_ref()?;
+    let token = format!(" {} ", control.footer_form());
+    (0..footer_row(screen)).find_map(|row| {
+        let (line, starts) = row_text(screen, row)?;
+        let byte = line.find(&token)?;
+        let before = line[..byte].chars().next_back();
+        // Tabs start at the pane edge or after another tab's gap.
+        before
+            .is_none_or(|character| matches!(character, ' ' | '│' | '|'))
+            .then(|| column_at(&starts, byte + 1))
+            .flatten()
+            .map(|column| (column, row))
+    })
 }
 
 /// Every whole `key label` token in `rows`: it starts at the row edge, after a space or a

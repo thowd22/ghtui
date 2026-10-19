@@ -43,7 +43,7 @@ fn open_local(native: &Native, session: &mut Session, mouse: bool, staged: bool)
         session,
         before,
         |screen| {
-            screen.contains("[v Native diff]")
+            (screen.contains("v Native diff") || screen.contains("v Diff  "))
                 && screen.contains("user staged bytes")
                 && screen.contains(if staged {
                     "saved checkout tracked"
@@ -54,7 +54,7 @@ fn open_local(native: &Native, session: &mut Session, mouse: bool, staged: bool)
         "loaded genuine Working/Staged comparison before native entry",
     );
     let count = starts(native).len();
-    choose(session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     ready(session, "user staged bytes");
     assert_eq!(
         starts(native).len() - count,
@@ -286,7 +286,7 @@ fn journey(mouse: bool) {
             |screen| {
                 screen.contains("Native local diff closed")
                     && !screen.contains(LOCAL_TITLE)
-                    && screen.contains("[v Native diff]")
+                    && (screen.contains("v Native diff") || screen.contains("v Diff  "))
             },
             "completed exact native local Close returns loaded comparison",
         );

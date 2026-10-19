@@ -435,7 +435,7 @@ fn open_comparison(native: &Native, session: &mut Session, mouse: bool, proposed
 }
 fn picker(native: &Native, session: &mut Session, mouse: bool, proposed: bool) {
     let before = starts(native).len();
-    choose(session, mouse, "[f Changed files]", b"f");
+    session.choose_compact(mouse, "[f Changed files]", "[f Files]");
     session.wait_for_screen(TITLE);
     session.wait_for_screen("Complete original comparison");
     session.wait_for_screen("[O Open old]");
@@ -500,7 +500,7 @@ fn open_side(
 }
 fn back(native: &Native, session: &mut Session, mouse: bool) {
     let before = starts(native).len();
-    choose(session, mouse, "[u Back to comparison]", b"u");
+    session.choose_compact(mouse, "[u Back to comparison]", "[u Back]");
     session.wait_for_screen("Saved comparison • actual Old/New content");
     session.wait_for_screen(&native.b);
     assert_eq!(starts(native).len(), before);
@@ -551,7 +551,7 @@ fn proposed(mouse: bool) {
     choose(&mut session, mouse, "[H History]", b"H");
     session.wait_for_screen("File history — chosen saved version");
     session.wait_for_screen(&native.b);
-    choose(&mut session, mouse, "[u File back]", b"u");
+    session.choose_compact(mouse, "[u File back]", "[u Back]");
     session.wait_for_screen("Original new saved file");
     back(&native, &mut session, mouse);
     choose(&mut session, mouse, "3 Search", b"3");
@@ -636,7 +636,7 @@ fn special(mouse: bool) {
     choose(&mut session, mouse, "[d Changes]", b"d");
     session.wait_for_screen("empty starting tree");
     let before = starts(&native).len();
-    choose(&mut session, mouse, "[f Changed files]", b"f");
+    session.choose_compact(mouse, "[f Changed files]", "[f Files]");
     session.wait_for_screen(TITLE);
     session.wait_for_screen("Complete original comparison");
     assert_eq!(
@@ -1027,7 +1027,7 @@ esac
     session.resize(80, 24);
     session.wait_for_screen("Saved comparison • actual Old/New content");
     session.resize(120, 40);
-    session.wait_for_screen("[f Changed files]");
+    session.wait_for_control("[f Changed files]");
     assert_eq!(starts(&native).len(), completed);
     assert!(!session.screen().contains("Original old saved file"));
     effects(&native, &session);
@@ -1126,7 +1126,7 @@ esac
     choose(&mut session, mouse, "2 Repository", b"2");
     session.wait_for_screen("Saved comparison • actual Old/New content");
     let before = starts(&native).len();
-    choose(&mut session, mouse, "[f Changed files]", b"f");
+    session.choose_compact(mouse, "[f Changed files]", "[f Files]");
     session.wait_for_screen(TITLE);
     assert!(alive(&tree_pid) && alive(&tree_descendant) && alive(&gh_pid));
     assert_eq!(starts(&native).len(), before);

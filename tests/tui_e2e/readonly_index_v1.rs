@@ -87,14 +87,14 @@ fn open(native: &Native, session: &mut Session, mouse: bool, staged: bool) {
         if staged { b"i" } else { b"w" },
     );
     ack(session, before, |s| {
-        s.contains("[v Native diff]")
+        (s.contains("v Native diff") || s.contains("v Diff  "))
             && s.contains(if staged {
                 "staged eligible bytes"
             } else {
                 "working tracked bytes"
             })
     });
-    choose(session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     ready(
         session,
         if staged {
@@ -243,7 +243,7 @@ fn journey(mouse: bool) {
         ack(&mut session, after, |s| {
             s.contains("Native local diff closed")
                 && !s.contains(LOCAL)
-                && s.contains("[v Native diff]")
+                && (s.contains("v Native diff") || s.contains("v Diff  "))
         });
         check(&native, &session, &before);
     }

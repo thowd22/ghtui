@@ -369,6 +369,13 @@ pub fn main_controls(app: &App) -> Vec<KeyControl> {
             crate::actions_ui::footer_keys(app.actions.as_ref().unwrap())
         }
         (crate::app::View::Inbox, _) if inbox_adapter(app) => crate::github_ui::footer_keys(app),
+        (crate::app::View::Repository, _)
+            if app.overlay.is_none()
+                && app.workspace.is_some()
+                && app.remote_repository.is_none() =>
+        {
+            crate::repository_ui::footer_keys(app)
+        }
         _ => transitional_keys(app),
     };
     controls.extend(global_tail(app));

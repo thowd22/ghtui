@@ -6,7 +6,14 @@ use crate::{
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+use ratatui::{backend::TestBackend, Terminal};
+
+fn row_text(terminal: &Terminal<TestBackend>, y: u16) -> String {
+    let buffer = terminal.backend().buffer();
+    (0..buffer.area.width)
+        .map(|x| buffer[(x, y)].symbol())
+        .collect()
+}
 
 #[test]
 fn staging_repository_toolbar_v2_full_hunk_hit_and_key_mouse_canonical_effect_at80_120() {
@@ -30,19 +37,29 @@ fn staging_repository_toolbar_v2_full_hunk_hit_and_key_mouse_canonical_effect_at
         };
         let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
         terminal
-            .draw(|frame| super::draw(frame, &mut app, Rect::new(1, 3, width - 2, 18)))
+            .draw(|frame| crate::ui::draw(frame, &mut app))
             .unwrap();
+        // The bracketed toolbar rows are gone: Hunk is a key-bar token in the last row.
         let hit = app
             .hits
             .iter()
             .find(|hit| hit.action == Action::RepositoryHunk)
             .unwrap()
             .clone();
+        assert_eq!(hit.rect.y, 23, "Hunk lives in the key bar at {width}");
         let painted = (hit.rect.x..hit.rect.right())
             .map(|x| terminal.backend().buffer()[(x, hit.rect.y)].symbol())
             .collect::<String>();
-        assert_eq!(painted, "[h Hunk]");
-        assert!(hit.rect.right() < width);
+        assert_eq!(painted, "h Hunk");
+        assert!(hit.rect.right() <= width);
+        let screen = (0..24)
+            .map(|y| row_text(&terminal, y))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!screen.contains("[h Hunk]"), "{screen}");
+        assert!(!screen.contains("[+ Stage]"), "{screen}");
+        assert!(screen.contains(" w Working "), "{screen}");
+        assert!(row_text(&terminal, 23).contains("+ Stage  - Unstage  K Commit  h Hunk"));
         let mut keyboard = App {
             view: View::Repository,
             workspace: Some(workspace.clone()),
@@ -73,6 +90,132 @@ fn staging_repository_toolbar_v2_full_hunk_hit_and_key_mouse_canonical_effect_at
         );
         assert_eq!(app.status, keyboard.status);
     }
+    assert!(real.children().is_empty());
+    assert_eq!(real.snapshot(), before);
+}
+
+#[test]
+fn design_footer_v90_repository_keys_tabs_and_compaction() {
+    let real = Real::new("sha1");
+    let workspace = Workspace::load(&real.root, RepositoryMode::Working, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    let before = real.snapshot();
+    real.clear_trace();
+    let app = App {
+        view: View::Repository,
+        workspace: Some(workspace.clone()),
+        ..Default::default()
+    };
+    let mut keys = super::footer_keys(&app);
+    keys.extend(crate::footer::global_tail(&app));
+    // Every key appears once, so a key press means exactly one control.
+    let mut seen = std::collections::HashSet::new();
+    assert!(keys.iter().all(|control| seen.insert(control.key.clone())));
+    // Modes are tabs, never footer tokens; their keys still resolve.
+    let tokens = |width: u16| {
+        crate::footer::layout(&keys, width)
+            .into_iter()
+            .map(|placed| keys[placed.index].token(placed.compact))
+            .collect::<Vec<_>>()
+    };
+    let wide = tokens(140);
+    assert!(wide.iter().all(|token| token != "w Working"));
+    for token in [
+        "+ Stage",
+        "- Unstage",
+        "K Commit",
+        "h Hunk",
+        "v Native diff",
+        "C Compare",
+        "m Local operations",
+        "? Help",
+        ": Commands",
+        "q Quit",
+    ] {
+        assert!(
+            wide.iter().any(|placed| placed == token),
+            "{token} in {wide:?}"
+        );
+    }
+    let narrow = tokens(80);
+    assert!(narrow.iter().any(|token| token == "v Diff"), "{narrow:?}");
+    assert!(narrow.iter().any(|token| token == ": Cmds"), "{narrow:?}");
+    for token in ["+ Stage", "- Unstage", "K Commit", "h Hunk", "m Git ops"] {
+        assert!(
+            narrow.iter().any(|placed| placed == token),
+            "{token} in {narrow:?}"
+        );
+    }
+    let total = narrow
+        .iter()
+        .map(|token| token.chars().count())
+        .sum::<usize>()
+        + 2 * narrow.len().saturating_sub(1)
+        + 1;
+    assert!(total <= 80, "{narrow:?}");
+    for (code, expected) in [
+        (
+            KeyCode::Char('w'),
+            Action::RepositoryMode(RepositoryMode::Working),
+        ),
+        (
+            KeyCode::Char('g'),
+            Action::RepositoryMode(RepositoryMode::Graph),
+        ),
+        (KeyCode::Char('h'), Action::RepositoryHunk),
+        (KeyCode::Char('m'), Action::LocalMenu),
+        (KeyCode::Char('C'), Action::Compare),
+        (
+            KeyCode::Char('K'),
+            Action::LocalQuick(crate::local_actions::QuickLocal::Commit),
+        ),
+    ] {
+        assert_eq!(
+            crate::footer::resolve_key(&keys, KeyEvent::new(code, KeyModifiers::NONE)),
+            Some(expected)
+        );
+    }
+    // A disabled key leaves the bar and explains itself.
+    let mut busy = App {
+        view: View::Repository,
+        workspace: Some(workspace),
+        ..Default::default()
+    };
+    busy.loading[View::Repository.index()] = true;
+    let busy_keys = super::footer_keys(&busy);
+    let jump = busy_keys.iter().find(|control| control.key == "J").unwrap();
+    assert!(jump.disabled.is_some());
+    assert!(matches!(
+        crate::footer::resolve_key(
+            &busy_keys,
+            KeyEvent::new(KeyCode::Char('J'), KeyModifiers::NONE)
+        ),
+        Some(Action::Explain(reason)) if reason.contains("Wait")
+    ));
+    assert!(crate::footer::layout(&busy_keys, 140)
+        .iter()
+        .all(|placed| busy_keys[placed.index].key != "J"));
+    // Without a repository the modes still resolve and the actions explain.
+    let empty = App {
+        view: View::Repository,
+        ..Default::default()
+    };
+    let empty_keys = super::footer_keys(&empty);
+    assert_eq!(
+        crate::footer::resolve_key(
+            &empty_keys,
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)
+        ),
+        Some(Action::RepositoryMode(RepositoryMode::Tree))
+    );
+    assert!(matches!(
+        crate::footer::resolve_key(
+            &empty_keys,
+            KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)
+        ),
+        Some(Action::Explain(_))
+    ));
     assert!(real.children().is_empty());
     assert_eq!(real.snapshot(), before);
 }

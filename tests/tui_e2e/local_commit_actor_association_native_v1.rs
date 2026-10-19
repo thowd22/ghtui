@@ -396,7 +396,9 @@ fn journey(mouse: bool, case: Case) {
         );
         choose(&mut session, mouse, "[g Graph]", b"g");
         select_original(&mut session, mouse, &source.original);
-        choose(&mut session, mouse, "[a Author]", b"a");
+        // At 80 columns the Graph keys fill the key bar; the author identity row above the
+        // graph is the same Author target for the mouse.
+        choose(&mut session, mouse, "author ", b"a");
         saved_ready(
             &mut session,
             &source.original,

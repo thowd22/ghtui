@@ -383,7 +383,7 @@ fn stale_journey(mouse: bool) {
             let s = frame.contents();
             !s.contains(PLAN_TITLE)
                 && s.contains("external after preview")
-                && s.contains("[v Native diff]")
+                && (s.contains("v Native diff") || s.contains("v Diff  "))
         },
         "explicit fresh repository inspection after refused stale write",
         Duration::from_secs(8),

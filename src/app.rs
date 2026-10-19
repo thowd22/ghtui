@@ -2908,6 +2908,15 @@ impl App {
                             return;
                         }
                     }
+                    // Keys painted in the key bar (and its mode tabs) resolve exactly like
+                    // their click targets; disabled ones explain. The arms below cover keys
+                    // whose control is not in the bar for the current state.
+                    if let Some(action) =
+                        crate::footer::resolve_key(&crate::repository_ui::footer_keys(self), key)
+                    {
+                        self.dispatch(action);
+                        return;
+                    }
                     if let Some(graph) = self.workspace.as_ref().and_then(|workspace| {
                         crate::repository_graph_ui_v1::key(workspace, key.code)
                     }) {
@@ -2937,24 +2946,6 @@ impl App {
                             crate::workspace::RepositoryMode::Tree,
                         ));
                         return;
-                    }
-                    if key.code == KeyCode::Char('u') {
-                        if let Some(ticket) = self
-                            .workspace
-                            .as_ref()
-                            .and_then(|workspace| {
-                                workspace
-                                    .original_diff_side_v1
-                                    .as_ref()
-                                    .filter(|side| side.visible_for(workspace))
-                            })
-                            .map(|side| side.return_ticket())
-                        {
-                            self.dispatch(Action::RepositoryRow(
-                                crate::workspace::RowAction::OriginalDiffReturn(ticket),
-                            ));
-                            return;
-                        }
                     }
                     let file_action =
                         match key.code {
@@ -2996,12 +2987,6 @@ impl App {
                         self.dispatch(Action::Compare);
                         return;
                     }
-                    if key.code == KeyCode::Char('J') {
-                        self.dispatch(Action::OriginalTreeV1(
-                            crate::repository_tree_jump_v1::OriginalTreeJumpActionV1::Open,
-                        ));
-                        return;
-                    }
                     if key.code == KeyCode::Char('I') {
                         self.dispatch(Action::RepositorySource);
                         return;
@@ -3010,39 +2995,12 @@ impl App {
                         self.dispatch(Action::RepositoryHunk);
                         return;
                     }
-                    if key.code == KeyCode::Char('m') {
-                        self.dispatch(Action::LocalMenu);
-                        return;
-                    }
                     if let Some((quick, _, _)) = crate::local_actions::QuickLocal::CONTROLS
                         .iter()
                         .find(|(_, _, shortcut)| key.code == KeyCode::Char(*shortcut))
                     {
                         self.dispatch(Action::LocalQuick(*quick));
                         return;
-                    }
-                    let identity_action = match key.code {
-                        KeyCode::Char('l') => Some(crate::workspace::RowAction::Legend),
-                        KeyCode::Char('a') => Some(crate::workspace::RowAction::Actor(
-                            crate::identity::GitRole::Author,
-                        )),
-                        KeyCode::Char('c') => Some(crate::workspace::RowAction::Actor(
-                            crate::identity::GitRole::Committer,
-                        )),
-                        _ => None,
-                    };
-                    if let Some(action) = identity_action {
-                        self.dispatch(Action::RepositoryRow(action));
-                        return;
-                    }
-                    if let KeyCode::Char(character) = key.code {
-                        if let Some((mode, _, _)) = crate::workspace::RepositoryMode::ALL
-                            .iter()
-                            .find(|(_, _, key)| *key == character)
-                        {
-                            self.dispatch(Action::RepositoryMode(*mode));
-                            return;
-                        }
                     }
                     if self.repository_content_focused {
                         if key.modifiers.contains(KeyModifiers::SHIFT)

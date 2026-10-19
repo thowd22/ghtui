@@ -113,7 +113,7 @@ fn nested(mouse: bool) {
     choose(&mut session, mouse, "[H History]", b"H");
     session.wait_for_screen("File history — chosen saved version");
     session.wait_for_screen("Rename: history.txt → nested/renamed.txt");
-    choose(&mut session, mouse, "[u File back]", b"u");
+    session.choose_compact(mouse, "[u File back]", "[u Back]");
     session.wait_for_screen("saved nested line 002");
     // Loaded directory/root navigation and collapse use actual original raw
     // member tickets; no filesystem/revision/object read or hidden retry.
@@ -459,7 +459,7 @@ fn cancel_inventory(mouse: bool) {
     session.resize(80, 24);
     session.wait_for_screen("Saved file tree");
     session.resize(120, 40);
-    session.wait_for_screen("[J Jump]");
+    session.wait_for_control("[J Jump]");
     assert_eq!(starts(&native).len(), completed);
     assert!(!session.screen().contains("Complete saved tree"));
     effects(&native, &session);

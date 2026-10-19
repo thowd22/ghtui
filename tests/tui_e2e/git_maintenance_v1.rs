@@ -117,8 +117,9 @@ fn journey(mouse: bool) {
         session.send_key(b"?");
     }
     session.wait_for_screen("Help • keyboard and mouse");
+    // Wait for the restored key bar: while Help is open the bar holds other tokens.
     if mouse {
-        session.click_visible_action("[Esc Close]");
+        session.close_overlay_by_mouse("Help • keyboard and mouse");
     } else {
         session.close_overlay_by_key("Help • keyboard and mouse");
     }

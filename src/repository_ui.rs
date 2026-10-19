@@ -11,16 +11,269 @@ mod repository_views_v1_tests;
 mod toolbar_v2_tests;
 use crate::{
     app::{safe_text, Action, App, HitRegion},
+    footer::{ControlGroup, KeyControl},
     identity::GitRole,
     theme::SemanticToken,
-    workspace::{RepositoryMode, RowAction},
+    workspace::{RepositoryMode, RowAction, Workspace},
 };
+use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
     Frame,
 };
+
+/// The Repository sub-modes, drawn as the tab strip above the content. Their keys resolve
+/// through [`footer_keys`]; the strip leaves out tabs that do not fit, and every mode keeps its
+/// key and Commands entry.
+pub fn mode_controls(current: RepositoryMode) -> Vec<KeyControl> {
+    RepositoryMode::ALL
+        .into_iter()
+        .map(|(mode, label, key)| {
+            let label = if mode == RepositoryMode::Uncommitted {
+                label
+            } else {
+                label.split_whitespace().next().unwrap_or(label)
+            };
+            KeyControl::new(key.to_string(), label, Action::RepositoryMode(mode))
+                .in_group(ControlGroup::Mode)
+                .with_selected(mode == current)
+        })
+        .collect()
+}
+
+const NO_REPOSITORY: &str = "Open a local Git repository first";
+
+/// Whether the visible Graph claims a key first, as its own keys always have.
+fn graph_claims(workspace: &Workspace, key: &str) -> bool {
+    let mut characters = key.chars();
+    match (characters.next(), characters.next()) {
+        (Some(character), None) => {
+            crate::repository_graph_ui_v1::key(workspace, KeyCode::Char(character)).is_some()
+        }
+        _ => false,
+    }
+}
+
+/// The Repository key bar: the mode tabs (strip only), one Back, the actions for the current
+/// diff, graph or file, then the repository-wide actions and Refresh/Settings. Each key appears
+/// once; an unavailable action leaves the bar and its key explains why.
+pub fn footer_keys(app: &App) -> Vec<KeyControl> {
+    let Some(workspace) = app.workspace.as_ref() else {
+        // Nothing is open yet: the modes still choose what to open, and the repository
+        // actions explain why they wait.
+        let mut keys = mode_controls(app.repository_mode);
+        for (key, label) in [
+            ("m", "Local operations"),
+            ("J", "Jump"),
+            ("l", "Legend"),
+            ("a", "Author"),
+            ("c", "Committer"),
+        ] {
+            keys.push(
+                KeyControl::new(key, label, Action::Refresh)
+                    .disabled_by(Some(NO_REPOSITORY.to_string())),
+            );
+        }
+        keys.extend(crate::footer::transitional_keys(app));
+        return keys;
+    };
+    let busy = app.loading[crate::app::View::Repository.index()];
+    let detail = workspace
+        .file_provenance
+        .as_ref()
+        .is_some_and(|state| state.view == crate::workspace::ProvenanceView::Detail);
+    let diff_side = workspace
+        .original_diff_side_v1
+        .as_ref()
+        .filter(|side| side.visible_for(workspace));
+    let saved_comparison = workspace.comparison_v1().is_some_and(|comparison| {
+        matches!(
+            comparison.comparison,
+            crate::git::Comparison::Snapshots { .. }
+                | crate::git::Comparison::BranchChanges { .. }
+                | crate::git::Comparison::CommitChanges { .. }
+        )
+    }) && workspace.file_provenance.is_none();
+    let mutable_comparison = workspace.actor_profile.is_none()
+        && workspace.file_provenance.is_none()
+        && workspace.comparison.as_ref().is_some_and(|comparison| {
+            matches!(
+                comparison.comparison,
+                crate::git::Comparison::Working
+                    | crate::git::Comparison::Staged
+                    | crate::git::Comparison::Uncommitted
+            )
+        });
+    let mut graph = crate::repository_graph_ui_v1::controls(workspace, busy);
+    let mut files = if !saved_comparison
+        && (!workspace.graph_retention_visible_v2()
+            || workspace.graph_view_v1 == crate::repository_graph_v1::GraphViewV1::Timeline)
+    {
+        file_history::controls(workspace, busy)
+    } else {
+        Vec::new()
+    };
+    // One Back, in the order its key has always been answered: the graph comparison, the saved
+    // tree a file came from, the comparison a diff side came from, then the file history.
+    let take_back = |controls: &mut Vec<KeyControl>, tree: bool| {
+        let index = controls
+            .iter()
+            .position(|control| control.key == "u" && (control.label == "Back to tree") == tree)?;
+        Some(controls.remove(index))
+    };
+    let graph_back = take_back(&mut graph, false);
+    let tree_back = take_back(&mut files, true);
+    let file_back = take_back(&mut files, false);
+    let side_back = diff_side.map(|side| {
+        KeyControl::new(
+            "u",
+            "Back to comparison",
+            Action::RepositoryRow(RowAction::OriginalDiffReturn(side.return_ticket())),
+        )
+        .with_compact("Back")
+        .with_priority(5)
+        .in_group(ControlGroup::Navigate)
+    });
+    let mut keys = mode_controls(workspace.mode);
+    keys.extend(
+        graph_back
+            .or(tree_back)
+            .or(side_back)
+            .or(file_back.filter(|_| diff_side.is_none())),
+    );
+    let mut context = Vec::new();
+    // Staging applies to the working tree and index, never to a saved comparison.
+    if workspace.file_provenance.is_none()
+        && workspace.actor_profile.is_none()
+        && !saved_comparison
+        && matches!(
+            workspace.mode,
+            RepositoryMode::Overview
+                | RepositoryMode::Working
+                | RepositoryMode::Staged
+                | RepositoryMode::Uncommitted
+        )
+    {
+        for (priority, (quick, label, key)) in
+            (10u8..).zip(crate::local_actions::QuickLocal::CONTROLS)
+        {
+            context.push(
+                KeyControl::new(key.to_string(), label, Action::LocalQuick(quick))
+                    .with_priority(priority),
+            );
+        }
+    }
+    if matches!(
+        workspace.mode,
+        RepositoryMode::Working | RepositoryMode::Staged
+    ) {
+        context.push(KeyControl::new("h", "Hunk", Action::RepositoryHunk).with_priority(13));
+    }
+    if saved_comparison || mutable_comparison {
+        context.push(
+            KeyControl::new(
+                "v",
+                "Native diff",
+                if mutable_comparison {
+                    Action::NativeMutableDiffV2(
+                        crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
+                    )
+                } else {
+                    Action::NativeDiffV1(
+                        crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
+                    )
+                },
+            )
+            .with_compact("Diff")
+            .with_priority(9),
+        );
+    }
+    if saved_comparison {
+        context.push(
+            KeyControl::new(
+                "f",
+                "Changed files",
+                Action::OriginalDiffSidesV1(
+                    crate::repository_diff_sides_v1::OriginalDiffActionV1::Open,
+                ),
+            )
+            .with_compact("Files")
+            .with_priority(8),
+        );
+    }
+    context.extend(graph);
+    context.extend(files);
+    if diff_side.is_none() && !detail {
+        context.push(KeyControl::new("C", "Compare", Action::Compare).with_priority(24));
+    }
+    let jump = if busy {
+        Some("Wait for the current repository read or cancel first".to_string())
+    } else {
+        crate::git::OriginalTreeIntentV1::available(workspace).err()
+    };
+    context.extend([
+        KeyControl::new("m", "Local operations", Action::LocalMenu)
+            .with_compact("Git ops")
+            .with_priority(7),
+        KeyControl::new(
+            "J",
+            "Jump",
+            Action::OriginalTreeV1(crate::repository_tree_jump_v1::OriginalTreeJumpActionV1::Open),
+        )
+        // Jump is only available in a saved Tree, where it is the main action.
+        .with_priority(12)
+        .disabled_by(jump),
+        KeyControl::new(
+            "l",
+            "Legend",
+            Action::RepositoryRow(
+                if workspace.graph_visible_v1() || graph_claims(workspace, "l") {
+                    RowAction::Graph(crate::repository_graph_v1::GraphActionV1::Legend)
+                } else {
+                    RowAction::Legend
+                },
+            ),
+        )
+        .with_priority(34),
+        KeyControl::new(
+            "a",
+            "Author",
+            Action::RepositoryRow(RowAction::Actor(GitRole::Author)),
+        )
+        .with_priority(36),
+        KeyControl::new(
+            "c",
+            "Committer",
+            Action::RepositoryRow(RowAction::Actor(GitRole::Committer)),
+        )
+        .with_priority(37),
+    ]);
+    for control in context {
+        let claimed = keys.iter().any(|kept| kept.key == control.key)
+            || (!control_is_graph(&control) && graph_claims(workspace, &control.key));
+        if !claimed {
+            keys.push(control);
+        }
+    }
+    // Re-reading the repository after an outside Git change is a daily action: Refresh stays
+    // ahead of the repository-wide keys; Settings still leaves first.
+    keys.extend(crate::footer::transitional_keys(app).into_iter().map(
+        |control| match control.action {
+            Action::Refresh => control.with_priority(25),
+            _ => control,
+        },
+    ));
+    keys
+}
+
+fn control_is_graph(control: &KeyControl) -> bool {
+    matches!(
+        control.action,
+        Action::RepositoryRow(RowAction::Graph(_)) | Action::GraphRereadV3(_)
+    )
+}
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
@@ -34,304 +287,33 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if area.height == 0 || area.width == 0 {
         return;
     }
-    let mut x = area.x;
-    for (mode, label, key) in RepositoryMode::ALL {
-        let label = if mode == RepositoryMode::Uncommitted {
-            let available = area.right().saturating_sub(x);
-            if available >= 13 {
-                "[e All edits]".into()
-            } else if available >= 9 {
-                "[e Edits]".into()
-            } else {
-                // Commands retains the complete clickable/keyboard route at
-                // narrow widths; do not paint a misleading partial new action.
-                continue;
-            }
-        } else {
-            format!(
-                "[{key} {}]",
-                label.split_whitespace().next().unwrap_or(label)
-            )
-        };
-        let rect = Rect::new(
-            x.min(area.right()),
-            area.y,
-            (label.len() as u16).min(area.right().saturating_sub(x)),
-            1,
-        );
-        frame.render_widget(
-            Paragraph::new(label).style(if mode == workspace.mode {
-                theme.selected(SemanticToken::Reference)
-            } else {
-                theme.base()
-            }),
-            rect,
-        );
-        if !rect.is_empty() {
-            app.hits.push(HitRegion {
-                rect,
-                action: Action::RepositoryMode(mode),
-            });
-        }
-        x = x.saturating_add(rect.width + 1);
-    }
-    if area.height < 2 {
-        return;
-    }
-    let mut x = area.x;
-    for (label, action) in [
-        (
-            "[l Legend]",
-            Action::RepositoryRow(if workspace.graph_visible_v1() {
-                RowAction::Graph(crate::repository_graph_v1::GraphActionV1::Legend)
-            } else {
-                RowAction::Legend
-            }),
-        ),
-        (
-            "[a Author]",
-            Action::RepositoryRow(RowAction::Actor(GitRole::Author)),
-        ),
-        (
-            "[c Committer]",
-            Action::RepositoryRow(RowAction::Actor(GitRole::Committer)),
-        ),
-        ("[m Local operations]", Action::LocalMenu),
-        (
-            "[J Jump]",
-            app.workspace.as_ref().map_or_else(
-                || Action::Explain("Open an original immutable Tree first".into()),
-                |workspace| {
-                    if app.loading[crate::app::View::Repository.index()] {
-                        Action::Explain(
-                            "Wait for the current repository read or cancel first".into(),
-                        )
-                    } else {
-                        crate::git::OriginalTreeIntentV1::available(workspace).map_or_else(
-                            Action::Explain,
-                            |_| {
-                                Action::OriginalTreeV1(
-                                    crate::repository_tree_jump_v1::OriginalTreeJumpActionV1::Open,
-                                )
-                            },
-                        )
-                    }
-                },
-            ),
-        ),
-    ] {
-        let rect = Rect::new(
-            x.min(area.right()),
-            area.y + 1,
-            (label.len() as u16).min(area.right().saturating_sub(x)),
-            1,
-        );
-        frame.render_widget(
-            Paragraph::new(label).style(theme.style(SemanticToken::Actor)),
-            rect,
-        );
-        if !rect.is_empty() {
-            app.hits.push(HitRegion { rect, action });
-        }
-        x = x.saturating_add(rect.width + if area.width < 100 { 1 } else { 2 });
-    }
-    if matches!(
-        workspace.mode,
-        RepositoryMode::Working | RepositoryMode::Staged
-    ) {
-        let label = "[h Hunk]";
-        let rect = Rect::new(
-            x.min(area.right()),
-            area.y + 1,
-            (label.len() as u16).min(area.right().saturating_sub(x)),
-            1,
-        );
-        frame.render_widget(
-            Paragraph::new(label).style(theme.style(SemanticToken::Changed)),
-            rect,
-        );
-        if !rect.is_empty() {
-            app.hits.push(HitRegion {
-                rect,
-                action: Action::RepositoryHunk,
-            });
-        }
-        x = x.saturating_add(rect.width + if area.width < 100 { 1 } else { 2 });
-    }
-    // Direct staging/commit controls; the keys work at every width and the
-    // command palette keeps the menu route, so only paint them when all fit.
-    let quick = crate::local_actions::QuickLocal::CONTROLS;
-    let quick_width = quick
+    let busy = app.loading[crate::app::View::Repository.index()];
+    let tabs = mode_controls(workspace.mode);
+    let graph_status = (!crate::repository_graph_ui_v1::controls(workspace, busy).is_empty())
+        .then(|| crate::repository_graph_ui_v1::horizontal_status(workspace));
+    // Row 0: the mode tabs. The graph pan position sits at its right edge when it fits.
+    crate::ui_chrome::tab_strip(frame, app, Rect::new(area.x, area.y, area.width, 1), &tabs);
+    let tabs_width = tabs
         .iter()
-        .map(|(_, label, _)| label.len() as u16 + 1)
-        .sum::<u16>();
-    if workspace.file_provenance.is_none()
-        && workspace.actor_profile.is_none()
-        && matches!(
-            workspace.mode,
-            RepositoryMode::Overview
-                | RepositoryMode::Working
-                | RepositoryMode::Staged
-                | RepositoryMode::Uncommitted
-        )
-        && x.saturating_add(quick_width) <= area.right()
-    {
-        for (quick, label, _) in quick {
-            let rect = Rect::new(x, area.y + 1, label.len() as u16, 1);
+        .map(|tab| crate::editor::display_width(&format!(" {} {} ", tab.key, tab.label)) + 1)
+        .sum::<usize>();
+    let graph_status = graph_status.and_then(|status| {
+        let width = crate::editor::display_width(&status);
+        if tabs_width + 1 + width <= usize::from(area.width) {
+            let width = width as u16;
             frame.render_widget(
-                Paragraph::new(label).style(theme.style(SemanticToken::Added)),
-                rect,
+                Paragraph::new(status).style(theme.style(SemanticToken::Muted)),
+                Rect::new(area.right() - width, area.y, width, 1),
             );
-            app.hits.push(HitRegion {
-                rect,
-                action: Action::LocalQuick(quick),
-            });
-            x = x.saturating_add(rect.width + 1);
+            None
+        } else {
+            Some(status)
         }
-    }
+    });
+    let Some(workspace) = app.workspace.as_ref() else {
+        return;
+    };
     if area.height >= 3 {
-        let detail = workspace
-            .file_provenance
-            .as_ref()
-            .is_some_and(|state| state.view == crate::workspace::ProvenanceView::Detail);
-        let mut x = area.x;
-        let diff_side = workspace
-            .original_diff_side_v1
-            .as_ref()
-            .filter(|side| side.visible_for(workspace));
-        let saved_comparison = workspace.comparison_v1().is_some_and(|comparison| {
-            matches!(
-                comparison.comparison,
-                crate::git::Comparison::Snapshots { .. }
-                    | crate::git::Comparison::BranchChanges { .. }
-                    | crate::git::Comparison::CommitChanges { .. }
-            )
-        }) && workspace.file_provenance.is_none();
-        if let Some(side) = diff_side {
-            let label = "[u Back to comparison]";
-            let rect = Rect::new(area.x, area.y + 2, (label.len() as u16).min(area.width), 1);
-            frame.render_widget(
-                Paragraph::new(label).style(theme.style(SemanticToken::Reference)),
-                rect,
-            );
-            if !rect.is_empty() {
-                app.hits.push(HitRegion {
-                    rect,
-                    action: Action::RepositoryRow(RowAction::OriginalDiffReturn(
-                        side.return_ticket(),
-                    )),
-                });
-            }
-            x = rect.right().saturating_add(1);
-        } else if !detail {
-            let rect = Rect::new(area.x, area.y + 2, 11.min(area.width), 1);
-            frame.render_widget(
-                Paragraph::new("[C Compare]").style(theme.style(SemanticToken::Changed)),
-                rect,
-            );
-            app.hits.push(HitRegion {
-                rect,
-                action: Action::Compare,
-            });
-            x = rect.right().saturating_add(1);
-        }
-        if saved_comparison {
-            let label = "[f Changed files]";
-            let rect = Rect::new(
-                x.min(area.right()),
-                area.y + 2,
-                (label.len() as u16).min(area.right().saturating_sub(x)),
-                1,
-            );
-            frame.render_widget(
-                Paragraph::new(label).style(theme.style(SemanticToken::Changed)),
-                rect,
-            );
-            if !rect.is_empty() {
-                app.hits.push(HitRegion {
-                    rect,
-                    action: Action::OriginalDiffSidesV1(
-                        crate::repository_diff_sides_v1::OriginalDiffActionV1::Open,
-                    ),
-                });
-            }
-            x = rect.right().saturating_add(1);
-        }
-        let mutable_comparison = workspace.actor_profile.is_none()
-            && workspace.file_provenance.is_none()
-            && workspace.comparison.as_ref().is_some_and(|comparison| {
-                matches!(
-                    comparison.comparison,
-                    crate::git::Comparison::Working
-                        | crate::git::Comparison::Staged
-                        | crate::git::Comparison::Uncommitted
-                )
-            });
-        if saved_comparison || mutable_comparison {
-            let label = "[v Native diff]";
-            let rect = Rect::new(
-                x.min(area.right()),
-                area.y + 2,
-                (label.len() as u16).min(area.right().saturating_sub(x)),
-                1,
-            );
-            frame.render_widget(
-                Paragraph::new(label).style(theme.style(SemanticToken::Changed)),
-                rect,
-            );
-            if !rect.is_empty() {
-                app.hits.push(HitRegion {
-                    rect,
-                    action: if mutable_comparison {
-                        Action::NativeMutableDiffV2(
-                            crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
-                        )
-                    } else {
-                        Action::NativeDiffV1(
-                            crate::repository_native_diff_ui_v1::NativeDiffActionV1::Open,
-                        )
-                    },
-                });
-            }
-            x = rect.right().saturating_add(1);
-        }
-        for control in
-            file_history::controls(workspace, app.loading[crate::app::View::Repository.index()])
-                .into_iter()
-                .filter(|_| {
-                    !saved_comparison
-                        && (!workspace.graph_retention_visible_v2()
-                            || workspace.graph_view_v1
-                                == crate::repository_graph_v1::GraphViewV1::Timeline)
-                })
-                .filter(|control| diff_side.is_none() || control.label != "[u File back]")
-        {
-            let rect = Rect::new(
-                x.min(area.right()),
-                area.y + 2,
-                (control.label.len() as u16).min(area.right().saturating_sub(x)),
-                1,
-            );
-            frame.render_widget(
-                Paragraph::new(control.label).style(if control.disabled {
-                    theme.style(SemanticToken::Muted)
-                } else if control.selected {
-                    theme.selected(SemanticToken::Reference)
-                } else {
-                    theme.style(SemanticToken::Reference)
-                }),
-                rect,
-            );
-            if !rect.is_empty() {
-                app.hits.push(HitRegion {
-                    rect,
-                    action: control.action,
-                });
-            }
-            x = x.saturating_add(rect.width + 1);
-        }
-    }
-    if area.height >= 5 {
         if let Some(commit) = &workspace.selected_commit {
             let author =
                 crate::git_actor_labels_v1::display_identity(&commit.author, GitRole::Author);
@@ -340,13 +322,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             let (author_area, committer_area) = if area.width >= 100 {
                 let half = area.width / 2;
                 (
-                    Rect::new(area.x, area.y + 3, half, 2),
-                    Rect::new(area.x + half, area.y + 3, area.width - half, 2),
+                    Rect::new(area.x, area.y + 1, half, 2),
+                    Rect::new(area.x + half, area.y + 1, area.width - half, 2),
                 )
             } else {
                 (
-                    Rect::new(area.x, area.y + 3, area.width, 1),
-                    Rect::new(area.x, area.y + 4, area.width, 1),
+                    Rect::new(area.x, area.y + 1, area.width, 1),
+                    Rect::new(area.x, area.y + 2, area.width, 1),
                 )
             };
             let report = app
@@ -383,15 +365,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(
                 Paragraph::new("No saved version yet — Git actor identity is unavailable")
                     .style(theme.style(SemanticToken::Muted)),
-                Rect::new(area.x, area.y + 3, area.width, 1),
+                Rect::new(area.x, area.y + 1, area.width, 1),
             );
         }
     }
-    if area.height >= 6 {
+    if area.height >= 4 {
         if let Some(source) = &app.repository_source_identity {
             // Full 40/64 IDs remain readable independently of long directories.
             for (index, row) in source.compact().iter().take(2).enumerate() {
-                let y = area.y + 5 + index as u16;
+                let y = area.y + 3 + index as u16;
                 if y < area.bottom() {
                     frame.render_widget(
                         Paragraph::new(row.text.as_str()).style(theme.style(row.role)),
@@ -403,7 +385,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(
                 Paragraph::new(format!("Saved: {}", commit.id))
                     .style(theme.style(SemanticToken::Reference)),
-                Rect::new(area.x, area.y + 5, area.width, 1),
+                Rect::new(area.x, area.y + 3, area.width, 1),
             );
         }
     }
@@ -413,7 +395,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         0
     };
     let history_notice = workspace.status.has_history_overrides();
-    if area.height >= 7 + source_rows && history_notice {
+    if area.height >= 5 + source_rows && history_notice {
         frame.render_widget(
             Paragraph::new(format!(
                 "Original snapshots • replacements: {} • legacy grafts: {}",
@@ -425,11 +407,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             ))
             .style(theme.style(SemanticToken::Changed)),
-            Rect::new(area.x, area.y + 6 + source_rows, area.width, 1),
+            Rect::new(area.x, area.y + 4 + source_rows, area.width, 1),
         );
     }
     let mut content_offset =
-        ((if history_notice { 7u16 } else { 6u16 }) + source_rows).min(area.height);
+        ((if history_notice { 5u16 } else { 4u16 }) + source_rows).min(area.height);
     if workspace.actor_profile.is_some() {
         let control_rows = (if area.width < 100 { 2u16 } else { 1u16 })
             .min(area.height.saturating_sub(content_offset));
@@ -446,23 +428,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             }));
         content_offset += control_rows;
     }
-    content_offset += crate::repository_graph_ui_v1::draw_controls(
-        frame,
-        workspace,
-        &mut app.hits,
-        Rect::new(
-            area.x,
-            area.y + content_offset,
-            area.width,
-            area.height.saturating_sub(content_offset),
-        ),
-        theme,
-        app.loading[crate::app::View::Repository.index()],
-        crate::repository_graph_ui_v1::GraphControlFocusV2 {
-            hit: app.focus,
-            content_focused: app.repository_content_focused,
-        },
-    );
+    if let Some(status) = graph_status.filter(|_| content_offset < area.height) {
+        frame.render_widget(
+            Paragraph::new(status).style(theme.style(SemanticToken::Muted)),
+            Rect::new(area.x, area.y + content_offset, area.width, 1),
+        );
+        content_offset += 1;
+    }
     if let Some(tree) = workspace
         .tree_navigation_v1
         .as_ref()

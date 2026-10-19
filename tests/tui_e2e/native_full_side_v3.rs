@@ -259,7 +259,7 @@ fn saved(mouse: bool) {
     let before = independent(&native);
     let mut session = launch(&native, mouse);
     open_comparison(&native, &mut session, mouse, true);
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     patch(&mut session, SAVED, "line080 TARGET new bytes");
     assert!(!session
         .completed_cursorless_screen()
@@ -430,13 +430,13 @@ fn mutable(mouse: bool) {
     choose(&mut session, mouse, "[w Working]", b"w");
     session.wait_for_cursorless_condition(
         |frame| {
-            frame.contents().contains("[v Native diff]")
+            (frame.contents().contains("v Native diff") || frame.contents().contains("v Diff  "))
                 && frame.contents().contains("user dirty bytes")
         },
         "actual loaded Working source",
         Duration::from_secs(8),
     );
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     patch(&mut session, LOCAL, "user dirty bytes");
     focus(&mut session, mouse, "user dirty bytes");
     choose(&mut session, mouse, "[h Hunk]", b"h");

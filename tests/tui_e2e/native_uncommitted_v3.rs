@@ -80,7 +80,7 @@ fn effects(native: &Native, session: &Session, before: &[Vec<u8>]) {
         ));
 }
 fn palette_entry(session: &mut Session, mouse: bool) {
-    choose(session, mouse, "[: Commands]", b":");
+    session.choose_compact(mouse, "[: Commands]", "[: Cmds]");
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         session.poll_output(Duration::from_millis(1));
@@ -128,7 +128,7 @@ fn open(session: &mut Session, mouse: bool, width: u16, unborn: bool) {
         session,
         before,
         |screen| {
-            screen.contains("[v Native diff]")
+            (screen.contains("v Native diff") || screen.contains("v Diff  "))
                 && screen.contains("All uncommitted tracked edits compared to the saved version")
                 && screen.contains("user dirty bytes")
                 && (unborn || screen.contains("saved checkout tracked"))
@@ -136,7 +136,7 @@ fn open(session: &mut Session, mouse: bool, width: u16, unborn: bool) {
         },
         "actual loaded combined tracked comparison before Native",
     );
-    choose(session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     ready(session, "user dirty bytes");
     assert!(session
         .completed_cursorless_screen()
@@ -231,7 +231,7 @@ fn journey(mouse: bool) {
             |frame| {
                 let screen = frame.contents();
                 screen.contains("Local Git workspace ready")
-                    && screen.contains("[o Overview]")
+                    && screen.contains(" o Overview ")
                     && screen.contains(if unborn {
                         "Untracked"
                     } else {
@@ -244,7 +244,7 @@ fn journey(mouse: bool) {
         if width == 80 {
             session.resize(width, 24);
             session.wait_for_cursorless_condition(
-                |frame| frame.size().1 == width && frame.contents().contains("[: Commands]"),
+                |frame| frame.size().1 == width && frame.contents().contains(": Cmds"),
                 "actual narrow root before All edits palette",
                 Duration::from_secs(8),
             );

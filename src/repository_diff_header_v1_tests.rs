@@ -7,9 +7,7 @@ use ratatui::{backend::TestBackend, Terminal};
 
 fn rendered(app: &mut App, width: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
-    terminal
-        .draw(|frame| super::draw(frame, app, frame.area()))
-        .unwrap();
+    terminal.draw(|frame| crate::ui::draw(frame, app)).unwrap();
     let buffer = terminal.backend().buffer();
     (0..24)
         .map(|y| {
@@ -42,7 +40,14 @@ fn original_diff_sides_header_pins_exact_comparison_while_member_focus_scrolls_a
         let text = rendered(&mut app, width);
         assert!(text.contains("Saved comparison • actual Old/New content"));
         assert!(text.contains("TARGET new bytes"));
-        assert!(text.contains("[f Changed files]"));
+        // Changed files is a key-bar token, compact below 100 columns.
+        let footer = text.lines().last().unwrap();
+        assert!(footer.contains(if width < 100 {
+            " f Files  "
+        } else {
+            " f Changed files  "
+        }));
+        assert!(!text.contains("[f Changed files]"));
         assert!(std::sync::Arc::ptr_eq(
             &source,
             app.workspace
@@ -93,7 +98,12 @@ fn original_diff_sides_header_pins_original_old_title_with_actual_c_body_at80_12
         let text = rendered(&mut app, width);
         assert!(text.contains("Original old saved file"));
         assert!(text.contains("COMMON old bytes"));
-        assert!(text.contains("[u Back to comparison]"));
+        let footer = text.lines().last().unwrap();
+        assert!(footer.starts_with(if width < 100 {
+            " u Back  "
+        } else {
+            " u Back to comparison  "
+        }));
         assert_eq!(app.workspace.as_ref().unwrap().revision, c);
         assert!(std::sync::Arc::ptr_eq(
             &side,

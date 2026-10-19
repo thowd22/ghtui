@@ -126,9 +126,9 @@ pub enum QuickLocal {
 }
 impl QuickLocal {
     pub const CONTROLS: [(Self, &'static str, char); 3] = [
-        (Self::Stage, "[+ Stage]", '+'),
-        (Self::Unstage, "[- Unstage]", '-'),
-        (Self::Commit, "[K Commit]", 'K'),
+        (Self::Stage, "Stage", '+'),
+        (Self::Unstage, "Unstage", '-'),
+        (Self::Commit, "Commit", 'K'),
     ];
     /// Chooses the exact command for the current row or explicit line/hunk
     /// selection. Nothing is guessed from labels.

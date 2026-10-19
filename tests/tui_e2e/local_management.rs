@@ -15,8 +15,7 @@ pub(crate) fn operation(session: &mut Session, mouse: bool, command: LocalComman
         local::operation(session, false, command.label(), index);
         return;
     }
-    session.click_visible_action("[m Local operations]");
-    session.wait_for_screen("Local operations • explicit preview");
+    local::open_local_operations(session, true);
     let mut selected = 0;
     let row_label = format!("  {}", command.label());
     let selected_label = format!("> {}", command.label());

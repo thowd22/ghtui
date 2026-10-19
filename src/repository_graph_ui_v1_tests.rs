@@ -62,75 +62,74 @@ fn commit_graph_v1_controls_wrap_all_same_actions_key_mouse_at120_80_40_without_
     let loaded = workspace(&real);
     let baseline = real.snapshot();
     real.clear_trace();
-    for width in [120, 80, 40] {
-        let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+    let controls = controls(&loaded, false);
+    assert_eq!(
+        controls.len(),
+        12,
+        "Every graph action keeps one key-bar control"
+    );
+    for width in [140, 80, 40] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 2)).unwrap();
         let mut hits = vec![];
         terminal
             .draw(|frame| {
-                let area = frame.area();
-                assert!(
-                    draw_controls(
-                        frame,
-                        &loaded,
-                        &mut hits,
-                        area,
-                        Theme::from_settings(0, false),
-                        false,
-                        GraphControlFocusV2 {
-                            hit: usize::MAX,
-                            content_focused: false
-                        }
-                    ) <= 6
-                );
+                hits = crate::footer::render(
+                    frame,
+                    ratatui::layout::Rect::new(0, 1, width, 1),
+                    Theme::from_settings(0, false),
+                    &controls,
+                    None,
+                )
+                .into_iter()
+                .map(|(rect, action)| crate::app::HitRegion { rect, action })
+                .collect();
             })
             .unwrap();
-        assert_eq!(
-            hits.len(),
-            12,
-            "Every exposed graph control must retain a full hit at width {width}"
-        );
-        for (code, label) in [
-            (KeyCode::Char('<'), "[< Newer loaded]"),
-            (KeyCode::Char('>'), "[> Older loaded]"),
-            (KeyCode::Home, "[Home First loaded]"),
-            (KeyCode::End, "[End Last loaded]"),
-            (KeyCode::Char('x'), "[x Discard graph Back]"),
-            (KeyCode::Char('N'), "[N More history]"),
-            (KeyCode::Char('P'), "[P Parents]"),
-            (KeyCode::Char('D'), "[D Details]"),
-            (KeyCode::Char('l'), "[l Legend]"),
-            (KeyCode::Left, "[← Graph]"),
-            (KeyCode::Right, "[Graph →]"),
+        for (code, token, compact) in [
+            (KeyCode::Char('<'), "< Newer loaded", "< Newer"),
+            (KeyCode::Char('>'), "> Older loaded", "> Older"),
+            (KeyCode::Home, "Home First loaded", "Home First"),
+            (KeyCode::End, "End Last loaded", "End Last"),
+            (KeyCode::Char('x'), "x Discard graph Back", "x Discard"),
+            (KeyCode::Char('N'), "N More history", "N More"),
+            (KeyCode::Char('P'), "P Parents", "P Parents"),
+            (KeyCode::Char('D'), "D Details", "D Details"),
+            (KeyCode::Char('l'), "l Legend", "l Legend"),
+            (KeyCode::Left, "← Graph", "← Graph"),
+            (KeyCode::Right, "→ Graph", "→ Graph"),
         ] {
             let action = key(&loaded, code).unwrap();
             let expected = loaded.graph_action_reason_v1(&action).map_or_else(
                 || Action::RepositoryRow(RowAction::Graph(action)),
                 Action::Explain,
             );
-            let hit = hits
-                .iter()
-                .find(|hit| {
-                    hit.action == expected
-                        && (hit.rect.x..hit.rect.right())
-                            .map(|col| terminal.backend().buffer()[(col, hit.rect.y)].symbol())
-                            .collect::<String>()
-                            == label
-                })
-                .unwrap();
-            let mut painted = String::new();
-            for column in hit.rect.x..hit.rect.right() {
-                painted.push_str(terminal.backend().buffer()[(column, hit.rect.y)].symbol());
-            }
-            assert_eq!(painted, label);
+            let event = KeyEvent::new(code, crossterm::event::KeyModifiers::NONE);
+            assert_eq!(
+                crate::footer::resolve_key(&controls, event),
+                Some(expected.clone()),
+                "The key resolves to its token's action at {width}"
+            );
             let mut keyboard = crate::app::App {
                 view: crate::app::View::Repository,
                 workspace: Some(loaded.clone()),
                 ..Default::default()
             };
-            keyboard.handle_event(crossterm::event::Event::Key(KeyEvent::new(
-                code,
-                crossterm::event::KeyModifiers::NONE,
-            )));
+            keyboard.handle_event(crossterm::event::Event::Key(event));
+            let Some(hit) = hits.iter().find(|hit| hit.action == expected) else {
+                // Disabled or dropped for width: the key still answers, never a dead token.
+                assert!(
+                    width < 140 || matches!(expected, Action::Explain(_)),
+                    "{token} must be painted at {width}"
+                );
+                if matches!(expected, Action::Explain(_)) {
+                    assert_eq!(keyboard.overlay, Some(crate::app::Overlay::Notice));
+                }
+                continue;
+            };
+            let painted = (hit.rect.x..hit.rect.right())
+                .map(|col| terminal.backend().buffer()[(col, hit.rect.y)].symbol())
+                .collect::<String>();
+            assert_eq!(painted, if width < 100 { compact } else { token });
             let mut mouse = crate::app::App {
                 view: crate::app::View::Repository,
                 workspace: Some(loaded.clone()),
@@ -159,18 +158,18 @@ fn commit_graph_v1_original_history_actor_tree_do_not_get_stale_graph_hits_or_ke
     let real = Real::new("sha256");
     let mut loaded = workspace(&real);
     loaded.actor_profile = Some(crate::identity::GitRole::Author);
-    assert!(controls(&loaded).is_empty());
+    assert!(controls(&loaded, false).is_empty());
     assert_eq!(key(&loaded, KeyCode::Char('N')), None);
     loaded.actor_profile = None;
     loaded.mode = RepositoryMode::Tree;
-    assert!(controls(&loaded).is_empty());
+    assert!(controls(&loaded, false).is_empty());
     loaded.mode = RepositoryMode::Graph;
     loaded.file_provenance = Some(crate::workspace::FileProvenance::new(
         real.original.clone(),
         crate::git::RawPath(b"file".to_vec()),
     ));
     loaded.file_provenance.as_mut().unwrap().view = crate::workspace::ProvenanceView::History;
-    assert!(controls(&loaded).is_empty());
+    assert!(controls(&loaded, false).is_empty());
     assert_eq!(key(&loaded, KeyCode::Char('P')), None);
     assert!(line(&loaded, 0, Theme::from_settings(0, false), 40).is_none());
 }

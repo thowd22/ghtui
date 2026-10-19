@@ -249,7 +249,8 @@ fn native_uncommitted_repository_toolbar_and_palette_same_keyboard_mouse_exact_m
     let actual = (hit.rect.x..hit.rect.right())
         .map(|x| terminal.backend().buffer()[(x, hit.rect.y)].symbol())
         .collect::<String>();
-    assert_eq!(actual, "[e All edits]");
+    // The mode is a tab in the Repository tab strip.
+    assert_eq!(actual, " e All edits ");
     let mut key = App {
         view: View::Repository,
         workspace: Some(workspace),
@@ -284,7 +285,7 @@ fn native_uncommitted_repository_toolbar_and_palette_same_keyboard_mouse_exact_m
             let text = (hit.rect.x..hit.rect.right())
                 .map(|x| terminal.backend().buffer()[(x, hit.rect.y)].symbol())
                 .collect::<String>();
-            assert!(matches!(text.as_str(), "[e Edits]" | "[e All edits]"));
+            assert_eq!(text, " e All edits ", "a tab is painted whole or left out");
         }
         let catalogue = crate::navigation_catalogue::PreparedCatalogue::prepare(&app, 42).unwrap();
         let item = catalogue

@@ -1,6 +1,7 @@
 //! Bounded prepared Graph spans and shared action mapping, no graph scan/I/O.
 use crate::{
     app::Action,
+    footer::{ControlGroup, KeyControl},
     repository_graph_v1::{GraphActionV1, GraphViewV1},
     theme::Theme,
     workspace::{RowAction, Workspace},
@@ -9,7 +10,6 @@ use crossterm::event::KeyCode;
 #[path = "repository_graph_navigation_v2.rs"]
 pub(crate) mod navigation_v2;
 use ratatui::text::{Line, Span};
-use ratatui::{layout::Rect, widgets::Paragraph, Frame};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub fn key(workspace: &Workspace, key: KeyCode) -> Option<GraphActionV1> {
@@ -39,7 +39,13 @@ pub fn key(workspace: &Workspace, key: KeyCode) -> Option<GraphActionV1> {
         _ => None,
     }
 }
-pub fn controls(workspace: &Workspace) -> Vec<(&'static str, Action)> {
+/// Why every Graph key waits while the original graph is read.
+pub const BUSY: &str = "Wait for the original graph read, or cancel it first";
+
+/// The Graph key-bar controls in display order. They exist only while a graph projection is
+/// visible; an unavailable action keeps its key and explains itself instead of being painted.
+pub fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
+    use crate::repository_graph_v1::GraphWindowActionV2 as W;
     if workspace.graph_state_v1.is_none()
         || workspace.actor_profile.is_some()
         || workspace
@@ -50,124 +56,104 @@ pub fn controls(workspace: &Workspace) -> Vec<(&'static str, Action)> {
     {
         return Vec::new();
     }
-    let controls = if workspace.graph_view_v1 == GraphViewV1::Timeline {
-        vec![
-            (
-                "[< Newer loaded]",
-                GraphActionV1::Window(crate::repository_graph_v1::GraphWindowActionV2::Newer),
-            ),
-            (
-                "[> Older loaded]",
-                GraphActionV1::Window(crate::repository_graph_v1::GraphWindowActionV2::Older),
-            ),
-            (
-                "[Home First loaded]",
-                GraphActionV1::Window(crate::repository_graph_v1::GraphWindowActionV2::First),
-            ),
-            (
-                "[End Last loaded]",
-                GraphActionV1::Window(crate::repository_graph_v1::GraphWindowActionV2::Last),
-            ),
-            ("[x Discard graph Back]", GraphActionV1::DiscardBack),
-            ("[N More history]", GraphActionV1::More),
-            ("[P Parents]", GraphActionV1::Parents),
-            ("[D Details]", GraphActionV1::Details),
-            ("[l Legend]", GraphActionV1::Legend),
-            ("[← Graph]", GraphActionV1::Horizontal(-8)),
-            ("[Graph →]", GraphActionV1::Horizontal(8)),
-        ]
-    } else {
-        vec![
-            ("[u Graph back]", GraphActionV1::Back),
-            ("[← Graph]", GraphActionV1::Horizontal(-8)),
-            ("[Graph →]", GraphActionV1::Horizontal(8)),
-        ]
-    };
+    let controls: Vec<(&str, &str, Option<&str>, GraphActionV1, u8)> =
+        if workspace.graph_view_v1 == GraphViewV1::Timeline {
+            vec![
+                ("N", "More history", Some("More"), GraphActionV1::More, 14),
+                ("D", "Details", None, GraphActionV1::Details, 15),
+                ("P", "Parents", None, GraphActionV1::Parents, 16),
+                (
+                    "<",
+                    "Newer loaded",
+                    Some("Newer"),
+                    GraphActionV1::Window(W::Newer),
+                    18,
+                ),
+                (
+                    ">",
+                    "Older loaded",
+                    Some("Older"),
+                    GraphActionV1::Window(W::Older),
+                    19,
+                ),
+                (
+                    "Home",
+                    "First loaded",
+                    Some("First"),
+                    GraphActionV1::Window(W::First),
+                    20,
+                ),
+                (
+                    "End",
+                    "Last loaded",
+                    Some("Last"),
+                    GraphActionV1::Window(W::Last),
+                    21,
+                ),
+                (
+                    "x",
+                    "Discard graph Back",
+                    Some("Discard"),
+                    GraphActionV1::DiscardBack,
+                    30,
+                ),
+                ("l", "Legend", None, GraphActionV1::Legend, 34),
+                ("←", "Graph", None, GraphActionV1::Horizontal(-8), 45),
+                ("→", "Graph", None, GraphActionV1::Horizontal(8), 46),
+            ]
+        } else {
+            vec![
+                ("u", "Graph back", Some("Back"), GraphActionV1::Back, 5),
+                ("←", "Graph", None, GraphActionV1::Horizontal(-8), 45),
+                ("→", "Graph", None, GraphActionV1::Horizontal(8), 46),
+            ]
+        };
+    let busy = busy.then(|| BUSY.to_string());
     let mut prepared: Vec<_> = controls
         .into_iter()
-        .map(|(label, action)| {
-            let typed = workspace.graph_action_reason_v1(&action).map_or_else(
-                || Action::RepositoryRow(RowAction::Graph(action)),
-                Action::Explain,
-            );
-            (label, typed)
+        .map(|(key, label, compact, action, priority)| {
+            let reason = busy
+                .clone()
+                .or_else(|| workspace.graph_action_reason_v1(&action));
+            let group = if matches!(action, GraphActionV1::Back) {
+                ControlGroup::Navigate
+            } else {
+                ControlGroup::Act
+            };
+            let control =
+                KeyControl::new(key, label, Action::RepositoryRow(RowAction::Graph(action)))
+                    .with_priority(priority)
+                    .in_group(group)
+                    .disabled_by(reason);
+            match compact {
+                Some(compact) => control.with_compact(compact),
+                None => control,
+            }
         })
         .collect();
-    prepared.push((
-        "[R Re-read original]",
-        Action::GraphRereadV3(crate::repository_graph_reread_native_v3::GraphRereadActionV3::Open),
-    ));
+    prepared.push(
+        KeyControl::new(
+            "R",
+            "Re-read original",
+            Action::GraphRereadV3(
+                crate::repository_graph_reread_native_v3::GraphRereadActionV3::Open,
+            ),
+        )
+        .with_compact("Re-read")
+        .with_priority(35)
+        .disabled_by(busy),
+    );
     prepared
 }
-#[derive(Clone, Copy, Debug)]
-pub struct GraphControlFocusV2 {
-    pub hit: usize,
-    pub content_focused: bool,
+
+/// The muted graph pan position shown beside the tab strip, or on its own row when narrow.
+pub fn horizontal_status(workspace: &Workspace) -> String {
+    format!("Graph horizontal: {} cells", workspace.graph_horizontal_v1)
 }
 #[cfg(test)]
 #[path = "repository_graph_focus_v2_tests.rs"]
 mod focus_v2_tests;
 
-pub fn draw_controls(
-    frame: &mut Frame,
-    workspace: &Workspace,
-    hits: &mut Vec<crate::app::HitRegion>,
-    area: Rect,
-    theme: Theme,
-    busy: bool,
-    focus: GraphControlFocusV2,
-) -> u16 {
-    let mut x = area.x;
-    let mut row = 0u16;
-    let controls = controls(workspace);
-    if controls.is_empty() || area.width == 0 || area.height == 0 {
-        return 0;
-    }
-    for (label, action) in controls {
-        let width = Line::from(label).width() as u16;
-        if x != area.x && x.saturating_add(width) > area.right() {
-            x = area.x;
-            row += 1;
-        }
-        if row >= area.height || width > area.width {
-            break;
-        }
-        let action = if busy {
-            Action::Explain("Wait for the original graph read, or cancel it first".into())
-        } else {
-            action
-        };
-        let rect = Rect::new(x, area.y + row, width, 1);
-        let disabled = matches!(action, Action::Explain(_));
-        let focused = !focus.content_focused && focus.hit == hits.len();
-        let mut style = theme.style(if disabled {
-            crate::theme::SemanticToken::Muted
-        } else {
-            crate::theme::SemanticToken::Reference
-        });
-        if focused {
-            style = style.add_modifier(ratatui::style::Modifier::UNDERLINED);
-        }
-        frame.render_widget(Paragraph::new(label).style(style), rect);
-        hits.push(crate::app::HitRegion { rect, action });
-        x = rect.right().saturating_add(1);
-    }
-    let horizontal = format!("Graph horizontal: {} cells", workspace.graph_horizontal_v1);
-    let status_width = Line::from(horizontal.as_str()).width() as u16;
-    if x.saturating_add(status_width) <= area.right() || row + 1 < area.height {
-        let status_x = if x.saturating_add(status_width) <= area.right() {
-            x
-        } else {
-            row += 1;
-            area.x
-        };
-        frame.render_widget(
-            Paragraph::new(horizontal).style(theme.style(crate::theme::SemanticToken::Muted)),
-            Rect::new(status_x, area.y + row, area.right() - status_x, 1),
-        );
-    }
-    row + 1
-}
 pub fn line(
     workspace: &Workspace,
     index: usize,

@@ -18,7 +18,7 @@ fn ready(session: &mut Session, text: &str) {
 fn open(native: &Native, session: &mut Session, mouse: bool) {
     open_comparison(native, session, mouse, true);
     let before = starts(native).len();
-    choose(session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     let names = git_bytes(
         &native.fixture,
         &["diff", "--name-only", "-z", &native.c, &native.b, "--"],
@@ -488,7 +488,7 @@ fn metadata(mouse: bool, empty: bool) {
     let mut session = launch(&native, mouse);
     open_comparison(&native, &mut session, mouse, true);
     let before = starts(&native).len();
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     session.wait_for_cursorless_condition(
         |frame| {
             let screen = frame.contents();

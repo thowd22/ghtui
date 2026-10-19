@@ -1,74 +1,55 @@
-//! NEW private Graph UI child; visible global hit focus on wrapped/disabled
-//! controls. Actual Tab terminal proof remains in both native paging bundles.
+//! Graph key-bar controls: visible focus on the placed tokens, disabled keys explain, and one
+//! Back meaning. Actual Tab terminal proof remains in both native paging bundles.
 use super::*;
 use crate::{local_commit_actor_origin_v1_test_support::Real, workspace::RepositoryMode};
-use ratatui::{backend::TestBackend, style::Modifier, Terminal};
+use ratatui::{backend::TestBackend, layout::Rect, style::Modifier, Terminal};
 
 #[test]
-fn commit_graph_v2_wrapped_global_focus_is_visible_and_content_focus_does_not_underline_controls() {
+fn commit_graph_v2_key_bar_focus_is_visible_and_disabled_graph_keys_explain() {
     let real = Real::new("sha1");
     let workspace = Workspace::load(&real.root, RepositoryMode::Graph, &real.original, None)
         .unwrap()
         .unwrap();
     real.clear_trace();
+    let controls = controls(&workspace, false);
+    assert!(!controls.is_empty());
     for width in [120, 80, 40] {
-        let controls = controls(&workspace);
-        for selected in 0..controls.len() {
-            let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
-            let prefix = vec![
-                crate::app::HitRegion {
-                    rect: Rect::new(0, 7, 1, 1),
-                    action: Action::Help
-                };
-                3
-            ];
-            let mut hits = prefix.clone();
+        let placed = crate::footer::layout(&controls, width).len();
+        assert!(placed > 0 || width < 10);
+        for selected in 0..placed {
+            let mut terminal = Terminal::new(TestBackend::new(width, 2)).unwrap();
+            let mut targets = Vec::new();
             terminal
                 .draw(|frame| {
-                    draw_controls(
+                    targets = crate::footer::render(
                         frame,
-                        &workspace,
-                        &mut hits,
-                        Rect::new(0, 0, width, 7),
+                        Rect::new(0, 1, width, 1),
                         Theme::from_settings(0, false),
-                        false,
-                        GraphControlFocusV2 {
-                            hit: 3 + selected,
-                            content_focused: false,
-                        },
+                        &controls,
+                        Some(selected),
                     );
                 })
                 .unwrap();
-            assert_eq!(hits.len(), 3 + controls.len());
-            for (index, hit) in hits.iter().skip(3).enumerate() {
-                let cell = &terminal.backend().buffer()[(hit.rect.x, hit.rect.y)];
-                assert_eq!(cell.modifier.contains(Modifier::UNDERLINED),index==selected,
-                    "Only exact globally focused control gets visible underline at {width}, including Explain controls");
+            assert_eq!(targets.len(), placed);
+            for (index, (rect, action)) in targets.iter().enumerate() {
+                let cell = &terminal.backend().buffer()[(rect.x, rect.y)];
+                assert_eq!(
+                    cell.modifier.contains(Modifier::UNDERLINED),
+                    index == selected,
+                    "Only the focused key-bar token is underlined at {width}"
+                );
+                assert!(
+                    !matches!(action, Action::Explain(_)),
+                    "Disabled graph keys are not painted"
+                );
             }
-            hits = prefix;
-            terminal
-                .draw(|frame| {
-                    draw_controls(
-                        frame,
-                        &workspace,
-                        &mut hits,
-                        Rect::new(0, 0, width, 7),
-                        Theme::from_settings(0, true),
-                        false,
-                        GraphControlFocusV2 {
-                            hit: 3 + selected,
-                            content_focused: true,
-                        },
-                    );
-                })
-                .unwrap();
-            assert!(hits
-                .iter()
-                .skip(3)
-                .all(|hit| !terminal.backend().buffer()[(hit.rect.x, hit.rect.y)]
-                    .modifier
-                    .contains(Modifier::UNDERLINED)));
         }
+    }
+    // While the original graph is read every graph key leaves the bar and explains itself.
+    let busy = super::controls(&workspace, true);
+    assert!(crate::footer::layout(&busy, 120).is_empty());
+    for control in &busy {
+        assert_eq!(control.disabled.as_deref(), Some(BUSY));
     }
     assert!(real.children().is_empty());
 }
@@ -129,17 +110,27 @@ fn commit_graph_v2_responsible_file_subview_keeps_one_back_meaning_in_outer_tool
         };
         let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
         terminal
-            .draw(|frame| crate::repository_ui::draw(frame, &mut app, Rect::new(0, 0, width, 40)))
+            .draw(|frame| crate::ui::draw(frame, &mut app))
             .unwrap();
-        assert!(app
-            .hits
-            .iter()
-            .any(|hit| hit.action == Action::RepositoryRow(RowAction::Graph(GraphActionV1::Back))));
+        assert!(app.hits.iter().any(|hit| hit.rect.y == 39
+            && hit.action == Action::RepositoryRow(RowAction::Graph(GraphActionV1::Back))));
         assert!(!app
             .hits
             .iter()
             .any(|hit| hit.action
                 == Action::RepositoryRow(RowAction::FileProvenance(FileAction::Back))));
+        let keys = crate::repository_ui::footer_keys(&app);
+        let backs = keys
+            .iter()
+            .filter(|control| control.key == "u")
+            .collect::<Vec<_>>();
+        assert_eq!(backs.len(), 1, "One Back meaning in the key bar");
+        assert_eq!(
+            backs[0].action,
+            Action::RepositoryRow(RowAction::Graph(GraphActionV1::Back))
+        );
+        assert!(!keys.iter().any(|control| control.action
+            == Action::RepositoryRow(RowAction::FileProvenance(FileAction::Back))));
         assert_eq!(
             key(&workspace, KeyCode::Char('u')),
             Some(GraphActionV1::Back)

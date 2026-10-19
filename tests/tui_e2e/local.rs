@@ -164,6 +164,38 @@ fn explicit_github_local_workspace(mouse: bool) {
     session.quit_and_assert_restored_terminal(mouse);
 }
 
+/// Opens the Local operations menu through the key bar's `m` token or the key. Below 100
+/// columns the token shows its compact `m Git ops` label.
+pub(crate) fn open_local_operations(session: &mut Session, mouse: bool) {
+    if mouse {
+        // Read the key bar itself (the status line can name the menu too), once it is painted.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let label = loop {
+            session.poll_output(std::time::Duration::from_millis(10));
+            let footer = session
+                .screen()
+                .lines()
+                .last()
+                .unwrap_or_default()
+                .to_owned();
+            if footer.contains("m Local operations") {
+                break "[m Local operations]";
+            }
+            if footer.contains("m Git ops") {
+                break "[m Git ops]";
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Local operations token never painted\n{}",
+                session.screen()
+            );
+        };
+        session.click_visible_action(label)
+    } else {
+        session.send_key(b"m")
+    }
+    session.wait_for_screen("Local operations • explicit preview");
+}
 pub(crate) fn select_changed(session: &mut Session, mouse: bool, name: &str) {
     if mouse {
         session.click_visible_action(name);
@@ -173,12 +205,7 @@ pub(crate) fn select_changed(session: &mut Session, mouse: bool, name: &str) {
     }
 }
 pub(crate) fn operation(session: &mut Session, mouse: bool, label: &str, index: usize) {
-    if mouse {
-        session.click_visible_action("[m Local operations]")
-    } else {
-        session.send_key(b"m")
-    }
-    session.wait_for_screen("Local operations • explicit preview");
+    open_local_operations(session, mouse);
     if mouse {
         session.click_visible_action(label)
     } else {
@@ -426,13 +453,14 @@ fn commit(mouse: bool) {
     )
     .unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    session.resize(80, 24);
     if mouse {
         session.click_visible_action("[r Refresh]")
     } else {
         session.send_key(b"r")
     };
     session.wait_for_screen("Repository loaded • read-only exploration");
+    // At 80 columns Refresh leaves the key bar; the menu stays one token away.
+    session.resize(80, 24);
     operation(&mut session, mouse, "Commit staged changes", 4);
     session.paste("Retain rejected draft");
     preview(&mut session, mouse);

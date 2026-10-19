@@ -1,58 +1,53 @@
-//! Prepared file-provenance controls; no Git reads are performed while drawing.
+//! Prepared file-provenance key-bar controls; no Git reads are performed while drawing.
 use crate::{
     app::Action,
+    footer::{ControlGroup, KeyControl},
     workspace::{FileAction, ProvenanceView, RowAction, Workspace},
 };
 
-pub(super) struct FileControl {
-    pub label: &'static str,
-    pub action: Action,
-    pub selected: bool,
-    pub disabled: bool,
-}
+pub(super) const BUSY: &str = "Wait for the current repository read, or cancel it first";
 
-pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<FileControl> {
-    let controls = if workspace
+/// The file-history keys in display order. Unavailable ones carry their reason, so they leave
+/// the key bar while their key still explains why.
+pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
+    let controls: Vec<(&str, &str, &str, FileAction, u8)> = if workspace
         .file_provenance
         .as_ref()
         .is_some_and(|state| state.view == ProvenanceView::Detail)
     {
         vec![
-            ("[u File back]", FileAction::Back),
-            ("[G Responsible graph]", FileAction::Graph),
-            ("[D Introduced diff]", FileAction::Diff),
-            ("[F Original file]", FileAction::OriginalFile),
+            ("u", "File back", "Back", FileAction::Back, 5),
+            ("G", "Responsible graph", "Graph", FileAction::Graph, 20),
+            ("D", "Introduced diff", "Diff", FileAction::Diff, 21),
+            ("F", "Original file", "File", FileAction::OriginalFile, 22),
         ]
     } else {
         vec![
-            ("[H History]", FileAction::History),
-            ("[Y Blame]", FileAction::Blame),
-            ("[u File back]", FileAction::Back),
-            ("[P Previous]", FileAction::Previous),
-            ("[N Next]", FileAction::Next),
+            ("H", "History", "History", FileAction::History, 20),
+            ("Y", "Blame", "Blame", FileAction::Blame, 21),
+            ("u", "File back", "Back", FileAction::Back, 5),
+            ("P", "Previous", "Prev", FileAction::Previous, 22),
+            ("N", "Next", "Next", FileAction::Next, 23),
         ]
     };
     let tree_return = workspace.tree_file_return_v1().is_some();
     controls
         .into_iter()
-        .map(|(label, file_action)| {
+        .map(|(key, label, compact, file_action, priority)| {
             if tree_return && file_action == FileAction::Back {
                 // A file opened from the saved tree goes back to that tree.
-                return FileControl {
-                    label: "[u Back to tree]",
-                    disabled: busy,
-                    action: if busy {
-                        Action::Explain(
-                            "Wait for the current repository read, or cancel it first".into(),
-                        )
-                    } else {
-                        Action::RepositoryMode(crate::workspace::RepositoryMode::Tree)
-                    },
-                    selected: false,
-                };
+                return KeyControl::new(
+                    key,
+                    "Back to tree",
+                    Action::RepositoryMode(crate::workspace::RepositoryMode::Tree),
+                )
+                .with_compact("Tree")
+                .with_priority(priority)
+                .in_group(ControlGroup::Navigate)
+                .disabled_by(busy.then(|| BUSY.to_string()));
             }
             let reason = if busy {
-                Some("Wait for the current repository read, or cancel it first".into())
+                Some(BUSY.to_string())
             } else {
                 workspace.provenance_available(&file_action).err()
             };
@@ -63,15 +58,21 @@ pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<FileControl> {
                         | (FileAction::Blame, ProvenanceView::Blame)
                 )
             });
-            FileControl {
+            let group = if file_action == FileAction::Back {
+                ControlGroup::Navigate
+            } else {
+                ControlGroup::Act
+            };
+            KeyControl::new(
+                key,
                 label,
-                disabled: reason.is_some(),
-                action: reason.map_or(
-                    Action::RepositoryRow(RowAction::FileProvenance(file_action)),
-                    Action::Explain,
-                ),
-                selected,
-            }
+                Action::RepositoryRow(RowAction::FileProvenance(file_action)),
+            )
+            .with_compact(compact)
+            .with_priority(priority)
+            .in_group(group)
+            .disabled_by(reason)
+            .with_selected(selected)
         })
         .collect()
 }

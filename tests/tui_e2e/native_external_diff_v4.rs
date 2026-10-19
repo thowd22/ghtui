@@ -269,7 +269,7 @@ fn saved(mouse: bool) {
     let tools = ExternalToolsV4::install(&native.fixture, RendererV4::Ready, PagerV4::Hostile);
     let mut session = start(&native, &tools, mouse);
     open_comparison(&native, &mut session, mouse, true);
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     native_ready(&mut session, NATIVE_TITLE, "new_name");
     focus(&mut session, mouse, "let new_name = 2;");
     choose(&mut session, mouse, "[h Hunk]", b"h");
@@ -446,7 +446,7 @@ fn failures(mouse: bool) {
         let tools = ExternalToolsV4::install(&native.fixture, renderer, pager);
         let mut session = start(&native, &tools, mouse);
         open_comparison(&native, &mut session, mouse, true);
-        choose(&mut session, mouse, "[v Native diff]", b"v");
+        session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
         native_ready(&mut session, NATIVE_TITLE, "new_name");
         focus(&mut session, mouse, "let new_name = 2;");
         choose(&mut session, mouse, "[h Hunk]", b"h");
@@ -514,7 +514,7 @@ fn held(mouse: bool) {
     let tools = ExternalToolsV4::install(&native.fixture, RendererV4::Hold, PagerV4::Ready);
     let mut session = start(&native, &tools, mouse);
     open_comparison(&native, &mut session, mouse, true);
-    choose(&mut session, mouse, "[v Native diff]", b"v");
+    session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
     native_ready(&mut session, NATIVE_TITLE, "new_name");
     let host = session.actual_terminal_witness_v4().unwrap();
     chooser(&mut session, mouse, NATIVE_TITLE, false);
@@ -570,7 +570,7 @@ fn mutable(mouse: bool) {
     session.resize(120, 40);
     session.wait_for_cursorless_condition(
         |frame| {
-            frame.contents().contains("[e All edits]")
+            frame.contents().contains(" e All edits ")
                 && frame.contents().contains("Recent commits")
         },
         "actual wide repository controls before genuine mode entry",
@@ -606,14 +606,14 @@ fn mutable(mouse: bool) {
             after,
             |frame| {
                 let s = frame.contents();
-                s.contains("[v Native diff]")
+                (s.contains("v Native diff") || s.contains("v Diff  "))
                     && s.contains(std::str::from_utf8(old).unwrap().trim())
                     && s.contains(std::str::from_utf8(new).unwrap().trim())
             },
             "actual independently loaded mutable comparison before Native",
             Duration::from_secs(8),
         );
-        choose(&mut session, mouse, "[v Native diff]", b"v");
+        session.choose_compact(mouse, "[v Native diff]", "[v Diff]");
         native_ready(
             &mut session,
             LOCAL,
