@@ -605,7 +605,8 @@ fn alice_chip(frame: &vt100::Screen) -> bool {
         let Some(at) = line.find("@alice • ") else {
             continue;
         };
-        let Some(chip) = (line[..at].chars().count() as u16).checked_sub(4) else {
+        // Two chip cells and exactly one blank cell before the login.
+        let Some(chip) = (line[..at].chars().count() as u16).checked_sub(3) else {
             return false;
         };
         let filled = "AL".chars().enumerate().all(|(offset, letter)| {

@@ -714,20 +714,14 @@ fn draw_pr_reactions(frame: &mut Frame, app: &mut App, inner: Rect) {
                 Some(AvatarState::Ready(image)) => Some(image.as_ref()),
                 _ => None,
             };
-            frame.render_widget(
-                ListAvatar {
-                    identity,
-                    image,
-                    theme,
-                },
-                Rect::new(rect.x, rect.y, 3.min(rect.width), 1),
-            );
-            Rect::new(
-                rect.x + 4.min(rect.width),
-                rect.y,
-                rect.width.saturating_sub(4),
-                1,
-            )
+            // The chip and exactly one blank cell, then the reaction line.
+            let lead = ListAvatar {
+                identity,
+                image,
+                theme,
+            }
+            .render_lead(rect, frame.buffer_mut(), theme.style(SemanticToken::Normal));
+            Rect::new(rect.x + lead, rect.y, rect.width - lead, 1)
         } else {
             rect
         };

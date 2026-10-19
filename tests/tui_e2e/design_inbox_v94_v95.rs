@@ -113,7 +113,8 @@ fn chips(frame: &vt100::Screen) -> bool {
                 continue;
             };
             let column = line[..at].chars().count() as u16;
-            let Some(chip) = column.checked_sub(4) else {
+            // Two chip cells and exactly one blank cell before the login.
+            let Some(chip) = column.checked_sub(3) else {
                 return false;
             };
             let filled = initials.chars().enumerate().all(|(offset, letter)| {

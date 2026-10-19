@@ -11,7 +11,7 @@ use image::{ImageFormat, ImageReader, Limits};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Color,
+    style::{Color, Style},
     text::Line,
     widgets::{Paragraph, Widget},
 };
@@ -1027,6 +1027,7 @@ impl InitialsChip<'_> {
 }
 impl Widget for InitialsChip<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
+        let area = area.intersection(buffer.area);
         if area.is_empty() {
             return;
         }
@@ -1037,10 +1038,11 @@ impl Widget for InitialsChip<'_> {
         };
         let text = Self::text(self.identity, self.theme.mode);
         let width = (crate::editor::display_width(&text) as u16).min(area.width);
-        // The rest of the slot is cleared so no row text shows through beside the chip.
-        Paragraph::new("")
-            .style(self.theme.base())
-            .render(Rect::new(area.x, area.y, area.width, 1), buffer);
+        // The rest of the slot is blanked so no row text drawn earlier shows through beside the
+        // chip: a styled empty paragraph would only restyle those cells and keep their symbols.
+        let slot = Rect::new(area.x, area.y, area.width, 1);
+        ratatui::widgets::Clear.render(slot, buffer);
+        buffer.set_style(slot, self.theme.base());
         Paragraph::new(text)
             .style(style)
             .render(Rect::new(area.x, area.y, width, 1), buffer);
@@ -1053,11 +1055,57 @@ pub struct ListAvatar<'a> {
     pub image: Option<&'a AvatarImage>,
     pub theme: Theme,
 }
+impl ListAvatar<'_> {
+    /// Image avatar slots keep four cells; initials use exactly their chip text.
+    const IMAGE_CELLS: u16 = 4;
+    fn image_ready(&self) -> bool {
+        self.theme.mode == ColorMode::TrueColor
+            && self.image.is_some_and(|image| image.validate().is_ok())
+    }
+    /// The cells the avatar paints: two for a filled chip, `[AB]` without color, four for an image.
+    pub fn cells(&self) -> u16 {
+        if self.image_ready() {
+            Self::IMAGE_CELLS
+        } else {
+            crate::editor::display_width(&InitialsChip::text(self.identity, self.theme.mode)) as u16
+        }
+    }
+    /// Draws the avatar at the start of the row `area` followed by exactly one blank cell in
+    /// `gap_style`, and returns how many cells that took so the caller's label starts right after
+    /// it. Both are clamped to `area`, and every cell they cover is overwritten.
+    pub fn render_lead(self, area: Rect, buffer: &mut Buffer, gap_style: Style) -> u16 {
+        let area = area.intersection(buffer.area);
+        if area.is_empty() {
+            return 0;
+        }
+        let cells = self.cells().min(area.width);
+        self.render(Rect::new(area.x, area.y, cells, 1), buffer);
+        if cells == area.width {
+            return cells;
+        }
+        let gap = Rect::new(area.x + cells, area.y, 1, 1);
+        ratatui::widgets::Clear.render(gap, buffer);
+        buffer.set_style(gap, gap_style);
+        cells + 1
+    }
+    /// The avatar, one blank cell, then `label` cut with an ellipsis to the rest of the row.
+    pub fn render_with_label(self, area: Rect, buffer: &mut Buffer, label: &str, style: Style) {
+        let area = area.intersection(buffer.area);
+        let lead = self.render_lead(area, buffer, style);
+        let rest = Rect::new(area.x + lead, area.y, area.width - lead, 1);
+        if rest.is_empty() {
+            return;
+        }
+        ratatui::widgets::Clear.render(rest, buffer);
+        buffer.set_style(rest, style);
+        Paragraph::new(crate::ui_chrome::fit(label, usize::from(rest.width)))
+            .style(style)
+            .render(rest, buffer);
+    }
+}
 impl Widget for ListAvatar<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
-        let image_ready = self.theme.mode == ColorMode::TrueColor
-            && self.image.is_some_and(|image| image.validate().is_ok());
-        if image_ready {
+        if self.image_ready() {
             AvatarWidget {
                 identity: self.identity,
                 image: self.image,

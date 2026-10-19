@@ -284,16 +284,17 @@ pub fn draw(
                 Some(AvatarState::Ready(image)) => Some(image.as_ref()),
                 _ => None,
             };
-            let width = 4.min(rect.right().saturating_sub(row_x));
-            frame.render_widget(
-                ListAvatar {
-                    identity: &identity,
-                    image,
-                    theme,
-                },
-                Rect::new(row_x, rect.y, width, 1),
+            // The chip and exactly one blank cell, then the actor label.
+            row_x += ListAvatar {
+                identity: &identity,
+                image,
+                theme,
+            }
+            .render_lead(
+                Rect::new(row_x, rect.y, rect.right().saturating_sub(row_x), 1),
+                frame.buffer_mut(),
+                style,
             );
-            row_x += width;
             let label = format!("{} ", identity.label());
             let actor_width =
                 (Line::from(label.as_str()).width() as u16).min(rect.right().saturating_sub(row_x));

@@ -290,32 +290,40 @@ impl CatalogueWorkspace {
             .enumerate()
         {
             let rect = Rect::new(inner.x, y + offset as u16, inner.width, 1);
+            let style = if Some(row.original_index) == selected_original {
+                theme.selected(row.role)
+            } else {
+                theme.style(row.role)
+            };
+            // Actor avatar fallback is prepared/shared; never new image/network IO. The chip sits
+            // at the right edge after one blank cell, and the label is cut with an ellipsis before
+            // it instead of being painted underneath.
+            let avatar = row
+                .actor
+                .as_ref()
+                .filter(|_| inner.width >= 50)
+                .map(|actor| ListAvatar {
+                    identity: actor,
+                    image: avatars.and_then(|assets| {
+                        self.source
+                            .as_ref()
+                            .and_then(|source| assets.image(source, row))
+                    }),
+                    theme,
+                });
+            let reserved = avatar.as_ref().map_or(0, |avatar| avatar.cells() + 1);
+            frame.render_widget(Paragraph::new("").style(style), rect);
             frame.render_widget(
-                Paragraph::new(row.label.as_str()).style(
-                    if Some(row.original_index) == selected_original {
-                        theme.selected(row.role)
-                    } else {
-                        theme.style(row.role)
-                    },
-                ),
-                rect,
+                Paragraph::new(crate::ui_chrome::fit(
+                    &row.label,
+                    usize::from(rect.width - reserved),
+                ))
+                .style(style),
+                Rect::new(rect.x, rect.y, rect.width - reserved, 1),
             );
-            // Actor avatar fallback is prepared/shared; never new image/network IO.
-            if let Some(actor) = &row.actor {
-                if inner.width >= 50 {
-                    frame.render_widget(
-                        ListAvatar {
-                            identity: actor,
-                            image: avatars.and_then(|assets| {
-                                self.source
-                                    .as_ref()
-                                    .and_then(|source| assets.image(source, row))
-                            }),
-                            theme,
-                        },
-                        Rect::new(inner.right() - 4, rect.y, 4, 1),
-                    );
-                }
+            if let Some(avatar) = avatar {
+                let cells = avatar.cells();
+                frame.render_widget(avatar, Rect::new(rect.right() - cells, rect.y, cells, 1));
             }
             self.hits.push(CatalogueHit {
                 rect,

@@ -396,3 +396,112 @@ fn design_overlay_inset_search_entry_focuses_content_until_tab() {
     let buffer = draw_app(&mut app, 80, 24);
     assert!(!row(&buffer, top).contains('▶'));
 }
+
+/// A row already painted with other text, as list rows paint their label under the chip slot.
+fn stray_row(width: u16) -> Buffer {
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width, 1));
+    buffer.set_string(0, 0, "x".repeat(usize::from(width)), Style::default());
+    buffer
+}
+
+#[test]
+fn design_chips_v95_chip_overwrites_every_cell_of_its_slot() {
+    let requester = person("requester", "");
+    for (theme, expected) in [
+        (mocha(), "RE    "),
+        (Theme::new(ThemeName::NoColor, ColorMode::NoColor), "[RE]  "),
+    ] {
+        let mut buffer = stray_row(6);
+        ratatui::widgets::Widget::render(
+            InitialsChip {
+                identity: &requester,
+                theme,
+            },
+            buffer.area,
+            &mut buffer,
+        );
+        // A styled empty paragraph used to keep the earlier symbols: "RE d" / "OCmm".
+        assert_eq!(row(&buffer, 0), expected);
+    }
+}
+
+#[test]
+fn design_chips_v95_chip_label_has_exactly_one_space_at_every_width() {
+    use crate::identity::ListAvatar;
+    let requester = person("requester", "");
+    let label = "@requester PR description";
+    for (theme, chip) in [
+        (mocha(), "RE"),
+        (Theme::new(ThemeName::NoColor, ColorMode::NoColor), "[RE]"),
+    ] {
+        let full = format!("{chip} {label}");
+        let style = theme.style(crate::theme::SemanticToken::Normal);
+        for width in 0..=40u16 {
+            let mut buffer = stray_row(width);
+            ListAvatar {
+                identity: &requester,
+                image: None,
+                theme,
+            }
+            .render_with_label(buffer.area, &mut buffer, label, style);
+            let text = row(&buffer, 0);
+            let cells = usize::from(width);
+            let expected = if cells >= full.chars().count() {
+                // Wide rows: the whole line, then blank cells, never leftover row text.
+                format!("{full}{}", " ".repeat(cells - full.chars().count()))
+            } else if cells <= chip.len() {
+                chip.chars().take(cells).collect()
+            } else if cells == chip.len() + 1 {
+                format!("{chip} ")
+            } else {
+                // Cut with an ellipsis, still after exactly one blank cell.
+                format!("{chip} {}", fit(label, cells - chip.len() - 1))
+            };
+            assert_eq!(text, expected, "width {width}");
+            assert!(!text.contains('x'), "stray cell at width {width}: {text}");
+            if cells > chip.len() + 1 && cells < full.chars().count() {
+                assert!(text.ends_with('…'), "width {width}: {text}");
+            }
+            if theme.mode != ColorMode::NoColor && width >= 3 {
+                let lane = CATPPUCCIN_MOCHA.lanes()[InitialsChip::slot(&requester)];
+                assert_eq!(buffer[(0, 0)].bg, hex(lane));
+                assert_eq!(buffer[(1, 0)].bg, hex(lane));
+                // The gap carries the row's background, not the chip fill.
+                assert_ne!(buffer[(2, 0)].bg, hex(lane));
+            }
+        }
+    }
+}
+
+#[test]
+fn design_chips_v95_chip_lead_reports_its_cells_and_clamps_to_the_area() {
+    use crate::identity::ListAvatar;
+    let octocat = person("octocat", "");
+    let avatar = |theme| ListAvatar {
+        identity: &octocat,
+        image: None,
+        theme,
+    };
+    assert_eq!(avatar(mocha()).cells(), 2);
+    let plain = Theme::new(ThemeName::NoColor, ColorMode::NoColor);
+    assert_eq!(avatar(plain).cells(), 4);
+    for (width, lead, text) in [
+        (0, 0, ""),
+        (1, 1, "O"),
+        (2, 2, "OC"),
+        (3, 3, "OC "),
+        (8, 3, "OC xxxxx"),
+    ] {
+        let mut buffer = stray_row(width);
+        let used = avatar(mocha()).render_lead(buffer.area, &mut buffer, Style::default());
+        assert_eq!(
+            (used, row(&buffer, 0)),
+            (lead, text.to_owned()),
+            "width {width}"
+        );
+    }
+    // An area outside the buffer paints nothing and never panics.
+    let mut buffer = stray_row(4);
+    let used = avatar(mocha()).render_lead(Rect::new(10, 3, 6, 1), &mut buffer, Style::default());
+    assert_eq!((used, row(&buffer, 0)), (0, "xxxx".to_owned()));
+}

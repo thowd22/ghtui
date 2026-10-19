@@ -165,23 +165,17 @@ pub fn draw(
                 1,
             );
             if row.avatar_only {
-                let avatar_width = 4.min(actor_area.width);
-                frame.render_widget(
-                    ListAvatar {
-                        identity: actor,
-                        image,
-                        theme,
-                    },
-                    Rect::new(actor_area.x, actor_area.y, avatar_width, 1),
-                );
-                frame.render_widget(
-                    Paragraph::new(row.label.as_str()).style(style),
-                    Rect::new(
-                        actor_area.x.saturating_add(avatar_width),
-                        actor_area.y,
-                        actor_area.width.saturating_sub(avatar_width),
-                        1,
-                    ),
+                // Chip, exactly one blank cell, then the label cut with an ellipsis.
+                ListAvatar {
+                    identity: actor,
+                    image,
+                    theme,
+                }
+                .render_with_label(
+                    actor_area,
+                    frame.buffer_mut(),
+                    &row.label,
+                    style,
                 );
             } else {
                 frame.render_widget(

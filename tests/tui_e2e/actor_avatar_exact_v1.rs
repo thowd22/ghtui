@@ -352,7 +352,7 @@ fn journey(mouse: bool, mode: Mode) {
             if mode == Mode::NoColor {
                 "[SS]"
             } else {
-                "SS  @same-login"
+                "SS @same-login"
             },
         ],
     );

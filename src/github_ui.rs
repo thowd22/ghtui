@@ -272,38 +272,30 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 theme.style(row.role)
             };
-            frame.render_widget(
-                Paragraph::new(format!("{marker}{}", safe_text(&row.label))).style(style),
-                row_area,
-            );
             if let Some(actor) = &row.actor {
+                // Marker, initials chip, one blank cell, then `@login text` cut with an ellipsis.
+                // The row text is never painted under the chip, so nothing shows through it.
+                frame.render_widget(Paragraph::new(marker).style(style), row_area);
                 let identity = ActorIdentity::github(&github.identity.host, actor);
-                let avatar = app.avatar_states.get(&identity);
-                frame.render_widget(
-                    ListAvatar {
-                        identity: &identity,
-                        image: match avatar {
-                            Some(AvatarState::Ready(image)) => Some(image.as_ref()),
-                            _ => None,
-                        },
-                        theme,
+                let avatar = ListAvatar {
+                    identity: &identity,
+                    image: match app.avatar_states.get(&identity) {
+                        Some(AvatarState::Ready(image)) => Some(image.as_ref()),
+                        _ => None,
                     },
-                    Rect::new(
-                        area.x + 2.min(area.width),
-                        row_area.y,
-                        4.min(area.width.saturating_sub(2)),
-                        1,
-                    ),
+                    theme,
+                };
+                let indent = 2.min(row_area.width);
+                avatar.render_with_label(
+                    Rect::new(row_area.x + indent, row_area.y, row_area.width - indent, 1),
+                    frame.buffer_mut(),
+                    &format!("{} {}", identity.label(), safe_text(&row.label)),
+                    style,
                 );
+            } else {
                 frame.render_widget(
-                    Paragraph::new(format!("{} {}", identity.label(), safe_text(&row.label)))
-                        .style(style),
-                    Rect::new(
-                        area.x + 6.min(area.width),
-                        row_area.y,
-                        area.width.saturating_sub(6),
-                        1,
-                    ),
+                    Paragraph::new(format!("{marker}{}", safe_text(&row.label))).style(style),
+                    row_area,
                 );
             }
             if selectable {
@@ -401,17 +393,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let indent = 2.min(rect.width);
         let rect = Rect::new(rect.x + indent, rect.y, rect.width - indent, rect.height);
         let actor = ActorIdentity::github(&github.identity.host, &pr.author);
-        frame.render_widget(
-            ListAvatar {
-                identity: &actor,
-                image: match app.avatar_states.get(&actor) {
-                    Some(AvatarState::Ready(image)) => Some(image.as_ref()),
-                    _ => None,
-                },
-                theme,
+        let avatar = ListAvatar {
+            identity: &actor,
+            image: match app.avatar_states.get(&actor) {
+                Some(AvatarState::Ready(image)) => Some(image.as_ref()),
+                _ => None,
             },
-            Rect::new(rect.x, rect.y + 1, 4.min(rect.width), 1),
-        );
+            theme,
+        };
         let memberships = pr
             .queues
             .iter()
@@ -424,18 +413,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             crate::github_workspace::age_label(&pr.created_at),
             memberships
         );
-        frame.render_widget(
-            Paragraph::new(crate::ui_chrome::fit(
-                &author_line,
-                usize::from(rect.width.saturating_sub(4)),
-            ))
-            .style(base),
-            Rect::new(
-                rect.x + 4.min(rect.width),
-                rect.y + 1,
-                rect.width.saturating_sub(4),
-                1,
-            ),
+        // Chip, exactly one blank cell, then the author line cut with an ellipsis.
+        avatar.render_with_label(
+            Rect::new(rect.x, rect.y + 1, rect.width, 1),
+            frame.buffer_mut(),
+            &author_line,
+            base,
         );
         app.hits.push(HitRegion {
             rect: Rect::new(area.x, rect.y, area.width, 2),
