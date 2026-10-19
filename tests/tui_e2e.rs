@@ -370,6 +370,7 @@ fn settings_journey(mouse: bool) {
     session.wait_for_screen("Settings • local preferences");
     session.send_key(b"\x15git.example.com");
     if mouse {
+        session.wait_for_screen("Repository set: (personal queues)");
         let (column, row) = session.locate("(personal queues)").unwrap();
         session.click(column, row);
     } else {

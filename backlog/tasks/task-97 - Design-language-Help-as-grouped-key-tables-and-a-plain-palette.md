@@ -1,10 +1,10 @@
 ---
 id: TASK-97
 title: 'Design language: Help as grouped key tables and a plain palette'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-18 20:22'
+updated_date: '2026-10-19 16:49'
 labels:
   - ui-design
 dependencies:
@@ -32,4 +32,6 @@ Help shows grouped two-column key tables (which-key style) before prose; the com
 
 <!-- SECTION:NOTES:BEGIN -->
 User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
+
+2026-10-19: footer key bar on every view (src/footer.rs, per-view footer_keys/resolve_key), Help key tables and palette keys. Gate: test-all 5,875 passed after the final settings-wait fix (TASK-87 flake passed on rerun); fmt and clippy clean.
 <!-- SECTION:NOTES:END -->
