@@ -136,7 +136,7 @@ fn after_published_restart(
         ],
     );
     choose(session, mouse, "[N Next file]", b"N");
-    ready(session, &["> File src/界.rs"]);
+    ready(session, &["▌ File src/界.rs"]);
 }
 fn journey(mouse: bool) {
     let (fixture, h, base) = fixture_and_steps(|_| {});

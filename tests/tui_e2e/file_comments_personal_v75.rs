@@ -95,6 +95,18 @@ fn journey_with_recovery(mouse: bool, recovery: Option<recovery_v75::RecoveryV75
     }
     session.wait_for_screen(BODY);
     journal(&mut session, &fixture, opened);
+    // The Files key is pressed on the idle published page, not while its read settles.
+    session.wait_for_cursorless_condition(
+        |f| {
+            let s = f.contents();
+            s.contains(BODY)
+                && s.contains("Fresh • fetched")
+                && !s.contains("Esc Cancel")
+                && crate::support::controls::control_painted(f, "f Files")
+        },
+        "Idle published Personal page with its Files tab",
+        Duration::from_secs(8),
+    );
     choose(&mut session, mouse, "[f Files]", b"f");
     journal(&mut session, &fixture, files);
     session.wait_for_cursorless_condition(

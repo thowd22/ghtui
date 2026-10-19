@@ -1125,7 +1125,7 @@ fn files_after_restart(
         ],
     );
     choose(session, mouse, "[N Next file]", b"N");
-    ready(session, &["> File src/界.rs"]);
+    ready(session, &["▌ File src/界.rs"]);
 }
 fn wait_saved_values(
     session: &mut Session,

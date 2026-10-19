@@ -633,7 +633,7 @@ fn cancel(mouse: bool) {
     ack(
         &mut session,
         before,
-        |screen| screen.contains("> File src/界.rs"),
+        |screen| screen.contains("▌ File src/界.rs"),
         "second original Files selection completes before native reopen",
     );
     act(

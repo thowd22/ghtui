@@ -191,7 +191,7 @@ fn open_notice(session: &mut Session, fixture: &Fixture, mouse: bool, previous: 
         &["[F10 Reviews]", "Old side: current base-branch tip"],
     );
     choose(session, mouse, "[N Next file]", b"N");
-    ready(session, &["> File src/界.rs"]);
+    ready(session, &["▌ File src/界.rs"]);
     choose(session, mouse, "[F10 Reviews]", b"\x1b[21~");
     overlay_ready(
         session,
