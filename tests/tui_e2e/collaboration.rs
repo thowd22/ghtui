@@ -519,9 +519,9 @@ fn pr_sources(mouse: bool) {
     choose(&mut session, mouse, "[f Save query]", b"\r");
     session.wait_for_screen("Saved query: private discussion scope");
     let mut restarted = session.restart_with_same_cache(&fixture, 80, 24);
-    restarted.wait_for_screen("Recent commits");
-    choose(&mut restarted, mouse, "3 Search", b"3");
-    restarted.wait_for_screen("[H Search sources]");
+    // The loading shell already paints the mode controls; choosing GitHub
+    // before the prepared corpus lands is superseded by its ready status.
+    open_search(&mut restarted, mouse);
     choose(&mut restarted, mouse, "[h GitHub]", b"h");
     restarted.wait_for_screen("GitHub scope verified");
     restarted.wait_for_screen("[u private discussion scope]");
