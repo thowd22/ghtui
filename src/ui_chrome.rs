@@ -319,7 +319,7 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let nav_row = if single { row0 } else { row1 };
     let nav_start = if single { x } else { nav_row.x };
     let mut nav_right = nav_row.right();
-    if source_control(app) && nav_row.width >= SOURCE_CONTROL.len() as u16 + 1 {
+    if source_control(app) && nav_row.width > SOURCE_CONTROL.len() as u16 {
         let width = SOURCE_CONTROL.len() as u16;
         let rect = Rect::new(nav_row.right() - width, nav_row.y, width, 1);
         let focused = app.focus == app.hits.len() && !app.repository_content_focused;
