@@ -142,7 +142,7 @@ fn files_selected(session: &mut Session, fixture: &Fixture, mouse: bool) {
         ],
     );
     choose(session, mouse, "[N Next file]", b"N");
-    ready(session, &["> File src/界.rs"]);
+    ready(session, &["▌ File src/界.rs"]);
 }
 fn happy(mouse: bool) {
     let (fixture, h, steps) = fixture_and_steps(|_| {});

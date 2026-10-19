@@ -796,7 +796,7 @@ fn journey_inner(mouse: bool, finish: Finish, special: Option<Value>) {
             |f| {
                 let s = f.contents();
                 crate::support::controls::control_painted(f, "[K FILE comment]")
-                    && s.contains("> File src/界.rs")
+                    && s.contains("▌ File src/界.rs")
                     && !s.contains(&title())
                     && !s.contains(BODY)
             },
@@ -1033,7 +1033,7 @@ fn journey_inner(mouse: bool, finish: Finish, special: Option<Value>) {
         ready(&mut session, &[PATH]);
         session.wait_for_control("[T Threads]");
         choose(&mut session, mouse, "[N Next file]", b"N");
-        ready(&mut session, &["> File src/界.rs"]);
+        ready(&mut session, &["▌ File src/界.rs"]);
         publication_v1::file_follow_v75::follow(&mut session, &fixture, mouse, original_end + 41);
         assert_eq!(git_state(&fixture), git);
         assert_eq!(git_commands(&fixture), trace);

@@ -104,7 +104,7 @@ fn files(session: &mut Session, fixture: &Fixture, mouse: bool) {
     session.wait_for_command_count(fixture, 41);
     ready(session, &["src/界.rs", "[T Threads]"]);
     choose(session, mouse, "[N Next file]", b"N");
-    ready(session, &["> File src/界.rs"]);
+    ready(session, &["▌ File src/界.rs"]);
 }
 fn back(session: &mut Session, mouse: bool) {
     choose(session, mouse, "[Esc Back]", b"\x1b");
@@ -114,7 +114,7 @@ fn back(session: &mut Session, mouse: bool) {
             !text.contains(THREAD_TITLE)
                 && !text.contains(THREAD_BODY)
                 && crate::support::controls::control_painted(frame, "[T Threads]")
-                && text.contains("> File src/界.rs")
+                && text.contains("▌ File src/界.rs")
         },
         "Actual completed original Files restored and thread private body erased",
         Duration::from_secs(8),

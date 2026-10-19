@@ -81,7 +81,7 @@ pub(super) fn with_created_file(
     session.wait_for_command_count(&fixture, base);
     ready(&mut session, &["File src/界.rs", "[T Threads]"]);
     choose(&mut session, mouse, "[N Next file]", b"N");
-    ready(&mut session, &["> File src/界.rs"]);
+    ready(&mut session, &["▌ File src/界.rs"]);
     act(&mut session, &fixture, base);
     session.wait_for_command_count(&fixture, steps.len());
     let rows = commands(&session, &fixture);
