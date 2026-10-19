@@ -3,6 +3,7 @@
 #[path = "graph_compact_v2.rs"]
 mod compact_v2;
 use super::*;
+use crate::support::controls::{control_painted, text_has_control};
 use ghtui::{
     config::Config,
     storage::{Cache, Scope},
@@ -322,8 +323,16 @@ fn graph(n: &NativeGraph, s: &mut Session, mouse: bool, count: usize) {
     s.wait_for_screen("Recent commits");
     choose(s, mouse, "[g Graph]", b"g");
     s.wait_for_screen(&format!("of {count} loaded"));
-    s.wait_for_screen("[N More history]");
+    s.wait_for_control("[D Details]");
     s.wait_for_screen(&n.tip);
+    s.wait_for_settled_footer();
+    // More history is a key-bar control only while the original walk has more to load.
+    if count == 200 {
+        s.wait_for_control("[N More history]");
+    } else {
+        // Complete walks and shallow boundaries alike have no more history to load.
+        s.assert_control_absent("[N More history]");
+    }
 }
 fn unchanged_calls(n: &NativeGraph, s: &mut Session, prior: usize) {
     s.poll_output(Duration::from_millis(1));
@@ -342,7 +351,7 @@ fn paging(mouse: bool) {
     if mouse {
         choose(&mut s, true, "[P Parents]", b"P");
     } else {
-        s.focus_visible_action("[P Parents]");
+        s.focus_footer_control("[P Parents]");
         s.send_key(b"\r");
     }
     s.wait_for_screen("Ordered original parents");
@@ -351,8 +360,8 @@ fn paging(mouse: bool) {
         |screen| {
             screen.contains(&format!("▶ selected {}", &parent[..8]))
                 && screen.contains("Visible commits 1–200")
-                && screen.contains("[N More history]")
-                && !screen.contains("[Esc Cancel]")
+                && text_has_control(screen, "[N More history]")
+                && !text_has_control(screen, "[Esc Cancel]")
         },
         "Exact selected parent has returned to a complete nonpending Timeline",
         Duration::from_secs(8),
@@ -379,9 +388,7 @@ fn paging(mouse: bool) {
         .iter()
         .any(|a| a == &n.tip));
     let before = trace(&n).len();
-    choose(&mut s, mouse, "[N More history]", b"N");
-    s.wait_for_screen("Action unavailable");
-    s.wait_for_screen("All ancestors");
+    explain_disabled(&mut s, mouse, "[N More history]", b"N", "All ancestors");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[Esc Close]", b"\x1b");
     s.wait_for_overlay_close("Action unavailable • explanation only");
@@ -499,25 +506,26 @@ fn prepared_views(mouse: bool) {
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[u Graph back]", b"u");
     s.wait_for_screen("of 6 loaded");
-    choose(&mut s, mouse, "[l Legend]", b"l");
+    choose_bar_or_palette(&mut s, mouse, "[l Legend]", b"l");
     s.wait_for_screen("never permanent branch identities");
     body_to(&mut s, mouse, "↳ rows: merge or branch parents");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[u Graph back]", b"u");
     s.wait_for_screen("of 6 loaded");
     s.resize(80, 24);
-    s.wait_for_screen("[Graph →]");
-    choose(&mut s, mouse, "[Graph →]", b"\x1b[C");
+    s.wait_for_main_frame();
+    s.wait_for_control("[P Parents]");
+    choose_bar_or_palette(&mut s, mouse, "[→ Pan right]", b"\x1b[C");
     s.wait_for_screen("Graph horizontal: 8 cells");
-    choose(&mut s, mouse, "[← Graph]", b"\x1b[D");
+    choose_bar_or_palette(&mut s, mouse, "[← Pan left]", b"\x1b[D");
     s.wait_for_screen("Graph horizontal: 0 cells");
     s.wait_for_screen("Actual four-parent octopus");
     s.resize(40, 24);
-    s.wait_for_screen("[l Legend]");
-    choose(&mut s, mouse, "[P Parents]", b"P");
+    s.wait_for_main_frame();
+    choose_bar_or_palette(&mut s, mouse, "[P Parents]", b"P");
     s.wait_for_screen("Ordered original parents");
     s.resize(120, 40);
-    s.wait_for_screen("[u Graph back]");
+    s.wait_for_control("[u Graph back]");
     choose(&mut s, mouse, "[u Graph back]", b"u");
     s.wait_for_screen("of 6 loaded");
     effects(&n, &s, None);
@@ -617,7 +625,7 @@ fn source_and_cancel(mouse: bool) {
             assert!(!s.screen().contains("REPLACEMENT GRAPH MUST NOT APPEAR"));
             assert!(!s.screen().contains("of 361 loaded"));
         } else {
-            s.wait_for_screen("[Esc Cancel]");
+            s.wait_for_control("[Esc Cancel]");
             choose(&mut s, mouse, "[Esc Cancel]", b"\x1b");
             until(
                 &mut s,

@@ -53,6 +53,8 @@ pub fn first_page_down_batch(
     actual_saved_sha: &str,
 ) -> Result<Option<DownBatchV1>, String> {
     let screen = frame.contents();
+    // The key bar is the last row; its tokens carry no brackets.
+    let key_bar = frame.rows(0, frame.size().1).last().unwrap_or_default();
     let mut saved = screen.lines().filter_map(|line| {
         line.trim_start_matches('│')
             .trim_start()
@@ -65,12 +67,9 @@ pub fn first_page_down_batch(
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit())
         || !exact_saved
-        || !screen.contains("[Home First loaded]")
+        || !(screen.contains("[Home First loaded]") || key_bar.contains("Home First loaded"))
         || screen.contains("[Esc Cancel]")
-        || frame
-            .rows(0, frame.size().1)
-            .last()
-            .is_some_and(|row| row.contains("Esc Cancel"))
+        || key_bar.contains("Esc Cancel")
     {
         return Err("Not the exact completed original graph source/projection".into());
     }

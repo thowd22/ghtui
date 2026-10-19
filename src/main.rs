@@ -95,7 +95,7 @@ fn run() -> Result<()> {
     app.settings_host = config.host.clone();
     app.settings_set = config.active_set.clone().unwrap_or_default();
     app.settings_theme = config.theme.index();
-    app.bindings = config.resolved_bindings()?;
+    app.set_bindings(config.resolved_bindings()?);
     let mut background = Background::new();
     let runner = CommandRunner::default();
     let mut draft_writer = ghtui::drafts::DraftWriter::new(paths.database.clone());
@@ -237,7 +237,7 @@ fn run() -> Result<()> {
                         ghtui::repository_catalogue_workspace_v1::CatalogueLocalMappingsV1::from_config(&config),
                     );
                     next_refresh = Instant::now() + Duration::from_secs(config.refresh_seconds);
-                    app.bindings = config.resolved_bindings()?;
+                    app.set_bindings(config.resolved_bindings()?);
                     app.no_color = options.no_color
                         || std::env::var_os("NO_COLOR").is_some()
                         || config.theme == ThemeName::NoColor;

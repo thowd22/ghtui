@@ -484,7 +484,10 @@ fn configuration_custom_keys_drive_visible_keyboard_and_mouse_actions() {
         .save(&fixture.root.join("config/ghtui/config.toml"))
         .unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
-    session.wait_for_screen("[h Help]");
+    // The key bar and the first-run hint name the configured keys, not the defaults.
+    session.wait_for_control("[h Help]");
+    session.wait_for_control("[ctrl+x Quit]");
+    session.wait_for_screen(": all commands • h help");
     session.send_key(b"h");
     session.wait_for_screen("Help • keyboard and mouse");
     session.close_overlay_by_key("Help • keyboard and mouse");

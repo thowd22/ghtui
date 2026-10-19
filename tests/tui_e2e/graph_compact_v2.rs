@@ -41,6 +41,8 @@ fn ordinary10000() -> NativeGraph {
     native
 }
 fn ready_loaded(session: &mut Session, loaded: usize, start: usize) {
+    // More history leaves the key bar once the whole walk (10000 here) is loaded.
+    let more = loaded < 10_000;
     let count = format!("of {loaded} loaded (limit 10000)");
     let range = format!(
         "Visible commits {}–{}",
@@ -53,8 +55,8 @@ fn ready_loaded(session: &mut Session, loaded: usize, start: usize) {
                 let screen = frame.contents();
                 screen.contains(&count)
                     && screen.contains(&range)
-                    && screen.contains("[N More history]")
-                    && !screen.contains("[Esc Cancel]")
+                    && control_painted(frame, "[N More history]") == more
+                    && !control_painted(frame, "[Esc Cancel]")
             },
             &format!("Exact current loaded count/range and complete nonpending frame: loaded={loaded}, start={start}"),
             Duration::from_secs(8),
@@ -93,7 +95,7 @@ fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
     );
     // Home is a real pure projection request even on this same first range;
     // it restores visible first-member position after inspecting the footer.
-    choose(session, mouse, "[Home First loaded]", b"\x1b[H");
+    choose_bar_or_palette(session, mouse, "[Home First loaded]", b"\x1b[H");
     // The same old range/count can be painted before this pure request ends.
     // Require its newly owned completion status, not a transient busy frame.
     session.wait_for_cursorless_condition(
@@ -141,7 +143,7 @@ fn select_loaded_row(session: &mut Session, mouse: bool, label: &str, actual_sav
                 && session.completed_cursorless_screen().is_some_and(|frame| {
                     selection_v1::selected_subject(frame)
                         .is_ok_and(|subject| subject == batch.expected_subject)
-                        && !frame.contents().contains("[Esc Cancel]")
+                        && !control_painted(frame, "[Esc Cancel]")
                 })
             {
                 break;
@@ -168,7 +170,7 @@ fn visible_page(session: &mut Session, loaded: usize, start: usize) {
                 start + 1,
                 (start + 200).min(loaded)
             )) && screen.contains(&format!("of {loaded} loaded (limit 10000)"))
-                && !screen.contains("[Esc Cancel]")
+                && !control_painted(frame, "[Esc Cancel]")
         },
         "Actual newer/older projection has completed",
         Duration::from_secs(8),
@@ -179,9 +181,9 @@ fn full_back(mouse: bool) {
     let mut session = launch(&native, mouse);
     load_all(&native, &mut session, mouse);
     let full = trace(&native).len();
-    choose(&mut session, mouse, "[> Older loaded]", b">");
+    choose_bar_or_palette(&mut session, mouse, "[> Older loaded]", b">");
     visible_page(&mut session, 10_000, 200);
-    choose(&mut session, mouse, "[> Older loaded]", b">");
+    choose_bar_or_palette(&mut session, mouse, "[> Older loaded]", b">");
     visible_page(&mut session, 10_000, 400);
     let selected = native
         .fixture
@@ -189,12 +191,12 @@ fn full_back(mouse: bool) {
         .trim()
         .to_owned();
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
-    choose(&mut session, mouse, "[Graph →]", b"\x1b[C");
+    choose_bar_or_palette(&mut session, mouse, "[→ Pan right]", b"\x1b[C");
     session.wait_for_screen("Graph horizontal: 8 cells");
     if mouse {
         choose(&mut session, true, "[P Parents]", b"P");
     } else {
-        session.focus_visible_action("[P Parents]");
+        session.focus_footer_control("[P Parents]");
         session.send_key(b"\r");
     }
     session.wait_for_screen(&format!(
@@ -204,10 +206,10 @@ fn full_back(mouse: bool) {
     unchanged_calls(&native, &mut session, full);
     choose(&mut session, mouse, "[u Graph back]", b"u");
     visible_page(&mut session, 10_000, 400);
-    choose(&mut session, mouse, "[End Last loaded]", b"\x1b[F");
+    choose_bar_or_palette(&mut session, mouse, "[End Last loaded]", b"\x1b[F");
     visible_page(&mut session, 10_000, 9800);
     unchanged_calls(&native, &mut session, full);
-    choose(&mut session, mouse, "[Home First loaded]", b"\x1b[H");
+    choose_bar_or_palette(&mut session, mouse, "[Home First loaded]", b"\x1b[H");
     visible_page(&mut session, 10_000, 0);
     // Select actual last row on first projection; its actual parent lives on
     // another projection, proving cross-page global membership not row index.
@@ -230,7 +232,7 @@ fn full_back(mouse: bool) {
             let screen = frame.contents();
             screen.contains(&format!("Saved: {last_first_page}"))
                 && screen.contains(&format!("▶ selected {}", &last_first_page[..8]))
-                && !screen.contains("[Esc Cancel]")
+                && !control_painted(frame, "[Esc Cancel]")
         },
         "Exact last first-page member has completed selection before opening Parents",
         Duration::from_secs(8),
@@ -243,7 +245,7 @@ fn full_back(mouse: bool) {
     unchanged_calls(&native, &mut session, full);
     // Return to exact earlier member/range, then leave via an actual Git tree
     // operation. Back must restore full shared pages, not rebuildpage1/HEAD.
-    choose(&mut session, mouse, "[> Older loaded]", b">");
+    choose_bar_or_palette(&mut session, mouse, "[> Older loaded]", b">");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
     choose(&mut session, mouse, "[t Tree]", b"t");
@@ -265,11 +267,11 @@ fn full_back(mouse: bool) {
             .iter()
             .any(|arg| arg == "log" || arg == "rev-list" || arg == "show-ref"))));
     session.resize(80, 24);
-    session.wait_for_screen("[P Parents]");
+    session.wait_for_control("[P Parents]");
     choose(&mut session, mouse, "[P Parents]", b"P");
     session.wait_for_screen("Ordered original parents");
     choose(&mut session, mouse, "[u Graph back]", b"u");
-    session.wait_for_screen("[> Older loaded]");
+    session.wait_for_control("[> Older loaded]");
     session.resize(120, 40);
     visible_page(&mut session, 10_000, 400);
     effects(&native, &session, None);
@@ -284,7 +286,7 @@ fn discard(mouse: bool) {
     ready_loaded(&mut session, 400, 0);
     let prior = trace(&native).len();
     let old_sql = sql(&native.fixture);
-    choose(&mut session, mouse, "[x Discard graph Back]", b"x");
+    choose_bar_or_palette(&mut session, mouse, "[x Discard graph Back]", b"x");
     session
         .wait_for_screen("Earlier Graph Back snapshots discarded • current graph remains loaded");
     unchanged_calls(&native, &mut session, prior);
@@ -343,7 +345,7 @@ fn restore_cancel(mouse: bool) {
         .parse::<i32>()
         .unwrap();
     assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
-    session.wait_for_screen("[Esc Cancel]");
+    session.wait_for_control("[Esc Cancel]");
     choose(&mut session, mouse, "[Esc Cancel]", b"\x1b");
     until(
         &mut session,

@@ -937,8 +937,15 @@ fn test_framework_locate_control_prefers_exact_brackets_and_reads_tokens_only_in
         Some((11, 23))
     );
     assert_eq!(locate_control(compact.screen(), "[b Cancel read]"), None);
+    // The bar binds each key to one control, so its compact caption names that control at any
+    // width; a caption that does not name the label, or another key, is still no target.
     let wide = footer_frame(42, 140, "", "r Refresh  : Cmds  q Quit");
-    assert_eq!(locate_control(wide.screen(), "[: Commands]"), None);
+    assert_eq!(
+        locate_control(wide.screen(), "[: Commands]"),
+        Some((11, 41))
+    );
+    assert_eq!(locate_control(wide.screen(), "[: Settings]"), None);
+    assert_eq!(locate_control(wide.screen(), "[c Commands]"), None);
 }
 
 #[test]

@@ -398,7 +398,7 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
     };
     use ghtui::{
         app::{Action, App, Overlay, View},
-        theme::{ColorMode, SemanticToken},
+        theme::ColorMode,
     };
     use ratatui::{backend::TestBackend, Terminal};
     let fixture = Fixture::linear();
@@ -419,63 +419,94 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
         app.loading[View::Repository.index()] = busy;
         app
     };
+    let provenance =
+        |file_action: FileAction| Action::RepositoryRow(RowAction::FileProvenance(file_action));
     for busy in [false, true] {
         let mut keyboard = make_app(busy);
         let mut mouse = make_app(busy);
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal
-            .draw(|frame| ghtui::repository_ui::draw(frame, &mut mouse, frame.area()))
+            .draw(|frame| ghtui::ui::draw(frame, &mut mouse))
             .unwrap();
-        let toolbar = (0..80)
-            .map(|column| terminal.backend().buffer()[(column, 2)].symbol())
+        // The key bar is the last row; its tokens are the file-history click targets.
+        let bar = (0..80)
+            .map(|column| terminal.backend().buffer()[(column, 23)].symbol())
             .collect::<String>();
-        for label in [
-            "[C Compare]",
-            "[H History]",
-            "[Y Blame]",
-            "[u File back]",
-            "[P Previous]",
-            "[N Next]",
-        ] {
-            assert!(
-                toolbar.contains(label),
-                "Full control must fit80 columns: {label}: {toolbar}"
+        let hits = mouse.hits.clone();
+        let bar_hit = |file_action: FileAction| {
+            hits.iter()
+                .find(|hit| hit.rect.y == 23 && hit.action == provenance(file_action.clone()))
+                .map(|hit| hit.rect)
+        };
+        assert!(
+            bar.trim_end().ends_with("q Quit"),
+            "The Global tail fits 80 columns: {bar}"
+        );
+        assert!(mouse.hits.iter().all(|hit| hit.rect.right() <= 80));
+        // Disabled controls leave the bar; the key still answers with the reason.
+        let disabled = if busy {
+            vec![
+                FileAction::History,
+                FileAction::Blame,
+                FileAction::Previous,
+                FileAction::Next,
+            ]
+        } else {
+            vec![FileAction::Previous]
+        };
+        for file_action in &disabled {
+            assert_eq!(
+                bar_hit(file_action.clone()),
+                None,
+                "A disabled control is not a dead click target: {file_action:?}: {bar}"
             );
         }
-        let target = if busy { "[H History]" } else { "[P Previous]" };
-        let column = toolbar.find(target).unwrap() as u16;
-        let hit = mouse
-            .hits
-            .iter()
-            .find(|hit| hit.rect.y == 2 && hit.rect.x <= column && hit.rect.right() > column)
-            .unwrap();
+        if busy {
+            assert!(bar.contains("Esc Cancel"), "{bar}");
+        } else {
+            for (file_action, token) in [
+                (FileAction::History, "H History"),
+                (FileAction::Blame, "Y Blame"),
+                (FileAction::Next, "N Next"),
+            ] {
+                let rect = bar_hit(file_action).expect(token);
+                let painted = (rect.x..rect.right())
+                    .map(|column| terminal.backend().buffer()[(column, 23)].symbol())
+                    .collect::<String>();
+                assert_eq!(painted, token, "Full control must fit 80 columns: {bar}");
+            }
+            assert!(!bar.contains("P Prev"), "{bar}");
+        }
+        let key = if busy { 'H' } else { 'P' };
+        let event = KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE);
+        let explanation = ghtui::footer::resolve_key(&ghtui::footer::main_controls(&mouse), event)
+            .expect("A disabled key still resolves");
         assert!(
-            matches!(hit.action, Action::Explain(_)),
-            "Disabled pointer dispatch uses the shared explanation"
+            matches!(explanation, Action::Explain(_)),
+            "Disabled keys use the shared explanation"
         );
-        assert!(hit.rect.right() <= 80);
-        let (x, y) = (hit.rect.x, hit.rect.y);
-        mouse.handle_event(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: x,
-            row: y,
-            modifiers: KeyModifiers::NONE,
-        }));
-        keyboard.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::Char(if busy { 'H' } else { 'P' }),
-            KeyModifiers::NONE,
-        )));
+        // Pointer users reach the same explanation through Commands, which dispatches it.
+        mouse.dispatch(explanation);
+        keyboard.handle_event(Event::Key(event));
         assert_eq!(keyboard.overlay, Some(Overlay::Notice));
         assert_eq!(mouse.overlay, keyboard.overlay);
         assert_eq!(mouse.notice, keyboard.notice);
         assert!(keyboard.repository_action.is_none());
         assert!(mouse.repository_action.is_none());
         if !busy {
-            let column = toolbar.find("[H History]").unwrap() as u16;
-            assert_eq!(
-                terminal.backend().buffer()[(column, 2)].fg,
-                mouse.theme().selected(SemanticToken::Reference).fg.unwrap()
+            assert!(
+                keyboard.notice.contains("First source page"),
+                "{}",
+                keyboard.notice
             );
+            // The current History mode is the selected token: bold primary text, not muted.
+            let rect = bar_hit(FileAction::History).unwrap();
+            let label = &terminal.backend().buffer()[(rect.x + 2, 23)];
+            assert!(label.modifier.contains(ratatui::style::Modifier::BOLD));
+            let blame = bar_hit(FileAction::Blame).unwrap();
+            assert!(!terminal.backend().buffer()[(blame.x + 2, 23)]
+                .modifier
+                .contains(ratatui::style::Modifier::BOLD));
             let text = terminal
                 .backend()
                 .buffer()
@@ -492,13 +523,13 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
     let mut mouse = make_app(false);
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
-        .draw(|frame| ghtui::repository_ui::draw(frame, &mut mouse, frame.area()))
+        .draw(|frame| ghtui::ui::draw(frame, &mut mouse))
         .unwrap();
     let expected = Action::RepositoryRow(RowAction::FileProvenance(FileAction::Blame));
     let rect = mouse
         .hits
         .iter()
-        .find(|hit| hit.action == expected)
+        .find(|hit| hit.rect.y == 23 && hit.action == expected)
         .unwrap()
         .rect;
     mouse.handle_event(Event::Mouse(MouseEvent {

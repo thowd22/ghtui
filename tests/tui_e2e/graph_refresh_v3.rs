@@ -4,7 +4,7 @@ use super::*;
 
 fn older400(native: &NativeGraph, session: &mut Session, mouse: bool) -> String {
     for start in [200, 400] {
-        choose(session, mouse, "[> Older loaded]", b">");
+        choose_bar_or_palette(session, mouse, "[> Older loaded]", b">");
         visible_page(session, 10_000, start);
     }
     visible_page(session, 10_000, 400);
@@ -14,7 +14,7 @@ fn older400(native: &NativeGraph, session: &mut Session, mouse: bool) -> String 
         .trim()
         .to_owned();
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
-    choose(session, mouse, "[Graph →]", b"\x1b[C");
+    choose_bar_or_palette(session, mouse, "[→ Pan right]", b"\x1b[C");
     session.wait_for_screen("Graph horizontal: 8 cells");
     selected
 }
@@ -47,7 +47,7 @@ fn refresh_full(mouse: bool) {
     .unwrap();
     native.baseline = raw_state(&native.fixture.repo());
     let before = trace(&native).len();
-    choose(&mut session, mouse, "[r Refresh]", b"r");
+    choose_bar_or_palette(&mut session, mouse, "[r Refresh]", b"r");
     session.wait_for_screen("Original Graph snapshot refreshed");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
@@ -55,7 +55,7 @@ fn refresh_full(mouse: bool) {
     exact_recheck(&native, before, 10);
     session.resize(80, 24);
     session.wait_for_main_frame();
-    session.wait_for_screen("[P Parents]");
+    session.wait_for_control("[P Parents]");
     choose(&mut session, mouse, "[P Parents]", b"P");
     session.wait_for_screen("Ordered original parents");
     session.wait_for_screen(&format!(
@@ -78,7 +78,7 @@ fn deliberate_reread(mouse: bool) {
     load_all(&native, &mut session, mouse);
     let selected = older400(&native, &mut session, mouse);
     let before = trace(&native).len();
-    choose(&mut session, mouse, "[R Re-read original]", b"R");
+    choose_bar_or_palette(&mut session, mouse, "[R Re-read original]", b"R");
     session.wait_for_screen("Re-read original Graph • first page");
     session.wait_for_screen("[Enter Re-read]");
     session.wait_for_screen("[Esc Back]");
@@ -105,7 +105,7 @@ fn deliberate_reread(mouse: bool) {
     unchanged_calls(&native, &mut session, before);
     session.resize(120, 40);
     session.wait_for_main_frame();
-    choose(&mut session, mouse, "[R Re-read original]", b"R");
+    choose_bar_or_palette(&mut session, mouse, "[R Re-read original]", b"R");
     session.wait_for_screen("Re-read original Graph • first page");
     if mouse {
         session.click_visible_action("[Enter Re-read]");
@@ -157,7 +157,7 @@ fn pending_refresh(mouse: bool, replace: bool) {
     )
     .unwrap();
     let before = trace(&native).len();
-    choose(&mut session, mouse, "[r Refresh]", b"r");
+    choose_bar_or_palette(&mut session, mouse, "[r Refresh]", b"r");
     until(
         &mut session,
         || {
@@ -172,7 +172,7 @@ fn pending_refresh(mouse: bool, replace: bool) {
         .parse::<i32>()
         .unwrap();
     assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
-    session.wait_for_screen("[Esc Cancel]");
+    session.wait_for_control("[Esc Cancel]");
     let mut original = None;
     if replace {
         let retired = native.fixture.root.join("retired-original-graph-v3");

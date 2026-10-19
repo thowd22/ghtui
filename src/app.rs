@@ -3368,6 +3368,26 @@ impl App {
     pub fn shortcut(&self, name: &str) -> &str {
         self.bindings.get(name).map_or("", String::as_str)
     }
+    /// The first-run Inbox hint, naming the configured Refresh, Commands and Help keys.
+    fn inbox_hint(&self) -> String {
+        format!(
+            "Press {} (or click Refresh below) to load your PRs • {} all commands • {} help",
+            self.shortcut("refresh"),
+            self.shortcut("palette"),
+            self.shortcut("help")
+        )
+    }
+    /// Applies configured key bindings; a still-visible first-run Inbox hint names the new keys.
+    pub fn set_bindings(&mut self, bindings: BTreeMap<String, String>) {
+        let previous = self.inbox_hint();
+        self.bindings = bindings;
+        let current = self.inbox_hint();
+        for line in &mut self.content[View::Inbox.index()] {
+            if *line == previous {
+                line.clone_from(&current);
+            }
+        }
+    }
     fn repository_anchor(&self, index: usize) -> Option<crate::repository_view::DiffAnchor> {
         self.workspace
             .as_ref()

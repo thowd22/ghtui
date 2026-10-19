@@ -15,6 +15,42 @@ fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
         session.send_key(key);
     }
 }
+/// A key-bar control that leaves the bar by priority at some widths and states. The keyboard
+/// presses its key; the mouse clicks the settled key-bar token when it is painted and otherwise
+/// picks the same action explicitly in Commands, which lists every key-bar action.
+fn choose_bar_or_palette(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if !mouse {
+        session.send_key(key);
+        return;
+    }
+    session.wait_for_settled_footer();
+    if session
+        .try_wait_for_control(label, Duration::from_millis(300))
+        .is_some()
+    {
+        session.click_visible_action(label);
+        return;
+    }
+    // Commands names a control by its caption; a multi-character key is not part of it.
+    let control = crate::support::Control::parse(label);
+    match control.key.as_deref() {
+        Some(key) if key.chars().count() > 1 => session.invoke_via_palette(true, &control.text),
+        _ => session.invoke_via_palette(true, label),
+    }
+}
+/// A disabled key-bar control is not painted; its key (or its Commands entry, for the mouse)
+/// still answers with the visible reason and no effect.
+fn explain_disabled(session: &mut Session, mouse: bool, label: &str, key: &[u8], reason: &str) {
+    session.wait_for_settled_footer();
+    session.assert_control_absent(label);
+    if mouse {
+        session.invoke_via_palette(true, label);
+        session.wait_for_screen(reason);
+    } else {
+        session.press_disabled_key(key, reason);
+    }
+    session.wait_for_screen("Action unavailable");
+}
 fn select_row(session: &mut Session, mouse: bool, label: &str) {
     if mouse {
         session.click_visible_action(label);
@@ -164,9 +200,13 @@ fn happy(mouse: bool) {
     session.wait_for_screen("File history — chosen saved version");
     session.wait_for_screen("Rename: old name.txt → new name.txt");
     session.wait_for_screen("History entries 1–10");
-    choose(&mut session, mouse, "[P Previous]", b"P");
-    session.wait_for_screen("Action unavailable");
-    session.wait_for_screen("First source page");
+    explain_disabled(
+        &mut session,
+        mouse,
+        "[P Previous]",
+        b"P",
+        "First source page",
+    );
     // The disabled explanation captures input; an underlying Tree click is inert.
     if mouse {
         session.click_visible_action("[t Tree]");
@@ -203,7 +243,7 @@ fn happy(mouse: bool) {
     session.wait_for_screen("Line Writer");
     session.wait_for_screen("Distinct Integrator");
     session.wait_for_screen(&responsible);
-    choose(&mut session, mouse, "[a Author]", b"a");
+    choose_bar_or_palette(&mut session, mouse, "[a Author]", b"a");
     session.wait_for_screen("Actor profile — Git author");
     session.wait_for_screen("Line Writer");
     session.wait_for_screen("GitHub account association: unavailable");

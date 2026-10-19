@@ -283,7 +283,7 @@ fn exact_blame_back(native: &Native, session: &mut Session, mouse: bool) {
                 && text.contains(&saved)
                 && text.contains("Repository loaded • read-only exploration")
                 && !text.contains("Reading original local source")
-                && !text.contains("[Esc Cancel]")
+                && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
         },
         "exact chosen Blame source after Back, before ANY cursor navigation",
         Duration::from_secs(8),
@@ -331,7 +331,7 @@ fn happy(mouse: bool) {
         session.wait_for_screen("Original line: 102 • chosen file line: 102");
         session.wait_for_screen("Original path: history.txt");
         session.wait_for_screen(&native.responsible);
-        choose(&mut session, mouse, "[a Author]", b"a");
+        choose_bar_or_palette(&mut session, mouse, "[a Author]", b"a");
         session.wait_for_screen("Actor profile — Git author");
         session.wait_for_screen("Exact Nested Writer");
         fresh_crumb_restore(
@@ -344,7 +344,7 @@ fn happy(mouse: bool) {
         session.wait_for_screen("Actor profile — Git author");
         session.wait_for_screen(&native.responsible);
         assert!(!session.screen().contains("GitHub reports this commit"));
-        choose(&mut session, mouse, "[c Committer]", b"c");
+        choose_bar_or_palette(&mut session, mouse, "[c Committer]", b"c");
         session.wait_for_screen("Actor profile — Git committer");
         session.wait_for_screen("Exact Nested Recorder");
         exact_blame_back(&native, &mut session, mouse);
@@ -501,7 +501,7 @@ fn cancel(mouse: bool) {
     assert!(!session
         .screen()
         .contains("File history — chosen saved version"));
-    choose(&mut session, mouse, "[a Author]", b"a");
+    choose_bar_or_palette(&mut session, mouse, "[a Author]", b"a");
     session.wait_for_screen("Actor profile — Git author");
     session.wait_for_screen(&native.chosen);
     effects(&native, &session);

@@ -286,9 +286,8 @@ fn object_type(mouse: bool) {
         ("[F Original file]", b"F".as_slice()),
     ] {
         let prior = starts(&native).len();
-        let underlying_tree = session
-            .locate("[t Tree]")
-            .expect("Capture the genuine Tree control before the overlay covers it");
+        // The genuine Tree mode tab, captured before the explanation overlay opens.
+        let underlying_tree = session.wait_for_control("[t Tree]");
         choose(&mut session, mouse, label, key);
         session.wait_for_screen("Select an exact history entry or attributed line");
         assert_eq!(

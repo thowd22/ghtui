@@ -95,8 +95,8 @@ fn commit_graph_v1_controls_wrap_all_same_actions_key_mouse_at120_80_40_without_
             (KeyCode::Char('P'), "P Parents", "P Parents"),
             (KeyCode::Char('D'), "D Details", "D Details"),
             (KeyCode::Char('l'), "l Legend", "l Legend"),
-            (KeyCode::Left, "← Graph", "← Graph"),
-            (KeyCode::Right, "→ Graph", "→ Graph"),
+            (KeyCode::Left, "← Pan left", "← Pan left"),
+            (KeyCode::Right, "→ Pan right", "→ Pan right"),
         ] {
             let action = key(&loaded, code).unwrap();
             let expected = loaded.graph_action_reason_v1(&action).map_or_else(

@@ -98,14 +98,14 @@ pub fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
                     30,
                 ),
                 ("l", "Legend", None, GraphActionV1::Legend, 34),
-                ("←", "Graph", None, GraphActionV1::Horizontal(-8), 45),
-                ("→", "Graph", None, GraphActionV1::Horizontal(8), 46),
+                ("←", "Pan left", None, GraphActionV1::Horizontal(-8), 45),
+                ("→", "Pan right", None, GraphActionV1::Horizontal(8), 46),
             ]
         } else {
             vec![
                 ("u", "Graph back", Some("Back"), GraphActionV1::Back, 5),
-                ("←", "Graph", None, GraphActionV1::Horizontal(-8), 45),
-                ("→", "Graph", None, GraphActionV1::Horizontal(8), 46),
+                ("←", "Pan left", None, GraphActionV1::Horizontal(-8), 45),
+                ("→", "Pan right", None, GraphActionV1::Horizontal(8), 46),
             ]
         };
     let busy = busy.then(|| BUSY.to_string());
