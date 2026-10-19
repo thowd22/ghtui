@@ -285,7 +285,11 @@ fn native_uncommitted_repository_toolbar_and_palette_same_keyboard_mouse_exact_m
             let text = (hit.rect.x..hit.rect.right())
                 .map(|x| terminal.backend().buffer()[(x, hit.rect.y)].symbol())
                 .collect::<String>();
-            assert_eq!(text, " e All edits ", "a tab is painted whole or left out");
+            // A tab is painted whole (full or its compact `e Edits` label) or left out.
+            assert!(
+                text == " e All edits " || text == "e Edits",
+                "a tab is painted whole or left out: {text:?}"
+            );
         }
         let catalogue = crate::navigation_catalogue::PreparedCatalogue::prepare(&app, 42).unwrap();
         let item = catalogue
