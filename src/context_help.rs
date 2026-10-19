@@ -2,6 +2,7 @@
 //! resource, authentication observation, provider work or approval is retained.
 //! Owned native Help captures input, pages and resolves shared clickable actions.
 use crate::app::View;
+use crate::footer::{ControlGroup, KeyControl};
 use std::collections::BTreeMap;
 
 const MAX_BINDINGS: usize = 64;
@@ -15,11 +16,17 @@ pub enum HelpLineKind {
     Guidance,
     Shortcut,
     Limitation,
+    /// One row of a key table: `key` in its own aligned column, `text` the label.
+    Key,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HelpLine {
     pub text: String,
     pub kind: HelpLineKind,
+    /// The key of a [`HelpLineKind::Key`] row; `None` for prose.
+    pub key: Option<String>,
+    /// A key-table row whose control is currently unavailable (it still explains why).
+    pub disabled: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextHelp {
@@ -27,9 +34,15 @@ pub struct ContextHelp {
     lines: Vec<HelpLine>,
 }
 impl ContextHelp {
-    /// Only resolved shortcut labels enter this producer, never the displayed
-    /// app.context, current PR/body, query, receipt, actor or repository name.
-    pub fn prepare(view: View, bindings: &BTreeMap<String, String>) -> Result<Self, String> {
+    /// Only resolved shortcut labels and the view's own key-bar controls enter this producer,
+    /// never the displayed app.context, current PR/body, query, receipt, actor or repository
+    /// name. `controls` are the view's [`crate::footer::main_controls`]: their keys open Help as
+    /// key tables grouped by [`ControlGroup`], before the prose, so Help lists every footer key.
+    pub fn prepare(
+        view: View,
+        bindings: &BTreeMap<String, String>,
+        controls: &[KeyControl],
+    ) -> Result<Self, String> {
         if bindings.len() > MAX_BINDINGS {
             return Err("Help shortcut catalogue exceeds 64 entries".into());
         }
@@ -59,6 +72,7 @@ impl ContextHelp {
             HelpLineKind::Heading,
             format!("{} • help for this view", view.label()),
         )?;
+        help.push_key_tables(controls)?;
         for (kind, text) in topics(view) {
             help.push(*kind, (*text).into())?;
         }
@@ -105,26 +119,96 @@ impl ContextHelp {
     pub fn lines(&self) -> &[HelpLine] {
         &self.lines
     }
+    /// Every row as plain text; a key row reads `key label`.
     pub fn text(&self) -> String {
         self.lines
             .iter()
-            .map(|line| line.text.as_str())
+            .map(|line| match &line.key {
+                Some(key) => format!("{key} {}", line.text),
+                None => line.text.clone(),
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
+    /// The `(key, label)` pairs of the key tables, in order.
+    pub fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.lines
+            .iter()
+            .filter_map(|line| Some((line.key.as_deref()?, line.text.as_str())))
+    }
+    /// The widest key, so every key table shares one aligned label column.
+    pub fn key_column(&self) -> usize {
+        self.keys()
+            .map(|(key, _)| crate::editor::display_width(key))
+            .max()
+            .unwrap_or(0)
+    }
+    /// One titled table per group (Navigate, Act, Mode tabs, Global) of the keyed controls,
+    /// in declaration order. A repeated key/label pair is listed once.
+    fn push_key_tables(&mut self, controls: &[KeyControl]) -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        let keyed = controls
+            .iter()
+            .filter(|control| !control.key.is_empty())
+            .filter(|control| seen.insert((control.key.as_str(), control.label.as_str())))
+            .collect::<Vec<_>>();
+        for (group, title) in [
+            (ControlGroup::Navigate, "Keys • Navigate"),
+            (ControlGroup::Act, "Keys • Act"),
+            (ControlGroup::Mode, "Keys • Tabs"),
+            (ControlGroup::Global, "Keys • Global"),
+        ] {
+            let rows = keyed
+                .iter()
+                .filter(|control| control.group == group)
+                .collect::<Vec<_>>();
+            if rows.is_empty() {
+                continue;
+            }
+            self.push(HelpLineKind::Heading, title.into())?;
+            for control in rows {
+                if control.key.len() > 32 || control.label.len() > 128 {
+                    return Err("Help key labels must be bounded".into());
+                }
+                let mut label = crate::app::safe_text(&control.label);
+                if control.disabled.is_some() {
+                    label.push_str(" · unavailable");
+                } else if control.selected {
+                    label.push_str(" · current");
+                }
+                self.push_line(HelpLine {
+                    text: label,
+                    kind: HelpLineKind::Key,
+                    key: Some(crate::app::safe_text(&control.key)),
+                    disabled: control.disabled.is_some(),
+                })?;
+            }
+        }
+        Ok(())
+    }
     fn push(&mut self, kind: HelpLineKind, text: String) -> Result<(), String> {
+        self.push_line(HelpLine {
+            text,
+            kind,
+            key: None,
+            disabled: false,
+        })
+    }
+    fn push_line(&mut self, line: HelpLine) -> Result<(), String> {
         let bytes = self
             .lines
             .iter()
-            .map(|line| line.text.len() + 1)
+            .map(|line| line.text.len() + line.key.as_ref().map_or(0, |key| key.len() + 1) + 1)
             .sum::<usize>();
+        let added = line.text.len() + line.key.as_ref().map_or(0, |key| key.len() + 1) + 1;
         if self.lines.len() >= MAX_HELP_ROWS
-            || bytes.saturating_add(text.len() + 1) > MAX_HELP_BYTES
-            || !safe_line(&text)
+            || bytes.saturating_add(added) > MAX_HELP_BYTES
+            || !safe_line(&line.text)
+            || !line.key.as_deref().is_none_or(safe_line)
         {
             return Err("Prepared help exceeds bounded safe text limits".into());
         }
-        self.lines.push(HelpLine { text, kind });
+        self.lines.push(line);
         Ok(())
     }
 }
@@ -185,7 +269,7 @@ fn topics(view: View) -> &'static [(HelpLineKind, &'static str)] {
             (G, "Publications shows original durable requests. Inspection is read-only; only an explicit eligible acknowledgement retires its protection. Refresh/restart do not resend."),
             (L, "Artifact expansion/export is bounded and does not execute downloaded content or overwrite an existing destination. Missing attempt metadata is labelled unknown."),
             (L, "Secret metadata is readable; existing secret values are not. New secret input stays transient/masked. Administrator/plan/host capabilities remain separate from transport availability."),
-            (S, "Current Actions controls: R Runs; W Workflows; b Back; [ and ] control pages. Back may perform fresh catalogue reads; it does not publish a mutation."),
+            (S, "Current Actions controls: R Runs; W Workflows; b Back. Back may perform fresh catalogue reads; it does not publish a mutation."),
         ],
         View::Dashboard => &[
             (H, "Numbers with their evidence"),

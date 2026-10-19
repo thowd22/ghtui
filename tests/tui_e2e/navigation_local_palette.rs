@@ -250,6 +250,43 @@ fn selected_row(session: &mut Session, mouse: bool, label: &str) {
         session.send_key(b"\x1b[B");
     }
 }
+/// Help opens with the view's footer keys as titled key tables (`Keys • …`) before the prose.
+/// Scroll its body a step at a time (Down, or the wheel over the body) until every `required`
+/// prose fragment is in view together, waiting for each scrolled frame.
+fn help_prose(session: &mut Session, mouse: bool, required: &[&str]) {
+    let normalized = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for _ in 0..96 {
+        let visible = session
+            .visible_overlay_body(HELP_OVERLAY)
+            .is_some_and(|body| {
+                let body = normalized(&body);
+                required
+                    .iter()
+                    .all(|value| body.contains(&normalized(value)))
+            });
+        if visible {
+            return;
+        }
+        let after = session.completed_cursorless_end();
+        if mouse {
+            let (x, y) = session.locate(HELP_OVERLAY).expect("Help title border");
+            session.wheel(x + 2, y + 2, true);
+        } else {
+            session.send_key(b"\x1b[B");
+        }
+        session.wait_for_new_cursorless_condition(
+            after,
+            |frame| frame.contents().contains(HELP_OVERLAY),
+            "scrolled Help frame",
+            Duration::from_secs(8),
+        );
+    }
+    session.save_artifacts();
+    panic!(
+        "Help prose {required:?} never scrolled into view\n{}",
+        session.screen()
+    );
+}
 fn close_help(session: &mut Session, mouse: bool, title: &str) {
     if mouse {
         session.close_overlay_by_mouse(title);
@@ -339,14 +376,12 @@ fn journey(mouse: bool) {
     );
     let count = starts(&local.fixture);
     command(&mut session, mouse, "Help for this view");
-    body_ready(
+    // The Repository key tables come first; the Git prose follows them.
+    body_ready(&mut session, HELP_OVERLAY, &[REPOSITORY_HELP, "Keys • "]);
+    help_prose(
         &mut session,
-        HELP_OVERLAY,
-        &[
-            REPOSITORY_HELP,
-            "Git in plain language",
-            "Commit = a saved version",
-        ],
+        mouse,
+        &["Git in plain language", "Commit = a saved version"],
     );
     if mouse {
         session.click(search_tab.0, search_tab.1);
@@ -354,11 +389,8 @@ fn journey(mouse: bool) {
         session.send_key(b"3");
     }
     session.resize(80, 24);
-    body_ready(
-        &mut session,
-        HELP_OVERLAY,
-        &[REPOSITORY_HELP, "Git in plain language"],
-    );
+    body_ready(&mut session, HELP_OVERLAY, &[]);
+    help_prose(&mut session, mouse, &["Git in plain language"]);
     assert_eq!(
         starts(&local.fixture),
         count,
@@ -380,14 +412,11 @@ fn journey(mouse: bool) {
     check_local_storage_only(&local.fixture);
     let count = starts(&local.fixture);
     command(&mut session, mouse, "Help for this view");
-    body_ready(
+    body_ready(&mut session, HELP_OVERLAY, &[SEARCH_HELP, "Keys • "]);
+    help_prose(
         &mut session,
-        HELP_OVERLAY,
-        &[
-            SEARCH_HELP,
-            "Choose the query's meaning",
-            "Exact searches literal text",
-        ],
+        mouse,
+        &["Choose the query's meaning", "Exact searches literal text"],
     );
     close_help(&mut session, mouse, HELP_OVERLAY);
     assert_eq!(starts(&local.fixture), count);

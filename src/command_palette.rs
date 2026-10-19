@@ -42,6 +42,9 @@ pub struct PaletteEntry {
     pub label: String,
     pub keywords: Vec<String>,
     pub action: Action,
+    /// The key that runs the same action from the view (a footer key, a view number).
+    /// Display only: it is never searched or dispatched by the palette.
+    pub key: Option<String>,
 }
 impl fmt::Debug for PaletteEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -283,7 +286,10 @@ impl CommandPalette {
                 detail,
                 explanation,
                 action: Some(entry.action),
-                shortcut: String::new(),
+                shortcut: entry
+                    .key
+                    .filter(|key| !key.is_empty() && key.len() <= 32 && safe_line(key))
+                    .unwrap_or_default(),
             });
         }
         let mut palette = Self {
@@ -920,8 +926,16 @@ impl CommandPalette {
                 && usize::from(rect.width)
                     > display_width(&entry.label) + usize::from(key_width) + 6
             {
+                // The key reads like a footer key: the view accent, right-aligned.
+                let key_style = if position == self.selected {
+                    style
+                } else {
+                    theme
+                        .style(SemanticToken::Accent)
+                        .add_modifier(ratatui::style::Modifier::BOLD)
+                };
                 frame.render_widget(
-                    Paragraph::new(entry.shortcut.as_str()).style(style),
+                    Paragraph::new(entry.shortcut.as_str()).style(key_style),
                     Rect::new(rect.right() - key_width - 1, rect.y, key_width, 1),
                 );
             }

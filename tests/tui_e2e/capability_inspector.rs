@@ -462,9 +462,8 @@ fn journey(scenario: Scenario, mouse: bool) {
             .locate("2 Repository")
             .expect("underlying public tab");
         session.click(tab.0, tab.1);
-        let refresh = session
-            .locate("[r Refresh]")
-            .expect("underlying public footer");
+        // The Refresh token of the key bar under the overlay.
+        let refresh = session.wait_for_control("[r Refresh]");
         session.click(refresh.0, refresh.1);
     } else {
         session.send_key(b"4rq");

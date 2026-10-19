@@ -28,9 +28,8 @@ fn intent(mouse: bool) {
     session.wait_for_screen("loaded (limit 10000)");
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
-    let underlying = session
-        .locate("[w Working]")
-        .expect("Actual repository control before the overlay covers it");
+    // The Working mode tab, located before the overlay covers it.
+    let underlying = session.wait_for_control("[w Working]");
     let no_read = starts(&local.fixture);
     command(&mut session, mouse, "Stage selected lines");
     session.wait_for_screen("Action unavailable • explanation only");

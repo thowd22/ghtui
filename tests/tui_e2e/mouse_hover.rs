@@ -22,7 +22,7 @@ fn ready(session: &mut Session) -> String {
         |frame| {
             !frame.contents().contains(HELP)
                 && frame.contents().contains(&view_title("Repository"))
-                && frame.contents().contains("[? Help]")
+                && crate::support::main_footer_visible(frame)
         },
         "complete repository frame",
         Duration::from_secs(8),
@@ -55,7 +55,7 @@ fn acknowledge(session: &mut Session, mouse: bool) -> String {
     }
     session.wait_for_new_cursorless_condition(
         after,
-        |frame| !frame.contents().contains(HELP) && frame.contents().contains("[? Help]"),
+        |frame| !frame.contents().contains(HELP) && crate::support::main_footer_visible(frame),
         "new underlying frame after acknowledged wheel",
         Duration::from_secs(8),
     );
@@ -63,11 +63,8 @@ fn acknowledge(session: &mut Session, mouse: bool) -> String {
 }
 
 fn popup_journey(session: &mut Session, mouse: bool, height: u16) {
-    if mouse {
-        session.click_visible_action("[m Local operations]");
-    } else {
-        session.send_key(b"m");
-    }
+    // `m Local operations` reads `m Git ops` on the compact key bar below 100 columns.
+    session.choose_compact(mouse, "[m Local operations]", "[m Git ops]");
     session.wait_for_cursorless_condition(
         |frame| {
             frame.contents().contains(MENU) && frame.contents().contains("> Stage selected file")
@@ -110,7 +107,7 @@ fn popup_journey(session: &mut Session, mouse: bool, height: u16) {
     }
     session.wait_for_new_cursorless_condition(
         after,
-        |frame| !frame.contents().contains(MENU) && frame.contents().contains("[? Help]"),
+        |frame| !frame.contents().contains(MENU) && crate::support::main_footer_visible(frame),
         "popup closes without running any local command",
         Duration::from_secs(8),
     );
@@ -151,7 +148,9 @@ fn journey(mouse: bool) {
         if width == 80 {
             session.resize(width, height);
             session.wait_for_cursorless_condition(
-                |frame| frame.size() == (height, width) && frame.contents().contains("[? Help]"),
+                |frame| {
+                    frame.size() == (height, width) && crate::support::main_footer_visible(frame)
+                },
                 "resized actual pane",
                 Duration::from_secs(8),
             );

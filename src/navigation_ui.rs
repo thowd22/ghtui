@@ -10,7 +10,8 @@ use crate::{
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
     layout::{Margin, Rect},
-    text::Line,
+    style::Modifier,
+    text::{Line, Span},
     widgets::{Clear, Paragraph},
     Frame,
 };
@@ -46,10 +47,8 @@ pub fn open_palette(app: &mut App) {
     }
     let prepared =
         PreparedCatalogue::prepare(app, app.command_source_epoch).and_then(|catalogue| {
+            // Entries carry their keys: view numbers, Global keys and the view's footer keys.
             CommandPalette::new(catalogue.entries).and_then(|mut palette| {
-                for (id, key) in crate::navigation_catalogue::shortcut_hints(app) {
-                    palette.set_shortcut(&id, &key);
-                }
                 if app.original_tree_viewport_v2.width.saturating_sub(6) >= 20 {
                     palette.prepare_width_v2(
                         app.original_tree_viewport_v2
@@ -125,7 +124,9 @@ pub fn open_help(app: &mut App) {
     app.context_help_area = Rect::default();
     app.help_scrollbar.clear();
     app.hits.clear();
-    match ContextHelp::prepare(app.view, &app.bindings) {
+    // The same controls the key bar paints, so Help lists every footer key.
+    let controls = crate::footer::main_controls(app);
+    match ContextHelp::prepare(app.view, &app.bindings, &controls) {
         Ok(help) => {
             app.context_help = Some(help);
             app.overlay = Some(Overlay::Help);
@@ -286,11 +287,24 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
     app.context_help_rows = usize::from(body.height).max(1);
     let mut lines = Vec::<Line<'static>>::new();
     if let Some(help) = &app.context_help {
+        // One aligned key column for every table: `  key   label`, the key in the view accent.
+        let column = help.key_column();
         for row in help.lines() {
+            if let Some(key) = &row.key {
+                lines.push(help_key_row_v97(
+                    theme,
+                    key,
+                    &row.text,
+                    row.disabled,
+                    column,
+                    body.width,
+                ));
+                continue;
+            }
             let role = match row.kind {
                 HelpLineKind::Heading => SemanticToken::Focus,
                 HelpLineKind::Shortcut => SemanticToken::Reference,
-                HelpLineKind::Guidance => SemanticToken::Normal,
+                HelpLineKind::Guidance | HelpLineKind::Key => SemanticToken::Normal,
                 HelpLineKind::Limitation => SemanticToken::Muted,
             };
             lines.extend(
@@ -365,6 +379,43 @@ pub fn draw_help(frame: &mut Frame, app: &mut App, area: Rect) {
 #[path = "navigation_ui_tests.rs"]
 mod tests;
 
+/// One key-table row: two cells of indent, the key left-aligned in a `column`-wide accent
+/// cell, two cells of gap, then the label (muted when unavailable), cut with `…` to `width`.
+pub(crate) fn help_key_row_v97(
+    theme: crate::theme::Theme,
+    key: &str,
+    label: &str,
+    disabled: bool,
+    column: usize,
+    width: u16,
+) -> Line<'static> {
+    use crate::editor::display_width;
+    let width = usize::from(width);
+    let indent = 2.min(width);
+    let key_cell = crate::ui_chrome::fit(key, column.min(width.saturating_sub(indent)));
+    let pad = column.saturating_sub(display_width(&key_cell));
+    let used = indent + display_width(&key_cell) + pad + 2;
+    let label = crate::ui_chrome::fit(label, width.saturating_sub(used));
+    Line::from(vec![
+        Span::raw(" ".repeat(indent)),
+        Span::styled(
+            key_cell,
+            theme
+                .style(SemanticToken::Accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(pad + 2)),
+        Span::styled(
+            label,
+            theme.style(if disabled {
+                SemanticToken::Muted
+            } else {
+                SemanticToken::Normal
+            }),
+        ),
+    ])
+}
+
 /// Word-wrapped help rows. Words wider than the row fall back to the shared
 /// grapheme wrapping so nothing is clipped.
 pub(crate) fn help_wrap_v1(text: &str, width: u16) -> Vec<String> {
@@ -395,4 +446,54 @@ pub(crate) fn help_wrap_v1(text: &str, width: u16) -> Vec<String> {
         rows.push(row);
     }
     rows
+}
+
+/// TASK-97 AC#1 for one view state: Help lists every keyed footer control (key and label), and
+/// Commands holds every footer action with the same key: the same action when the control is
+/// enabled, its explanation when it is not. Returns how many keyed controls were checked.
+#[cfg(test)]
+pub(crate) fn assert_help_and_palette_cover_footer_v97(app: &App, state: &str) -> usize {
+    let controls = crate::footer::main_controls(app);
+    let help = ContextHelp::prepare(app.view, &app.bindings, &controls)
+        .unwrap_or_else(|error| panic!("{state}: Help refused its controls: {error}"));
+    let catalogue = PreparedCatalogue::prepare(app, 1)
+        .unwrap_or_else(|error| panic!("{state}: Commands refused its controls: {error}"));
+    let entries = catalogue
+        .entries
+        .iter()
+        .map(|entry| (entry.id.clone(), entry.key.clone(), entry.action.clone()))
+        .collect::<Vec<_>>();
+    let palette = CommandPalette::new(catalogue.entries)
+        .unwrap_or_else(|error| panic!("{state}: palette refused the catalogue: {error}"));
+    let mut checked = 0;
+    for control in controls.iter().filter(|control| !control.key.is_empty()) {
+        assert!(
+            help.keys().any(|(key, label)| key == control.key
+                && label.starts_with(control.label.as_str())),
+            "{state}: Help lacks `{} {}`:\n{}",
+            control.key,
+            control.label,
+            help.text()
+        );
+        checked += 1;
+        if control.action == Action::Palette {
+            continue;
+        }
+        let found = entries.iter().find(|(_, key, action)| {
+            key.as_deref() == Some(control.key.as_str())
+                && if control.disabled.is_some() {
+                    matches!(action, Action::Explain(_))
+                } else {
+                    *action == control.action
+                }
+        });
+        let Some((id, _, _)) = found else {
+            panic!(
+                "{state}: Commands lacks `{} {}` (disabled: {:?})",
+                control.key, control.label, control.disabled
+            );
+        };
+        assert_eq!(palette.shortcut(id), Some(control.key.as_str()), "{state}");
+    }
+    checked
 }

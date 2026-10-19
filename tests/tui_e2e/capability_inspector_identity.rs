@@ -306,6 +306,18 @@ fn identity_journey(transition: Transition, mouse: bool) {
     let mut session = launch(&fixture, Scenario::AuthDenied);
     session.wait_for_screen("Recent commits — saved versions");
     activate(&mut session, mouse, "1 Inbox", b"1");
+    // Each view has its own key bar: take Refresh from a completed Inbox frame, never from
+    // the Repository bar that was painted before the switch.
+    session.wait_for_cursorless_condition(
+        |frame| {
+            frame
+                .contents()
+                .contains(&crate::support::controls::view_title("Inbox"))
+                && crate::support::main_footer_visible(frame)
+        },
+        "completed Inbox frame and key bar",
+        std::time::Duration::from_secs(8),
+    );
     activate(&mut session, mouse, "[r Refresh]", b"r");
     session.wait_for_command_count(&fixture, 7);
     session.wait_for_screen("Fresh • fetched");

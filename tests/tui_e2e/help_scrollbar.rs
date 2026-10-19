@@ -5,6 +5,8 @@ use std::{fs, path::Path, time::Duration};
 const TITLE: &str = "Help • keyboard and mouse";
 const FIRST: &str = "Repository • help for this view";
 const LAST: &str = "no-color mode.";
+/// Help opens with the view's footer keys as titled key tables, before the prose.
+const KEYS: &str = "Keys • ";
 
 fn protected(f: &Fixture) -> Vec<Vec<u8>> {
     vec![
@@ -82,6 +84,7 @@ fn journey(mouse: bool) {
         |frame| {
             frame.contents().contains(TITLE)
                 && frame.contents().contains(FIRST)
+                && frame.contents().contains(KEYS)
                 && frame.contents().contains('▲')
                 && frame.contents().contains('▼')
         },
@@ -105,8 +108,9 @@ fn journey(mouse: bool) {
         } else {
             session.send_key(b"\x1b[B");
         }
+        // One line down: the title leaves and the first key table heads the body.
         wait(&mut session, after, |frame| {
-            !frame.contents().contains(FIRST) && frame.contents().contains("Git in plain language")
+            !frame.contents().contains(FIRST) && frame.contents().contains(KEYS)
         });
         let after = session.completed_cursorless_end();
         if mouse {

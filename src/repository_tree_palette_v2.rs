@@ -171,6 +171,7 @@ fn entry(id: &str, label: String, action: Action) -> PaletteEntry {
             "path".into(),
         ],
         action,
+        key: None,
     }
 }
 

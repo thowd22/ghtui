@@ -328,3 +328,18 @@ fn design_footer_v90_inbox_keys_route_through_the_app_like_clicks() {
         "b returns to the Inbox"
     );
 }
+
+#[test]
+fn design_help_v97_inbox_and_every_pr_tab_list_footer_keys_in_help_and_commands() {
+    let mut checked = 0;
+    checked += crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&inbox(3), "inbox");
+    checked +=
+        crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&inbox(0), "empty inbox");
+    for (tab, label, _) in PrTab::ALL {
+        checked += crate::navigation_ui::assert_help_and_palette_cover_footer_v97(
+            &detail(tab),
+            &format!("PR {label}"),
+        );
+    }
+    assert!(checked > 40, "{checked}");
+}

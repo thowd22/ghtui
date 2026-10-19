@@ -428,3 +428,80 @@ fn v1_navigation_inbox_mouse_palette_explains_notifications_before_load() {
     );
     assert!(app.notifications_v63.is_none());
 }
+
+#[test]
+fn design_help_v97_key_rows_align_one_column_accent_key_and_ellipsis_label() {
+    let theme = crate::theme::Theme::new(
+        crate::config::ThemeName::CatppuccinMocha,
+        crate::theme::ColorMode::TrueColor,
+    );
+    let rows = [("r", "Refresh"), ("Enter", "Open"), ("F10", "Reviews")]
+        .map(|(key, label)| help_key_row_v97(theme, key, label, false, 5, 40));
+    let text = |line: &Line| {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    };
+    assert_eq!(text(&rows[0]), "  r      Refresh");
+    assert_eq!(text(&rows[1]), "  Enter  Open");
+    assert_eq!(text(&rows[2]), "  F10    Reviews");
+    // The key is the accent span; the label starts in the same column on every row.
+    for row in &rows {
+        assert_eq!(
+            row.spans[1].style,
+            theme
+                .style(SemanticToken::Accent)
+                .add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(text(row).find(row.spans[3].content.as_ref()), Some(9));
+    }
+    let disabled = help_key_row_v97(theme, "x", "Clear cache · unavailable", true, 5, 40);
+    assert_eq!(disabled.spans[3].style, theme.style(SemanticToken::Muted));
+    // A long label ends in an ellipsis within the row.
+    let cut = help_key_row_v97(theme, "p", &"PR actions ".repeat(8), false, 5, 30);
+    assert_eq!(crate::editor::display_width(&text(&cut)), 30);
+    assert!(text(&cut).ends_with('…'));
+}
+
+#[test]
+fn design_help_v97_help_overlay_paints_view_keys_before_the_prose_at_80_and_140() {
+    for (width, height) in [(140, 42), (80, 24)] {
+        let mut app = App::default();
+        let footer = crate::footer::main_controls(&app);
+        key(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.overlay, Some(Overlay::Help));
+        let screen = draw(&mut app, width, height);
+        let lines = screen.lines().collect::<Vec<_>>();
+        let heading = lines
+            .iter()
+            .position(|line| line.contains("Keys • Global"))
+            .unwrap_or_else(|| panic!("{screen}"));
+        // Every footer key of this frame is a Help row with its label in one shared column.
+        let mut columns = std::collections::BTreeSet::new();
+        for control in footer.iter().filter(|control| !control.key.is_empty()) {
+            let row = lines[heading..]
+                .iter()
+                .find(|line| {
+                    line.split_whitespace()
+                        .collect::<Vec<_>>()
+                        .windows(2)
+                        .any(|pair| {
+                            pair[0].ends_with(control.key.as_str()) && pair[1] == control.label
+                        })
+                })
+                .unwrap_or_else(|| panic!("{} {}\n{screen}", control.key, control.label));
+            columns.insert(row.find(control.label.as_str()).unwrap());
+        }
+        assert_eq!(columns.len(), 1, "{screen}");
+        assert!(
+            !screen.contains("Personal queues and PRs") || {
+                let prose = lines
+                    .iter()
+                    .position(|line| line.contains("Personal queues and PRs"))
+                    .unwrap();
+                prose > heading
+            }
+        );
+    }
+}

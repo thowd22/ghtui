@@ -219,3 +219,28 @@ fn design_footer_v90_repository_keys_tabs_and_compaction() {
     assert!(real.children().is_empty());
     assert_eq!(real.snapshot(), before);
 }
+
+#[test]
+fn design_help_v97_repository_help_and_commands_cover_every_footer_key() {
+    let real = Real::new("sha1");
+    let before = real.snapshot();
+    let mut checked = 0;
+    for mode in [RepositoryMode::Working, RepositoryMode::Graph] {
+        let workspace = Workspace::load(&real.root, mode, "HEAD", None)
+            .unwrap()
+            .unwrap();
+        real.clear_trace();
+        let app = App {
+            view: View::Repository,
+            workspace: Some(workspace),
+            ..Default::default()
+        };
+        checked += crate::navigation_ui::assert_help_and_palette_cover_footer_v97(
+            &app,
+            &format!("Repository {mode:?}"),
+        );
+    }
+    assert!(checked > 10, "{checked}");
+    // Preparing Help and Commands leaves the working tree and index untouched.
+    assert_eq!(real.snapshot(), before);
+}

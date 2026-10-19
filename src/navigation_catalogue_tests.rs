@@ -690,7 +690,7 @@ fn v1_navigation_catalogue_offers_notifications_only_from_loaded_queues_with_key
         entry(&loaded, "inbox.notifications").label,
         "Open notifications inbox"
     );
-    let hints = shortcut_hints(&app);
+    // Entries carry their keys: view numbers, Global keys and the Inbox footer keys.
     for (id, key) in [
         ("global.open.inbox", "1"),
         ("global.open.dashboard", "5"),
@@ -699,13 +699,6 @@ fn v1_navigation_catalogue_offers_notifications_only_from_loaded_queues_with_key
         ("inbox.filter.3", "v"),
         ("inbox.notifications", "F8"),
     ] {
-        assert!(
-            hints.iter().any(|(hint, value)| hint == id && value == key),
-            "{id} {key}"
-        );
+        assert_eq!(entry(&loaded, id).key.as_deref(), Some(key), "{id}");
     }
-    // Every hint targets an actual catalogue command identity.
-    assert!(hints
-        .iter()
-        .all(|(id, _)| loaded.entries.iter().any(|entry| &entry.id == id)));
 }

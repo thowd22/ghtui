@@ -14,6 +14,7 @@ fn entry(id: &str, label: &str, keywords: &[&str], action: Action) -> PaletteEnt
         label: label.into(),
         keywords: keywords.iter().map(|keyword| (*keyword).into()).collect(),
         action,
+        key: None,
     }
 }
 fn global() -> Vec<PaletteEntry> {

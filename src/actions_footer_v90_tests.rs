@@ -170,3 +170,15 @@ fn design_footer_v90_actions_shared_key_goes_to_the_enabled_control() {
         ["X Disable", "> Next fail", "{ Prev repo", "} Next repo"]
     );
 }
+
+#[test]
+fn design_help_v97_actions_help_and_commands_cover_every_footer_key() {
+    for (account, state) in [(Some(42), "verified Actions"), (None, "unverified Actions")] {
+        let app = App {
+            view: crate::app::View::Actions,
+            actions: Some(workspace(account)),
+            ..Default::default()
+        };
+        assert!(crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&app, state) > 3);
+    }
+}

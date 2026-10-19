@@ -105,6 +105,17 @@ impl PreparedCatalogue {
                 false,
             )?;
         }
+        // View numbers and the configured global keys, then the view's own key bar.
+        for view in View::ALL {
+            builder.key(
+                &format!("global.open.{}", view_key(view)),
+                app.shortcut(view_key(view)),
+            );
+        }
+        for name in ["help", "settings", "refresh", "quit"] {
+            builder.key(&format!("global.{name}"), app.shortcut(name));
+        }
+        builder.merge_footer(app)?;
         Ok(Self {
             context: CatalogueContext {
                 view: app.view,
@@ -146,7 +157,104 @@ impl Builder {
             label: safe_label(&label),
             keywords: keywords.iter().map(|word| (*word).into()).collect(),
             action,
+            key: None,
         });
+        Ok(())
+    }
+    /// Shows `key` beside the entry `id` unless the entry already shows a key.
+    fn key(&mut self, id: &str, key: &str) {
+        if key.is_empty() {
+            return;
+        }
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.id == id && entry.key.is_none())
+        {
+            entry.key = Some(key.into());
+        }
+    }
+    /// Merges the view's key-bar controls ([`crate::footer::main_controls`]) so every footer
+    /// action is in Commands with its key. A control joins the entry with the same action (the
+    /// Global ones join their `global.*` entry), or an entry with the same label; otherwise it
+    /// becomes its own entry. A disabled control keeps its reason, and an action that command
+    /// discovery refuses (a publication acknowledgement) stays an explanation here.
+    fn merge_footer(&mut self, app: &App) -> Result<(), String> {
+        for control in crate::footer::main_controls(app) {
+            // Commands is the palette itself.
+            if control.action == Action::Palette {
+                continue;
+            }
+            let action = match (&control.disabled, discovery_refusal(&control.action)) {
+                (Some(reason), _) => {
+                    bounded_explanation(&format!("{}: {reason}", safe_label(&control.label)))
+                }
+                (None, Some(refusal)) => refusal,
+                (None, None) => control.action.clone(),
+            };
+            let unavailable = matches!(action, Action::Explain(_));
+            let existing = global_id(&control.action)
+                .and_then(|id| self.entries.iter().position(|entry| entry.id == id))
+                .or_else(|| {
+                    // The same action, or an explanation with the same caption.
+                    self.entries.iter().position(|entry| {
+                        entry.key.is_none()
+                            && if unavailable {
+                                matches!(entry.action, Action::Explain(_))
+                                    && entry.label.eq_ignore_ascii_case(&control.label)
+                            } else {
+                                entry.action == action
+                            }
+                    })
+                })
+                .or_else(|| {
+                    // An unavailable Enter explains the view's "open selected" entry.
+                    (unavailable && control.key == "Enter")
+                        .then(|| {
+                            self.entries.iter().position(|entry| {
+                                entry.key.is_none()
+                                    && entry.id.ends_with(".selected")
+                                    && matches!(entry.action, Action::Explain(_))
+                            })
+                        })
+                        .flatten()
+                });
+            if let Some(index) = existing {
+                let entry = &mut self.entries[index];
+                if entry.key.is_none() && !control.key.is_empty() {
+                    entry.key = Some(control.key.clone());
+                }
+                continue;
+            }
+            let slug = control
+                .label
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() {
+                        character.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>();
+            let mut id = format!("footer.{}", slug.trim_matches('-'));
+            let mut suffix = 2;
+            while self.ids.contains(&id) {
+                id = format!("footer.{}.{suffix}", slug.trim_matches('-'));
+                suffix += 1;
+            }
+            let keywords = match control.group {
+                crate::footer::ControlGroup::Navigate => ["key", "navigate"],
+                crate::footer::ControlGroup::Act => ["key", "act"],
+                crate::footer::ControlGroup::Mode => ["key", "tab"],
+                crate::footer::ControlGroup::Global => ["key", "global"],
+            };
+            let contextual = control.group != crate::footer::ControlGroup::Global;
+            self.push(id, control.label.clone(), &keywords, action, contextual)?;
+            if let Some(entry) = self.entries.last_mut() {
+                entry.key = (!control.key.is_empty()).then(|| control.key.clone());
+            }
+        }
         Ok(())
     }
     fn repository(&mut self, app: &App) -> Result<(), String> {
@@ -543,26 +651,25 @@ impl Builder {
         self.push("dashboard.selected".into(), "Inspect selected Dashboard record".into(), &["metrics", "card", "contributors", "evidence"], app.metrics.as_ref().and_then(|metrics|metrics.selected_action()).map_or_else(||Action::Explain("Select a genuinely available metric/contributor first. Unknown or unretained history cannot supply an invented target.".into()), Action::Metrics), true)
     }
 }
-/// Display-only key hints for palette rows, resolved from the current keymap.
-pub fn shortcut_hints(app: &App) -> Vec<(String, String)> {
-    let mut hints = View::ALL
-        .into_iter()
-        .map(|view| {
-            (
-                format!("global.open.{}", view_key(view)),
-                app.shortcut(view_key(view)).to_string(),
-            )
-        })
-        .collect::<Vec<_>>();
-    for name in ["help", "settings", "refresh", "quit"] {
-        hints.push((format!("global.{name}"), app.shortcut(name).to_string()));
+/// The `global.*` entry a Global control's action belongs to.
+fn global_id(action: &Action) -> Option<&'static str> {
+    Some(match action {
+        Action::Help => "global.help",
+        Action::Settings => "global.settings",
+        Action::Refresh => "global.refresh",
+        Action::Cancel => "global.cancel",
+        Action::Quit => "global.quit",
+        _ => return None,
+    })
+}
+/// Why command discovery refuses an action its key or click may still run: publication
+/// acknowledgements belong to their explicit inspected recovery controls.
+fn discovery_refusal(action: &Action) -> Option<Action> {
+    match action {
+        Action::Pr(PrUiAction::Acknowledge) => Some(Action::Explain("Use the exact original publication's inspected recovery controls to acknowledge it. Commands never restore or bypass that explicit outcome workflow.".into())),
+        Action::Actions(action) if !allowed_actions_control(action) => Some(Action::Explain("This original publication outcome requires its explicit inspected recovery controls. Command discovery cannot acknowledge or release it.".into())),
+        _ => None,
     }
-    for (index, (_, _, key)) in InboxFilter::ALL.into_iter().enumerate() {
-        hints.push((format!("inbox.filter.{index}"), key.to_string()));
-    }
-    hints.push(("inbox.notifications".into(), "F8".into()));
-    hints.push(("inbox.selected".into(), "Enter".into()));
-    hints
 }
 fn view_key(view: View) -> &'static str {
     match view {

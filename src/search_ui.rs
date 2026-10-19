@@ -1326,6 +1326,17 @@ mod tests {
     }
 
     #[test]
+    fn design_help_v97_search_help_and_commands_cover_every_footer_key() {
+        let mut app = search_app();
+        assert!(crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&app, "Search") > 5);
+        app.search_controls.corpus = true;
+        assert!(
+            crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&app, "Search corpus")
+                > 3
+        );
+    }
+
+    #[test]
     fn design_footer_v90_search_bar_keeps_priorities_at_140_and_80_columns() {
         let app = search_app();
         assert_eq!(

@@ -643,3 +643,13 @@ fn metrics_dashboard_unicode_wrap_is_incremental_and_caps_raw_grapheme_reason_an
     )
     .is_err());
 }
+
+#[test]
+fn design_help_v97_dashboard_help_and_commands_cover_every_footer_key() {
+    let app = crate::app::App {
+        view: crate::app::View::Dashboard,
+        metrics: Some(prepared()),
+        ..Default::default()
+    };
+    assert!(crate::navigation_ui::assert_help_and_palette_cover_footer_v97(&app, "Dashboard") > 5);
+}

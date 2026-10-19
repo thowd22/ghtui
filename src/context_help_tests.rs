@@ -19,7 +19,7 @@ fn bindings() -> BTreeMap<String, String> {
 #[test]
 fn navigation_help_all_five_views_have_bounded_distinct_context_and_real_resolved_shortcuts() {
     for view in View::ALL {
-        let help = ContextHelp::prepare(view, &bindings()).unwrap();
+        let help = ContextHelp::prepare(view, &bindings(), &[]).unwrap();
         assert_eq!(help.view(), view);
         assert_eq!(help.lines()[0].kind, HelpLineKind::Heading);
         assert_eq!(
@@ -38,7 +38,7 @@ fn navigation_help_all_five_views_have_bounded_distinct_context_and_real_resolve
 }
 #[test]
 fn navigation_help_inbox_preserves_independent_queue_membership_and_original_no_resend_semantics() {
-    let text = ContextHelp::prepare(View::Inbox, &bindings())
+    let text = ContextHelp::prepare(View::Inbox, &bindings(), &[])
         .unwrap()
         .text();
     assert!(text.contains("Created by me, Assigned to me and Needs my review are separate queues"));
@@ -52,7 +52,7 @@ fn navigation_help_inbox_preserves_independent_queue_membership_and_original_no_
 }
 #[test]
 fn v1_pr_threads_inbox_help_names_line_file_and_thread_comment_controls() {
-    let text = ContextHelp::prepare(View::Inbox, &bindings())
+    let text = ContextHelp::prepare(View::Inbox, &bindings(), &[])
         .unwrap()
         .text();
     assert!(text.contains("i Comment line"));
@@ -62,7 +62,7 @@ fn v1_pr_threads_inbox_help_names_line_file_and_thread_comment_controls() {
 #[test]
 fn navigation_help_repository_explains_saved_working_staged_directional_diff_and_git_relationships()
 {
-    let text = ContextHelp::prepare(View::Repository, &bindings())
+    let text = ContextHelp::prepare(View::Repository, &bindings(), &[])
         .unwrap()
         .text();
     for phrase in [
@@ -90,7 +90,7 @@ fn navigation_help_repository_explains_saved_working_staged_directional_diff_and
 #[test]
 fn navigation_help_search_explains_query_modes_explicit_sources_exact_open_and_incomparable_ranks()
 {
-    let text = ContextHelp::prepare(View::Search, &bindings())
+    let text = ContextHelp::prepare(View::Search, &bindings(), &[])
         .unwrap()
         .text();
     for phrase in [
@@ -113,7 +113,7 @@ fn navigation_help_search_explains_query_modes_explicit_sources_exact_open_and_i
 #[test]
 fn navigation_help_actions_distinguishes_run_attempt_actor_acceptance_secret_and_original_protection(
 ) {
-    let text = ContextHelp::prepare(View::Actions, &bindings())
+    let text = ContextHelp::prepare(View::Actions, &bindings(), &[])
         .unwrap()
         .text();
     for phrase in [
@@ -133,7 +133,7 @@ fn navigation_help_actions_distinguishes_run_attempt_actor_acceptance_secret_and
 }
 #[test]
 fn navigation_help_dashboard_preserves_as_of_cohort_unknown_and_historical_evidence_limits() {
-    let text = ContextHelp::prepare(View::Dashboard, &bindings())
+    let text = ContextHelp::prepare(View::Dashboard, &bindings(), &[])
         .unwrap()
         .text();
     for phrase in [
@@ -157,7 +157,7 @@ fn navigation_help_dashboard_preserves_as_of_cohort_unknown_and_historical_evide
 }
 #[test]
 fn navigation_help_missing_back_binding_does_not_advertise_a_fictional_key_or_action() {
-    let help = ContextHelp::prepare(View::Inbox, &BTreeMap::new())
+    let help = ContextHelp::prepare(View::Inbox, &BTreeMap::new(), &[])
         .unwrap()
         .text();
     assert!(help.contains("Back: unassigned"));
@@ -177,7 +177,7 @@ fn navigation_help_shared_input_no_color_actor_and_auth_guidance_is_present_with
         "PrivateRepositoryCanaryNeverCopied".into(),
     );
     for view in View::ALL {
-        let text = ContextHelp::prepare(view, &input).unwrap().text();
+        let text = ContextHelp::prepare(view, &input, &[]).unwrap().text();
         for phrase in [
             "Click uses the same action and guards",
             "Mouse wheel scrolls its hovered pane",
@@ -203,25 +203,25 @@ fn navigation_help_raw_unicode_byte_limits_controls_and_bidi_overrides_refuse_be
         "界".repeat(22),
     ] {
         let map = BTreeMap::from([("help".into(), value)]);
-        assert!(ContextHelp::prepare(View::Repository, &map).is_err());
+        assert!(ContextHelp::prepare(View::Repository, &map, &[]).is_err());
     }
     let map = BTreeMap::from([("help".into(), "界".repeat(20))]);
-    assert!(ContextHelp::prepare(View::Repository, &map)
+    assert!(ContextHelp::prepare(View::Repository, &map, &[])
         .unwrap()
         .text()
         .contains(&format!("Help: {}", "界".repeat(20))));
     let too_many = (0..65)
         .map(|index| (format!("key{index}"), "a".into()))
         .collect();
-    assert!(ContextHelp::prepare(View::Actions, &too_many).is_err());
+    assert!(ContextHelp::prepare(View::Actions, &too_many, &[]).is_err());
     let aggregate = (0..64)
         .map(|index| (format!("key{index}{}", "a".repeat(58)), "b".repeat(64)))
         .collect();
-    assert!(ContextHelp::prepare(View::Actions, &aggregate).is_err());
+    assert!(ContextHelp::prepare(View::Actions, &aggregate, &[]).is_err());
 }
 #[test]
 fn v1_navigation_help_inbox_documents_queue_keys_notifications_and_commands() {
-    let text = ContextHelp::prepare(View::Inbox, &bindings())
+    let text = ContextHelp::prepare(View::Inbox, &bindings(), &[])
         .unwrap()
         .text();
     for phrase in [
@@ -233,8 +233,66 @@ fn v1_navigation_help_inbox_documents_queue_keys_notifications_and_commands() {
     ] {
         assert!(text.contains(phrase), "Missing Inbox help: {phrase}");
     }
-    let repository = ContextHelp::prepare(View::Repository, &bindings())
+    let repository = ContextHelp::prepare(View::Repository, &bindings(), &[])
         .unwrap()
         .text();
     assert!(!repository.contains("F8 Notifications"));
+}
+#[test]
+fn design_help_v97_key_tables_are_grouped_titled_deduplicated_and_precede_the_prose() {
+    use crate::app::Action;
+    use crate::footer::{ControlGroup, KeyControl};
+    let controls = vec![
+        KeyControl::new("r", "Refresh", Action::Refresh),
+        KeyControl::new("Enter", "Open", Action::Help).in_group(ControlGroup::Navigate),
+        KeyControl::new("x", "Clear cache", Action::Quit).disabled_by(Some("Busy.".into())),
+        KeyControl::new("a", "All", Action::Settings)
+            .in_group(ControlGroup::Mode)
+            .with_selected(true),
+        KeyControl::new("?", "Help", Action::Help).in_group(ControlGroup::Global),
+        KeyControl::new("r", "Refresh", Action::Refresh),
+        KeyControl::new("", "Unbound", Action::Quit),
+    ];
+    let help = ContextHelp::prepare(View::Inbox, &bindings(), &controls).unwrap();
+    // Groups in Navigate, Act, Tabs, Global order; each titled; repeats and unbound left out.
+    assert_eq!(
+        help.lines()[1..11]
+            .iter()
+            .map(|line| (line.kind, line.key.as_deref(), line.text.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (HelpLineKind::Heading, None, "Keys • Navigate"),
+            (HelpLineKind::Key, Some("Enter"), "Open"),
+            (HelpLineKind::Heading, None, "Keys • Act"),
+            (HelpLineKind::Key, Some("r"), "Refresh"),
+            (HelpLineKind::Key, Some("x"), "Clear cache · unavailable"),
+            (HelpLineKind::Heading, None, "Keys • Tabs"),
+            (HelpLineKind::Key, Some("a"), "All · current"),
+            (HelpLineKind::Heading, None, "Keys • Global"),
+            (HelpLineKind::Key, Some("?"), "Help"),
+            (HelpLineKind::Heading, None, "Personal queues and PRs"),
+        ]
+    );
+    assert!(help.lines()[5].disabled && !help.lines()[4].disabled);
+    assert_eq!(help.key_column(), 5);
+    assert!(help.text().contains("Enter Open\n"));
+    assert!(!help.text().contains("Unbound"));
+    // Without controls the prose follows the title directly, as before.
+    let plain = ContextHelp::prepare(View::Inbox, &bindings(), &[]).unwrap();
+    assert_eq!(plain.lines()[1].text, "Personal queues and PRs");
+    assert_eq!(plain.keys().count(), 0);
+}
+#[test]
+fn design_help_v97_unsafe_key_labels_are_sanitized_or_refused() {
+    use crate::app::Action;
+    use crate::footer::KeyControl;
+    let help = ContextHelp::prepare(
+        View::Search,
+        &bindings(),
+        &[KeyControl::new("r", "Re\u{1b}[2Jfresh", Action::Refresh)],
+    )
+    .unwrap();
+    assert!(help.keys().all(|(_, label)| !label.contains('\u{1b}')));
+    let oversized = KeyControl::new("r", "x".repeat(200), Action::Refresh);
+    assert!(ContextHelp::prepare(View::Search, &bindings(), &[oversized]).is_err());
 }
