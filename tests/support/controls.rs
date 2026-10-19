@@ -239,8 +239,8 @@ pub fn locate_control(screen: &vt100::Screen, label: &str) -> Option<(u16, u16)>
     }
     locate_text(screen, label)
         .or_else(|| footer_control(screen, &control))
-        .or_else(|| tab_control(screen, &control))
         .or_else(|| compact_control(screen, &control))
+        .or_else(|| tab_control(screen, &control))
 }
 
 /// Every whole `key label` token in `rows`: it starts at the row edge, after a space or a
@@ -339,11 +339,15 @@ pub fn tab_control(screen: &vt100::Screen, control: &Control) -> Option<(u16, u1
 /// Below 100 columns key-bar tokens and tabs show compact labels (`p Actions` for
 /// `[p PR actions]`, `c Conv` for `[c Conversation]`, `: Cmds` for `[: Commands]`). A token
 /// with the same key whose painted label names the full one (see [`compact_matches`]) is it.
+/// The key bar wins over rows above it, so a status line quoting `p PR actions` is never
+/// clicked instead of the `p Actions` token.
 pub fn compact_control(screen: &vt100::Screen, control: &Control) -> Option<(u16, u16)> {
     let key = control.key.as_deref()?;
     let full = control.text.to_ascii_lowercase();
-    key_tokens(screen, 0..screen.size().0, key)
+    let footer = footer_row(screen);
+    key_tokens(screen, footer..footer + 1, key)
         .into_iter()
+        .chain(key_tokens(screen, 0..footer, key))
         .find(|(label, _)| compact_matches(label, &full))
         .map(|(_, position)| position)
 }

@@ -103,7 +103,8 @@ fn key_bar(mouse: bool) {
     for label in ["[D Defaults]", "[O Open saved]", "[S Save]", "[L Layout]"] {
         session.assert_control_absent(label);
     }
-    // `: Commands` is compacted, not dropped (the compact `: Cmds` token still locates it).
+    // `: Cmds` is the compact Commands token, so the locator still finds Commands; the full
+    // label is gone from the bar.
     assert!(!last_row(&session).contains(": Commands"));
     assert!(last_row(&session)
         .trim_end()
