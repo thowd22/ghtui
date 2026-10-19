@@ -131,7 +131,10 @@ fn own_pr_journey(mouse: bool) {
         0
     );
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("Native collaboration • open");
+    closed_explanation(
+        &mut session,
+        "You cannot approve or request changes on your own PR.",
+    );
     // Pending reviews and dismissal are discoverable from the same menu.
     menu(
         &mut session,
@@ -140,7 +143,7 @@ fn own_pr_journey(mouse: bool) {
     );
     session.wait_for_screen("then F10 Reviews");
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("Native collaboration • open");
+    closed_explanation(&mut session, "then F10 Reviews");
     session.quit_and_assert_restored_terminal(mouse);
 }
 

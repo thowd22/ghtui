@@ -40,7 +40,14 @@ fn complete(session: &mut Session, after: usize, values: &[&str]) {
         after,
         |frame| {
             let text = frame.contents();
-            values.iter().all(|value| text.contains(value))
+            // A bracketed control is a key-bar token (compact below 100 columns).
+            values.iter().all(|value| {
+                if value.starts_with('[') {
+                    crate::support::controls::control_painted(frame, value)
+                } else {
+                    text.contains(value)
+                }
+            })
         },
         "Actual closed PR-origin Actions frame",
         Duration::from_secs(8),

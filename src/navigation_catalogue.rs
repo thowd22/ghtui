@@ -186,6 +186,13 @@ impl Builder {
                 continue;
             }
             let action = match (&control.disabled, discovery_refusal(&control.action)) {
+                // A reason that already names its bracketed control (the Actions bar's
+                // `[w Watch]: …`) is the key's exact explanation; it is not named twice.
+                (Some(reason), _)
+                    if reason.starts_with(&format!("[{} {}]", control.key, control.label)) =>
+                {
+                    bounded_explanation(reason)
+                }
                 (Some(reason), _) => {
                     bounded_explanation(&format!("{}: {reason}", safe_label(&control.label)))
                 }

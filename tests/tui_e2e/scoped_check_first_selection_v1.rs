@@ -11,7 +11,7 @@ fn first_input(mouse: bool) {
     selected(&mut session, &fixture, mouse);
     choose(&mut session, mouse, "[k Checks]", b"k");
     session.wait_for_command_count(&fixture, 41);
-    session.wait_for_cursorless_condition(|frame|{let text=frame.contents();text.contains("Required rules unavailable")&&text.contains("Check#600")&&text.contains("Status#700")&&crate::support::controls::control_painted(frame, "[Enter Open check]")},"Actual completed original Checks notice+genuine Check600+unrelated Status700 before first input",Duration::from_secs(8));
+    session.wait_for_cursorless_condition(|frame|{let text=frame.contents();text.contains("Required rules unavailable")&&text.contains("Check#600")&&text.contains("Status#700")&&crate::support::controls::main_footer_visible(frame)&&crate::support::controls::control_painted(frame, "[b Back]")&&!crate::support::controls::control_painted(frame, "[Enter Open check]")},"Actual completed original Checks notice+genuine Check600+unrelated Status700 before first input; Open check leaves the key bar until a check is selected",Duration::from_secs(8));
     let original = crate::support::completed_navigation_controls_v1::progress_selection(
         session.completed_cursorless_screen().unwrap(),
         "Exact observed build",

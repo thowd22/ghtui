@@ -182,6 +182,20 @@ fn open(session: &mut Session, mouse: bool) {
         Duration::from_secs(8),
     );
 }
+/// After an explanation's Close, wait for the completed PR view with its own main key bar
+/// before taking a token's coordinates: the overlay frame's bar is laid out differently.
+pub(crate) fn closed_explanation(session: &mut Session, explanation: &str) {
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains(explanation)
+                && text.contains("Native collaboration • open")
+                && crate::support::controls::main_footer_visible(frame)
+        },
+        "PR view and main key bar restored after the explanation closed",
+        Duration::from_secs(8),
+    );
+}
 pub(crate) fn menu(session: &mut Session, mouse: bool, label: &str) {
     choose(session, mouse, "[p PR actions]", b"p");
     session.wait_for_screen("[PgDn More]");

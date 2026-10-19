@@ -138,7 +138,10 @@ fn draft_journey(mouse: bool) {
         0
     );
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    session.wait_for_screen("Native collaboration • open");
+    closed_explanation(
+        &mut session,
+        "Mark this draft PR ready for review before merging.",
+    );
     session.quit_and_assert_restored_terminal(mouse);
 }
 

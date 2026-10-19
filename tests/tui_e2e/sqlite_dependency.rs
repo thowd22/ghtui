@@ -15,8 +15,14 @@ fn completed(session: &mut Session, expected: &[&str], absent: &[&str]) {
     session.wait_for_cursorless_condition(
         |frame| {
             let text = frame.contents();
-            expected.iter().all(|value| text.contains(value))
-                && absent.iter().all(|value| !text.contains(value))
+            // A bracketed control is a key-bar token (compact below 100 columns).
+            expected.iter().all(|value| {
+                if value.starts_with('[') {
+                    crate::support::controls::control_painted(frame, value)
+                } else {
+                    text.contains(value)
+                }
+            }) && absent.iter().all(|value| !text.contains(value))
         },
         "complete SQLite journey view/privacy frame",
         Duration::from_secs(8),
