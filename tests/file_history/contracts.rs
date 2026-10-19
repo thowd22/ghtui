@@ -452,7 +452,8 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
                 FileAction::Next,
             ]
         } else {
-            vec![FileAction::Previous]
+            // Two commits fit one source page: neither an earlier nor a later page exists.
+            vec![FileAction::Previous, FileAction::Next]
         };
         for file_action in &disabled {
             assert_eq!(
@@ -467,15 +468,24 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
             for (file_action, token) in [
                 (FileAction::History, "H History"),
                 (FileAction::Blame, "Y Blame"),
-                (FileAction::Next, "N Next"),
             ] {
-                let rect = bar_hit(file_action).expect(token);
+                let rect = bar_hit(file_action)
+                    .unwrap_or_else(|| panic!("{token} is a key-bar click target: {bar}"));
                 let painted = (rect.x..rect.right())
                     .map(|column| terminal.backend().buffer()[(column, 23)].symbol())
                     .collect::<String>();
                 assert_eq!(painted, token, "Full control must fit 80 columns: {bar}");
             }
             assert!(!bar.contains("P Prev"), "{bar}");
+            assert!(!bar.contains("N Next"), "{bar}");
+            let next = ghtui::footer::resolve_key(
+                &ghtui::footer::main_controls(&mouse),
+                KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE),
+            );
+            assert!(
+                matches!(&next, Some(Action::Explain(reason)) if reason.contains("No next page")),
+                "{next:?}"
+            );
         }
         let key = if busy { 'H' } else { 'P' };
         let event = KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE);
