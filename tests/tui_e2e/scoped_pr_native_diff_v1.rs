@@ -67,7 +67,21 @@ fn act(session: &mut Session, mouse: bool, title: &str, label: &str, key: &[u8])
     } else {
         title
     };
-    let point = session.wait_for_owned_completed_action(owner, label, &[]);
+    // The focused view's actions are key-bar tokens below its box; overlays keep their own
+    // owned controls. Either way the point comes from a completed frame.
+    let point = if title == "Inbox • focused view" {
+        session.wait_for_cursorless_condition(
+            |frame| crate::support::controls::locate_control(frame, label).is_some(),
+            &format!("completed Inbox key bar paints {label}"),
+            Duration::from_secs(8),
+        );
+        session
+            .completed_cursorless_screen()
+            .and_then(|frame| crate::support::controls::locate_control(frame, label))
+            .unwrap()
+    } else {
+        session.wait_for_owned_completed_action(owner, label, &[])
+    };
     let before = session.completed_cursorless_end();
     if mouse {
         session.click(point.0, point.1);

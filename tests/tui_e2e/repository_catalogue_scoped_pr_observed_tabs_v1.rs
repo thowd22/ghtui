@@ -83,7 +83,7 @@ fn journey(mouse: bool, case: u8) {
     if case == 2 {
         // Back stays at the SAME first scoped-control position both before and
         // while preparing. A real mouse report cannot hit a stale tab control.
-        let back = session.locate("[b Back]").unwrap();
+        let back = session.wait_for_control("[b Back]");
         choose(&mut session, mouse, "[c Conversation]", b"c");
         if mouse {
             session.click(back.0 + 1, back.1);

@@ -186,7 +186,14 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
         }
     }
     keys.extend(crate::pr_metadata_quick_v1::footer_keys(app));
-    keys.extend([refresh(45), clear(70)]);
+    // While the page is loading, `Esc Cancel` joins the bar and Refresh replaces the read in
+    // flight; it outranks the history overlays so a click still reaches the replacement.
+    let refresh_priority = if app.loading[crate::app::View::Inbox.index()] {
+        21
+    } else {
+        45
+    };
+    keys.extend([refresh(refresh_priority), clear(70)]);
     keys.extend(
         PrTab::ALL
             .iter()

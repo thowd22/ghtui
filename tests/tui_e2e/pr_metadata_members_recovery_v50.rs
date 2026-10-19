@@ -67,8 +67,11 @@ fn restart(f: &Fixture, mouse: bool, personal: bool, end: usize, expected: &[GhS
         s.wait_for_new_cursorless_condition(
             frame,
             |screen| {
+                // The selected tab is `c Conversation` (`c Conv` below 100 columns); the
+                // page is the Conversation body, which starts with the PR description.
                 crate::support::main_footer_visible(screen)
-                    && screen.contents().contains("Conversation")
+                    && crate::support::controls::control_painted(screen, "[c Conversation]")
+                    && screen.contents().contains("PR description")
             },
             "Restart genuinely entered original Conversation",
             Duration::from_secs(8),

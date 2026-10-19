@@ -62,7 +62,7 @@ fn enter_metadata(s: &mut Session, f: &Fixture, mouse: bool, end: usize) {
             && frame.contents().contains(&"a".repeat(40))
             && frame.contents().contains(&format!("{FIRST}#7"))
             && crate::support::controls::control_painted(frame, "[u Metadata]")
-            && !frame.contents().contains("[Esc Cancel]")
+            && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
             && !frame.contents().contains("[Confirm action]")
             && !frame.contents().contains("Verifying original Conversation")
     };

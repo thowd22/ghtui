@@ -247,7 +247,7 @@ fn clear(mouse: bool) {
                 crate::support::main_footer_visible(screen)
                     && crate::support::controls::control_painted(screen, "[x Clear cache]")
                     && !crate::support::controls::control_painted(screen, "[p PR actions]")
-                    && !text.contains("[Esc Cancel]")
+                    && !crate::support::controls::control_painted(screen, "[Esc Cancel]")
                     && !text.contains(DETAIL_BODY)
                     && !text.contains(&members_title(Cmd::AddLabel))
             },
@@ -324,11 +324,13 @@ fn newer_view(mouse: bool) {
                 crate::support::main_footer_visible(screen)
                     && text.contains("Repository • focused view")
                     && text.contains("Recent commits")
-                    && text.contains("[m Local operations]")
+                    // Narrow key bars paint the compact `m Git ops` caption.
+                    && (crate::support::controls::control_painted(screen, "[m Local operations]")
+                        || crate::support::controls::control_painted(screen, "[m Git ops]"))
                     && !text.contains(&members_title(Cmd::AddLabel))
                     && !text.contains(DETAIL_BODY)
                     && !text.contains("Verifying original Conversation")
-                    && !text.contains("[Esc Cancel]")
+                    && !crate::support::controls::control_painted(screen, "[Esc Cancel]")
             },
             "NEW actual newer Repository owns its content/loading/status",
             Duration::from_secs(8),
@@ -399,7 +401,8 @@ fn newer_view(mouse: bool) {
                 let text = screen.contents();
                 crate::support::main_footer_visible(screen)
                     && text.contains("Repository • focused view")
-                    && text.contains("[m Local operations]")
+                    && (crate::support::controls::control_painted(screen, "[m Local operations]")
+                        || crate::support::controls::control_painted(screen, "[m Git ops]"))
                     && !text.contains("LOCAL INTENT")
                     && !text.contains(&members_title(Cmd::AddLabel))
             },

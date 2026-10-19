@@ -20,11 +20,14 @@ fn quick(command: Cmd) -> (&'static str, &'static str, &'static [u8]) {
 }
 
 /// The additions are key-bar tokens (label chosen by the current width); the removals leave
-/// the bar first on narrow rows but keep their keys and their `p` menu entries. The chosen
-/// one opens the same member workflow the `p` menu opens.
+/// the bar first on narrow rows but keep their keys and their `p` menu entries. At 80 columns
+/// `m Milestone` (the lowest-priority addition) also leaves the bar; its key still works and
+/// a click reaches it through the command palette. The chosen one opens the same member
+/// workflow the `p` menu opens.
 fn open_quick(s: &mut Session, f: &Fixture, mouse: bool, command: Cmd, end: usize) {
     let frame = s.completed_cells_screen().unwrap();
     let wide = frame.size().1 >= 100;
+    let on_bar = |every: Cmd| wide || every != Cmd::SetMilestone;
     for every in [
         Cmd::AddLabel,
         Cmd::AddReviewer,
@@ -33,15 +36,21 @@ fn open_quick(s: &mut Session, f: &Fixture, mouse: bool, command: Cmd, end: usiz
     ] {
         let (long, compact, _) = quick(every);
         let label = if wide { long } else { compact };
-        assert!(
+        assert_eq!(
             crate::support::controls::control_painted(frame, label),
-            "{label} missing\n{}",
+            on_bar(every),
+            "{label} key-bar presence at {} columns\n{}",
+            frame.size().1,
             frame.contents()
         );
     }
     let after = s.completed_cells_end();
     let (long, compact, key) = quick(command);
-    choose(s, mouse, if wide { long } else { compact }, key);
+    if on_bar(command) || !mouse {
+        choose(s, mouse, if wide { long } else { compact }, key);
+    } else {
+        s.invoke_via_palette(mouse, long);
+    }
     s.wait_for_command_count(f, end);
     form_frame(
         s,
@@ -105,10 +114,14 @@ fn quick_cancel(mouse: bool) {
         s.send_key(b"\x1b");
     }
     metadata_frame(&mut s, before);
-    assert!(crate::support::controls::control_painted(
-        s.completed_cells_screen().unwrap(),
-        "[l Add label]"
-    ));
+    let frame = s.completed_cells_screen().unwrap();
+    let (long, compact, _) = quick(command);
+    let label = if frame.size().1 >= 100 { long } else { compact };
+    assert!(
+        crate::support::controls::control_painted(frame, label),
+        "{label} missing after Esc\n{}",
+        frame.contents()
+    );
     exact(&s, &f, &steps);
     assert_eq!(
         sql(&f)

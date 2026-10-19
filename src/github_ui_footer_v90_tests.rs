@@ -343,3 +343,19 @@ fn design_help_v97_inbox_and_every_pr_tab_list_footer_keys_in_help_and_commands(
     }
     assert!(checked > 40, "{checked}");
 }
+
+#[test]
+fn design_footer_v90_loading_pr_keeps_refresh_beside_cancel_at_80_columns() {
+    let mut app = detail(PrTab::Summary);
+    app.loading[View::Inbox.index()] = true;
+    let shown = tokens(&app, 80);
+    // A held read adds `Esc Cancel`; the replacement Refresh stays clickable beside it.
+    for token in ["r Refresh", "Esc Cancel", "b Back"] {
+        assert!(
+            shown.iter().any(|t| t == token),
+            "{token} missing: {shown:?}"
+        );
+    }
+    app.loading[View::Inbox.index()] = false;
+    assert!(!tokens(&app, 80).iter().any(|t| t == "Esc Cancel"));
+}

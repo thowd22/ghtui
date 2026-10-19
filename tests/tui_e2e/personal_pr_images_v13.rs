@@ -2,6 +2,15 @@
 //! Native renderer/query/Source -> cached Back. Source-only declarations.
 use super::*;
 use crate::immutable_git_v1 as history;
+/// Loaded patch controls that rank below the bar's width (Next hunk, Patch context, Layout)
+/// keep their keys; a click reaches the same action through the command palette.
+fn off_bar(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        session.invoke_via_palette(true, label);
+    } else {
+        session.send_key(key);
+    }
+}
 #[path = "personal_pr_images_lifecycle_v13.rs"]
 mod lifecycle;
 #[path = "personal_pr_publication_v14.rs"]
@@ -191,12 +200,12 @@ fn journey(mouse: bool) {
     choose(&mut session, mouse, "[N Next file]", b"N");
     frame(&mut session, before, |s| s.contains("> File src/界.rs"));
     let before = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[} Next hunk]", b"}");
+    off_bar(&mut session, mouse, "[} Next hunk]", b"}");
     frame(&mut session, before, |s| {
         s.contains("> @@ -1,2 +1,2") && s.contains("new-no-newline")
     });
     let before = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[X Patch context]", b"X");
+    off_bar(&mut session, mouse, "[X Patch context]", b"X");
     frame(&mut session, before, |s| {
         s.contains("Loaded patch context")
             && s.contains("old Some")
@@ -209,7 +218,7 @@ fn journey(mouse: bool) {
         session.close_overlay_by_key("Loaded patch context")
     };
     let before = session.completed_cursorless_end();
-    choose(&mut session, mouse, "[L Layout]", b"L");
+    off_bar(&mut session, mouse, "[L Layout]", b"L");
     frame(&mut session, before, |s| {
         s.lines()
             .any(|line| line.matches("context\\r").count() == 2 && line.contains('│'))

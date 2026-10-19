@@ -97,13 +97,13 @@ fn journey(mouse: bool) {
             let owned = OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
             assert!(owned.owns(&child));
             assert!(!child.zombie);
-            session.wait_for_screen("[Esc Cancel]");
+            session.wait_for_control("[Esc Cancel]");
             let cancel_before = session.completed_cursorless_end();
             choose(&mut session, mouse, "[Esc Cancel]", b"\x1b");
             frame(&mut session, cancel_before, |s| {
                 s.contains("File src/界.rs")
                     && crate::support::controls::text_has_control(s, "[v Native diff]")
-                    && !s.contains("[Esc Cancel]")
+                    && !crate::support::controls::text_has_control(s, "[Esc Cancel]")
                     && !s.contains("Native PR diff •")
                     && !s.contains("Immutable file images")
             });

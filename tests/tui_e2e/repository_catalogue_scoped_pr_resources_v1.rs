@@ -70,6 +70,15 @@ fn resource_configured(steps: &[GhStep]) -> Fixture {
         .unwrap();
     fixture
 }
+/// Loaded patch controls that rank below the bar's width (Next hunk, Patch context, Layout)
+/// keep their keys; a click reaches the same action through the command palette.
+fn off_bar(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        session.invoke_via_palette(true, label);
+    } else {
+        session.send_key(key);
+    }
+}
 fn unchanged(session: &Session, fixture: &Fixture, before: &[String], steps: &[GhStep]) {
     assert_eq!(sql_state(fixture), before);
     no_attempts(fixture);
@@ -117,9 +126,9 @@ fn happy(mouse: bool) {
     // the actual selected target after the page-only completion before issuing
     // another action; preparing pages intentionally suppress loaded controls.
     ready(&mut session, &["> File src/界.rs"]);
-    choose(&mut session, mouse, "[} Next hunk]", b"}");
+    off_bar(&mut session, mouse, "[} Next hunk]", b"}");
     ready(&mut session, &["> @@ -1,2 +1,2", "new-no-newline"]);
-    choose(&mut session, mouse, "[X Patch context]", b"X");
+    off_bar(&mut session, mouse, "[X Patch context]", b"X");
     overlay_ready(
         &mut session,
         "Loaded patch context",
@@ -130,14 +139,15 @@ fn happy(mouse: bool) {
     } else {
         session.close_overlay_by_key("Loaded patch context");
     }
-    choose(&mut session, mouse, "[L Layout]", b"L");
+    off_bar(&mut session, mouse, "[L Layout]", b"L");
     session
         .try_wait_for_condition(
             |screen| {
                 screen
                     .lines()
                     .any(|line| line.matches("context\\r").count() == 2 && line.contains('│'))
-                    && crate::support::controls::text_has_control(screen, "[L Layout]")
+                    // The loaded patch controls are back on the bar (`O Old` at 80 columns).
+                    && crate::support::controls::text_has_control(screen, "[O Old image]")
                     && !screen.contains("Preparing observed PR section")
             },
             "Actual split diff independently displays the same canonical context on both sides",
@@ -209,7 +219,9 @@ fn happy(mouse: bool) {
     // An actual status-context member remains non-bridgeable even after the
     // separate genuine CheckRun successfully opened its exact run and logs.
     scoped_checks::select_observed_row(&mut session, mouse, "external-lint");
-    choose(&mut session, mouse, "[Enter Open check]", b"\r");
+    // The disabled control leaves the key bar; its Enter key explains the exact refusal.
+    session.assert_control_absent("[Enter Open check]");
+    session.send_key(b"\r");
     overlay_ready(&mut session, "Action unavailable", &["[Esc Close]"]);
     // Assert the entire genuine status-context explanation across physical
     // terminal wrapping, not only a coincidentally unbroken screen substring.

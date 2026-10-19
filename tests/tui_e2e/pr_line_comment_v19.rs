@@ -40,6 +40,14 @@ fn select_by_mouse(session: &mut Session, text: &str) {
         .unwrap();
 }
 
+fn comment_line(session: &mut Session, mouse: bool) {
+    if mouse {
+        session.invoke_via_palette(true, "[i Comment line]");
+    } else {
+        session.send_key(b"i");
+    }
+}
+
 fn line_journey(mouse: bool) {
     // Keyboard comments RIGHT from the added line; mouse LEFT from the removed one.
     let side = if mouse { "LEFT" } else { "RIGHT" };
@@ -55,9 +63,11 @@ fn line_journey(mouse: bool) {
     let before_drafts = stable_drafts(&fixture);
     let mut session = launch(&fixture, mouse);
     files_selected(&mut session, &fixture, mouse);
-    ready(&mut session, &["[i Comment line]"]);
+    // The loaded patch controls are on the bar; `i Comment line` ranks below the bar's width
+    // and keeps its key, while a click reaches it through the command palette.
+    ready(&mut session, &["[O Old image]"]);
     // A file row is not a line: the control explains instead of guessing.
-    choose(&mut session, mouse, "[i Comment line]", b"i");
+    comment_line(&mut session, mouse);
     ready(
         &mut session,
         &["Select a changed or context line in the diff"],
@@ -73,7 +83,7 @@ fn line_journey(mouse: bool) {
     } else {
         select_by_keyboard(&mut session, row);
     }
-    choose(&mut session, mouse, "[i Comment line]", b"i");
+    comment_line(&mut session, mouse);
     session.wait_for_command_count(&fixture, 58);
     overlay_ready(
         &mut session,

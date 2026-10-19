@@ -74,7 +74,7 @@ fn summary(s: &mut Session, mouse: bool) {
                 && text.contains("feature → main")
                 && text.contains(HEAD)
                 && crate::support::controls::control_painted(frame, "[u Metadata]")
-                && !text.contains("[Esc Cancel]")
+                && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
         },
         "NEW genuine idle Summary before held Metadata request",
         Duration::from_secs(8),
@@ -119,7 +119,7 @@ fn no_busy(s: &mut Session, before: usize) {
         |frame| {
             crate::support::main_footer_visible(frame)
                 && crate::support::controls::control_painted(frame, "[u Metadata]")
-                && !frame.contents().contains("[Esc Cancel]")
+                && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
         },
         "NEW old read slot retired without replay or stale page install",
         Duration::from_secs(8),
@@ -178,7 +178,7 @@ fn journey(mouse: bool, mode: u8) {
     let old = held(&mut s, &f, first_end - 1);
     s.wait_for_owned_completed_action("Inbox • focused view ─", " u Metadata ", &[]);
     s.wait_for_screen("Verifying original Conversation");
-    s.wait_for_screen("[Esc Cancel]");
+    s.wait_for_control("[Esc Cancel]");
     match mode {
         0 => {
             let before = s.completed_cursorless_end();
@@ -195,7 +195,7 @@ fn journey(mouse: bool, mode: u8) {
                             "Commit = a saved version • author writes, committer records it",
                         )
                         && !text.contains("Your repository permissions:")
-                        && !text.contains("[Esc Cancel]")
+                        && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
                 },
                 "NEW actual Commits tab owns the page, not late Metadata",
                 Duration::from_secs(8),
@@ -217,7 +217,7 @@ fn journey(mouse: bool, mode: u8) {
                 |frame| {
                     crate::support::main_footer_visible(frame)
                         && crate::support::controls::control_painted(frame, "[u Metadata]")
-                        && !frame.contents().contains("[Esc Cancel]")
+                        && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
                 },
                 "Actual cached original Inbox after Repository return",
                 Duration::from_secs(8),
@@ -229,6 +229,8 @@ fn journey(mouse: bool, mode: u8) {
         }
         1 => {
             let before = s.completed_cursorless_end();
+            // While the read is held, `Esc Cancel` joins the key bar and `r Refresh` stays on
+            // it: both the key and a click replace the held read.
             choose(&mut s, mouse, "[r Refresh]", b"r");
             let next = held(&mut s, &f, replacement_end - 1);
             assert_ne!(next.pid, old.pid);
@@ -251,7 +253,7 @@ fn journey(mouse: bool, mode: u8) {
                         && text.contains("feature → main")
                         && text.contains(HEAD)
                         && text.contains("Fresh • fetched")
-                        && !text.contains("[Esc Cancel]")
+                        && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
                 },
                 "NEW actual same-Inbox replacement completes despite late old result",
                 Duration::from_secs(8),
