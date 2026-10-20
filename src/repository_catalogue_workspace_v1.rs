@@ -43,6 +43,47 @@ const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
 const MAX_DETAIL_ROWS: usize = 512;
 const WRAP_CELLS: usize = 68;
 
+/// Explicit archive/fork narrowing of the observed inventory. Unknown
+/// (omitted) archive/fork facts never match a narrowing filter: an unknown
+/// value is not evidence of either state.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CatalogueKindFilter {
+    #[default]
+    All,
+    NotArchived,
+    Archived,
+    Forks,
+    NotForks,
+}
+impl CatalogueKindFilter {
+    pub fn next(self) -> Self {
+        match self {
+            Self::All => Self::NotArchived,
+            Self::NotArchived => Self::Archived,
+            Self::Archived => Self::Forks,
+            Self::Forks => Self::NotForks,
+            Self::NotForks => Self::All,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::NotArchived => "Not archived",
+            Self::Archived => "Archived",
+            Self::Forks => "Forks",
+            Self::NotForks => "Not forks",
+        }
+    }
+    pub fn admits(self, repo: &RepositoryCatalogueRepository) -> bool {
+        match self {
+            Self::All => true,
+            Self::NotArchived => repo.archived == Some(false),
+            Self::Archived => repo.archived == Some(true),
+            Self::Forks => repo.fork == Some(true),
+            Self::NotForks => repo.fork == Some(false),
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CatalogueDestination {
     MyPrs,
@@ -67,6 +108,7 @@ pub enum CatalogueInput {
     QueryCursor { right: bool, select: bool },
     QueryEdge { end: bool, select: bool },
     QueryClick(usize),
+    CycleKind,
     Select,
     Pin,
     Source,
@@ -89,6 +131,7 @@ pub struct CatalogueRowKey {
     original_index: usize,
     revision: u64,
     query: Arc<str>,
+    kind: CatalogueKindFilter,
 }
 impl std::fmt::Debug for CatalogueRowKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -103,6 +146,7 @@ impl PartialEq for CatalogueRowKey {
         self.original_index == other.original_index
             && self.revision == other.revision
             && self.query == other.query
+            && self.kind == other.kind
             && Arc::ptr_eq(&self.source, &other.source)
     }
 }
@@ -201,6 +245,7 @@ pub struct CatalogueFrame {
     source: Arc<RepositoryCatalogueRead>,
     revision: u64,
     query: String,
+    kind: CatalogueKindFilter,
     matches: Arc<[usize]>,
     pub rows: Arc<[CatalogueRow]>,
     pub header: Arc<[CatalogueLine]>,
@@ -216,6 +261,9 @@ impl CatalogueFrame {
     pub fn query(&self) -> &str {
         &self.query
     }
+    pub fn kind(&self) -> CatalogueKindFilter {
+        self.kind
+    }
     pub fn matching_count(&self) -> usize {
         self.matches.len()
     }
@@ -227,6 +275,7 @@ pub struct CatalogueJob {
     source: Arc<RepositoryCatalogueRead>,
     revision: u64,
     query: String,
+    kind: CatalogueKindFilter,
     wanted_position: usize,
 }
 impl std::fmt::Debug for CatalogueJob {
@@ -263,6 +312,9 @@ impl CatalogueJob {
             }
             if repo.id == 0 || repo.full_name.len() > 256 {
                 return Err("Original repository identity/label preparation invalid".into());
+            }
+            if !self.kind.admits(repo) {
+                continue;
             }
             let score = if self.query.is_empty() {
                 Some(0)
@@ -324,6 +376,7 @@ impl CatalogueJob {
                     original_index: *original_index,
                     revision: self.revision,
                     query: ticket_query.clone(),
+                    kind: self.kind,
                 }),
                 id: repo.id,
                 label: format!("◆ repository · {}", sanitize_terminal(&repo.full_name)),
@@ -409,13 +462,24 @@ impl CatalogueJob {
                 },
             ),
             (
-                format!(
-                    "Pages {}/{} • requested {} • matches {}",
-                    coverage.fetched_pages,
-                    limits.max_pages,
-                    coverage.requested_pages,
-                    matches.len()
-                ),
+                if self.kind == CatalogueKindFilter::All {
+                    format!(
+                        "Pages {}/{} • requested {} • matches {}",
+                        coverage.fetched_pages,
+                        limits.max_pages,
+                        coverage.requested_pages,
+                        matches.len()
+                    )
+                } else {
+                    format!(
+                        "Pages {}/{} • requested {} • matches {} • kind {} (unknown excluded)",
+                        coverage.fetched_pages,
+                        limits.max_pages,
+                        coverage.requested_pages,
+                        matches.len(),
+                        self.kind.label()
+                    )
+                },
                 SemanticToken::Muted,
             ),
             (
@@ -456,6 +520,7 @@ impl CatalogueJob {
             source: self.source,
             revision: self.revision,
             query: self.query,
+            kind: self.kind,
             matches: matches.into(),
             rows: rows.into(),
             header: header.into(),
@@ -478,6 +543,7 @@ pub struct CatalogueWorkspace {
     basis: Option<Arc<CatalogueFrame>>,
     wanted_position: usize,
     pub(crate) query: TextBuffer,
+    pub(crate) kind: CatalogueKindFilter,
     pub(crate) focus: CatalogueFocus,
     pub(crate) selected: BTreeSet<u64>,
     pub(crate) pins: BTreeSet<u64>,
@@ -507,6 +573,7 @@ impl CatalogueWorkspace {
             basis: None,
             wanted_position: 0,
             query: TextBuffer::default(),
+            kind: CatalogueKindFilter::All,
             focus: CatalogueFocus::Query,
             selected: BTreeSet::new(),
             pins: BTreeSet::new(),
@@ -535,6 +602,9 @@ impl CatalogueWorkspace {
     pub fn query(&self) -> &str {
         &self.query.text
     }
+    pub fn kind(&self) -> CatalogueKindFilter {
+        self.kind
+    }
     pub fn selected_ids(&self) -> &BTreeSet<u64> {
         &self.selected
     }
@@ -548,6 +618,7 @@ impl CatalogueWorkspace {
             .is_none_or(|source| !Arc::ptr_eq(source, &frame.source))
             || frame.revision != self.revision
             || frame.query != self.query.text
+            || frame.kind != self.kind
         {
             return Err(
                 "Superseded original inventory/query frame; no rebase or prior rows".into(),
@@ -592,6 +663,7 @@ impl CatalogueWorkspace {
         self.unresolved_choices = Arc::from([]);
         self.choices_dirty = false;
         self.query.clear();
+        self.kind = CatalogueKindFilter::All;
         self.revision = self.revision.saturating_add(1);
     }
     pub fn key(&self, key: KeyCode, modifiers: KeyModifiers) -> Option<CatalogueInput> {
@@ -644,6 +716,7 @@ impl CatalogueWorkspace {
             KeyCode::Char('k') => Move(-1),
             KeyCode::Char(' ') => Select,
             KeyCode::Char('p') => Pin,
+            KeyCode::Char('f') => CycleKind,
             KeyCode::Char('s') => Source,
             KeyCode::Char('r') => Retry,
             KeyCode::Char('l') => Limits,
@@ -723,6 +796,11 @@ impl CatalogueWorkspace {
                 self.query.click(0, column, false);
                 self.focus = CatalogueFocus::Query;
             }
+            CycleKind => {
+                self.kind = self.kind.next();
+                self.basis = None;
+                return self.reprepare(0).map(Some);
+            }
             Row(original) => {
                 if self
                     .source
@@ -730,6 +808,7 @@ impl CatalogueWorkspace {
                     .is_none_or(|source| !Arc::ptr_eq(source, &original.source))
                     || original.revision != self.revision
                     || original.query.as_ref() != self.query.text
+                    || original.kind != self.kind
                 {
                     return Err("Clicked row belongs to a superseded original source/query/revision; no slot reuse even when the ID still matches".into());
                 }
@@ -899,6 +978,7 @@ impl CatalogueWorkspace {
             source: self.original_source()?,
             revision: self.revision,
             query: self.query.text.clone(),
+            kind: self.kind,
             wanted_position: position,
         })
     }

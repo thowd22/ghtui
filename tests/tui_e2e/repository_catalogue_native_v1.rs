@@ -992,6 +992,106 @@ fn user_sources(mouse: bool) {
     leave_filter(&mut session, mouse);
     finish(&mut session, &fixture, mouse, 14, &before, &config);
 }
+#[test]
+fn repo_catalog_native_keyboard_kind_filter_archived_fork_select_save_exact_intent() {
+    kind_filter(false);
+}
+#[test]
+fn repo_catalog_native_mouse_kind_filter_archived_fork_select_save_exact_intent() {
+    kind_filter(true);
+}
+/// The archive/fork narrowing is live: it re-prepares only the observed rows,
+/// excludes omitted (unknown) facts, issues no GitHub or Git command, and a
+/// Save keeps exactly the explicitly selected narrowed original.
+fn kind_filter(mouse: bool) {
+    let mut archived = repository(1);
+    archived["archived"] = json!(true);
+    let mut fork = repository(2);
+    fork["fork"] = json!(true);
+    let mut unknown = repository(3);
+    unknown["archived"] = Value::Null;
+    unknown["fork"] = Value::Null;
+    let mut steps = collection(vec![json!([repository(0), archived, fork, unknown])], 42);
+    steps.extend(save_intent());
+    assert_eq!(steps.len(), 11, "Source7 then Save4");
+    let fixture = configured(&steps);
+    let before = git_state(&fixture);
+    let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
+    let mut session = launch(&fixture, mouse);
+    open_catalogue(&mut session, &fixture, mouse, 0);
+    discover(&mut session, mouse);
+    ready(
+        &mut session,
+        &[
+            TITLE,
+            "Observed: 4",
+            "API-visible membership complete",
+            "matches 4",
+            "[f Kind: All]",
+        ],
+    );
+    assert_commands(&session, &fixture, 7);
+    let git = git_commands(&fixture);
+    leave_filter(&mut session, mouse);
+    let row = |index: u64| format!("◆ repository · example/repo{index:04}");
+    let shows = |screen: &str, visible: &[u64], hidden: &[u64]| {
+        visible.iter().all(|index| screen.contains(&row(*index)))
+            && hidden.iter().all(|index| !screen.contains(&row(*index)))
+    };
+    choose(&mut session, mouse, "[f Kind: All]", b"f");
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen.contains("[f Kind: Not archived]")
+                    && screen.contains("matches 2 • kind Not archived")
+                    && shows(screen, &[0, 2], &[1, 3])
+            },
+            "Not archived keeps known false archive facts only",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    choose(&mut session, mouse, "[f Kind: Not archived]", b"f");
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen.contains("[f Kind: Archived]")
+                    && screen.contains("matches 1 • kind Archived")
+                    && screen.contains("Repository ID: 10001")
+                    && shows(screen, &[1], &[0, 2, 3])
+            },
+            "Archived narrows to the observed archived repository",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    choose(&mut session, mouse, "[Space Select]", b" ");
+    ready(&mut session, &["Repository ID: 10001", "Selected: yes"]);
+    choose(&mut session, mouse, "[f Kind: Archived]", b"f");
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen.contains("[f Kind: Forks]")
+                    && screen.contains("matches 1 • kind Forks")
+                    && screen.contains("Repository ID: 10002")
+                    && screen.contains("Selected: no")
+                    && shows(screen, &[2], &[0, 1, 3])
+            },
+            "Forks narrows to the observed fork",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    // Narrowing is presentation over the original read: no GitHub or Git work.
+    assert_commands(&session, &fixture, 7);
+    assert_eq!(git_commands(&fixture), git);
+    save(&mut session, mouse);
+    assert_commands(&session, &fixture, 11);
+    assert_intent(&fixture, &[10001]);
+    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+    session.wait_for_overlay_close(TITLE);
+    session.wait_for_main_frame();
+    session.wait_for_screen("Repository • focused view");
+    finish(&mut session, &fixture, mouse, 11, &before, &config);
+}
+
 /// A finished discovery leaves the filter focused; Tab moves to the list so keys are actions.
 fn leave_filter(session: &mut Session, mouse: bool) {
     if mouse {

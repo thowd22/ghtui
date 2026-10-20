@@ -305,6 +305,115 @@ fn ranked_working_generation(fixture: &Fixture, expected_body: &str) -> u64 {
     generation
 }
 
+/// (complete index checkpoints, canonical index documents, derivative directories whose
+/// Tantivy metadata records a commit) as independently read from the private stores.
+fn published_ranked_state(fixture: &Fixture) -> (usize, usize, usize) {
+    let database = fixture.root.join("config/ghtui/cache.sqlite3");
+    let (checkpoints, documents) = if database.exists() {
+        let connection = rusqlite::Connection::open_with_flags(
+            &database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let count =
+            |sql: &str| -> usize { connection.query_row(sql, [], |row| row.get(0)).unwrap() };
+        (
+            count(
+                "SELECT count(*) FROM checkpoints WHERE source LIKE 'search-index:%' AND complete",
+            ),
+            count("SELECT count(*) FROM records WHERE kind='search-index-document-v1'"),
+        )
+    } else {
+        (0, 0)
+    };
+    let root = fixture.root.join("config/ghtui/index");
+    let committed = if root.exists() {
+        std::fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir() && path.join("ghtui-owner.json").is_file())
+            .filter(|path| {
+                std::fs::read(path.join("meta.json")).is_ok_and(|bytes| {
+                    serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["opstamp"]
+                        .as_u64()
+                        .unwrap()
+                        > 0
+                })
+            })
+            .count()
+    } else {
+        0
+    };
+    (checkpoints, documents, committed)
+}
+
+#[test]
+fn search_index_keyboard_rewritten_saved_ref_replaces_visible_coverage_and_results() {
+    rewritten_ref(false)
+}
+#[test]
+fn search_index_mouse_rewritten_saved_ref_replaces_visible_coverage_and_results() {
+    rewritten_ref(true)
+}
+/// The saved version is rewritten outside ghtui (an amended tip). The next explicit Ranked
+/// query indexes the new tip: the old tip's content and SHA leave the visible coverage, the
+/// new tip's appear, and a new derivative generation is committed. ghtui writes no Git state.
+fn rewritten_ref(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("notes.txt", b"rewritealphamarker first tip\n", "First tip");
+    let first = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_search(&mut session, mouse);
+    choose(&mut session, mouse, "n Ranked", b"n");
+    choose(&mut session, mouse, "v Saved version", b"v");
+    enter_query(&mut session, mouse, "rewritealphamarker");
+    session.wait_for_screen("1 results • Ranked");
+    session.wait_for_screen("rewritealphamarker first tip");
+    session.wait_for_screen(&format!("saved version {}", &first[..8]));
+    let first_generation = ranked_derivative_generation(&fixture);
+    // Rewrite the saved tip outside ghtui; the old commit is no longer HEAD.
+    std::fs::write(
+        fixture.repo().join("notes.txt"),
+        b"rewriteomegamarker amended tip\n",
+    )
+    .unwrap();
+    fixture.git(&["add", "--", "notes.txt"]);
+    fixture.git(&["commit", "--amend", "-m", "Amended tip"]);
+    let second = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert_ne!(first, second);
+    let index = std::fs::read(fixture.repo().join(".git/index")).unwrap();
+    let refs = fixture.git(&["show-ref"]);
+    enter_query(&mut session, mouse, "rewritealphamarker");
+    session.wait_for_screen("0 results • Ranked");
+    session.wait_for_screen(&format!("saved version {}", &second[..8]));
+    let screen = session.screen();
+    assert!(!screen.contains("first tip"), "{screen}");
+    assert!(
+        !screen.contains(&format!("saved version {}", &first[..8])),
+        "{screen}"
+    );
+    enter_query(&mut session, mouse, "rewriteomegamarker");
+    session.wait_for_screen("1 results • Ranked");
+    session.wait_for_screen("rewriteomegamarker amended tip");
+    session.wait_for_screen(&format!("saved version {}", &second[..8]));
+    assert!(
+        ranked_derivative_generation(&fixture) > first_generation,
+        "The rewritten tip committed a newer derivative generation"
+    );
+    session.resize(80, 24);
+    enter_query(&mut session, mouse, "rewritealphamarker");
+    session.wait_for_screen("0 results • Ranked");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), second);
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    assert_eq!(
+        std::fs::read(fixture.repo().join(".git/index")).unwrap(),
+        index
+    );
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
 fn ranked_derivative_generation(fixture: &Fixture) -> u64 {
     let directories = std::fs::read_dir(fixture.root.join("config/ghtui/index"))
         .unwrap()
@@ -578,6 +687,15 @@ fn cancel_scan(mouse: bool, ranked: bool) {
         "A cancelled scan must not continue past its held read"
     );
     assert!(!session.screen().contains(&format!("1 results • {mode}")));
+    if ranked {
+        // The interrupted build published nothing: no committed index checkpoint, no
+        // canonical index documents and no committed derivative generation.
+        assert_eq!(
+            published_ranked_state(&fixture),
+            (0, 0, 0),
+            "A cancelled ranked build must not publish a checkpoint, documents or a derivative commit"
+        );
+    }
     // Disarmed, the same query completes with the saved-version result.
     std::fs::remove_file(&scan.arm).unwrap();
     session.resize(80, 24);

@@ -8,6 +8,138 @@ use ratatui::{backend::TestBackend, Terminal};
 use serde_json::{json, Value};
 use support::{Fixture, GhStep};
 
+fn kind_repo(id: u64, name: &str, archived: Value, fork: Value) -> Value {
+    json!({"id":id,"node_id":format!("R_widget_{id}"),"full_name":name,"permissions":{"pull":true},"private":true,"archived":archived,"fork":fork})
+}
+fn visible_names(workspace: &CatalogueWorkspace) -> Vec<String> {
+    let frame = workspace.frame().unwrap();
+    frame
+        .rows
+        .iter()
+        .map(|row| row.label.trim_start_matches("◆ repository · ").to_owned())
+        .collect()
+}
+#[test]
+fn repo_catalog_workspace_kind_filter_archived_and_fork_exclude_unknown_by_key_and_click() {
+    let rows = vec![
+        kind_repo(1, "example/active", json!(false), json!(false)),
+        kind_repo(2, "example/archived", json!(true), json!(false)),
+        kind_repo(3, "example/fork", json!(false), json!(true)),
+        kind_repo(4, "example/unknown", Value::Null, Value::Null),
+    ];
+    let (_fixture, source) = actual_rows(rows, false, false);
+    let mut workspace = prepared(source);
+    assert_eq!(workspace.kind(), CatalogueKindFilter::All);
+    assert_eq!(workspace.frame().unwrap().matching_count(), 4);
+    workspace.focus = CatalogueFocus::List;
+    assert_eq!(
+        workspace.key(KeyCode::Char('f'), KeyModifiers::NONE),
+        Some(CatalogueInput::CycleKind)
+    );
+    // In the filter editor `f` is ordinary text, never the narrowing control.
+    workspace.focus = CatalogueFocus::Query;
+    assert_eq!(
+        workspace.key(KeyCode::Char('f'), KeyModifiers::NONE),
+        Some(CatalogueInput::Insert("f".into()))
+    );
+    let expected = [
+        (
+            CatalogueKindFilter::NotArchived,
+            vec!["example/active", "example/fork"],
+        ),
+        (CatalogueKindFilter::Archived, vec!["example/archived"]),
+        (CatalogueKindFilter::Forks, vec!["example/fork"]),
+        (
+            CatalogueKindFilter::NotForks,
+            vec!["example/active", "example/archived"],
+        ),
+        (
+            CatalogueKindFilter::All,
+            vec![
+                "example/active",
+                "example/archived",
+                "example/fork",
+                "example/unknown",
+            ],
+        ),
+    ];
+    for (index, (kind, names)) in expected.into_iter().enumerate() {
+        let input = if index % 2 == 0 {
+            // Mouse: click the visible Kind control drawn on the filter row.
+            let terminal = draw(&mut workspace, 80, 24);
+            let hit = workspace
+                .hits
+                .iter()
+                .find(|hit| hit.input == CatalogueInput::CycleKind)
+                .unwrap()
+                .clone();
+            let row: String = (hit.rect.x..hit.rect.right())
+                .map(|x| {
+                    terminal.backend().buffer()[(x, hit.rect.y)]
+                        .symbol()
+                        .to_owned()
+                })
+                .collect();
+            assert_eq!(row, format!("[f Kind: {}]", workspace.kind().label()));
+            assert!(!workspace.query_area.intersects(hit.rect));
+            workspace
+                .mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    hit.rect.x,
+                    hit.rect.y,
+                )
+                .unwrap()
+        } else {
+            workspace.focus = CatalogueFocus::List;
+            workspace
+                .key(KeyCode::Char('f'), KeyModifiers::NONE)
+                .unwrap()
+        };
+        assert_eq!(input, CatalogueInput::CycleKind);
+        let old_ticket = workspace.frame().unwrap().rows[0].original_key.clone();
+        prepare(&mut workspace, input);
+        assert_eq!(workspace.kind(), kind);
+        assert_eq!(workspace.frame().unwrap().kind(), kind);
+        assert_eq!(visible_names(&workspace), names);
+        assert_eq!(workspace.frame().unwrap().matching_count(), names.len());
+        // A row ticket from the previous narrowing never retargets this one.
+        assert!(workspace.apply(CatalogueInput::Row(old_ticket)).is_err());
+        let header = workspace
+            .frame()
+            .unwrap()
+            .header
+            .iter()
+            .map(|line| line.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if kind == CatalogueKindFilter::All {
+            assert!(!header.contains("kind "));
+        } else {
+            assert!(header.contains(&format!(
+                "matches {} • kind {} (unknown excluded)",
+                names.len(),
+                kind.label()
+            )));
+        }
+    }
+    // Narrowing composes with the text filter and with Select on the narrowed row.
+    for _ in 0..2 {
+        workspace.focus = CatalogueFocus::List;
+        prepare(&mut workspace, CatalogueInput::CycleKind);
+    }
+    assert_eq!(workspace.kind(), CatalogueKindFilter::Archived);
+    prepare(&mut workspace, CatalogueInput::Paste("active".into()));
+    assert_eq!(workspace.frame().unwrap().matching_count(), 0);
+    prepare(&mut workspace, CatalogueInput::Clear);
+    workspace.apply(CatalogueInput::Select).unwrap();
+    assert_eq!(
+        workspace.selected_ids().iter().copied().collect::<Vec<_>>(),
+        vec![2]
+    );
+    workspace.invalidate();
+    assert_eq!(workspace.kind(), CatalogueKindFilter::All);
+}
+
 fn step(endpoint: &str, value: Value) -> GhStep {
     GhStep::read(
         &[

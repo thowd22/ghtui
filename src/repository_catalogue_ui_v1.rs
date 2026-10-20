@@ -142,7 +142,18 @@ impl CatalogueWorkspace {
                 Paragraph::new(caption).style(theme.style(SemanticToken::Focus)),
                 Rect::new(inner.x, y, width, 1),
             );
-            self.query_area = Rect::new(inner.x + width, y, inner.width - width, 1);
+            // The archive/fork narrowing sits at the right end of the filter
+            // row so it never displaces the wrapped control rows. Its hit is
+            // pushed before the row-wide QueryFocus hit, which it overlays.
+            let kind = format!("[f Kind: {}]", self.kind.label());
+            let kind_width = kind.chars().count() as u16;
+            let mut query_width = inner.width - width;
+            if query_width >= kind_width + 8 {
+                let rect = Rect::new(inner.right() - kind_width, y, kind_width, 1);
+                self.button(frame, rect, &kind, CatalogueInput::CycleKind, theme);
+                query_width -= kind_width + 1;
+            }
+            self.query_area = Rect::new(inner.x + width, y, query_width, 1);
             self.query
                 .ensure_visible(usize::from(self.query_area.width), 1);
             // One bounded512-byte editor field, not inventory/description work.
