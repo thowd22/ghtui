@@ -47,6 +47,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **`f` is File history in Search and PR Files; Search's Save query is `S`.** On PR Files, `f` is pushed before the tabs, so it shadows `f Files` (the tab already shown).
 - **Match whole column headers.** A column parser found `AGE` inside `MESSAGE`. Parse header cells by word, not by substring.
 - **Repository viewers no longer own row 0.** The native diff, saved-folder detail and the saved-path and changed-files pickers draw inside the content pane, under the shell header and above a key bar with `Esc Back`. Find their frame with `support::owned_pane_frame(screen, title)`, never by row-0 or last-row corners. Their state draws with the shell's `app.hits` split off into `app.takeover_v93`, so header hits never shift their focus indexes.
+- **A wait that the old frame already satisfies proves nothing.** After clicking an option that starts a native diff projection, wait for a new frame that shows `Preparing native diff`, and then for a new settled frame. Do this before you click or resize again. Otherwise a later click can land on the resized layout, and the projection's result can overwrite a newer status such as `Stage disabled:`.
 - **Settings focus order is fixed:** Host, Repository set, Theme, Density, Save, Close. If you add a control, update the hard-coded indexes in `src/app.rs` and `src/ui.rs`, and update the keyboard journeys that tab to Save.
 
 ## 6. Product invariants that are easy to break

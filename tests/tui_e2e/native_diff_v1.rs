@@ -15,6 +15,31 @@ fn ready(session: &mut Session, text: &str) {
         Duration::from_secs(8),
     );
 }
+/// A completed frame drawn after `after` with every part and no projection in flight.
+fn settled(session: &mut Session, after: usize, parts: &[&str]) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(1));
+        if session.completed_cursorless_end() > after
+            && session.completed_cursorless_screen().is_some_and(|frame| {
+                let screen = frame.contents();
+                screen.contains(NATIVE_TITLE)
+                    && !screen.contains("Preparing native diff")
+                    && parts.iter().all(|part| screen.contains(part))
+            })
+        {
+            return;
+        }
+        if Instant::now() >= deadline {
+            session.save_artifacts();
+            panic!(
+                "No new settled native diff frame with {parts:?}\n{}; artifacts: {}",
+                session.screen(),
+                session.artifact_dir.display()
+            );
+        }
+    }
+}
 fn open(native: &Native, session: &mut Session, mouse: bool) {
     open_comparison(native, session, mouse, true);
     let before = starts(native).len();
@@ -148,11 +173,33 @@ fn journey(mouse: bool) {
     ready(&mut session, "Selected 2 (hidden 2)");
     assert!(!session.screen().contains("TARGET new bytes"));
     choose(&mut session, mouse, "[o Options]", b"o");
+    // Each step waits for the app's own new frame: the resize below must not overtake a
+    // queued click, or the click lands on the 120x40 layout instead of this one.
+    let unhide = session.completed_cursorless_end();
     choose(&mut session, mouse, "[G Hide generated]", b"G");
-    ready(&mut session, "[a Stage disabled]");
+    // The projection must land before Stage: a result published later replaces its status.
+    session.wait_for_new_cursorless_condition(
+        unhide,
+        |frame| frame.contents().contains("Preparing native diff"),
+        "unhide generated projection in flight",
+        Duration::from_secs(8),
+    );
+    let preparing = session.completed_cursorless_end();
+    settled(
+        &mut session,
+        preparing,
+        &["Native saved diff ready", "[a Stage disabled]"],
+    );
+    let stage = session.completed_cursorless_end();
     choose(&mut session, mouse, "[a Stage disabled]", b"a");
+    settled(
+        &mut session,
+        stage,
+        &["Stage disabled:", "[o Back to diff]"],
+    );
+    let back = session.completed_cursorless_end();
     choose(&mut session, mouse, "[o Back to diff]", b"o");
-    session.wait_for_screen("Stage disabled");
+    settled(&mut session, back, &["Stage disabled:", "[o Options]"]);
     session.resize_owned_modal(120, 40, NATIVE_TITLE, &["[Esc Close]", "[o Options]"]);
     ready(&mut session, "TARGET new bytes");
     if mouse {
