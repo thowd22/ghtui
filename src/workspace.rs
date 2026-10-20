@@ -36,6 +36,64 @@ use std::{
     sync::Arc,
 };
 
+/// Left-behind commits from the raw local reflog files (no Git child): this
+/// worktree's `logs/HEAD`, then each local branch's reflog (bounded to 64
+/// branches and the newest 1 MiB of each). Newest first per log, de-duplicated.
+pub fn rescue_candidates_from_reflogs_v1(
+    repo: &GitRepository,
+    exclude: &[String],
+    limit: usize,
+) -> Vec<crate::repository_view::RescueCandidateV1> {
+    fn tail(path: &Path) -> Vec<u8> {
+        let log = std::fs::read(path).unwrap_or_default();
+        log[log.len().saturating_sub(1024 * 1024)..].to_vec()
+    }
+    fn branch_logs(directory: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if out.len() >= 64 {
+                return;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => branch_logs(&path, &format!("{prefix}{name}/"), out),
+                Ok(kind) if kind.is_file() => out.push((format!("{prefix}{name}"), path)),
+                _ => {}
+            }
+        }
+    }
+    let mut seen = exclude.to_vec();
+    let mut found = crate::repository_view::rescue_candidates_v1(
+        &tail(&repo.git_dir.join("logs/HEAD")),
+        &seen,
+        limit,
+    );
+    seen.extend(found.iter().map(|candidate| candidate.id.clone()));
+    let mut branches = vec![];
+    branch_logs(&repo.common_dir.join("logs/refs/heads"), "", &mut branches);
+    for (branch, path) in branches {
+        if found.len() >= limit {
+            break;
+        }
+        let more = crate::repository_view::rescue_candidates_for_ref_v1(
+            &tail(&path),
+            &crate::providers::runner::sanitize_terminal(&branch),
+            &seen,
+            limit - found.len(),
+        );
+        seen.extend(more.iter().map(|candidate| candidate.id.clone()));
+        found.extend(more);
+    }
+    found
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RepositoryMode {
     #[default]
@@ -746,13 +804,21 @@ impl Workspace {
                         row.cells = Some(Box::new(cells));
                     }
                 }
-                // Raw local HEAD reflog file (no Git child); bounded to its newest 1 MiB.
-                let log = std::fs::read(repo.git_dir.join("logs/HEAD")).unwrap_or_default();
-                let tail = &log[log.len().saturating_sub(1024 * 1024)..];
-                let candidates = crate::repository_view::rescue_candidates_v1(tail, &recent, 8);
+                let candidates = rescue_candidates_from_reflogs_v1(repo, &recent, 8);
                 if !candidates.is_empty() {
+                    // One read-only batch check: a reflog line can outlive its
+                    // pruned commit, which is then stated, never offered.
+                    let ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
+                    let present = repo
+                        .commits_present(&ids)
+                        .unwrap_or_else(|_| vec![true; ids.len()]);
                     workspace.push(
-                        "Left behind by amend/reset/rebase — local reflog only, entries expire; not a universal undo",
+                        "Left behind by amend/reset/rebase or branch moves — local reflogs only (HEAD and branches)",
+                        SemanticRole::Boundary,
+                        None,
+                    );
+                    workspace.push(
+                        "Reflog entries expire (gc.reflogExpire, default 90 days); pruned commits are gone. Not a universal undo.",
                         SemanticRole::Boundary,
                         None,
                     );
@@ -761,22 +827,37 @@ impl Workspace {
                         SemanticRole::Boundary,
                         None,
                     );
-                    for candidate in candidates {
-                        workspace.push(
-                            &format!(
-                                "↺ {} {} • {} • {}",
-                                &candidate.id[..8],
-                                if candidate.subject.is_empty() {
-                                    "(subject not in reflog)"
-                                } else {
-                                    &candidate.subject
-                                },
-                                candidate.reason,
-                                candidate.selector
-                            ),
-                            SemanticRole::Changed,
-                            Some(RowAction::Commit(candidate.id)),
-                        );
+                    for (candidate, present) in candidates.into_iter().zip(present) {
+                        let subject = if candidate.subject.is_empty() {
+                            "(subject not in reflog)"
+                        } else {
+                            &candidate.subject
+                        };
+                        if present {
+                            workspace.push(
+                                &format!(
+                                    "↺ {} {} • {} • {}",
+                                    &candidate.id[..8],
+                                    subject,
+                                    candidate.reason,
+                                    candidate.selector
+                                ),
+                                SemanticRole::Changed,
+                                Some(RowAction::Commit(candidate.id)),
+                            );
+                        } else {
+                            workspace.push(
+                                &format!(
+                                    "✗ {} {} • {} • {} • pruned: commit is gone, cannot recover",
+                                    &candidate.id[..8],
+                                    subject,
+                                    candidate.reason,
+                                    candidate.selector
+                                ),
+                                SemanticRole::Boundary,
+                                None,
+                            );
+                        }
                     }
                 }
             }
@@ -1230,12 +1311,56 @@ impl Workspace {
                     SemanticRole::Conflict,
                     Some(RowAction::Conflict(path.clone())),
                 );
-                for stage in repo
+                // Name the conflict kind (delete, rename, add/add, file/directory)
+                // from the current unmerged status so none of them looks like a
+                // plain content conflict.
+                if let Some(entry) = self
+                    .status
+                    .entries
+                    .iter()
+                    .find(|entry| entry.conflict && entry.path == path)
+                {
+                    let aside_of = crate::repository_view::conflict_aside_prefix_v1(&path.0)
+                        .filter(|prefix| {
+                            use std::os::unix::ffi::OsStrExt;
+                            repo.root
+                                .join(std::ffi::OsStr::from_bytes(prefix))
+                                .symlink_metadata()
+                                .is_ok_and(|metadata| metadata.is_dir())
+                        })
+                        .map(crate::git::display_bytes);
+                    for line in crate::repository_view::conflict_kind_v1(
+                        entry.index,
+                        entry.worktree,
+                        aside_of.as_deref(),
+                    ) {
+                        self.push(
+                            &line,
+                            SemanticRole::Boundary,
+                            Some(RowAction::Conflict(path.clone())),
+                        );
+                    }
+                }
+                let stages: Vec<_> = repo
                     .conflict_stages()
                     .map_err(|e| e.to_string())?
                     .into_iter()
                     .filter(|stage| stage.path == path)
-                {
+                    .collect();
+                for (number, absent) in [
+                    (1, "No base version: the file did not exist at the common starting point"),
+                    (2, "No ours version: deleted or renamed away on the current branch"),
+                    (3, "No theirs version: deleted or renamed away on the incoming side"),
+                ] {
+                    if !stages.iter().any(|stage| stage.stage == number) {
+                        self.push(
+                            absent,
+                            SemanticRole::Boundary,
+                            Some(RowAction::Conflict(path.clone())),
+                        );
+                    }
+                }
+                for stage in stages {
                     self.push(
                         &format!("Stage {}: saved object {}", stage.stage, stage.id),
                         SemanticRole::Reference,
@@ -1251,6 +1376,21 @@ impl Workspace {
                         SemanticRole::Reference,
                         Some(RowAction::Conflict(path.clone())),
                     );
+                    if stage.mode == "160000" {
+                        self.push(
+                            "Submodule commit — no file content; resolve it inside the submodule",
+                            SemanticRole::Boundary,
+                            Some(RowAction::Conflict(path.clone())),
+                        );
+                        continue;
+                    }
+                    if stage.mode == "120000" {
+                        self.push(
+                            "Symbolic link version — the line below is its target text",
+                            SemanticRole::Boundary,
+                            Some(RowAction::Conflict(path.clone())),
+                        );
+                    }
                     let content = repo.object(&stage.id).map_err(|error| error.to_string())?;
                     if content.contains(&0) {
                         self.push(
@@ -1301,6 +1441,11 @@ impl Workspace {
                             }
                         }
                     }
+                    Ok(meta) if meta.is_dir() => self.push(
+                        "Working path is a directory: file/directory conflict. The other side's files live under it; Stage refuses directories, so move it aside first.",
+                        SemanticRole::Boundary,
+                        Some(RowAction::Conflict(path.clone())),
+                    ),
                     Ok(_) => self.push(
                         "Working path is not a small regular file; inspect it outside ghtui",
                         SemanticRole::Boundary,

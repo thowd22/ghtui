@@ -787,6 +787,45 @@ pub fn paused_operation_rows_v1(
     rows
 }
 
+/// Plain-language kind of an unmerged path from its porcelain-v2 XY code,
+/// plus how to resolve it. `aside_of` is the directory Git found in the way
+/// when it moved this file aside to `<directory>~<side>`.
+pub fn conflict_kind_v1(index: char, worktree: char, aside_of: Option<&str>) -> Vec<String> {
+    let kind = match (index, worktree) {
+        ('U', 'U') => "Content conflict: both sides changed this file",
+        ('A', 'A') => "Add/add conflict: both sides added a different file at this path",
+        ('D', 'U') => "Delete conflict: deleted on our side, kept or renamed to this path on theirs (modify/delete or rename/delete)",
+        ('U', 'D') => "Delete conflict: changed on our side, deleted or renamed away on theirs (modify/delete or rename/delete)",
+        ('A', 'U') => "Added only on our side: usually a rename or file/directory conflict",
+        ('U', 'A') => "Added only on their side: usually a rename or file/directory conflict",
+        ('D', 'D') => "Deleted on both sides: each side renamed it elsewhere (rename/rename)",
+        _ => "Unmerged path",
+    };
+    let mut lines = vec![kind.to_string()];
+    if let Some(directory) = aside_of {
+        lines.push(format!(
+            "File/directory conflict: a directory now occupies {directory}, so Git moved this file aside to this name. Resolve it here, then keep, rename or delete it."
+        ));
+    }
+    if matches!((index, worktree), ('D', _) | (_, 'D')) {
+        lines.push(
+            "Keep the file: choose the remaining version, then Stage. Drop it: delete the working file, then Stage selected file records the removal.".into(),
+        );
+    }
+    lines
+}
+
+/// The path a file/directory conflict moved `path` aside from: Git names the
+/// moved file `<path>~<side>`. Pure; the caller checks that it is a directory.
+pub fn conflict_aside_prefix_v1(path: &[u8]) -> Option<&[u8]> {
+    let tilde = path.iter().rposition(|byte| *byte == b'~')?;
+    let name_start = path[..tilde]
+        .iter()
+        .rposition(|byte| *byte == b'/')
+        .map_or(0, |slash| slash + 1);
+    (tilde > name_start && !path[tilde + 1..].is_empty()).then(|| &path[..tilde])
+}
+
 /// A commit HEAD left behind by an amend, reset or rebase, from the raw local
 /// HEAD reflog file. It may still be reachable elsewhere or already expired.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -805,6 +844,20 @@ pub fn rescue_candidates_v1(
     exclude: &[String],
     limit: usize,
 ) -> Vec<RescueCandidateV1> {
+    rescue_candidates_for_ref_v1(log, "HEAD", exclude, limit)
+}
+
+/// The same parse for any local reflog (`HEAD` or a branch's
+/// `logs/refs/heads/<name>`). A branch reflog also records moves HEAD never
+/// saw: `git branch -f` ("branch: Reset to") and the finished rebase of a
+/// branch ("rebase (finish)"), whose old side is the pre-rebase tip.
+pub fn rescue_candidates_for_ref_v1(
+    log: &[u8],
+    reference: &str,
+    exclude: &[String],
+    limit: usize,
+) -> Vec<RescueCandidateV1> {
+    let branch = reference != "HEAD";
     let lines: Vec<(&str, &str, &str)> = log
         .split(|byte| *byte == b'\n')
         .filter_map(|line| std::str::from_utf8(line).ok())
@@ -827,6 +880,10 @@ pub fn rescue_candidates_v1(
             "before reset"
         } else if message.starts_with("rebase") && message.contains("(start)") {
             "before rebase"
+        } else if branch && message.starts_with("rebase") && message.contains("(finish)") {
+            "before rebase"
+        } else if branch && message.starts_with("branch: Reset to") {
+            "before branch move"
         } else {
             continue;
         };
@@ -849,7 +906,7 @@ pub fn rescue_candidates_v1(
             .unwrap_or("");
         result.push(RescueCandidateV1 {
             id: (*old).to_owned(),
-            selector: format!("HEAD@{{{}}}", total - 1 - index),
+            selector: format!("{reference}@{{{}}}", total - 1 - index),
             reason,
             subject: crate::providers::runner::sanitize_terminal(subject),
         });

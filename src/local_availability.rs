@@ -315,6 +315,48 @@ mod v1_local_recovery_tests {
     }
 
     #[test]
+    fn v1_local_recovery_branch_reflog_moves_and_conflict_kinds_are_named() {
+        use crate::repository_view::{
+            conflict_aside_prefix_v1, conflict_kind_v1, rescue_candidates_for_ref_v1,
+        };
+        let zero = "0".repeat(40);
+        let (a, b, c) = ("a".repeat(40), "b".repeat(40), "c".repeat(40));
+        let log = format!(
+            "{zero} {a} T <t@e> 1 +0000\tbranch: Created from main\n\
+             {a} {b} T <t@e> 2 +0000\tcommit: feature work\n\
+             {b} {a} T <t@e> 3 +0000\tbranch: Reset to main\n\
+             {a} {c} T <t@e> 4 +0000\trebase (finish): refs/heads/feature onto {c}\n"
+        );
+        let found = rescue_candidates_for_ref_v1(log.as_bytes(), "feature", &[], 8);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].id, a);
+        assert_eq!(found[0].reason, "before rebase");
+        assert_eq!(found[0].selector, "feature@{0}");
+        assert_eq!(found[1].id, b);
+        assert_eq!(found[1].reason, "before branch move");
+        assert_eq!(found[1].selector, "feature@{1}");
+        assert_eq!(found[1].subject, "feature work");
+        // HEAD's own reflog never offers "branch:" or a finished rebase's old side.
+        assert!(rescue_candidates_for_ref_v1(log.as_bytes(), "HEAD", &[], 8).is_empty());
+
+        assert!(conflict_kind_v1('U', 'U', None)[0].starts_with("Content conflict"));
+        let deleted = conflict_kind_v1('D', 'U', None);
+        assert!(deleted[0].contains("rename/delete"));
+        assert!(deleted[1].contains("Stage selected file records the removal"));
+        let aside = conflict_kind_v1('U', 'D', Some("thing"));
+        assert!(aside[1].starts_with("File/directory conflict: a directory now occupies thing"));
+        assert!(conflict_kind_v1('A', 'A', None)[0].starts_with("Add/add"));
+        assert!(conflict_kind_v1('D', 'D', None)[0].contains("rename/rename"));
+        assert_eq!(
+            conflict_aside_prefix_v1(b"dir/thing~HEAD"),
+            Some(&b"dir/thing"[..])
+        );
+        assert_eq!(conflict_aside_prefix_v1(b"dir/~HEAD"), None);
+        assert_eq!(conflict_aside_prefix_v1(b"thing~"), None);
+        assert_eq!(conflict_aside_prefix_v1(b"plain.txt"), None);
+    }
+
+    #[test]
     fn v1_local_recovery_conflict_version_names_and_markers() {
         use crate::local_actions::{conflict_markers_v1, conflict_stage_v1};
         assert_eq!(conflict_stage_v1("ours"), Ok(2));

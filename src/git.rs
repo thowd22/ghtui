@@ -1049,6 +1049,41 @@ impl GitRepository {
         self.batch_objects(ids, "commit")
     }
 
+    /// One read-only `cat-file --batch-check` child: whether each full id is
+    /// still a commit object here. A reflog line can outlive a pruned object.
+    pub fn commits_present(&self, ids: &[String]) -> GitResult<Vec<bool>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        if ids.len() > 1024 {
+            return Err(GitError(
+                "Limit one object presence batch to 1024 ids".into(),
+            ));
+        }
+        let mut input = Vec::new();
+        for id in ids {
+            validate_object_id(id)?;
+            input.extend_from_slice(id.as_bytes());
+            input.push(b'\n');
+        }
+        let bytes = self.original_bytes(["cat-file", "--batch-check"], Some(&input))?;
+        let records = bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|row| !row.is_empty())
+            .collect::<Vec<_>>();
+        if records.len() != ids.len() {
+            return Err(GitError("Truncated object presence batch".into()));
+        }
+        Ok(records
+            .iter()
+            .zip(ids)
+            .map(|(record, id)| {
+                let fields = record.split(|byte| *byte == b' ').collect::<Vec<_>>();
+                fields.len() == 3 && fields[0] == id.as_bytes() && fields[1] == b"commit"
+            })
+            .collect())
+    }
+
     fn object_sizes_of_kind(&self, ids: &[String], kind: &str) -> GitResult<Vec<usize>> {
         if ids.len() > 1024 {
             return Err(GitError("Limit one object size batch to 1024 files".into()));

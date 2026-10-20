@@ -1818,4 +1818,208 @@ fn v39_detached_head_refuses_pull_and_switch_preview_names_unreferenced_commits(
     execute(&switch);
     assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
     assert_eq!(fixture.git(&["rev-parse", "kept"]).trim(), detached);
+
+/// main deleted `old.txt` and changed file `thing`; feature renamed `old.txt`
+/// to `new.txt` and replaced `thing` with a directory. The merge stops on a
+/// rename/delete conflict and a file/directory conflict (`thing~HEAD`).
+fn v1_recovery_structural_conflicts(fixture: &Fixture) -> (String, String) {
+    fixture.init_git();
+    fixture.commit_file("old.txt", b"a\nb\nc\nd\n", "base old");
+    fixture.commit_file("thing", b"x\n", "base thing");
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.git(&["mv", "old.txt", "new.txt"]);
+    fixture.git(&["rm", "-q", "thing"]);
+    fixture.commit_file("thing/inner", b"y\n", "feature: rename and directory");
+    let theirs = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["switch", "main"]);
+    fixture.git(&["rm", "-q", "old.txt"]);
+    fixture.commit_file("thing", b"changed\n", "main: delete and change");
+    let ours = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    assert!(!v1_gaps_git(&fixture.repo(), &["merge", "feature"]));
+    (ours, theirs)
+}
+
+#[test]
+fn v1_local_recovery_rename_delete_and_file_directory_conflicts_are_named_and_resolved() {
+    let fixture = Fixture::new();
+    let (ours, theirs) = v1_recovery_structural_conflicts(&fixture);
+    let renamed = RawPath::new(b"new.txt".to_vec());
+    let aside = RawPath::new(b"thing~HEAD".to_vec());
+    let labels = |view: &Workspace| -> Vec<String> {
+        view.rows.iter().map(|row| row.label.clone()).collect()
+    };
+    let mut view = workspace(&fixture, RepositoryMode::Overview);
+    assert_eq!(view.status.conflicts(), 2);
+    view.open(RowAction::Conflict(renamed.clone())).unwrap();
+    let rows = labels(&view);
+    assert!(
+        has_line(&rows, "Delete conflict: deleted on our side"),
+        "{rows:?}"
+    );
+    assert!(has_line(&rows, "rename/delete"));
+    assert!(has_line(&rows, "No ours version"));
+    assert!(has_line(&rows, "Stage selected file records the removal"));
+    assert!(!has_line(&rows, "File/directory conflict"));
+
+    let mut view = workspace(&fixture, RepositoryMode::Overview);
+    view.open(RowAction::Conflict(aside.clone())).unwrap();
+    let rows = labels(&view);
+    assert!(
+        has_line(
+            &rows,
+            "File/directory conflict: a directory now occupies thing"
+        ),
+        "{rows:?}"
+    );
+    assert!(has_line(&rows, "No theirs version"));
+    assert!(fixture.repo().join("thing").is_dir());
+
+    // Drop the renamed file: delete it, then Stage records the removal.
+    fs::remove_file(fixture.repo().join("new.txt")).unwrap();
+    let context = |path: &RawPath| {
+        LocalContext::from_workspace(
+            &workspace(&fixture, RepositoryMode::Overview),
+            Some(path.clone()),
+            None,
+        )
+    };
+    execute(&prepare(LocalCommand::StageFile, &context(&renamed), &[]));
+    assert_eq!(fixture.git(&["ls-files", "--", "new.txt"]), "");
+    // Keep our file version under its aside name, then stage it.
+    execute(&prepare(
+        LocalCommand::ResolveConflict,
+        &context(&aside),
+        &[("stage", "ours")],
+    ));
+    assert_eq!(
+        fs::read(fixture.repo().join("thing~HEAD")).unwrap(),
+        b"changed\n"
+    );
+    execute(&prepare(LocalCommand::StageFile, &context(&aside), &[]));
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), "");
+    let resolved =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    execute(&prepare(LocalCommand::Continue, &resolved, &[]));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD^1"]), format!("{ours}\n"));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD^2"]), format!("{theirs}\n"));
+    assert_eq!(
+        fixture.git(&["ls-tree", "-r", "--name-only", "HEAD"]),
+        "thing/inner\nthing~HEAD\n"
+    );
+    assert!(!fixture.repo().join(".git/MERGE_HEAD").exists());
+}
+
+#[test]
+fn v1_local_recovery_sequencer_preview_refuses_a_change_made_while_it_is_open() {
+    for command in [
+        LocalCommand::Merge,
+        LocalCommand::Rebase,
+        LocalCommand::CherryPick,
+        LocalCommand::Revert,
+    ] {
+        let fixture = Fixture::new();
+        let feature = v1_gaps_conflicting_branches(&fixture);
+        fixture.commit_file("notes.txt", b"saved notes\n", "notes");
+        let head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+        let revision = if command == LocalCommand::Revert {
+            head.clone()
+        } else {
+            feature.clone()
+        };
+        let context = LocalContext::from_workspace(
+            &workspace(&fixture, RepositoryMode::Overview),
+            None,
+            None,
+        );
+        let plan = prepare(command, &context, &[("revision", &revision)]);
+        // Another tool edits a tracked file after the preview was shown.
+        fs::write(fixture.repo().join("notes.txt"), b"edited while open\n").unwrap();
+        let Err(error) = plan.execute(true, CancellationToken::default()) else {
+            panic!("{command:?} ran after the repository changed under its preview");
+        };
+        assert!(
+            error.contains("Repository changed since the preview"),
+            "{command:?}: {error}"
+        );
+        assert_eq!(fixture.git(&["rev-parse", "HEAD"]), format!("{head}\n"));
+        for marker in [
+            "MERGE_HEAD",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+            "rebase-merge",
+        ] {
+            assert!(
+                !fixture.repo().join(".git").join(marker).exists(),
+                "{command:?}"
+            );
+        }
+        assert_eq!(
+            fs::read(fixture.repo().join("notes.txt")).unwrap(),
+            b"edited while open\n"
+        );
+        assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
+    }
+}
+
+#[test]
+fn v1_local_recovery_pruned_expired_and_branch_moved_reflog_entries_are_stated() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"base\n", "base");
+    fixture.commit_file("file.txt", b"draft\n", "draft work");
+    let draft = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fs::write(fixture.repo().join("file.txt"), b"polished\n").unwrap();
+    fixture.git(&["commit", "-q", "--amend", "-am", "polished work"]);
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.commit_file("feature.txt", b"feature\n", "feature tip");
+    let tip = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["switch", "main"]);
+    // Only the feature branch reflog records this move; HEAD never saw it.
+    fixture.git(&["branch", "-f", "feature", "main"]);
+    // The amended-away commit's object is pruned while its reflog line stays.
+    fs::remove_file(
+        fixture
+            .repo()
+            .join(".git/objects")
+            .join(&draft[..2])
+            .join(&draft[2..]),
+    )
+    .unwrap();
+    let view = workspace(&fixture, RepositoryMode::Overview);
+    let row = |prefix: String| {
+        view.rows
+            .iter()
+            .find(|row| row.label.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("{prefix}: {:?}", view.rows))
+            .clone()
+    };
+    assert!(view.rows.iter().any(|row| row.label
+        == "Reflog entries expire (gc.reflogExpire, default 90 days); pruned commits are gone. Not a universal undo."));
+    let pruned = row(format!(
+        "✗ {} draft work • before amend • HEAD@{{",
+        &draft[..8]
+    ));
+    assert!(pruned
+        .label
+        .ends_with("• pruned: commit is gone, cannot recover"));
+    assert_eq!(pruned.action, None);
+    let moved = row(format!(
+        "↺ {} feature tip • before branch move • feature@{{0}}",
+        &tip[..8]
+    ));
+    assert_eq!(moved.action, Some(RowAction::Commit(tip.clone())));
+
+    // Once the reflogs expire nothing is offered or claimed for either commit.
+    fixture.git(&[
+        "reflog",
+        "expire",
+        "--expire=now",
+        "--expire-unreachable=now",
+        "--all",
+    ]);
+    let expired = workspace(&fixture, RepositoryMode::Overview);
+    assert!(!expired
+        .rows
+        .iter()
+        .any(|row| row.label.contains(&tip[..8]) || row.label.contains(&draft[..8])));
 }
