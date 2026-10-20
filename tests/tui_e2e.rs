@@ -32,6 +32,8 @@ mod github;
 mod help_scrollbar;
 #[path = "tui_e2e/history_detail_v994.rs"]
 mod history_detail_v994;
+#[path = "tui_e2e/history_entry_v993.rs"]
+mod history_entry_v993;
 #[path = "tui_e2e/history_filter_v993.rs"]
 mod history_filter_v993;
 #[path = "tui_e2e/history_lanes_v991.rs"]

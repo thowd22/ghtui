@@ -134,6 +134,24 @@ impl HistoryFilterSpecV993 {
     }
 }
 
+/// The label of one followed commit for the path chip `chip`: "was OLD" when the file had
+/// another name in that commit (a path inside a directory chip is not another name), else
+/// "renamed from OLD" on the commit that renamed it to its chip name.
+pub fn rename_label(chip: &RawPath, name: &crate::git::FollowedNameV993) -> Option<String> {
+    let inside = |path: &RawPath| {
+        path.0 == chip.0
+            || (path.0.starts_with(&chip.0)
+                && (chip.0.ends_with(b"/") || path.0.get(chip.0.len()) == Some(&b'/')))
+    };
+    if !inside(&name.path) {
+        return Some(format!("was {}", name.path.display()));
+    }
+    name.from
+        .as_ref()
+        .filter(|from| !inside(from))
+        .map(|from| format!("renamed from {}", from.display()))
+}
+
 fn cut(value: &str) -> String {
     let mut end = value.len().min(MAX_QUERY);
     while !value.is_char_boundary(end) {
@@ -192,6 +210,8 @@ pub struct HistoryFilterV993 {
     chip_ids: Option<Arc<HashSet<String>>>,
     chip_capped: bool,
     chip_walk: Option<[u8; 32]>,
+    /// Followed-rename labels of the path chip's commits ("was docs/guide.md").
+    renamed: Option<Arc<HashMap<String, String>>>,
     pub saved: Option<SavedHistoryV993>,
     key: Option<CacheKey>,
     flags: Arc<[bool]>,
@@ -215,7 +235,36 @@ impl HistoryFilterV993 {
         self.chip_ids = ids.map(Arc::new);
         self.chip_capped = capped && self.chip_ids.is_some();
         self.chip_walk = Some(walk);
+        self.renamed = None;
         self.key = None;
+    }
+    /// Joins `git log --follow` commits of the path chip to the chip selection and keeps a
+    /// label for each commit where the file had another name (TASK-99.3). Call after
+    /// [`Self::set_chip_ids`] for the same walk.
+    pub fn follow(&mut self, followed: crate::git::FollowedPathsV993) {
+        let Some(chip) = self.spec.path.clone() else {
+            return;
+        };
+        let mut ids = self.chip_ids.as_deref().cloned().unwrap_or_default();
+        let mut labels = HashMap::new();
+        for (id, name) in followed {
+            if let Some(label) = name.as_ref().and_then(|name| rename_label(&chip, name)) {
+                labels.insert(id.clone(), label);
+            }
+            ids.insert(id);
+        }
+        self.chip_capped |= ids.len() > 10_000;
+        self.chip_ids = Some(Arc::new(ids));
+        self.renamed = (!labels.is_empty()).then(|| Arc::new(labels));
+        self.key = None;
+    }
+    /// The followed file's other name at commit `id` ("was docs/guide.md", "renamed from …"),
+    /// while the chip ids describe `state`'s walk.
+    pub fn renamed(&self, state: &OriginalGraphStateV1, id: &str) -> Option<&str> {
+        if !self.chips_current(state) {
+            return None;
+        }
+        self.renamed.as_ref()?.get(id).map(String::as_str)
     }
     /// The chip ids still describe `state`'s walk.
     pub fn chips_current(&self, state: &OriginalGraphStateV1) -> bool {

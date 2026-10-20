@@ -38,6 +38,7 @@ fn parts(theme: Theme, chips: Vec<RefChip>) -> Parts {
         focused: false,
         matched: None,
         query: None,
+        renamed: None,
     }
 }
 fn shown(placed: &[Placed]) -> Vec<&'static str> {

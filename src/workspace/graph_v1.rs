@@ -217,6 +217,21 @@ impl Workspace {
         if let Some(reason) = self.graph_action_reason_v1(&action) {
             return Err(reason);
         }
+        if let GraphActionV1::OpenPath { revision, path } = action {
+            // History need not be open: the path chip opens it over every branch.
+            let repository = repository.ok_or("File history needs the actual original handle")?;
+            let revision = match revision {
+                Some(revision) => revision,
+                None => self
+                    .status
+                    .head
+                    .clone()
+                    .ok_or("HEAD names no commit yet • no file history to show")?,
+            };
+            crate::search::model::validate_raw_path(&path).map_err(|error| error.to_string())?;
+            self.preview = None;
+            return self.open_path_history_v993(repository, revision, path);
+        }
         let state = self
             .graph_state_v1
             .as_ref()
@@ -343,6 +358,7 @@ impl Workspace {
                     .min(2048)
             }
             GraphActionV1::Filter(spec) => return self.history_filter_v993(spec, repository),
+            GraphActionV1::OpenPath { .. } => unreachable!("OpenPath returns above"),
         }
         Ok(())
     }
@@ -441,6 +457,19 @@ impl Workspace {
                 )
                 .map_err(|error| error.to_string())?;
             filter.set_chip_ids(Some(ids), capped, walk);
+            // One path chip follows its file across renames (`git log --follow`): commits
+            // from before a rename join the selection and their rows name the old path.
+            if let Some(path) = spec.path.as_ref() {
+                let followed = repository
+                    .original_graph_follow_v993(
+                        state.last_page(),
+                        spec.author.as_deref(),
+                        path,
+                        deadline,
+                    )
+                    .map_err(|error| error.to_string())?;
+                filter.follow(followed);
+            }
         }
         filter.sync(&state);
         if spec.is_empty() {

@@ -3,7 +3,7 @@ use super::support::{
 };
 
 fn frame(loading: bool, query: &str, source: &str) -> Vec<u8> {
-    format!("\x1b[2J\x1b[HSearch • focused view\x1b[2;1H e Exact   x Regex   n Ranked   h GitHub │ w Working files   v Saved version\x1b[3;1H{source}\x1b[4;1H[/ Query] {query}\x1b[7;1H1 results • Exact dirty界.txt:1\x1b[23;1H{}\x1b[24;1H Enter Search  c Corpus  M Repositories  f Save query  H Sources  B Blend  {}? Help  : Commands  q Quit\x1b[?25l",
+    format!("\x1b[2J\x1b[HSearch • focused view\x1b[2;1H e Exact   x Regex   n Ranked   h GitHub │ w Working files   v Saved version\x1b[3;1H{source}\x1b[4;1H[/ Query] {query}\x1b[7;1H1 results • Exact dirty界.txt:1\x1b[23;1H{}\x1b[24;1H Enter Search  c Corpus  M Repositories  S Save query  H Sources  B Blend  {}? Help  : Commands  q Quit\x1b[?25l",
         if loading { "Loading Search… • Esc Cancel" } else { "Search complete • exact source and exclusions shown" },
         if loading { "Esc Cancel  " } else { "" }).into_bytes()
 }

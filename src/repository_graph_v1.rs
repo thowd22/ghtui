@@ -57,6 +57,13 @@ pub enum GraphActionV1 {
         commit: String,
         act: HistoryDetailActV994,
     },
+    /// TASK-99.3: History with a `path:` chip for a file chosen outside History (a Search
+    /// result, a PR file), its selection on the file's latest change at `revision` (HEAD when
+    /// None). Works whether or not History is open.
+    OpenPath {
+        revision: Option<String>,
+        path: crate::git::RawPath,
+    },
 }
 /// What the History commit detail does with its commit.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -75,16 +82,18 @@ pub enum HistoryDetailActV994 {
 impl GraphActionV1 {
     /// Whether the action reads Git (the others only re-project the loaded graph).
     pub fn reads_git_v994(&self) -> bool {
-        matches!(self, Self::More | Self::CompareParent(_) | Self::Filter(_))
-            || matches!(
-                self,
-                Self::Detail {
-                    act: HistoryDetailActV994::OpenDiff
-                        | HistoryDetailActV994::FileHistory(_)
-                        | HistoryDetailActV994::Blame(_),
-                    ..
-                }
-            )
+        matches!(
+            self,
+            Self::More | Self::CompareParent(_) | Self::Filter(_) | Self::OpenPath { .. }
+        ) || matches!(
+            self,
+            Self::Detail {
+                act: HistoryDetailActV994::OpenDiff
+                    | HistoryDetailActV994::FileHistory(_)
+                    | HistoryDetailActV994::Blame(_),
+                ..
+            }
+        )
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1064,6 +1064,26 @@ fn content(
             width,
         );
     }
+    // A followed path chip names the file as it was in this commit (TASK-99.3).
+    if let Some(renamed) = workspace
+        .graph_state_v1
+        .as_ref()
+        .and_then(|state| workspace.history_filter_v993.renamed(state, id))
+    {
+        for (index, part) in wrap(&safe_text(renamed), width.saturating_sub(LABEL + 1))
+            .into_iter()
+            .enumerate()
+        {
+            rows.push(Row::new(Line::from(vec![
+                if index == 0 {
+                    label(theme, "Path")
+                } else {
+                    Span::raw(" ".repeat(LABEL + 1))
+                },
+                Span::styled(part, theme.role(Role::Text)),
+            ])));
+        }
+    }
 
     rows.push(Row::blank());
     rows.extend(heading(theme, "Message", None, width));

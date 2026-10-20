@@ -26,7 +26,7 @@ fn query(session: &mut Session, mouse: bool, input: &str, expected: &str) {
     choose(session, mouse, "[Enter Search]", b"\r");
     session.wait_for_screen(expected);
 }
-/// `f Save query` leaves the 80-column Search key bar; Enter in the Name field and the
+/// `S Save query` leaves the 80-column Search key bar; Enter in the Name field and the
 /// palette's save entry run the same Save action.
 fn save_query_at_80(session: &mut Session, mouse: bool) {
     if mouse {

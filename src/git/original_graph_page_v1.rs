@@ -453,6 +453,52 @@ impl GitRepository {
         let capped = ids.len() > MAX_OFFSET;
         Ok((ids, capped))
     }
+    /// The path chip's file history across renames (TASK-99.3): `git log --follow` over the
+    /// same walk tips and author option, with each commit's first `--name-status` entry. The
+    /// map gives every listed commit the file's name in that commit and, on a rename or copy,
+    /// the name it came from. `--follow` walks one name at a time, so callers join these
+    /// commits with the plain pathspec selection. Read-only.
+    pub fn original_graph_follow_v993(
+        &self,
+        page: &OriginalGraphPageV1,
+        author: Option<&str>,
+        path: &RawPath,
+        deadline: Instant,
+    ) -> GitResult<FollowedPathsV993> {
+        if self.navigation_read_window.is_none() {
+            return fail("History filters require the actual whole-operation read window");
+        }
+        if path.0.is_empty() || path.0.len() > 4096 || path.0.contains(&0) {
+            return fail("History path filter must be 1..4096 bytes");
+        }
+        let mut args: Vec<OsString> = vec![
+            "log".into(),
+            "--topo-order".into(),
+            "--full-history".into(),
+            "--follow".into(),
+            "--no-ext-diff".into(),
+            "--name-status".into(),
+            "-z".into(),
+            "--format=%x01%H".into(),
+            format!("--max-count={}", MAX_OFFSET + 1).into(),
+        ];
+        if let Some(author) = author {
+            if author.is_empty() || author.len() > 1024 || author.contains('\0') {
+                return fail("History author filter must be 1..1024 bytes");
+            }
+            args.push("--regexp-ignore-case".into());
+            args.push("--fixed-strings".into());
+            args.push(format!("--author={author}").into());
+        }
+        args.extend(["--stdin".into(), "--".into(), path.as_os_str().to_owned()]);
+        let mut input = Vec::with_capacity(page.walk.len() * 65);
+        for id in page.walk.iter() {
+            input.extend_from_slice(id.as_bytes());
+            input.push(b'\n');
+        }
+        let bytes = read(self, &args, Some(&input), MAX_RAW_PAGE, deadline)?;
+        parse_followed_v993(&bytes)
+    }
     /// The latest commit at or below `revision` that changed `path`, by Git's default history
     /// simplification (`git log -1 <revision> -- <path>`): a merge that kept one parent's
     /// version is not a change, unlike the `--full-history` chip selection above. Read-only.
@@ -992,6 +1038,61 @@ fn parse_commit(id: &str, object: &[u8]) -> GitResult<OriginalGraphCommitV1> {
         message_complete: raw.len() <= MAX_MESSAGE,
         retained_bytes,
     })
+}
+/// One commit of a followed path: the file's name in that commit and, when the commit renamed
+/// or copied it, the name it came from (TASK-99.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FollowedNameV993 {
+    pub path: RawPath,
+    pub from: Option<RawPath>,
+}
+/// `git log --follow` commits in walk order with the followed file's name in each.
+pub type FollowedPathsV993 = Vec<(String, Option<FollowedNameV993>)>;
+
+/// Parses `--format=%x01%H --name-status -z` output: each commit is a `\x01<id>` token, then
+/// `status`, one path (two for a rename or copy) per changed entry. Paths are counted, never
+/// split on markers, so any path byte but NUL is kept.
+fn parse_followed_v993(bytes: &[u8]) -> GitResult<FollowedPathsV993> {
+    let mut out: FollowedPathsV993 = Vec::new();
+    let mut tokens = bytes.split(|byte| *byte == 0);
+    while let Some(token) = tokens.next() {
+        let token = token.strip_prefix(b"\n").unwrap_or(token);
+        if token.is_empty() {
+            continue;
+        }
+        if let Some(id) = token.strip_prefix(b"\x01") {
+            let id = std::str::from_utf8(id)
+                .map_err(|_| GitError("History follow ID is not canonical ASCII".into()))?
+                .trim();
+            saved_oid(id)?;
+            if out.len() > MAX_OFFSET {
+                break;
+            }
+            out.push((id.to_owned(), None));
+            continue;
+        }
+        let Some((_, name)) = out.last_mut() else {
+            return fail("History follow output starts without a commit");
+        };
+        let status = token.first().copied().unwrap_or(b'?');
+        let mut path = || -> GitResult<RawPath> {
+            tokens
+                .next()
+                .filter(|path| !path.is_empty())
+                .map(|path| RawPath(path.to_vec()))
+                .ok_or_else(|| GitError("History follow entry has no path".into()))
+        };
+        let (from, path) = if matches!(status, b'R' | b'C') {
+            let from = path()?;
+            (Some(from), path()?)
+        } else {
+            (None, path()?)
+        };
+        if name.is_none() {
+            *name = Some(FollowedNameV993 { path, from });
+        }
+    }
+    Ok(out)
 }
 fn saved_oid(id: &str) -> GitResult<()> {
     if !original_actor_saved_sha(id) {

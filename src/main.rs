@@ -106,6 +106,10 @@ fn run() -> Result<()> {
     let mut next_refresh = Instant::now() + Duration::from_secs(config.refresh_seconds);
     let mut next_actions_refresh = Instant::now() + Duration::from_secs(5);
     let local_directory = std::env::current_dir()?;
+    // PR files open File history only in their own repository's checkout (TASK-99.3).
+    app.local_github_repository_v993 = detected_repository
+        .clone()
+        .or_else(|| ghtui::origin_repository::detect(&local_directory, &config.host));
     {
         // --repo scopes GitHub; it must never hide the checkout we are running in.
         // Keep explicit GitHub launch focus, but prepare local browsing independently.

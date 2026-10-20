@@ -185,6 +185,19 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
             );
         }
     }
+    if tab == PrTab::Files {
+        // `f` on a changed file opens its History in the local repository (TASK-99.3); it
+        // comes before the tabs so it outranks `f Files`, which is the tab already shown. A
+        // file of another repository explains why its key does nothing.
+        let target = crate::history::entry::pr_target(app);
+        let reason = target.as_ref().err().cloned();
+        keys.push(
+            KeyControl::new("f", "File history", crate::history::entry::action(target))
+                .with_compact("History")
+                .with_priority(50)
+                .disabled_by(reason),
+        );
+    }
     keys.extend(crate::pr_metadata_quick_v1::footer_keys(app));
     // While the page is loading, `Esc Cancel` joins the bar and Refresh replaces the read in
     // flight; it outranks the history overlays so a click still reaches the replacement.

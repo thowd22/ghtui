@@ -50,7 +50,8 @@ pub use local_commit_actor_v1::{
     OriginalLocalCommitActors,
 };
 pub use original_graph_page_v1::{
-    OriginalGraphCommitV1, OriginalGraphEpochV1, OriginalGraphPageV1, OriginalGraphReadV1,
+    FollowedNameV993, FollowedPathsV993, OriginalGraphCommitV1, OriginalGraphEpochV1,
+    OriginalGraphPageV1, OriginalGraphReadV1,
 };
 
 use crate::diff::Diff;

@@ -375,6 +375,8 @@ fn personal_pr_entry_v13_mouse_actual_cross_queue_files_back_and_independent_eff
     journey(true)
 }
 
+#[path = "history_entry_pr_v993.rs"]
+mod history_entry_pr_v993;
 #[path = "personal_pr_images_v13.rs"]
 mod images;
 #[path = "personal_pr_review_history_v15.rs"]

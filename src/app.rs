@@ -62,6 +62,8 @@ pub enum Action {
     SettingsSave,
     RepositoryMode(crate::workspace::RepositoryMode),
     RepositoryRow(crate::workspace::RowAction),
+    /// TASK-99.3: History with a `path:` chip for a file chosen in Search or PR Files.
+    FileHistoryV993(crate::history::entry::FileHistoryTargetV993),
     OriginalDiffSidesV1(crate::repository_diff_sides_v1::OriginalDiffActionV1),
     NativeDiffV1(crate::repository_native_diff_ui_v1::NativeDiffActionV1),
     NativeMutableDiffV2(
@@ -342,6 +344,9 @@ pub struct App {
     pub repository_action: Option<crate::workspace::RowAction>,
     /// The History query while it has keyboard focus (TASK-99.3).
     pub history_filter_input_v993: Option<String>,
+    /// `owner/name` of the launch checkout's GitHub remote: PR files open File history only
+    /// when the PR is in this repository (TASK-99.3).
+    pub local_github_repository_v993: Option<String>,
     pub repository_content_focused: bool,
     pub repository_visible_rows: usize,
     /// Repository panels (TASK-93): panel scroll offsets and the untracked toggle.
@@ -604,6 +609,7 @@ impl Default for App {
             repository_load_requested: false,
             repository_action: None,
             history_filter_input_v993: None,
+            local_github_repository_v993: None,
             repository_content_focused: true,
             repository_visible_rows: 20,
             repository_panels_v93: Default::default(),
@@ -1794,6 +1800,7 @@ impl App {
                 self.user_navigated = true;
                 self.repository_content_focused = true;
             }
+            Action::FileHistoryV993(target) => crate::history::entry::open(self, target),
             Action::RepositoryRow(action) => {
                 if let crate::workspace::RowAction::Tree(tree) = action {
                     crate::repository_tree_native_v1::row(self, tree);
@@ -1805,6 +1812,7 @@ impl App {
                     let row_level = matches!(
                         graph,
                         crate::repository_graph_v1::GraphActionV1::Detail { .. }
+                            | crate::repository_graph_v1::GraphActionV1::OpenPath { .. }
                     );
                     let reason = if self.loading[View::Repository.index()] && !row_level {
                         Some("Wait for the original graph read, or cancel it first".into())

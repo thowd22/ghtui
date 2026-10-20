@@ -271,7 +271,7 @@ fn journey(mouse: bool) {
     if !mouse {
         session.send_key(b"\t");
     }
-    choose(&mut session, mouse, "[f Save query]", b"f");
+    choose(&mut session, mouse, "[S Save query]", b"S");
     session.wait_for_screen("Saved query: remote exact scope");
     journal(&mut session, &fixture, 20);
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();

@@ -362,7 +362,7 @@ fn saved_searches(mouse: bool) {
     session.send_key(b"\x01");
     session.paste("Saved evidence");
     if mouse {
-        session.click_visible_action("[f Save query]")
+        session.click_visible_action("[S Save query]")
     } else {
         session.send_key(b"\r")
     }

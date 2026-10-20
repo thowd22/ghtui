@@ -547,3 +547,220 @@ fn history_filter_v993_workspace_filters_scopes_and_clearing_restores_the_select
     );
     assert_eq!(snapshot(&root), before, "History never writes");
 }
+
+/// The rename commit and the root commit that added the guide under its old name.
+fn rename_commits(root: &Path) -> (String, String) {
+    let renamed = text(
+        root,
+        &["log", "-1", "--format=%H", "--grep=Move the guide", "main"],
+    );
+    let added = text(
+        root,
+        &["log", "-1", "--format=%H", "--grep=Add the README", "main"],
+    );
+    (renamed, added)
+}
+
+#[test]
+fn history_filter_v993_follow_reads_git_log_follow_with_each_commits_file_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = repository(directory.path(), false);
+    let before = snapshot(&root);
+    let head = text(&root, &["rev-parse", "HEAD"]);
+    let state = walk(&root, &head, true);
+    let (renamed, added) = rename_commits(&root);
+    let path = RawPath(b"docs/manual.md".to_vec());
+    let followed = read(&root, |handle, operation, _| {
+        handle
+            .original_graph_follow_v993(state.last_page(), None, &path, operation.deadline())
+            .map_err(|error| error.to_string())
+    });
+    // Exactly `git log --follow` over the same refs and options, in its order.
+    let expected: Vec<String> = String::from_utf8(git(
+        &root,
+        &[
+            "log",
+            "--branches",
+            "--remotes",
+            "--tags",
+            "HEAD",
+            "--topo-order",
+            "--full-history",
+            "--follow",
+            "--format=%H",
+            "--",
+            "docs/manual.md",
+        ],
+        None,
+    ))
+    .unwrap()
+    .lines()
+    .map(str::to_owned)
+    .collect();
+    let ids: Vec<String> = followed.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(ids, expected);
+    assert_eq!(ids, [renamed.clone(), added.clone()]);
+    let name = |id: &str| {
+        followed
+            .iter()
+            .find(|(candidate, _)| candidate == id)
+            .and_then(|(_, name)| name.clone())
+            .unwrap()
+    };
+    assert_eq!(
+        name(&renamed),
+        crate::git::FollowedNameV993 {
+            path: path.clone(),
+            from: Some(RawPath(b"docs/guide.md".to_vec())),
+        }
+    );
+    assert_eq!(
+        name(&added),
+        crate::git::FollowedNameV993 {
+            path: RawPath(b"docs/guide.md".to_vec()),
+            from: None,
+        }
+    );
+    // With an author chip, the followed commits are that author's changes of the file.
+    let parser: HashSet<String> = read(&root, |handle, operation, _| {
+        handle
+            .original_graph_follow_v993(
+                state.last_page(),
+                Some("kateřina"),
+                &RawPath(b"src/parser.rs".to_vec()),
+                operation.deadline(),
+            )
+            .map_err(|error| error.to_string())
+    })
+    .into_iter()
+    .map(|(id, _)| id)
+    .collect();
+    let kat = git_log(&root, &["--author=kateřina"], Some("src/parser.rs"));
+    assert!(
+        !parser.is_empty() && parser.is_subset(&kat),
+        "{parser:?} {kat:?}"
+    );
+    assert_eq!(snapshot(&root), before, "follow reads only");
+}
+
+#[test]
+fn history_filter_v993_follow_labels_old_names_and_ignores_paths_inside_a_directory_chip() {
+    use crate::{git::FollowedNameV993 as Name, history::filter::rename_label};
+    let raw = |path: &str| RawPath(path.as_bytes().to_vec());
+    let name = |path: &str, from: Option<&str>| Name {
+        path: raw(path),
+        from: from.map(raw),
+    };
+    let chip = raw("docs/manual/guide.md");
+    assert_eq!(
+        rename_label(&chip, &name("docs/guide.md", None)),
+        Some("was docs/guide.md".into())
+    );
+    assert_eq!(
+        rename_label(&chip, &name("docs/manual/guide.md", Some("docs/guide.md"))),
+        Some("renamed from docs/guide.md".into())
+    );
+    assert_eq!(
+        rename_label(&chip, &name("docs/manual/guide.md", None)),
+        None
+    );
+    // A directory chip: files inside it are not other names; a move into it is.
+    let docs = raw("docs");
+    assert_eq!(
+        rename_label(&docs, &name("docs/manual/guide.md", None)),
+        None
+    );
+    assert_eq!(rename_label(&raw("docs/"), &name("docs/a.md", None)), None);
+    assert_eq!(
+        rename_label(&docs, &name("docsy/a.md", None)),
+        Some("was docsy/a.md".into())
+    );
+    assert_eq!(
+        rename_label(&docs, &name("docs/a.md", Some("notes/a.md"))),
+        Some("renamed from notes/a.md".into())
+    );
+    assert_eq!(
+        rename_label(&docs, &name("docs/b.md", Some("docs/a.md"))),
+        None
+    );
+}
+
+#[test]
+fn history_filter_v993_follow_path_chip_keeps_commits_before_the_rename_and_opens_from_anywhere() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = repository(directory.path(), false);
+    let before = snapshot(&root);
+    let head = text(&root, &["rev-parse", "HEAD"]);
+    let (renamed, added) = rename_commits(&root);
+    // Opened from the Overview (a Search result or a PR file): no History is open yet.
+    let mut workspace = Workspace::load(&root, RepositoryMode::Overview, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    assert!(workspace.graph_state_v1.is_none());
+    workspace
+        .open(RowAction::Graph(GraphActionV1::OpenPath {
+            revision: None,
+            path: RawPath(b"docs/manual.md".to_vec()),
+        }))
+        .unwrap();
+    assert_eq!(workspace.mode, RepositoryMode::Graph);
+    let state = workspace.graph_state_v1.clone().unwrap();
+    assert!(state.last_page().all_refs(), "every branch");
+    let filter = &workspace.history_filter_v993;
+    assert_eq!(filter.spec.path, Some(RawPath(b"docs/manual.md".to_vec())));
+    // The plain pathspec selection plus `--follow`: the root commit that added the guide.
+    let plain = git_log(&root, &[], Some("docs/manual.md"));
+    assert!(
+        !plain.contains(&added),
+        "a plain pathspec stops at the rename"
+    );
+    let mut expected = plain.clone();
+    expected.insert(added.clone());
+    let flagged: HashSet<String> = (0..state.loaded())
+        .filter(|index| filter.flags(&state).unwrap()[*index])
+        .map(|index| state.observed_at_v993(index).unwrap().commit().id.clone())
+        .collect();
+    assert_eq!(flagged, expected);
+    assert_eq!(filter.count(), expected.len());
+    assert_eq!(
+        filter.renamed(&state, &added),
+        Some("was docs/guide.md"),
+        "rows before the rename name the old path"
+    );
+    assert_eq!(
+        filter.renamed(&state, &renamed),
+        Some("renamed from docs/guide.md")
+    );
+    assert_eq!(filter.renamed(&state, &head), None);
+    // The bar rests on the file's latest change at HEAD.
+    assert_eq!(workspace.revision, renamed);
+    // A saved revision (a Search result's version) selects that version's latest change.
+    workspace
+        .open(RowAction::Graph(GraphActionV1::OpenPath {
+            revision: Some(added.clone()),
+            path: RawPath(b"docs/guide.md".to_vec()),
+        }))
+        .unwrap();
+    assert_eq!(workspace.revision, added);
+    let state = workspace.graph_state_v1.clone().unwrap();
+    assert_eq!(
+        workspace.history_filter_v993.matched(&state, &added),
+        Some(true)
+    );
+    // An unsafe path is refused before Git runs.
+    let error = workspace
+        .open(RowAction::Graph(GraphActionV1::OpenPath {
+            revision: None,
+            path: RawPath(b"../outside".to_vec()),
+        }))
+        .unwrap_err();
+    assert!(error.contains("repository-relative"), "{error}");
+    // Clearing the chip restores the full graph without rename labels.
+    workspace
+        .open(RowAction::Graph(GraphActionV1::Filter(Spec::default())))
+        .unwrap();
+    let state = workspace.graph_state_v1.clone().unwrap();
+    assert!(workspace.history_filter_v993.spec.is_empty());
+    assert_eq!(workspace.history_filter_v993.renamed(&state, &added), None);
+    assert_eq!(snapshot(&root), before, "History never writes");
+}

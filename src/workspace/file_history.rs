@@ -131,6 +131,74 @@ impl Workspace {
     ) -> Result<(), String> {
         self.open_with_cancellation(RowAction::FileProvenance(action), cancellation)
     }
+    /// History of every branch with a `path:` chip for `path`, the bar on the file's latest
+    /// change at or below `revision` (TASK-99.3: `f`/`H` on a saved file, a History detail
+    /// file, a Search result or a PR file). Reads only.
+    pub(crate) fn open_path_history_v993(
+        &mut self,
+        repo: &GitRepository,
+        revision: String,
+        path: RawPath,
+    ) -> Result<(), String> {
+        let origin = self
+            .actor_origin
+            .clone()
+            .ok_or("Original History source unavailable")?;
+        let deadline = repo
+            .original_graph_deadline_v1()
+            .ok_or("File History lost its original whole-operation clock")?;
+        let graph = super::graph_v1::read_graph_through_v991(repo, &origin, &revision, deadline)?;
+        self.revision = revision.clone();
+        self.history_filter_v993 = Default::default();
+        self.file_provenance = None;
+        self.install_graph_v1(graph, crate::repository_graph_v1::GraphViewV1::Timeline)?;
+        let mut spec = crate::history::filter::HistoryFilterSpecV993::default();
+        spec.set_path(Some(path.clone()));
+        self.history_filter_v993(spec, Some(repo))?;
+        // Select the file's latest change in the opened revision's own history, not a
+        // change on another branch that happens to sort above it. Git's default
+        // simplification names it (`git log -1 <revision> -- <path>`); the path chip's
+        // `--full-history` set also holds merges that only kept one side's version.
+        let graph = self
+            .graph_state_v1
+            .clone()
+            .ok_or("History closed while filtering")?;
+        let flags = self
+            .history_filter_v993
+            .flags(&graph)
+            .map(<[bool]>::to_vec)
+            .unwrap_or_default();
+        let latest = repo
+            .original_graph_path_latest_v99(&revision, &path, deadline)
+            .map_err(|error| error.to_string())?
+            .filter(|id| self.history_filter_v993.matched(&graph, id) == Some(true));
+        let ancestors = graph.ancestors_v993(&revision)?;
+        let fallback = || -> Result<Option<String>, String> {
+            let Some(index) = (0..flags.len()).find(|index| flags[*index] && ancestors[*index])
+            else {
+                return Ok(None);
+            };
+            Ok(Some(
+                graph
+                    .observed_at_v993(index)
+                    .ok_or("History match is not a loaded member")?
+                    .commit()
+                    .id
+                    .clone(),
+            ))
+        };
+        let target = match latest {
+            Some(id) => Some(id),
+            None => fallback()?,
+        };
+        if let Some(id) = target {
+            if id != self.revision {
+                self.revision = id;
+                self.install_graph_v1(graph, crate::repository_graph_v1::GraphViewV1::Timeline)?;
+            }
+        }
+        Ok(())
+    }
     pub(crate) fn provenance_action_from_repository_v1(
         &mut self,
         repo: &GitRepository,
@@ -171,73 +239,7 @@ impl Workspace {
         }
         match action {
             FileAction::PathHistory => {
-                let origin = self
-                    .actor_origin
-                    .clone()
-                    .ok_or("Original History source unavailable")?;
-                let deadline = repo
-                    .original_graph_deadline_v1()
-                    .ok_or("File History lost its original whole-operation clock")?;
-                let graph = super::graph_v1::read_graph_through_v991(
-                    repo,
-                    &origin,
-                    &state.revision,
-                    deadline,
-                )?;
-                self.revision = state.revision.clone();
-                self.history_filter_v993 = Default::default();
-                self.file_provenance = None;
-                self.install_graph_v1(graph, crate::repository_graph_v1::GraphViewV1::Timeline)?;
-                let mut spec = crate::history::filter::HistoryFilterSpecV993::default();
-                spec.set_path(Some(state.path.clone()));
-                self.history_filter_v993(spec, Some(repo))?;
-                // Select the file's latest change in the opened revision's own history, not a
-                // change on another branch that happens to sort above it. Git's default
-                // simplification names it (`git log -1 <revision> -- <path>`); the path chip's
-                // `--full-history` set also holds merges that only kept one side's version.
-                let graph = self
-                    .graph_state_v1
-                    .clone()
-                    .ok_or("History closed while filtering")?;
-                let flags = self
-                    .history_filter_v993
-                    .flags(&graph)
-                    .map(<[bool]>::to_vec)
-                    .unwrap_or_default();
-                let latest = repo
-                    .original_graph_path_latest_v99(&state.revision, &state.path, deadline)
-                    .map_err(|error| error.to_string())?
-                    .filter(|id| self.history_filter_v993.matched(&graph, id) == Some(true));
-                let ancestors = graph.ancestors_v993(&state.revision)?;
-                let fallback = || -> Result<Option<String>, String> {
-                    let Some(index) =
-                        (0..flags.len()).find(|index| flags[*index] && ancestors[*index])
-                    else {
-                        return Ok(None);
-                    };
-                    Ok(Some(
-                        graph
-                            .observed_at_v993(index)
-                            .ok_or("History match is not a loaded member")?
-                            .commit()
-                            .id
-                            .clone(),
-                    ))
-                };
-                let target = match latest {
-                    Some(id) => Some(id),
-                    None => fallback()?,
-                };
-                if let Some(id) = target {
-                    if id != self.revision {
-                        self.revision = id;
-                        self.install_graph_v1(
-                            graph,
-                            crate::repository_graph_v1::GraphViewV1::Timeline,
-                        )?;
-                    }
-                }
-                return Ok(());
+                return self.open_path_history_v993(repo, state.revision, state.path);
             }
             FileAction::Blame | FileAction::BlameAt(_) => {
                 let line = if let FileAction::BlameAt(line) = action {

@@ -92,6 +92,25 @@ impl ScopedPrResourceViewV1 {
     pub fn row(&self, index: usize) -> Option<PrResourceRowV1> {
         self.targets.get(index).copied()
     }
+    /// The changed file of a file-list row, a file header, a hunk or a diff line: its new path
+    /// (the old one for a deletion). For File history (TASK-99.3); no other meaning.
+    pub fn file_path_at(&self, index: usize) -> Option<crate::git::RawPath> {
+        match self.row(index)? {
+            PrResourceRowV1::FileList(i) => Some(crate::git::RawPath(
+                self.observed.files().get(i)?.path.as_bytes().to_vec(),
+            )),
+            PrResourceRowV1::File(i)
+            | PrResourceRowV1::Hunk(i, _)
+            | PrResourceRowV1::Line(i, _) => {
+                let file = self.diff.as_ref()?.files.get(i)?;
+                file.new_path
+                    .as_deref()
+                    .or(file.old_path.as_deref())
+                    .map(|path| crate::git::RawPath(path.to_vec()))
+            }
+            _ => None,
+        }
+    }
     pub fn check(&self, row: usize) -> Option<&crate::providers::gh::ObservedPrCheckV1> {
         match self.row(row)? {
             PrResourceRowV1::Check(false, i) => self.observed.checks().get(i),

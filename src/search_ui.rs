@@ -295,9 +295,25 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
             .with_selected(corpus)
             .disabled_by((remote && !corpus).then(|| GITHUB_CORPUS.to_owned())),
     );
+    // `f` on a file result opens its History in the local repository (TASK-99.3); a result
+    // that is not a file of this repository explains why.
+    let history = if loading {
+        Err(LOADING_OPEN.to_owned())
+    } else if !has_result {
+        Err(NO_RESULT.to_owned())
+    } else {
+        crate::history::entry::search_target(app)
+    };
+    let history_reason = history.as_ref().err().cloned();
+    keys.push(
+        KeyControl::new("f", "File history", crate::history::entry::action(history))
+            .with_compact("History")
+            .with_priority(65)
+            .disabled_by(history_reason),
+    );
     keys.push(KeyControl::new("M", "Repositories", Action::Corpus).with_priority(15));
     keys.push(
-        KeyControl::new("f", "Save query", Action::Search(SearchAction::Save)).with_priority(35),
+        KeyControl::new("S", "Save query", Action::Search(SearchAction::Save)).with_priority(35),
     );
     keys.push(
         KeyControl::new(
@@ -1468,7 +1484,7 @@ mod tests {
                 "Enter Search",
                 "c Corpus",
                 "M Repositories",
-                "f Save query",
+                "S Save query",
                 "H Sources",
                 "B Blend",
                 "r Refresh",
@@ -1484,7 +1500,7 @@ mod tests {
                 "Enter Search",
                 "c Corpus",
                 "M Repositories",
-                "f Save query",
+                "S Save query",
                 "H Sources",
                 "B Blend",
                 "r Refresh",
@@ -1525,7 +1541,7 @@ mod tests {
             ),
             (KeyCode::Char('c'), Action::Search(SearchAction::Corpus)),
             (KeyCode::Char('M'), Action::Corpus),
-            (KeyCode::Char('f'), Action::Search(SearchAction::Save)),
+            (KeyCode::Char('S'), Action::Search(SearchAction::Save)),
             (
                 KeyCode::Char('H'),
                 Action::SearchSource(crate::search_sources::SourceAction::Open),

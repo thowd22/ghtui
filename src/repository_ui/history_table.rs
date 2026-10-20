@@ -65,6 +65,8 @@ struct Parts {
     matched: Option<bool>,
     /// The lowercase search text, underlined where it occurs in the subject.
     query: Option<String>,
+    /// The path chip's file under another name in this commit ("was docs/guide.md").
+    renamed: Option<String>,
 }
 
 fn graph_spans(
@@ -177,6 +179,7 @@ fn parts(workspace: &Workspace, index: usize, now: u64, theme: Theme) -> Option<
             .text()
             .filter(|_| matched == Some(true))
             .map(str::to_lowercase),
+        renamed: filter.renamed(state, id).map(str::to_owned),
     })
 }
 
@@ -259,6 +262,20 @@ fn message(parts: &Parts, width: Option<usize>, theme: Theme) -> Cell {
             theme.badge(SemanticToken::Normal),
         ));
         spans.push((" ".into(), base));
+    }
+    // A followed file's other name leads the subject, so a narrow MESSAGE never cuts it.
+    if let Some(renamed) = &parts.renamed {
+        spans.push((
+            renamed.clone(),
+            theme
+                .role(if dimmed {
+                    Role::TextDim
+                } else {
+                    Role::TextMuted
+                })
+                .add_modifier(Modifier::ITALIC),
+        ));
+        spans.push(("  ".into(), base));
     }
     spans.extend(subject_spans(
         &parts.subject,

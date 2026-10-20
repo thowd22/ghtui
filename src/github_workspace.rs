@@ -586,6 +586,26 @@ impl PrPage {
         }
         Ok(())
     }
+    /// The Files tab's changed file at `row`: a file table row, or the file of a diff line
+    /// (TASK-99.3 File history).
+    pub fn file_path_at(&self, row: usize) -> Option<crate::git::RawPath> {
+        if self.tab != PrTab::Files {
+            return None;
+        }
+        let item = self.rows.get(row)?;
+        if let Some(anchor) = &item.anchor {
+            return anchor.new_path.clone().or_else(|| anchor.old_path.clone());
+        }
+        if !matches!(item.cells, Some(PrCells::Row(_))) {
+            return None;
+        }
+        let index = self.rows[..row]
+            .iter()
+            .filter(|row| matches!(row.cells, Some(PrCells::Row(_))))
+            .count();
+        let file = self.details.files.get(index)?;
+        Some(crate::git::RawPath(file.path.as_bytes().to_vec()))
+    }
     pub fn selected_progress_file(&self, row: usize) -> Option<crate::pr_progress::FileProgress> {
         self.progress_file_at(row).cloned()
     }
