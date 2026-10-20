@@ -784,8 +784,9 @@ fn run() -> Result<()> {
                         }
                     } else if app.overlay == Some(ghtui::app::Overlay::Form)
                         && !app.loading[app.view.index()]
-                        // A late local draft ack must not hide the visible preview status.
-                        && !(form.preview
+                        // A late local draft ack must not hide the visible preview status,
+                        // nor a failed confirmation's outcome (e.g. "Pull request not created").
+                        && !((form.preview || !form.error.is_empty())
                             && matches!(form.purpose, ghtui::forms::FormPurpose::Local(_)))
                     {
                         app.status = if form.actions_publication.is_some() {

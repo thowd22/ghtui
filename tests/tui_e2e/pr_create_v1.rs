@@ -359,6 +359,146 @@ fn failed_post_journey(mouse: bool) {
     session.quit_and_assert_restored_terminal(mouse);
 }
 
+fn inbox_pr(number: u64, title: &str, updated: &str) -> Value {
+    json!({"node_id": format!("PR_example_repo_{number}"), "number": number, "title": title,
+           "body": "", "repository_url": "https://api.github.invalid/repos/example/repo",
+           "html_url": format!("https://github.invalid/example/repo/pull/{number}"),
+           "user": {"login": "octocat", "type": "User"}, "state": "open", "draft": false,
+           "created_at": "2026-10-01T00:00:00Z", "updated_at": updated})
+}
+fn search(queue: &str, items: Vec<Value>) -> GhStep {
+    GhStep::read(
+        &[
+            "api",
+            "search/issues",
+            "--hostname",
+            HOST,
+            "--method",
+            "GET",
+            "-f",
+            &format!("q=is:pr is:open {queue}:octocat"),
+            "-f",
+            "per_page=100",
+            "-f",
+            "page=1",
+        ],
+        &json!({"total_count": items.len(), "incomplete_results": false, "items": items})
+            .to_string(),
+    )
+}
+/// One Inbox load: the first adds the startup identity read before the
+/// refresh identity; a reload re-reads only the refresh identity.
+fn inbox_load(first: bool, authored: Vec<Value>) -> Vec<GhStep> {
+    let mut steps = if first { identity() } else { Vec::new() };
+    steps.extend(identity());
+    steps.push(search("author", authored));
+    steps.push(search("assignee", vec![]));
+    steps.push(search("review-requested", vec![]));
+    steps
+}
+fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        session.click_visible_action(label)
+    } else {
+        session.send_key(key)
+    }
+}
+
+/// The created PR shows up in the already loaded authored queue: returning to
+/// the Inbox reloads it once, without a manual Refresh.
+fn authored_queue_journey(mouse: bool) {
+    let (fixture, head) = checkout();
+    ghtui::config::Config {
+        host: HOST.into(),
+        avatars: false,
+        refresh_seconds: 3600,
+        ..Default::default()
+    }
+    .save(&fixture.root.join("config/ghtui/config.toml"))
+    .unwrap();
+    let earlier = inbox_pr(3, "Earlier work", "2026-10-10T00:00:00Z");
+    let mut steps = inbox_load(true, vec![earlier.clone()]);
+    let loaded = steps.len();
+    steps.extend(identity());
+    steps.push(repository());
+    steps.push(refs(Some(&head)));
+    steps.push(open());
+    steps.push(get(
+        "repos/example/repo/compare/main...feature",
+        json!({"ahead_by": 1, "behind_by": 0,
+               "commits": [{"sha": head, "commit": {"message": "Add the feature"}}],
+               "files": [{"filename": "a.txt", "additions": 1, "deletions": 1}]}),
+    ));
+    steps.extend(identity());
+    steps.push(refs(Some(&head)));
+    steps.push(open());
+    steps.push(create_post(
+        "example/repo",
+        json!({"title": "Ship the feature", "head": "feature", "base": "main", "body": "", "draft": false}),
+        12,
+    ));
+    let created = steps.len();
+    steps.extend(inbox_load(
+        false,
+        vec![
+            inbox_pr(12, "Ship the feature", "2026-10-20T00:00:00Z"),
+            earlier,
+        ],
+    ));
+    fixture.scripted_gh(&steps);
+    let before = witness(&fixture);
+    let mut session = launch(&fixture);
+
+    choose(&mut session, mouse, "1 Inbox", b"1");
+    session.wait_for_screen("Inbox • focused view");
+    choose(&mut session, mouse, "[r Refresh]", b"r");
+    session.wait_for_screen("1 unique PRs across 1 queue matches");
+    session.wait_for_screen("Earlier work");
+    session.wait_for_command_count(&fixture, loaded);
+
+    choose(&mut session, mouse, "2 Repository", b"2");
+    session.wait_for_screen("Recent commits");
+    open_form(&mut session, mouse);
+    type_title(&mut session, mouse, "Ship the feature");
+    preview(&mut session, mouse);
+    if mouse {
+        session.click_visible_action("[Confirm action]");
+    } else {
+        session.send_key(b"\x13");
+    }
+    session.wait_for_screen("Created pull request example/repo#12");
+    session.wait_for_command_count(&fixture, created);
+    // A successful create closes the form by itself.
+    assert!(!session.screen().contains("Pull request title:"));
+
+    // No Refresh: the stale authored queue reloads once when the Inbox is shown.
+    choose(&mut session, mouse, "1 Inbox", b"1");
+    session.wait_for_screen("2 unique PRs across 2 queue matches");
+    choose(&mut session, mouse, "[c Created by me]", b"c");
+    session.wait_for_screen("Queue: Created by me");
+    session.wait_for_screen("Ship the feature");
+    session.wait_for_screen("Earlier work");
+    session.wait_for_command_count(&fixture, steps.len());
+    let records = journal(&session, &fixture);
+    assert_eq!(
+        records.len(),
+        steps.len(),
+        "the Inbox reloaded exactly once"
+    );
+    assert_eq!(posts(&records), 1, "exactly one create request");
+    assert!(records.iter().all(|record| record["matched"] == true));
+    assert_eq!(witness(&fixture), before, "checkout unchanged");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn v1_pr_create_keyboard_new_pr_appears_in_authored_queue() {
+    authored_queue_journey(false)
+}
+#[test]
+fn v1_pr_create_mouse_new_pr_appears_in_authored_queue() {
+    authored_queue_journey(true)
+}
 #[test]
 fn v1_pr_create_keyboard_fork_parent_with_reviewers() {
     fork_journey(false)
