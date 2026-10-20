@@ -63,6 +63,17 @@ pub fn action(app: &mut App, action: ui::PrImageUiActionV1) {
         super::inline_v1::native_v1::open(app);
         return;
     }
+    if action == ui::PrImageUiActionV1::Suggest {
+        if app
+            .pr_file_images
+            .as_mut()
+            .is_some_and(|view| view.apply(action).is_none())
+        {
+            return;
+        }
+        super::inline_v1::native_v1::open_suggestion(app);
+        return;
+    }
     if action == ui::PrImageUiActionV1::NativeDiff {
         crate::scoped_pr_native_diff_native_v1::open_images(app);
         return;

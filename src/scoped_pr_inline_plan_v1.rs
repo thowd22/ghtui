@@ -609,6 +609,7 @@ impl ScopedInlinePreviewV1 {
             body.split('\n')
                 .map(|line| crate::git::display_bytes(line.as_bytes())),
         );
+        visible_lines.extend(intent.suggestion_preview(&body));
         if visible_lines.len() > 65_536
             || visible_lines.iter().map(String::len).sum::<usize>() > 512 * 1024
         {

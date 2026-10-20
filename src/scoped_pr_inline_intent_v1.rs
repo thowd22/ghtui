@@ -30,6 +30,9 @@ pub struct ScopedInlineIntentV1 {
     side: PrImageSideV1,
     first: u32,
     last: u32,
+    /// Opened through S Suggest: an empty draft starts as a ```suggestion
+    /// block holding the selected RIGHT lines. Not part of the draft key.
+    suggest: bool,
 }
 impl std::fmt::Debug for ScopedInlineIntentV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,7 +65,86 @@ impl ScopedInlineIntentV1 {
             side: range.side,
             first: range.first,
             last: range.last,
+            suggest: false,
         }))
+    }
+    /// Same bounded capture as `capture`, for S Suggest. Suggestions replace
+    /// NEW (RIGHT) lines only; an Old selection is refused, never converted.
+    pub fn capture_suggestion(range: &ReadOnlyCanonicalRangeV1) -> Result<Arc<Self>, String> {
+        if range.side != PrImageSideV1::New {
+            return Err("Suggestions replace RIGHT (new) lines: choose N New and select the lines to change; nothing was converted".into());
+        }
+        let captured = Self::capture(range)?;
+        Ok(Arc::new(Self {
+            proof: captured.proof.clone(),
+            side: captured.side,
+            first: captured.first,
+            last: captured.last,
+            suggest: true,
+        }))
+    }
+    pub fn is_suggestion(&self) -> bool {
+        self.suggest
+    }
+    /// The selected RIGHT lines as they are at review head H, without line
+    /// terminators: the code a suggestion replaces.
+    pub fn suggestion_original(&self) -> Option<Vec<String>> {
+        if !self.suggest {
+            return None;
+        }
+        self.right_lines()
+    }
+    /// The selected RIGHT lines at H, for any RIGHT range (used to preview a
+    /// suggestion block typed into an ordinary inline comment as well).
+    pub fn right_lines(&self) -> Option<Vec<String>> {
+        if self.side != PrImageSideV1::New {
+            return None;
+        }
+        (self.first..=self.last)
+            .map(|line| {
+                self.proof.line(PrImageSideV1::New, line).map(|bytes| {
+                    crate::suggestions::display_lines(bytes)
+                        .pop()
+                        .unwrap_or_default()
+                })
+            })
+            .collect()
+    }
+    /// Initial composer body for S Suggest: the original lines in a fence.
+    /// Resulting-change preview rows for every suggestion block in `body`.
+    /// A suggestion in a LEFT comment is not applicable and says so.
+    pub fn suggestion_preview(&self, body: &str) -> Vec<String> {
+        let blocks = crate::suggestions::parse_suggestions(body);
+        if blocks.is_empty() {
+            return vec![];
+        }
+        let Some(original) = self.right_lines() else {
+            return vec!["Suggested change: a LEFT (old) comment cannot be applied as a suggestion; it will publish as text.".into()];
+        };
+        let mut rows = vec![format!(
+            "Suggested change • {} block(s) replace RIGHT lines {}–{} at H:",
+            blocks.len(),
+            self.first,
+            self.last
+        )];
+        for replacement in blocks {
+            rows.push(format!("@@ lines {}–{}", self.first, self.last));
+            rows.extend(
+                original
+                    .iter()
+                    .map(|line| format!("-{}", crate::git::display_bytes(line.as_bytes()))),
+            );
+            rows.extend(
+                replacement
+                    .iter()
+                    .map(|line| format!("+{}", crate::git::display_bytes(line.as_bytes()))),
+            );
+        }
+        rows
+    }
+    pub fn suggestion_seed(&self) -> Option<String> {
+        self.suggestion_original()
+            .map(|lines| crate::suggestions::suggestion_body(&lines))
     }
     pub fn owns(&self, app: &App) -> bool {
         self.proof.owns(app)

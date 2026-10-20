@@ -5,6 +5,8 @@ use super::*;
 mod form_preview_visible_v1;
 #[path = "pr_line_comment_v19.rs"]
 mod line_comment_v19;
+#[path = "scoped_suggestions_v1.rs"]
+mod suggestions_v1;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};
 pub(super) const BODY: &str = "Native exact inline body 界\nsecond line";
 pub(super) fn source_phase(h: &history::GitImagesV1, two_parents: bool) -> Vec<GhStep> {
@@ -20,10 +22,13 @@ pub(super) fn source_phase(h: &history::GitImagesV1, two_parents: bool) -> Vec<G
     steps.extend(principal(42));
     steps
 }
-fn receipt(h: &history::GitImagesV1, side: &str) -> Value {
-    json!({"id":901,"node_id":"PRRC_native_901","pull_request_url":format!("https://{HOST}/repos/{FIRST}/pulls/7"),"user":{"id":42,"login":"octocat","type":"User"},"path":history::PATH,"side":side,"line":2,"start_line":1,"start_side":side,"commit_id":h.h,"body":BODY})
+fn receipt(h: &history::GitImagesV1, side: &str, body: &str) -> Value {
+    json!({"id":901,"node_id":"PRRC_native_901","pull_request_url":format!("https://{HOST}/repos/{FIRST}/pulls/7"),"user":{"id":42,"login":"octocat","type":"User"},"path":history::PATH,"side":side,"line":2,"start_line":1,"start_side":side,"commit_id":h.h,"body":body})
 }
 pub(super) fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep> {
+    confirm_steps_with(h, side, BODY)
+}
+pub(super) fn confirm_steps_with(h: &history::GitImagesV1, side: &str, body: &str) -> Vec<GhStep> {
     let mut parent = parent_resource();
     h.bind_parent(&mut parent);
     let mut steps = resource_operation(false);
@@ -32,7 +37,7 @@ pub(super) fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep>
     steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent.clone()));
     steps.push(get(&format!("repos/{FIRST}"), repository(0)));
     steps.extend(principal(42));
-    let payload = json!({"path":history::PATH,"side":side,"line":2,"start_line":1,"start_side":side,"commit_id":h.h,"body":BODY});
+    let payload = json!({"path":history::PATH,"side":side,"line":2,"start_line":1,"start_side":side,"commit_id":h.h,"body":body});
     steps[7].delay_ms = 6_000; // Exact final measured parent AFTER durable claim.
     let mut post = GhStep::read(
         &[
@@ -45,13 +50,13 @@ pub(super) fn confirm_steps(h: &history::GitImagesV1, side: &str) -> Vec<GhStep>
             "--input",
             "-",
         ],
-        &receipt(h, side).to_string(),
+        &receipt(h, side, body).to_string(),
     );
     post.stdin = serde_json::to_vec(&payload).unwrap();
     steps.push(post);
     steps.push(get(
         &format!("repos/{FIRST}/pulls/comments/901"),
-        receipt(h, side),
+        receipt(h, side, body),
     ));
     // Exactly four prepaid visibility children; no second session/version.
     steps.push(get("user", json!({"id":42,"login":"octocat"})));

@@ -248,6 +248,18 @@ pub fn form_from_draft(draft: ScopedInlineDraftV1) -> Result<Form, String> {
     form.fields[0].editor = crate::editor::TextBuffer::new(draft.body())?;
     form.publication = draft.publication().cloned();
     form.restored_draft = !draft.body().is_empty() || draft.publication().is_some();
+    // S Suggest on an empty draft starts from the selected code; an existing
+    // draft is restored unchanged. The seeded body autosaves like typed text.
+    if !form.restored_draft {
+        if let Some(seed) = intent.suggestion_seed() {
+            if seed.len() > INLINE_BODY_BYTES_V1 {
+                return Err("Selected lines exceed the 65536-byte suggestion body".into());
+            }
+            form.fields[0].editor = crate::editor::TextBuffer::new(&seed)?;
+            form.title = form.title.replacen("Inline comment", "Suggested change", 1);
+            form.dirty = true;
+        }
+    }
     form.purpose = FormPurpose::PrInline(Box::new(state));
     Ok(form)
 }

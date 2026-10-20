@@ -335,6 +335,14 @@ pub(crate) fn enqueue_native(
     }
 }
 pub fn open(app: &mut App) {
+    open_with(app, false)
+}
+/// S Suggest: the same original range/worker/draft path as P Comment, with the
+/// composer seeded by the selected RIGHT lines when no draft exists.
+pub fn open_suggestion(app: &mut App) {
+    open_with(app, true)
+}
+fn open_with(app: &mut App, suggest: bool) {
     if app.scoped_inline_owner_v1.is_some()
         || app.pr_native_diff_work_v1.is_some()
         || app.pr_native_diff_cancel_v1
@@ -351,9 +359,14 @@ pub fn open(app: &mut App) {
         .as_ref()
         .and_then(|view| view.canonical_range())
         .ok_or("Choose R Range on the original image first; no line or side was guessed")
+        .map_err(str::to_owned)
         .and_then(|range| {
-            ScopedInlineIntentV1::capture(range)
-                .map_err(|_| "Original range cannot create a bounded inline intent")
+            if suggest {
+                ScopedInlineIntentV1::capture_suggestion(range)
+            } else {
+                ScopedInlineIntentV1::capture(range)
+                    .map_err(|_| "Original range cannot create a bounded inline intent".into())
+            }
         });
     match result {
         Ok(intent) => {
@@ -364,7 +377,7 @@ pub fn open(app: &mut App) {
                 app.scoped_inline_work_v1 = Some(work);
             }
         }
-        Err(message) => notice(app, message),
+        Err(message) => notice(app, &message),
     }
 }
 fn notice(app: &mut App, message: &str) {

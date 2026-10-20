@@ -31,6 +31,9 @@ pub enum PrImageUiActionV1 {
     Context,
     Range,
     Comment,
+    /// S Suggest: P Comment seeded with the selected RIGHT lines as a
+    /// ```suggestion block.
+    Suggest,
     Batch,
     Close,
     Back,
@@ -314,11 +317,11 @@ impl PrImageViewerV1 {
         let layout_changes = matches!(action, Old | New | Both | Layout | Context | Scroll(_));
         match action {
             // An unverified selection is checked first, so P alone comments.
-            Comment if self.range.is_none() => {
+            Comment | Suggest if self.range.is_none() => {
                 self.apply(Range);
-                return self.range.is_some().then_some(Comment);
+                return self.range.is_some().then_some(action);
             }
-            Close | Back | Quit | Comment | NativeDiff | Batch => return Some(action),
+            Close | Back | Quit | Comment | Suggest | NativeDiff | Batch => return Some(action),
             Old | New | Both => {
                 self.visible = match action {
                     Old => ImageVisibleSideV1::Old,
@@ -430,7 +433,7 @@ impl PrImageViewerV1 {
         None
     }
 }
-const CONTROLS: [(PrImageUiActionV1, &str, char); 14] = [
+const CONTROLS: [(PrImageUiActionV1, &str, char); 15] = [
     (PrImageUiActionV1::NativeDiff, "Native diff", 'v'),
     (PrImageUiActionV1::Old, "Old", 'O'),
     (PrImageUiActionV1::New, "New", 'N'),
@@ -440,6 +443,7 @@ const CONTROLS: [(PrImageUiActionV1, &str, char); 14] = [
     (PrImageUiActionV1::Range, "Range", 'R'),
     (PrImageUiActionV1::Comment, "Comment", 'P'),
     (PrImageUiActionV1::Batch, "Batch", 'V'),
+    (PrImageUiActionV1::Suggest, "Suggest", 'S'),
     (PrImageUiActionV1::Horizontal(-8), "Left", '<'),
     (PrImageUiActionV1::Horizontal(8), "Right", '>'),
     (PrImageUiActionV1::Close, "Close", '\u{1b}'),

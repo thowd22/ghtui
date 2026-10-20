@@ -106,6 +106,7 @@ impl NativeInlineOriginV1 {
             side,
             first,
             last,
+            suggest: false,
         });
         let layout = &app.pr_native_diff_layout_v1;
         let origin = Arc::new(Self {
