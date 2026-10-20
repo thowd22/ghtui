@@ -75,15 +75,17 @@ fn nested(mouse: bool) {
     let native = fixture(if mouse { "sha256" } else { "sha1" });
     let mut session = launch(&native, mouse);
     saved_root(&native, &mut session, mouse, "Chosen immutable rename");
-    let old_view = session
-        .locate("3 Search")
-        .expect("Actual underlying Search control must exist before overlay");
     let before = starts(&native).len();
     jump(&mut session, mouse);
     assert_eq!(inventory_children(&native), 1);
     assert_eq!(starts(&native).len(), before + 1);
     if mouse {
-        session.click(old_view.0, old_view.1);
+        // The header tabs stay live shell controls (TASK-93); a click on the picker's own
+        // frame, where the Repository content was, stays the picker's.
+        let border = session
+            .locate(TITLE)
+            .expect("picker frame in the content pane");
+        session.click(border.0, border.1);
     } else {
         session.send_key(b"3");
     }

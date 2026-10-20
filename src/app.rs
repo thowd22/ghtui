@@ -346,6 +346,8 @@ pub struct App {
     pub repository_visible_rows: usize,
     /// Repository panels (TASK-93): panel scroll offsets and the untracked toggle.
     pub repository_panels_v93: crate::repository_panels_v93::PanelsV93,
+    /// The pane and shell click targets around an open Repository viewer (TASK-93).
+    pub takeover_v93: crate::repository_panels_v93::takeover::TakeoverChromeV93,
     /// History commit detail (TASK-99.4): item cursor, scroll and changed-files cache.
     pub history_detail_v994: crate::history::detail::HistoryDetailStateV994,
     /// The commit an arrow key last chose in History while its read runs (TASK-99): a bar
@@ -605,6 +607,7 @@ impl Default for App {
             repository_content_focused: true,
             repository_visible_rows: 20,
             repository_panels_v93: Default::default(),
+            takeover_v93: Default::default(),
             history_detail_v994: Default::default(),
             history_bar_choice_v99: None,
             github: None,
@@ -2314,6 +2317,10 @@ impl App {
             return;
         }
         if crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_entry_v1::event(self,&event){return;}
+        // The shell around an open Repository viewer keeps its header and key bar clicks.
+        if crate::repository_panels_v93::takeover::event(self, &event) {
+            return;
+        }
         if crate::repository_native_diff_native_v1::capture(self, &event) {
             return;
         }
@@ -3969,7 +3976,7 @@ fn named_action(name: &str) -> Option<Action> {
     })
 }
 
-fn pressed_shortcut(code: KeyCode, modifiers: KeyModifiers) -> Option<String> {
+pub(crate) fn pressed_shortcut(code: KeyCode, modifiers: KeyModifiers) -> Option<String> {
     let key = match code {
         KeyCode::Char(' ') => "space".into(),
         KeyCode::Char(c) => c.to_string(),

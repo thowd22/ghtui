@@ -689,9 +689,9 @@ pub fn open_action(app: &App) -> Option<Action> {
     Some(row_action(app, action))
 }
 
-/// The full-screen Repository viewers (native diff, saved-folder detail, saved-path picker,
-/// changed-files picker) drawn into `area`, in the order they own the screen. Returns whether
-/// one was drawn; each still owns every event while it is open.
+/// The Repository viewers that own every event while open (native diff, saved-folder detail,
+/// saved-path picker, changed-files picker) drawn into `area`, in the order they own it.
+/// Returns whether one was drawn. [`takeover::draw`] gives them the content pane.
 pub fn draw_takeover(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
     if app.overlay.is_none() && crate::repository_native_diff_native_v1::draw(frame, app, area) {
         return true;
@@ -704,6 +704,9 @@ pub fn draw_takeover(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
     }
     app.overlay.is_none() && crate::repository_diff_sides_native_v1::draw(frame, app, area)
 }
+
+#[path = "repository_panels_v93_takeover.rs"]
+pub mod takeover;
 
 #[cfg(test)]
 #[path = "repository_panels_v93_tests.rs"]

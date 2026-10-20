@@ -323,6 +323,38 @@ pub fn owned_resize_controls_ready_v1(
     if let ResizeToolbarV1::Footer { required } = placement {
         return owned_footer_ready_v1(screen, title, required);
     }
+    // The viewer's own frame: the whole screen, or (TASK-93) the Repository content pane
+    // under the shell header and above the key bar.
+    let Some(frame) = owned_pane_frame(screen, title) else {
+        return full_screen_controls_ready(screen, title, actions, placement);
+    };
+    let (_, cols) = screen.size();
+    let lines = screen.rows(0, cols).collect::<Vec<_>>();
+    let controls = match placement {
+        ResizeToolbarV1::Bottom => lines[usize::from(frame.bottom - 1)].clone(),
+        ResizeToolbarV1::Header => lines
+            .iter()
+            .skip(usize::from(frame.top) + 1)
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ResizeToolbarV1::ControlBlock
+        | ResizeToolbarV1::VerticalControls { .. }
+        | ResizeToolbarV1::Footer { .. } => unreachable!(),
+    };
+    actions.iter().all(|action| controls.contains(action))
+        || full_screen_controls_ready(screen, title, actions, placement)
+}
+
+/// A full-screen surface whose title is not in its own top border: controls in the row above
+/// the screen's bottom border.
+fn full_screen_controls_ready(
+    screen: &vt100::Screen,
+    title: &str,
+    actions: &[&str],
+    placement: ResizeToolbarV1,
+) -> bool {
     let (rows, cols) = screen.size();
     let bottom = screen.rows(0, cols).last().unwrap_or_default();
     let controls = match placement {
@@ -358,6 +390,53 @@ pub fn owned_resize_controls_ready_v1(
         && bottom
             .chars()
             .any(|c| controls::char_is_corner(c, Corner::BottomRight))
+}
+
+/// A rounded or square frame located by the title in its top border.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaneFrame {
+    pub top: u16,
+    pub left: u16,
+    pub right: u16,
+    pub bottom: u16,
+}
+
+/// The frame whose top border carries `title`: the full screen for a full-screen modal, or the
+/// content pane (under the shell header, above the key bar) for an embedded Repository viewer.
+/// The bottom is the first row below with both bottom corners in the same columns.
+pub fn owned_pane_frame(screen: &vt100::Screen, title: &str) -> Option<PaneFrame> {
+    let (rows, cols) = screen.size();
+    if title.is_empty() || rows < 3 || cols < 3 {
+        return None;
+    }
+    for (top, line) in screen.rows(0, cols).enumerate() {
+        if !line.contains(title) {
+            continue;
+        }
+        let top = top as u16;
+        let Some(left) = (0..cols).find(|x| cell_is_corner(screen, top, *x, Corner::TopLeft))
+        else {
+            continue;
+        };
+        let Some(right) = (left + 1..cols)
+            .rev()
+            .find(|x| cell_is_corner(screen, top, *x, Corner::TopRight))
+        else {
+            continue;
+        };
+        if let Some(bottom) = (top + 1..rows).find(|y| {
+            cell_is_corner(screen, *y, left, Corner::BottomLeft)
+                && cell_is_corner(screen, *y, right, Corner::BottomRight)
+        }) {
+            return Some(PaneFrame {
+                top,
+                left,
+                right,
+                bottom,
+            });
+        }
+    }
+    None
 }
 
 /// A distinct, strictly owned WRAPPED toolbar, not a relaxed single-row wait.
@@ -1110,6 +1189,30 @@ impl Session {
                 "No completed original Actions frame after explanation Close\n{}",
                 self.screen()
             );
+        }
+    }
+
+    /// Wait for the current screen cells (a caret may be showing) to satisfy `predicate`.
+    pub fn wait_for_screen_cells(
+        &mut self,
+        predicate: impl Fn(&vt100::Screen) -> bool,
+        label: &str,
+        timeout: Duration,
+    ) {
+        let deadline = Instant::now() + timeout;
+        loop {
+            self.poll_output(Duration::from_millis(1));
+            if predicate(self.parser.screen()) {
+                return;
+            }
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "Missing screen: {label}\n{}; artifacts: {}",
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
         }
     }
 

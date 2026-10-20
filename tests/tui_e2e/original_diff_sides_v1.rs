@@ -505,6 +505,79 @@ fn back(native: &Native, session: &mut Session, mouse: bool) {
     session.wait_for_screen(&native.b);
     assert_eq!(starts(native).len(), before);
 }
+/// TASK-93: the open picker sits in the Repository content pane, under the shell header (view
+/// tabs and Back) and above the key bar (`Esc Back`, `Ctrl-C Quit`), at this exact size.
+fn wait_for_embedded_picker(session: &mut Session, cols: u16, rows: u16) {
+    session.wait_for_screen_cells(
+        |frame| {
+            let Some(pane) = crate::support::owned_pane_frame(frame, TITLE) else {
+                return false;
+            };
+            let lines = frame.rows(0, cols).collect::<Vec<_>>();
+            let last = &lines[usize::from(rows - 1)];
+            frame.size() == (rows, cols)
+                && pane.top > 0
+                && (pane.left, pane.right, pane.bottom) == (0, cols - 1, rows - 2)
+                && lines[0].contains("Repository")
+                && lines[..usize::from(pane.top)]
+                    .iter()
+                    .any(|line| line.contains("Back"))
+                && last.contains("Esc Back")
+                && last.contains("Ctrl-C Quit")
+                && lines[usize::from(pane.bottom - 1)].contains("[Esc Close]")
+        },
+        "changed-files picker inside the Repository content pane",
+        Duration::from_secs(8),
+    );
+}
+#[test]
+fn design_panels_v93_takeover_keyboard_picker_in_pane_back_and_tabs_at_80_and_140() {
+    takeover_in_pane(false);
+}
+#[test]
+fn design_panels_v93_takeover_mouse_picker_in_pane_back_and_tabs_at_80_and_140() {
+    takeover_in_pane(true);
+}
+fn takeover_in_pane(mouse: bool) {
+    let native = fixture(if mouse { "sha256" } else { "sha1" });
+    let mut session = launch(&native, mouse);
+    open_comparison(&native, &mut session, mouse, false);
+    picker(&native, &mut session, mouse, false);
+    session.resize_owned_modal(140, 42, TITLE, &["[q Quit]", "[Esc Close]"]);
+    wait_for_embedded_picker(&mut session, 140, 42);
+    // The picker keeps its own keys and click targets inside the pane.
+    let before = starts(&native).len();
+    filter(&mut session, mouse, "shared", "1 known matches");
+    assert_eq!(starts(&native).len(), before);
+    // Back (the Alt-← key, or the key bar's Esc Back) is the picker's own Esc.
+    choose(&mut session, mouse, "Esc Back", b"\x1b[1;3D");
+    session.wait_for_overlay_close(TITLE);
+    session.wait_for_screen("Saved comparison • actual Old/New content");
+    session.resize(80, 24);
+    picker(&native, &mut session, mouse, false);
+    wait_for_embedded_picker(&mut session, 80, 24);
+    // The header Back closes it too (by key: the picker's Esc).
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b");
+    session.wait_for_overlay_close(TITLE);
+    session.wait_for_screen("Saved comparison • actual Old/New content");
+    // A view tab passes through the shell and retires the picker; Back returns.
+    picker(&native, &mut session, mouse, false);
+    wait_for_embedded_picker(&mut session, 80, 24);
+    if mouse {
+        session.click_visible_action("3 Search");
+    } else {
+        session.send_key(b"\x1b");
+        session.wait_for_overlay_close(TITLE);
+        session.send_key(b"3");
+    }
+    session.wait_for_screen("Selected local search corpus ready");
+    assert!(!session.screen().contains(TITLE));
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
+    session.wait_for_screen("Saved comparison • actual Old/New content");
+    assert!(!session.screen().contains(TITLE));
+    effects(&native, &session);
+    session.quit_and_assert_restored_terminal(mouse);
+}
 #[test]
 fn original_diff_sides_keyboard_proposed_actual_c_roles_both_files_back_recent_basis() {
     proposed(false);

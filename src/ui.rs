@@ -69,8 +69,8 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         return;
     }
     let area = frame.area();
-    // The Repository viewers that own the screen while open draw into the rect they are given.
-    if crate::repository_panels_v93::draw_takeover(frame, app, area) {
+    // The Repository viewers that own every key while open draw inside the content pane.
+    if crate::repository_panels_v93::takeover::draw(frame, app, area) {
         return;
     }
     let theme = app.theme();

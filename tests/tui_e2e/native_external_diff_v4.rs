@@ -527,7 +527,7 @@ fn held(mouse: bool) {
         "renderer stays on the original runner, not a fresh viewer lease"
     );
     let directory = PathBuf::from(row["cwd"].as_str().unwrap());
-    session.resize_owned_header(40, 24, CHOOSER, &["[Enter Launch]", "[Esc Back]"]);
+    session.resize_owned_header(40, 27, CHOOSER, &["[Enter Launch]", "[Esc Back]"]);
     session.wait_for_cursorless_condition(
         |frame| {
             crate::support::overlay_body(frame, CHOOSER).is_some_and(|body| {

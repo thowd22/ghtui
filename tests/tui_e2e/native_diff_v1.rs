@@ -132,7 +132,7 @@ fn journey(mouse: bool) {
     ready(&mut session, "Selected 2 (hidden 0)");
     assert!(session.screen().contains("COMMON old bytes"));
     assert!(session.screen().contains("TARGET new bytes"));
-    session.resize_owned_modal(40, 24, NATIVE_TITLE, &["[Esc Close]", "[o Options]"]);
+    session.resize_owned_modal(40, 27, NATIVE_TITLE, &["[Esc Close]", "[o Options]"]);
     ready(&mut session, "Selected 2 (hidden 1)");
     assert!(session.screen().contains("COMMON old bytes"));
     assert!(!session.screen().contains("TARGET new bytes"));

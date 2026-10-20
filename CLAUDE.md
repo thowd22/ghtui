@@ -44,6 +44,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **Without colour, chips print differently.** Under `NO_COLOR`, an initials chip prints as `[AL] alice`, not `AL alice`. Match the login, not the chip styling.
 - **Avoid vacuous negatives.** `!screen.contains("[Something")` passes trivially once a control has moved. Use `assert_control_absent`, or check the disabled reason.
 - **Match whole column headers.** A column parser found `AGE` inside `MESSAGE`. Parse header cells by word, not by substring.
+- **Repository viewers no longer own row 0.** The native diff, saved-folder detail and the saved-path and changed-files pickers draw inside the content pane, under the shell header and above a key bar with `Esc Back`. Find their frame with `support::owned_pane_frame(screen, title)`, never by row-0 or last-row corners. Their state draws with the shell's `app.hits` split off into `app.takeover_v93`, so header hits never shift their focus indexes.
 - **Settings focus order is fixed:** Host, Repository set, Theme, Density, Save, Close. If you add a control, update the hard-coded indexes in `src/app.rs` and `src/ui.rs`, and update the keyboard journeys that tab to Save.
 
 ## 6. Product invariants that are easy to break

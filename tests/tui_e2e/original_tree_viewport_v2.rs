@@ -1181,7 +1181,6 @@ fn cancel_descendant(mouse: bool) {
     install_git_observer(&native, Some("inventory"));
     let mut session = launch(&native, mouse);
     saved_root(&native, &mut session, mouse, "Chosen immutable rename");
-    let under = session.locate("3 Search").unwrap();
     choose(&mut session, mouse, "[J Jump]", b"J");
     session.wait_for_screen(TITLE);
     let pair = entered_pid(&native, &mut session, "inventory");
@@ -1196,7 +1195,10 @@ fn cancel_descendant(mouse: bool) {
     let before_args = argv_records(&native);
     narrow_jump(&mut session, 40);
     if mouse {
-        session.click(under.0.min(38), under.1.min(22));
+        // The header tabs stay live shell controls (TASK-93); a click on the picker's own
+        // frame stays the picker's and never reaches the content under it.
+        let border = session.locate("Jump to saved path").unwrap();
+        session.click(border.0, border.1);
     } else {
         session.focus_visible_action("[Open]");
         session.send_key(b"3");

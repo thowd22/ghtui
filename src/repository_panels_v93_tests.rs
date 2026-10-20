@@ -330,3 +330,137 @@ fn design_panels_v93_wheel_scrolls_the_panel_under_the_pointer_only() {
     assert_eq!(app.repository_panels_v93.tops[0], before[0] + 3);
     assert!(lines.join("\n").contains("Files ·"));
 }
+
+/// The changed-files picker over a real two-commit comparison, open in Repository.
+fn picker_app() -> (crate::local_commit_actor_origin_v1_test_support::Real, App) {
+    use crate::original_diff_sides_v1_test_support as support;
+    let (real, a, b, _) = support::fixture("sha256");
+    let workspace = support::workspace(
+        &real,
+        crate::git::Comparison::BranchChanges { base: a, head: b },
+    );
+    let picker = support::state(&workspace);
+    let app = App {
+        view: View::Repository,
+        workspace: Some(workspace),
+        original_diff_picker_v1: Some(picker),
+        ..Default::default()
+    };
+    (real, app)
+}
+
+/// The row and column of the rounded frame whose top border carries `title`.
+fn top_left(lines: &[String], title: &str) -> Option<(usize, usize)> {
+    lines.iter().enumerate().find_map(|(y, line)| {
+        if !line.contains(title) {
+            return None;
+        }
+        line.find('╭').map(|x| (y, line[..x].chars().count()))
+    })
+}
+
+fn click_at(app: &mut App, column: u16, row: u16) {
+    app.handle_event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }));
+}
+
+fn column_of(line: &str, text: &str) -> u16 {
+    let x = line
+        .find(text)
+        .unwrap_or_else(|| panic!("{text} in {line}"));
+    line[..x].chars().count() as u16
+}
+
+#[test]
+fn design_panels_v93_takeover_draws_inside_the_content_pane_at_80_and_140() {
+    const TITLE: &str = "Compare saved file sides";
+    for (width, height) in [(80u16, 24u16), (140, 42)] {
+        let (_real, mut app) = picker_app();
+        let (_, lines) = draw(&mut app, width, height);
+        let header = usize::from(crate::ui_chrome::header_rows(&app, width));
+        // The shell header keeps the tabs; the viewer's frame starts right under it.
+        assert!(lines[0].contains("Repository"), "{lines:#?}");
+        assert_eq!(top_left(&lines, TITLE), Some((header, 0)), "{lines:#?}");
+        // Its bottom border sits right above the key bar, which leads with Back.
+        let bottom = &lines[usize::from(height) - 2];
+        assert!(
+            bottom.starts_with('╰') && bottom.ends_with('╯'),
+            "{lines:#?}"
+        );
+        let footer = &lines[usize::from(height) - 1];
+        assert!(
+            footer.contains("Esc Back") && footer.contains("Ctrl-C Quit"),
+            "{footer}"
+        );
+        // The viewer keeps its own controls inside the pane.
+        assert!(lines[usize::from(height) - 3].contains("[Esc Close]"));
+        let pane = app.takeover_v93.pane.unwrap();
+        assert_eq!(
+            (pane.y, pane.height),
+            (header as u16, height - header as u16 - 1)
+        );
+        assert!(app.original_diff_picker_v1.is_some());
+    }
+}
+
+#[test]
+fn design_panels_v93_takeover_keyboard_esc_and_back_key_close_the_viewer() {
+    let (_real, mut app) = picker_app();
+    draw(&mut app, 80, 24);
+    key(&mut app, KeyCode::Esc);
+    assert!(app.original_diff_picker_v1.is_none());
+    assert_eq!(app.view, View::Repository);
+    let (_real, mut app) = picker_app();
+    draw(&mut app, 140, 42);
+    // The configured Back key (Alt-←) sends the viewer its own Esc.
+    app.handle_event(Event::Key(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)));
+    assert!(app.original_diff_picker_v1.is_none());
+    assert_eq!(app.view, View::Repository);
+    let (_, lines) = draw(&mut app, 140, 42);
+    assert!(top_left(&lines, "Compare saved file sides").is_none());
+}
+
+#[test]
+fn design_panels_v93_takeover_mouse_header_back_footer_and_tabs_pass_through() {
+    for (width, height) in [(80u16, 24u16), (140, 42)] {
+        // The key bar's Esc Back closes the viewer.
+        let (_real, mut app) = picker_app();
+        let (_, lines) = draw(&mut app, width, height);
+        let x = column_of(&lines[usize::from(height) - 1], "Esc Back");
+        click_at(&mut app, x, height - 1);
+        assert!(app.original_diff_picker_v1.is_none(), "{width}");
+        // The header's Back does the same.
+        let (_real, mut app) = picker_app();
+        draw(&mut app, width, height);
+        let back = app
+            .takeover_v93
+            .hits
+            .iter()
+            .find(|(_, action)| matches!(action, takeover::ChromeActionV93::Back))
+            .map(|(rect, _)| *rect)
+            .unwrap();
+        assert!(back.y < app.takeover_v93.pane.unwrap().y);
+        click_at(&mut app, back.x, back.y);
+        assert!(app.original_diff_picker_v1.is_none(), "{width}");
+        // A view tab switches views and the viewer retires.
+        let (_real, mut app) = picker_app();
+        let (_, lines) = draw(&mut app, width, height);
+        let x = column_of(&lines[0], "Search");
+        click_at(&mut app, x, 0);
+        assert_eq!(app.view, View::Search);
+        draw(&mut app, width, height);
+        assert!(app.original_diff_picker_v1.is_none());
+        // A click inside the pane stays the viewer's own (its Close button).
+        let (_real, mut app) = picker_app();
+        let (_, lines) = draw(&mut app, width, height);
+        let row = usize::from(height) - 3;
+        let x = column_of(&lines[row], "[Esc Close]");
+        click_at(&mut app, x + 1, row as u16);
+        assert!(app.original_diff_picker_v1.is_none(), "{width}");
+        assert_eq!(app.view, View::Repository);
+    }
+}
