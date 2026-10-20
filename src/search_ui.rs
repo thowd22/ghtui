@@ -24,12 +24,14 @@ const RESULT_COLUMNS: [Column; 3] = [
     Column::new("REPOSITORY", 8).priority(2),
 ];
 
-/// The snippet with its highlighted ranges, cut to `width` cells with an ellipsis.
+/// The snippet with its highlighted ranges, cut to `width` cells with an ellipsis. Text outside
+/// the highlights takes `plain` (muted, like the Inbox detail line under its row).
 fn snippet_spans(
     snippet: &str,
     highlights: &[std::ops::Range<usize>],
     width: usize,
     emphasis: ratatui::style::Style,
+    plain: ratatui::style::Style,
 ) -> Vec<Span<'static>> {
     use unicode_segmentation::UnicodeSegmentation;
     let mut pieces = Vec::new();
@@ -54,7 +56,7 @@ fn snippet_spans(
         if emphasized {
             emphasis
         } else {
-            ratatui::style::Style::default()
+            plain
         }
     };
     if total <= width {
@@ -963,18 +965,27 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .as_ref()
         .map_or(0, |evidence| evidence.headlines.len().min(3)) as u16;
     let header_rows = if problems.is_empty() { 2 } else { 3 };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{} results • {:?} • searched source snapshot\n{}{}",
+    // Each summary line ends in `…` when it is cut, instead of stopping mid-word at the border.
+    let width = usize::from(body.width);
+    let mut lines = vec![
+        format!(
+            "{} results • {:?} • searched source snapshot",
             page.hits.len(),
-            page.query.mode,
-            summary,
-            if problems.is_empty() {
-                String::new()
-            } else {
-                format!("\n{}", safe_text(&problems))
-            }
-        )),
+            page.query.mode
+        ),
+        summary,
+    ];
+    if !problems.is_empty() {
+        lines.push(safe_text(&problems));
+    }
+    frame.render_widget(
+        Paragraph::new(
+            lines
+                .iter()
+                .map(|line| crate::ui_chrome::fit(line, width))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
         Rect::new(body.x, body.y, body.width, header_rows.min(body.height)),
     );
     if let Some(evidence) = &search.blend_evidence {
@@ -1112,6 +1123,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 theme
                     .style(SemanticToken::Focus)
                     .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                theme.role(crate::theme::Role::TextMuted),
             );
             frame
                 .buffer_mut()

@@ -634,17 +634,17 @@ impl<S: NativeDiffPurposeV2> NativeDiffLayoutV1<S> {
                 (&actors.author, actors.author_label.as_ref()),
                 (&actors.committer, actors.committer_label.as_ref()),
             ] {
-                frame.render_widget(
-                    crate::identity::AvatarWidget {
-                        identity,
-                        image: None,
-                        theme,
-                    },
-                    Rect::new(inner.x, y, 4.min(inner.width), 1),
-                );
-                frame.render_widget(
-                    Paragraph::new(label).style(theme.style(SemanticToken::Actor)),
-                    Rect::new(inner.x + 5, y, inner.width.saturating_sub(5), 1),
+                // The shared initials chip (`[AB]` only without color), then the role label.
+                crate::identity::ListAvatar {
+                    identity,
+                    image: None,
+                    theme,
+                }
+                .render_with_label(
+                    Rect::new(inner.x, y, inner.width, 1),
+                    frame.buffer_mut(),
+                    label,
+                    theme.style(SemanticToken::Actor),
                 );
                 y += 1;
             }

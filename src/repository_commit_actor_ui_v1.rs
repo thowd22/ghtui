@@ -257,6 +257,34 @@ pub fn draw_role(
     });
     let identity = reported.map_or(local, |actor| actor.display());
     let image = reported.and_then(|actor| images.ready(actor.display()));
+    if image.is_none() {
+        // No avatar image: the same filled initials chip as History and list rows (`[AB]`
+        // only without color), then the role label. A label too wide for the row keeps its
+        // whole `role name` before the email; only a name that cannot fit ends in `…`.
+        let label = reported.map_or_else(|| local.label(), |actor| actor.label().to_string());
+        let style = theme.style(SemanticToken::Actor);
+        let row = Rect::new(area.x, area.y, area.width, 1);
+        let lead = crate::identity::ListAvatar {
+            identity,
+            image: None,
+            theme,
+        }
+        .render_lead(row, frame.buffer_mut(), style);
+        let room = usize::from(area.width.saturating_sub(lead));
+        let name = label.split(" <").next().unwrap_or(&label);
+        let text = if crate::editor::display_width(&label) <= room {
+            label.clone()
+        } else if crate::editor::display_width(name) <= room {
+            name.to_owned()
+        } else {
+            crate::ui_chrome::fit(name, room)
+        };
+        frame.render_widget(
+            Paragraph::new(text).style(style),
+            Rect::new(area.x + lead, area.y, area.width.saturating_sub(lead), 1),
+        );
+        return;
+    }
     let avatar_width = area.width.min(4);
     frame.render_widget(
         AvatarWidget {

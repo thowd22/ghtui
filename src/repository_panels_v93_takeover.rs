@@ -16,7 +16,9 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::{
+    buffer::Buffer,
     layout::{Constraint, Layout, Rect},
+    text::{Line, Span},
     widgets::Block,
     Frame,
 };
@@ -101,6 +103,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
         return false;
     }
     let theme = app.theme();
+    frame_like_pane(frame.buffer_mut(), pane, theme);
     frame.render_widget(Block::default().style(theme.base()), header);
     // The viewer owns focus; nothing in the shell may look focused.
     let focus = app.focus;
@@ -137,6 +140,66 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) -> bool {
         hits,
     };
     true
+}
+
+/// The viewers draw a plain rounded frame titled `╭Title───╮`. Inside the shell it reads as the
+/// focused content pane, so its border and title take `pane_block`'s focused form
+/// (`╭─ ▶ Title ─╮`) whenever the decorated title still fits; otherwise only the colors change.
+fn frame_like_pane(buffer: &mut Buffer, pane: Rect, theme: crate::theme::Theme) {
+    let pane = pane.intersection(buffer.area);
+    if pane.width < 4 || pane.height < 2 {
+        return;
+    }
+    let (left, right, top, bottom) = (pane.x, pane.right() - 1, pane.y, pane.bottom() - 1);
+    if buffer[(left, top)].symbol() != "╭" || buffer[(right, top)].symbol() != "╮" {
+        return;
+    }
+    let (border, title_style) = crate::ui_chrome::pane_styles(theme, true);
+    let edge = |symbol: &str| matches!(symbol, "╭" | "╮" | "╰" | "╯" | "─" | "│");
+    for x in left..=right {
+        for y in [top, bottom] {
+            if edge(buffer[(x, y)].symbol()) {
+                buffer[(x, y)].set_style(border);
+            }
+        }
+    }
+    for y in top..=bottom {
+        for x in [left, right] {
+            if edge(buffer[(x, y)].symbol()) {
+                buffer[(x, y)].set_style(border);
+            }
+        }
+    }
+    let mut title = String::new();
+    for x in left + 1..right {
+        let symbol = buffer[(x, top)].symbol();
+        if symbol == "─" {
+            break;
+        }
+        title.push_str(symbol);
+    }
+    let title = title.trim();
+    let room = right - left - 1;
+    let decorated = crate::ui_chrome::crumb_title(&[title], true);
+    if title.is_empty() || crate::editor::display_width(&decorated) + 2 > usize::from(room) {
+        return;
+    }
+    for x in left + 1..right {
+        buffer[(x, top)].reset();
+        buffer[(x, top)]
+            .set_symbol("─")
+            .set_style(theme.base())
+            .set_style(border);
+    }
+    buffer.set_line(
+        left + 1,
+        top,
+        &Line::from(vec![
+            Span::styled("─", border),
+            Span::styled(decorated, title_style),
+        ]),
+        room,
+    );
 }
 
 fn back_key(app: &App, key: &KeyEvent) -> bool {
