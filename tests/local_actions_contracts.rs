@@ -554,6 +554,264 @@ fn guided_bisect_native_classification_progress_and_reset_restore_original_branc
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
 }
 
+fn has_line(lines: &[String], needle: &str) -> bool {
+    lines.iter().any(|line| line.contains(needle))
+}
+
+#[test]
+fn stash_worktrees_view_contents_pop_drop_locked_and_cancelled_removal() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved\n", "initial");
+    fs::write(fixture.repo().join("file.txt"), b"tracked work\n").unwrap();
+    fs::write(fixture.repo().join("new.txt"), b"untracked work\n").unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    execute(&prepare(
+        LocalCommand::StashSave,
+        &context,
+        &[("message", "with untracked"), ("untracked", "true")],
+    ));
+    let with_untracked = fixture.git(&["rev-parse", "refs/stash"]).trim().to_string();
+    assert!(!fixture.repo().join("new.txt").exists());
+    // View: the exact stash's tracked patch and saved untracked files, read-only.
+    let view = prepare(
+        LocalCommand::StashDrop,
+        &context,
+        &[("id", &with_untracked)],
+    );
+    for needle in [
+        &format!("Exact stash commit: {with_untracked}") as &str,
+        "Stash contents (read-only view of this exact stash):",
+        "+tracked work",
+        "Untracked files saved in this stash: 1",
+        "  untracked new.txt",
+    ] {
+        assert!(
+            has_line(&view.preview, needle),
+            "{needle}: {:?}",
+            view.preview
+        );
+    }
+    // Unconfirmed drop is refused and changes nothing.
+    assert!(view.execute(false, CancellationToken::default()).is_err());
+    assert_eq!(
+        fixture.git(&["rev-parse", "refs/stash"]),
+        format!("{with_untracked}\n")
+    );
+    fs::write(fixture.repo().join("file.txt"), b"second work\n").unwrap();
+    execute(&prepare(
+        LocalCommand::StashSave,
+        &context,
+        &[("message", "tracked only"), ("untracked", "false")],
+    ));
+    let tracked_only = fixture.git(&["rev-parse", "refs/stash"]).trim().to_string();
+    let pop = prepare(LocalCommand::StashPop, &context, &[("id", &tracked_only)]);
+    assert!(has_line(
+        &pop.preview,
+        "Untracked files: not included in this stash"
+    ));
+    assert!(has_line(&pop.preview, "+second work"));
+    assert!(!has_line(&pop.preview, "untracked new.txt"));
+    execute(&pop);
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"second work\n"
+    );
+    let listed = fixture.git(&["stash", "list", "--format=%H"]);
+    assert_eq!(listed, format!("{with_untracked}\n"));
+    // Confirmed drop removes exactly the selected stash; working files are untouched.
+    execute(&prepare(
+        LocalCommand::StashDrop,
+        &context,
+        &[("id", &with_untracked)],
+    ));
+    assert_eq!(fixture.git(&["stash", "list"]), "");
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"second work\n"
+    );
+    assert!(!fixture.repo().join("new.txt").exists());
+
+    // Worktree list: other worktrees show branch and dirty state and open read-only.
+    fixture.git(&["branch", "linked"]);
+    let linked = fixture.root.join("linked-worktree");
+    fixture.git(&["worktree", "add", linked.to_str().unwrap(), "linked"]);
+    let linked = linked.canonicalize().unwrap();
+    fs::write(linked.join("file.txt"), b"linked dirty\n").unwrap();
+    let overview = workspace(&fixture, RepositoryMode::Overview);
+    let row = overview
+        .rows
+        .iter()
+        .find(|row| row.action == Some(RowAction::OpenWorktree(linked.clone())))
+        .expect("linked worktree row");
+    assert!(
+        row.label.contains("dirty: uncommitted changes"),
+        "{}",
+        row.label
+    );
+    assert!(row.label.contains("linked"), "{}", row.label);
+    let opened = Workspace::load(&linked, RepositoryMode::Overview, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(opened.directory, linked);
+    assert_eq!(opened.status.branch.as_deref(), Some("linked"));
+    let main_root = fixture.repo().canonicalize().unwrap();
+    assert!(opened.rows.iter().any(
+        |row| matches!(&row.action, Some(RowAction::OpenWorktree(path)) if *path == main_root)
+    ));
+    assert_eq!(
+        fs::read(linked.join("file.txt")).unwrap(),
+        b"linked dirty\n"
+    );
+    fs::write(linked.join("file.txt"), b"saved\n").unwrap();
+    let clean = workspace(&fixture, RepositoryMode::Overview);
+    assert!(clean.rows.iter().any(|row| row.action
+        == Some(RowAction::OpenWorktree(linked.clone()))
+        && row.label.contains("• clean")));
+    // A locked worktree is refused before any confirmation.
+    fixture.git(&["worktree", "lock", linked.to_str().unwrap()]);
+    let locked = LocalPlan::prepare(
+        LocalCommand::RemoveWorktree,
+        &context,
+        &values(&[("path", linked.to_str().unwrap())]),
+        CancellationToken::default(),
+    )
+    .unwrap_err();
+    assert!(locked.contains("locked"), "{locked}");
+    assert!(linked.join(".git").exists());
+    fixture.git(&["worktree", "unlock", linked.to_str().unwrap()]);
+    // A cancelled (unconfirmed) removal leaves the worktree in place.
+    let removal = prepare(
+        LocalCommand::RemoveWorktree,
+        &context,
+        &[("path", linked.to_str().unwrap())],
+    );
+    assert!(removal
+        .execute(false, CancellationToken::default())
+        .is_err());
+    assert!(linked.join(".git").exists());
+    assert!(fixture
+        .git(&["worktree", "list", "--porcelain"])
+        .contains(linked.to_str().unwrap()));
+}
+
+#[test]
+fn guided_bisect_dirty_refusal_detached_skip_interrupted_and_no_candidate() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    let mut commits = vec![];
+    for index in 0..5 {
+        fixture.commit_file(
+            "version.txt",
+            format!("version {index}\n").as_bytes(),
+            &format!("version {index}"),
+        );
+        commits.push(fixture.git(&["rev-parse", "HEAD"]).trim().to_string());
+    }
+    let good_bad = [("good", commits[0].as_str()), ("bad", commits[4].as_str())];
+    // Dirty work is refused before any bisect state exists.
+    fs::write(fixture.repo().join("version.txt"), b"dirty work\n").unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let refused = LocalPlan::prepare(
+        LocalCommand::BisectStart,
+        &context,
+        &values(&good_bad),
+        CancellationToken::default(),
+    )
+    .unwrap_err();
+    assert!(refused.contains("Save or stash local changes"), "{refused}");
+    assert!(!fixture.repo().join(".git/BISECT_LOG").exists());
+    assert_eq!(
+        fs::read(fixture.repo().join("version.txt")).unwrap(),
+        b"dirty work\n"
+    );
+    fs::write(fixture.repo().join("version.txt"), b"version 4\n").unwrap();
+    // Start from a detached HEAD; reset must restore that exact detached version.
+    fixture.git(&["checkout", "-q", "--detach", &commits[4]]);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let started = prepare(LocalCommand::BisectStart, &context, &good_bad)
+        .execute(true, CancellationToken::default())
+        .unwrap();
+    let head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let labels = started
+        .workspace
+        .rows
+        .iter()
+        .map(|row| row.label.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.starts_with(&format!("Candidate: {head} "))
+                && label.contains("left to test after this")),
+        "{labels:?}"
+    );
+    // Interrupted: a fresh load (as after a restart) shows the search and its recovery rows.
+    let resumed = workspace(&fixture, RepositoryMode::Overview);
+    assert!(resumed
+        .rows
+        .iter()
+        .any(|row| row.label.contains("Bug search in progress")));
+    for command in [
+        LocalCommand::BisectGood,
+        LocalCommand::BisectBad,
+        LocalCommand::BisectSkip,
+        LocalCommand::BisectReset,
+    ] {
+        assert!(
+            resumed
+                .rows
+                .iter()
+                .any(|row| row.action == Some(RowAction::Local(command))),
+            "{command:?}"
+        );
+    }
+    // Skip every candidate until Git reports no feasible single culprit.
+    let mut no_candidate = None;
+    for _ in 0..5 {
+        let context = LocalContext::from_workspace(
+            &workspace(&fixture, RepositoryMode::Overview),
+            None,
+            None,
+        );
+        match prepare(LocalCommand::BisectSkip, &context, &[])
+            .execute(true, CancellationToken::default())
+        {
+            Ok(result) => assert!(result
+                .workspace
+                .rows
+                .iter()
+                .any(|row| row.label.contains("Bug search is paused"))),
+            Err(error) => {
+                no_candidate = Some(error);
+                break;
+            }
+        }
+    }
+    let no_candidate = no_candidate.expect("skipping every candidate must stop");
+    assert!(
+        no_candidate.starts_with("No feasible candidate"),
+        "{no_candidate}"
+    );
+    assert!(no_candidate.contains("could be any of"), "{no_candidate}");
+    assert!(fixture.git(&["bisect", "log"]).contains("git bisect skip"));
+    assert!(fixture.repo().join(".git/BISECT_LOG").exists());
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    execute(&prepare(LocalCommand::BisectReset, &context, &[]));
+    assert_eq!(
+        fixture.git(&["rev-parse", "HEAD"]),
+        format!("{}\n", commits[4])
+    );
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "");
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    assert!(!fixture.repo().join(".git/BISECT_LOG").exists());
+}
+
 /// Local main and the bare remote's main each gain one commit; `topic` holds the remote-only commit.
 fn v1_local_branches_diverged_fixture() -> (Fixture, std::path::PathBuf, String, String) {
     let fixture = Fixture::new();

@@ -966,6 +966,7 @@ impl LocalPlan {
             Operation::StashApply { id, .. } | Operation::StashDrop { id } => {
                 let resolved = repo.stashes().map_err(|error| error.to_string())?.into_iter().find(|stash| stash.id == *id || stash.selector == *id).ok_or("Selected stash is no longer available.")?;
                 preview.push(format!("Exact stash commit: {} — list positions are not stable identities", resolved.id));
+                preview.extend(stash_contents_preview_v41(&repo, &resolved.id)?);
             }
             Operation::RemoveWorktree(path) | Operation::AddWorktree { path, .. } | Operation::AddWorktreeBranchAtV9 { path, .. } => {
                 use std::os::unix::ffi::OsStrExt;
@@ -1071,19 +1072,18 @@ impl LocalPlan {
                 | LocalCommand::BisectSkip
                 | LocalCommand::BisectReset
         ) {
-            let explanation = if self.command == LocalCommand::BisectReset {
-                "Bug search ended. Git restored the starting saved version/branch."
-            } else if crate::git::bisect_reports_culprit(&output) {
-                "Culprit found: the current saved version is the first bad commit. Inspect it, then End bug search to restore the starting branch."
-            } else {
-                "Bug search is paused at the current saved version. Inspect/test it, then Mark version good, Mark version bad, or Skip untestable version. End bug search restores the starting branch."
-            };
-            workspace.rows.push(DisplayRow {
-                label: explanation.into(),
-                role: crate::repository_view::SemanticRole::Reference,
-                action: None,
-                cells: None,
-            });
+            workspace
+                .rows
+                .extend(
+                    bisect_rows_v44(self.command, &output)
+                        .into_iter()
+                        .map(|label| DisplayRow {
+                            label,
+                            role: crate::repository_view::SemanticRole::Reference,
+                            action: None,
+                            cells: None,
+                        }),
+                );
             workspace
                 .rows
                 .extend(
@@ -1374,7 +1374,9 @@ pub(crate) fn branch_sync_preview_v1(
 /// A short plain-language reason placed above the raw Git output for common failures.
 pub(crate) fn explain_git_failure_v1(command: LocalCommand, error: &str) -> Option<&'static str> {
     let has = |needle: &str| error.contains(needle);
-    Some(if has("Previous write outcome is unknown") {
+    Some(if crate::git::bisect_only_skipped_v44(error) {
+        "No feasible candidate: every remaining version was skipped, so Git cannot name one first bad commit. The culprit is one of the versions listed below. Press r Refresh, then test one of them and Mark version good or bad, or End bug search to restore the starting branch."
+    } else if has("Previous write outcome is unknown") {
         "An earlier Git write in this session failed or was interrupted. Press r Refresh to re-read the repository, then preview again."
     } else if has("Committer identity unknown") || has("Please tell me who you are") {
         "Git does not know your name and email. Set user.name and user.email with git config; if an operation is now in progress, Continue operation or Abort operation afterwards."
@@ -1416,6 +1418,64 @@ pub(crate) fn explain_git_failure_v1(command: LocalCommand, error: &str) -> Opti
     } else {
         return None;
     })
+}
+
+/// Read-only view of one exact stash for its Apply/Pop/Delete preview (TASK-41): what the
+/// stash holds, with tracked changes and saved untracked files listed separately.
+fn stash_contents_preview_v41(repo: &GitRepository, id: &str) -> Result<Vec<String>, String> {
+    let contents = repo
+        .stash_contents_v41(id)
+        .map_err(|error| error.to_string())?;
+    let mut lines = vec!["Stash contents (read-only view of this exact stash):".to_string()];
+    let patch = String::from_utf8_lossy(&contents.patch);
+    if patch.trim().is_empty() {
+        lines.push("Tracked changes: none".into());
+    } else {
+        lines.push("Tracked changes:".into());
+        lines.extend(patch.lines().take(120).map(sanitize_terminal));
+        if patch.lines().count() > 120 {
+            lines.push("Tracked change preview stops after 120 lines.".into());
+        }
+    }
+    match contents.untracked {
+        None => lines.push("Untracked files: not included in this stash".into()),
+        Some(paths) => {
+            lines.push(format!(
+                "Untracked files saved in this stash: {}",
+                paths.len()
+            ));
+            lines.extend(
+                paths
+                    .iter()
+                    .take(80)
+                    .map(|path| format!("  untracked {}", path.display())),
+            );
+        }
+    }
+    Ok(lines)
+}
+
+/// Plain-language bug-search state after a successful bisect step (TASK-44).
+fn bisect_rows_v44(command: LocalCommand, output: &str) -> Vec<String> {
+    let mut rows = vec![if command == LocalCommand::BisectReset {
+        "Bug search ended. Git restored the starting saved version/branch.".to_string()
+    } else if crate::git::bisect_reports_culprit(output) {
+        "Culprit found: the current saved version is the first bad commit. Inspect it, then End bug search to restore the starting branch.".into()
+    } else {
+        "Bug search is paused at the current saved version. Inspect/test it, then Mark version good, Mark version bad, or Skip untestable version. End bug search restores the starting branch.".into()
+    }];
+    if let Some(progress) = crate::git::bisect_progress_v44(output) {
+        rows.push(format!(
+            "Candidate: {} {} • {} revision{} left to test after this (about {} step{})",
+            progress.candidate,
+            sanitize_terminal(&progress.subject),
+            progress.remaining,
+            if progress.remaining == 1 { "" } else { "s" },
+            progress.steps,
+            if progress.steps == 1 { "" } else { "s" },
+        ));
+    }
+    rows
 }
 
 fn repository(directory: &Path, cancellation: CancellationToken) -> Result<GitRepository, String> {

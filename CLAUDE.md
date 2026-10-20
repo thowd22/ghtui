@@ -62,6 +62,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
   - `ui_chrome::pane_block` and `split_list_preview`;
   - tables in `src/ui_table.rs`;
   - the footer key bar in `src/footer.rs`.
+- **Every ghtui Git child runs with `--literal-pathspecs`,** so Git's own internal magic pathspecs (`:/`) become literal. `stash push --include-untracked` saved the untracked files but left them in place until an explicit `-- .` was added. When a Git subcommand behaves differently under ghtui than in a shell, try it with `git --literal-pathspecs` first.
 
 ## 7. Real repositories and GitHub
 

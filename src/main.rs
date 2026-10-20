@@ -1477,15 +1477,23 @@ fn run() -> Result<()> {
         }
         if app.repository_load_requested || app.repository_action.is_some() {
             app.repository_load_requested = false;
-            let previous = app.workspace.clone();
+            // Opening another worktree (TASK-41) is a fresh read-only load of that directory.
+            let opened_worktree = app.repository_directory_request_v41.take();
+            let previous = if opened_worktree.is_some() {
+                None
+            } else {
+                app.workspace.clone()
+            };
             let mode = app.repository_mode;
             let action = app.repository_action.take();
             let reconcile = app.repository_reconcile_requested;
             app.repository_reconcile_requested = false;
-            let directory = previous.as_ref().map_or_else(
-                || local_directory.clone(),
-                |workspace| workspace.directory.clone(),
-            );
+            let directory = opened_worktree.unwrap_or_else(|| {
+                previous.as_ref().map_or_else(
+                    || local_directory.clone(),
+                    |workspace| workspace.directory.clone(),
+                )
+            });
             if !reconcile
                 && previous
                     .as_ref()

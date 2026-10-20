@@ -316,6 +316,8 @@ pub enum RowAction {
     Actor(GitRole),
     /// A paused-operation shortcut row; App opens the same LocalCommand form as the menu.
     Local(crate::local_actions::LocalCommand),
+    /// Read-only switch of the Repository view to another listed worktree (TASK-41).
+    OpenWorktree(std::path::PathBuf),
 }
 
 #[derive(Clone, Debug)]
@@ -669,6 +671,42 @@ impl Workspace {
                         SemanticRole::Reference,
                         None,
                     );
+                    // Each other worktree: branch, lock and dirty state; Enter/click opens
+                    // it read-only in this view (TASK-41). Bounded status reads.
+                    let others = repo
+                        .worktrees()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|tree| tree.path != repo.root && !tree.bare)
+                        .take(16)
+                        .collect::<Vec<_>>();
+                    for (index, tree) in others.into_iter().enumerate() {
+                        use std::os::unix::ffi::OsStrExt;
+                        let state = if tree.prunable {
+                            "missing/prunable".to_string()
+                        } else if index >= 8 {
+                            "status not read".into()
+                        } else {
+                            match repo.worktree_dirty_v41(&tree.path) {
+                                Ok(true) => "dirty: uncommitted changes".into(),
+                                Ok(false) => "clean".into(),
+                                Err(_) => "status unavailable".into(),
+                            }
+                        };
+                        // Branch and state first: long directories truncate at the end.
+                        let branch = tree.branch.as_deref().unwrap_or("detached");
+                        let label = format!(
+                            "⎇ {} worktree • {}{} • Enter: open • {}",
+                            crate::providers::runner::sanitize_terminal(
+                                branch.strip_prefix("refs/heads/").unwrap_or(branch)
+                            ),
+                            state,
+                            if tree.locked { " • locked" } else { "" },
+                            RawPath::new(tree.path.as_os_str().as_bytes().to_vec()).display(),
+                        );
+                        let action = (!tree.prunable).then(|| RowAction::OpenWorktree(tree.path));
+                        workspace.push(&label, SemanticRole::Reference, action);
+                    }
                 }
                 workspace.push(
                     "Recent commits — saved versions",
@@ -1008,6 +1046,9 @@ impl Workspace {
             RowAction::OriginalDiffReturn(_) => return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into()),
             RowAction::Local(_) => {
                 return Err("Local operation rows open their explicit preview form".into())
+            }
+            RowAction::OpenWorktree(_) => {
+                return Err("Worktree rows open a fresh repository load, not a nested read".into())
             }
             RowAction::Graph(action) => return self.graph_action_v1(action, repository),
             RowAction::FileProvenance(action) => {

@@ -342,6 +342,8 @@ pub struct App {
     pub repository_mode: crate::workspace::RepositoryMode,
     pub repository_load_requested: bool,
     pub repository_action: Option<crate::workspace::RowAction>,
+    /// Another listed worktree to load read-only in place of the current one (TASK-41).
+    pub repository_directory_request_v41: Option<std::path::PathBuf>,
     /// The History query while it has keyboard focus (TASK-99.3).
     pub history_filter_input_v993: Option<String>,
     /// `owner/name` of the launch checkout's GitHub remote: PR files open File history only
@@ -608,6 +610,7 @@ impl Default for App {
             repository_mode: crate::workspace::RepositoryMode::Overview,
             repository_load_requested: false,
             repository_action: None,
+            repository_directory_request_v41: None,
             history_filter_input_v993: None,
             local_github_repository_v993: None,
             repository_content_focused: true,
@@ -1801,6 +1804,17 @@ impl App {
                 self.repository_content_focused = true;
             }
             Action::FileHistoryV993(target) => crate::history::entry::open(self, target),
+            Action::RepositoryRow(crate::workspace::RowAction::OpenWorktree(path)) => {
+                // Read-only: a fresh Overview load of the chosen worktree; nothing is checked out.
+                self.repository_directory_request_v41 = Some(path);
+                self.repository_selection = None;
+                self.repository_mode = crate::workspace::RepositoryMode::Overview;
+                self.repository_load_requested = true;
+                self.repository_list.selected = 0;
+                self.repository_list.top = 0;
+                self.user_navigated = true;
+                self.repository_content_focused = true;
+            }
             Action::RepositoryRow(action) => {
                 if let crate::workspace::RowAction::Tree(tree) = action {
                     crate::repository_tree_native_v1::row(self, tree);

@@ -52,6 +52,8 @@ mod immutable_git_v1;
 mod local;
 #[path = "tui_e2e/local_management.rs"]
 mod local_management;
+#[path = "tui_e2e/local_management_v41.rs"]
+mod local_management_v41;
 #[path = "tui_e2e/local_picker.rs"]
 mod local_picker;
 #[path = "tui_e2e/local_staging_v1.rs"]

@@ -35,7 +35,7 @@ pub(crate) fn operation(session: &mut Session, mouse: bool, command: LocalComman
     });
     session.wait_for_screen("LOCAL INTENT • Preview first");
 }
-fn fill(session: &mut Session, mouse: bool, fields: &[(&str, &str)]) {
+pub(crate) fn fill(session: &mut Session, mouse: bool, fields: &[(&str, &str)]) {
     for (index, (label, value)) in fields.iter().enumerate() {
         if mouse {
             session.wait_for_screen(&format!("{label}:"));
@@ -56,14 +56,19 @@ fn fill(session: &mut Session, mouse: bool, fields: &[(&str, &str)]) {
         session.send_key(&b"\x1b[Z".repeat(fields.len() - 1));
     }
 }
-fn run(session: &mut Session, mouse: bool, command: LocalCommand, fields: &[(&str, &str)]) {
+pub(crate) fn run(
+    session: &mut Session,
+    mouse: bool,
+    command: LocalCommand,
+    fields: &[(&str, &str)],
+) {
     operation(session, mouse, command);
     fill(session, mouse, fields);
     local::preview(session, mouse);
     local::confirm(session, mouse, fields.len());
     session.wait_for_screen(&format!("Completed • {}", command.label()));
 }
-fn refresh(session: &mut Session, mouse: bool) {
+pub(crate) fn refresh(session: &mut Session, mouse: bool) {
     if mouse {
         // The Repository key bar drops `r Refresh` by priority on narrow rows; the command
         // palette then runs the same global Refresh by mouse.
@@ -80,12 +85,12 @@ fn refresh(session: &mut Session, mouse: bool) {
     }
     session.wait_for_screen("Repository loaded • read-only exploration");
 }
-fn launch(fixture: &Fixture) -> Session {
+pub(crate) fn launch(fixture: &Fixture) -> Session {
     let mut session = Session::launch(fixture, 120, 40);
     session.wait_for_screen("Recent commits");
     session
 }
-fn finish(session: &mut Session, fixture: &Fixture, mouse: bool) {
+pub(crate) fn finish(session: &mut Session, fixture: &Fixture, mouse: bool) {
     assert!(session.inspect_command_journal(fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
 }

@@ -705,11 +705,40 @@ pub fn paused_operation_rows_v1(
     };
     let name = crate::local_availability::operation_name_v1(operation);
     if *operation == Sequencer::Bisect {
-        return vec![(
-            "Bug search in progress • mark versions good/bad/skip or End bug search (m)".into(),
-            SemanticRole::Conflict,
-            None,
-        )];
+        // Also shown after ghtui restarts mid-search: Git keeps the bisect state until
+        // End bug search, so the recovery choices stay one click or Enter away.
+        return vec![
+            (
+                "Bug search in progress • mark versions good/bad/skip or End bug search (m)".into(),
+                SemanticRole::Conflict,
+                None,
+            ),
+            (
+                "Next: test the current saved version, then mark it • an interrupted search resumes here".into(),
+                SemanticRole::Boundary,
+                None,
+            ),
+            (
+                "[Mark version good] • the bug is absent at the current version".into(),
+                SemanticRole::Conflict,
+                Some(LocalCommand::BisectGood),
+            ),
+            (
+                "[Mark version bad] • the bug is present at the current version".into(),
+                SemanticRole::Conflict,
+                Some(LocalCommand::BisectBad),
+            ),
+            (
+                "[Skip untestable version] • choose another nearby candidate".into(),
+                SemanticRole::Conflict,
+                Some(LocalCommand::BisectSkip),
+            ),
+            (
+                "[End bug search] • restore the starting branch and version".into(),
+                SemanticRole::Conflict,
+                Some(LocalCommand::BisectReset),
+            ),
+        ];
     }
     let conflicts = status.conflicts();
     let upper = name.to_ascii_uppercase();

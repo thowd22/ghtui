@@ -11,6 +11,10 @@ pub use history_query_v1::{
     HistoryFilterV1, HistoryOrderV1, HistoryPageV1, HistoryQueryV1, HistoryRefKindV1,
     HistoryRefSnapshotV1, HistoryRefV1, HistoryScopeV1, HistorySessionV1,
 };
+mod local_management_v41;
+pub use local_management_v41::{
+    bisect_only_skipped_v44, bisect_progress_v44, BisectProgressV44, StashContentsV41,
+};
 mod stash_recovery_v1;
 pub use stash_recovery_v1::{FailedStashIntentV1, StashAttemptFailureV1, StashAttemptSuccessV2};
 pub(crate) mod original_comparison_sides_v1;
@@ -2180,7 +2184,11 @@ impl GitRepository {
             Operation::StashSave { message, untracked } => {
                 add(&["stash", "push", "--message", message]);
                 if *untracked {
-                    args.push("--include-untracked".into());
+                    // Under --literal-pathspecs Git's own cleanup pathspec (":/") is
+                    // literal, so saved untracked files stayed in place. An explicit
+                    // root pathspec (cwd is the worktree root) removes them as Git
+                    // intends once they are safely in the stash.
+                    args.extend(["--include-untracked", "--", "."].map(OsString::from));
                 }
             }
             Operation::ForcePushLease {
@@ -2275,8 +2283,12 @@ impl GitRepository {
                 if path == self.root {
                     return Err(GitError("The current worktree cannot remove itself".into()));
                 }
-                if !self.worktrees()?.iter().any(|tree| tree.path == path) {
+                let listed = self.worktrees()?;
+                let Some(tree) = listed.iter().find(|tree| tree.path == path) else {
                     return Err(GitError("Target is not a linked worktree".into()));
+                };
+                if tree.locked {
+                    return Err(GitError("Worktree removal refused: the worktree is locked. Inspect and unlock it explicitly (git worktree unlock) first.".into()));
                 }
                 let ignored = run_git_with_kind(
                     &path,
