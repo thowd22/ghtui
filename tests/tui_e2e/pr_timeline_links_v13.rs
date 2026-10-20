@@ -1,6 +1,6 @@
 //! TASK-13: a Timeline item opens its own comment, commit or head checks in that tab, and
 //! the Timeline tab returns to the same item, by keys and by clicks. Only the Checks tab
-//! reads (its two check reads); Git, config and private storage stay unchanged.
+//! reads (its check and required-check reads); Git, config and private storage stay unchanged.
 use super::*;
 use std::fs;
 
@@ -10,7 +10,8 @@ const OLDER: &str = "cccccccccccccccccccccccccccccccccccccccc";
 fn steps() -> Vec<GhStep> {
     let mut steps = initial(false);
     let mut old = pages();
-    let checks = old[13..15].to_vec();
+    // Check runs, statuses, then the base branch's protection and rulesets (TASK-14).
+    let checks = old[13..17].to_vec();
     old.truncate(7);
     // Two commits: an older one and the current head.
     old[2].stdout = serde_json::to_vec(&json!([[
@@ -148,7 +149,7 @@ fn journey(mouse: bool) {
     journal(&mut session, &fixture, 14);
     assert_eq!(sql(&fixture), original_sql);
 
-    // The head commit opens the checks that ran on it: the Checks tab's own two reads.
+    // The head commit opens the checks that ran on it: the Checks tab's own four reads.
     select(
         &mut session,
         mouse,
@@ -158,7 +159,7 @@ fn journey(mouse: bool) {
     go(&mut session, mouse, "Timeline commit aaaaaaa → Checks");
     session.wait_for_screen("Rust tests");
     assert_selected(&session, "Rust tests");
-    journal(&mut session, &fixture, 16);
+    journal(&mut session, &fixture, 18);
 
     // At 80x24 the item control stays on the bar, and the return still works.
     session.resize(80, 24);
@@ -171,7 +172,7 @@ fn journey(mouse: bool) {
     choose(&mut session, mouse, "[b Back]", b"b");
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     assert_selected(&session, "Improve auth");
-    journal(&mut session, &fixture, 16);
+    journal(&mut session, &fixture, 18);
     assert_eq!(git(&fixture), original_git);
     assert_eq!(fs::read(&config_path).unwrap(), config);
     session.quit_and_assert_restored_terminal(mouse);
