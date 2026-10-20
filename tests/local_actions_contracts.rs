@@ -1635,3 +1635,187 @@ fn v1_local_gaps_unreachable_remote_cancelled_push_remote_hook_and_pull_conflict
         .unwrap()
         .contains("local conflicting edit"));
 }
+
+/// Install a pre-push hook that records it started and then waits (bounded) for a release
+/// file the test never creates: only cancellation ends the push.
+fn v40_blocking_pre_push(fixture: &Fixture) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let started = fixture.root.join("push-started");
+    let release = fixture.root.join("push-release");
+    let hook = fixture.repo().join(".git/hooks/pre-push");
+    fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\n: > '{}'\ni=0\nwhile [ ! -e '{}' ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done\nexit 1\n",
+            started.display(),
+            release.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    started
+}
+
+#[test]
+fn v40_remote_failures_report_partial_local_effects_and_unknown_cancelled_push() {
+    let (fixture, remote, local_head, _) = v1_local_branches_diverged_fixture();
+    // The remote moves again after the fixture's last fetch.
+    let other = fixture.root.join("other-clone");
+    assert!(v1_gaps_git(
+        &fixture.root,
+        &[
+            "clone",
+            "-q",
+            remote.to_str().unwrap(),
+            other.to_str().unwrap()
+        ]
+    ));
+    fs::write(other.join("newer.txt"), b"newer\n").unwrap();
+    assert!(v1_gaps_git(&other, &["add", "newer.txt"]));
+    assert!(v1_gaps_git(
+        &other,
+        &[
+            "-c",
+            "user.name=Other",
+            "-c",
+            "user.email=o@example.invalid",
+            "commit",
+            "-qm",
+            "newer remote",
+        ]
+    ));
+    assert!(v1_gaps_git(&other, &["push", "-q", "origin", "main"]));
+    let newer = v1_remote_main(&remote);
+    let tracking_before = fixture
+        .git(&["rev-parse", "origin/main"])
+        .trim()
+        .to_string();
+    assert_ne!(tracking_before, newer);
+
+    // ff-only refuses after its fetch step: the tracking ref moved, local main did not.
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let error = prepare(
+        LocalCommand::Pull,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("strategy", "ff-only"),
+        ],
+    )
+    .execute(true, CancellationToken::default())
+    .unwrap_err();
+    assert!(error.starts_with("Pull refused"), "{error}");
+    assert!(
+        error.contains(&format!(
+            "Local effects: tracking origin/main moved {} → {}.",
+            &tracking_before[..12],
+            &newer[..12]
+        )),
+        "{error}"
+    );
+    assert!(
+        error.contains("Remote effect: none; fetch and pull only read the remote."),
+        "{error}"
+    );
+    assert!(!error.contains("branch main moved"), "{error}");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), local_head);
+    assert_eq!(fixture.git(&["rev-parse", "origin/main"]).trim(), newer);
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    // A push cancelled while Git runs reports unchanged local refs and an UNKNOWN remote.
+    let started = v40_blocking_pre_push(&fixture);
+    fixture.git(&["branch", "publish", &local_head]);
+    let refs = fixture.git(&["show-ref"]);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let push = prepare(
+        LocalCommand::Push,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "publish"),
+            ("set_upstream", "false"),
+        ],
+    );
+    let token = CancellationToken::default();
+    let canceller = {
+        let token = token.clone();
+        let started = started.clone();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while !started.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            token.cancel();
+        })
+    };
+    let error = push.execute(true, token).unwrap_err();
+    canceller.join().unwrap();
+    assert!(started.exists(), "the push never reached its hook: {error}");
+    assert!(
+        error.starts_with("Cancelled: Git was stopped on request."),
+        "{error}"
+    );
+    assert!(
+        error.contains("Local effects: no branch, tag or tracking ref changed."),
+        "{error}"
+    );
+    assert!(error.contains("Remote effect: UNKNOWN"), "{error}");
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    assert!(!v1_gaps_git(
+        &remote,
+        &["rev-parse", "--verify", "-q", "refs/heads/publish"]
+    ));
+}
+
+#[test]
+fn v39_detached_head_refuses_pull_and_switch_preview_names_unreferenced_commits() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved\n", "initial");
+    fixture.git(&["switch", "--detach"]);
+    fixture.commit_file("detached.txt", b"detached work\n", "detached work");
+    let detached = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    assert!(LocalCommand::Pull
+        .disabled_reason(&context)
+        .unwrap()
+        .starts_with("Detached HEAD: pull updates the current branch"));
+    assert!(LocalCommand::Fetch.disabled_reason(&context).is_none());
+    let switch = prepare(LocalCommand::SwitchBranch, &context, &[("name", "main")]);
+    assert!(
+        v1_has(
+            &switch,
+            "DETACHED HEAD: 1 commit here is on no branch or tag."
+        ),
+        "{:?}",
+        switch.preview
+    );
+    assert!(v1_has(
+        &switch,
+        &format!("After switching away from {detached} only the reflog finds it.")
+    ));
+    execute(&prepare(
+        LocalCommand::CreateBranch,
+        &context,
+        &[("name", "kept"), ("revision", "HEAD")],
+    ));
+    assert_eq!(fixture.git(&["rev-parse", "kept"]).trim(), detached);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let switch = prepare(LocalCommand::SwitchBranch, &context, &[("name", "main")]);
+    assert!(
+        v1_has(
+            &switch,
+            "DETACHED HEAD: every commit here is on a branch or tag."
+        ),
+        "{:?}",
+        switch.preview
+    );
+    execute(&switch);
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
+    assert_eq!(fixture.git(&["rev-parse", "kept"]).trim(), detached);
+}

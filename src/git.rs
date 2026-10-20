@@ -1153,6 +1153,27 @@ impl GitRepository {
         Ok((ahead, behind))
     }
 
+    /// Commits reachable from HEAD that no branch, tag or remote-tracking ref contains. On a
+    /// detached HEAD these are reachable only through the reflog once HEAD moves away.
+    pub fn unreferenced_head_commits_v39(&self) -> GitResult<usize> {
+        let head = self.resolve_original("HEAD")?;
+        let bytes = self.original_bytes(
+            [
+                "rev-list",
+                "--count",
+                head.as_str(),
+                "--not",
+                "--branches",
+                "--tags",
+                "--remotes",
+            ],
+            None,
+        )?;
+        text(trim_line(&bytes))
+            .parse()
+            .map_err(|_| GitError("Invalid unreferenced commit count".into()))
+    }
+
     /// Original-object ancestry, never replacement/graft history or implicit network fetching.
     /// Shallow counts describe available history only; multiple best bases are retained honestly.
     pub fn relationship(&self, base: &str, head: &str) -> GitResult<GitRelationship> {

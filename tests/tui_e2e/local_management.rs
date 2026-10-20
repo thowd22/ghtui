@@ -7,15 +7,23 @@ use ghtui::local_actions::LocalCommand;
 use std::{fs, process::Command, time::Duration};
 
 pub(crate) fn operation(session: &mut Session, mouse: bool, command: LocalCommand) {
+    pick_operation(session, mouse, command);
+    session.wait_for_screen("LOCAL INTENT • Preview first");
+}
+/// Opens Local operations and activates one row by keys or by click, without assuming the
+/// row is enabled (a disabled row keeps the menu open and explains itself in the status).
+pub(crate) fn pick_operation(session: &mut Session, mouse: bool, command: LocalCommand) {
     let index = LocalCommand::ALL
         .iter()
         .position(|(candidate, _)| *candidate == command)
         .unwrap();
+    local::open_local_operations(session, mouse);
     if !mouse {
-        local::operation(session, false, command.label(), index);
+        let mut keys = b"\x1b[B".repeat(index);
+        keys.push(b'\r');
+        session.send_key(&keys);
         return;
     }
-    local::open_local_operations(session, true);
     let mut selected = 0;
     let row_label = format!("  {}", command.label());
     let selected_label = format!("> {}", command.label());
@@ -33,7 +41,6 @@ pub(crate) fn operation(session: &mut Session, mouse: bool, command: LocalComman
     } else {
         &row_label
     });
-    session.wait_for_screen("LOCAL INTENT • Preview first");
 }
 pub(crate) fn fill(session: &mut Session, mouse: bool, fields: &[(&str, &str)]) {
     for (index, (label, value)) in fields.iter().enumerate() {

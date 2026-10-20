@@ -100,6 +100,10 @@ impl<'a> LocalAvailability<'a> {
             UnstageSelection if !matches!(self.comparison, Some(Comparison::Staged)) => {
                 Some("Select a staged change in Staged diff; saved history is read-only.".into())
             }
+            Pull if self.status.detached && self.status.operation.is_none() => Some(
+                "Detached HEAD: pull updates the current branch and there is none. Switch branch, or Create branch here first to keep this version."
+                    .into(),
+            ),
             CreatePullRequest if self.status.detached || self.status.branch.is_none() => Some(
                 "Switch to a named local branch first; a pull request needs a head branch.".into(),
             ),

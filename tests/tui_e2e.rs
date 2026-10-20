@@ -88,6 +88,8 @@ mod raw_git_argv_v1;
 mod release_install_v1;
 #[path = "tui_e2e/relevance.rs"]
 mod relevance;
+#[path = "tui_e2e/remote_effects_v40.rs"]
+mod remote_effects_v40;
 #[path = "tui_e2e/remote_search.rs"]
 mod remote_search;
 #[path = "tui_e2e/repository_catalogue_native_v1.rs"]

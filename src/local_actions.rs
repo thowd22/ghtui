@@ -1066,12 +1066,24 @@ impl LocalPlan {
         cancellation: CancellationToken,
     ) -> Result<LocalOutcome, String> {
         let repo = repository(&self.context.directory, cancellation.clone())?;
+        let before = remote_command_v40(self.command)
+            .then(|| RefSnapshotV40::read(&repo))
+            .flatten();
         let output = repo.execute(&self.mutation, confirmed).map_err(|error| {
             let error = error.to_string();
             let summary = explain_git_failure_v1(self.command, &error)
                 .map(|summary| format!("{summary}\n"))
                 .unwrap_or_default();
-            format!("{summary}{error}\nRefresh repository state before another write; do not retry an uncertain operation blindly.")
+            let effects = before
+                .as_ref()
+                .map(|before| {
+                    failure_effects_v40(self.command, before, &self.context.directory, &error)
+                        .into_iter()
+                        .map(|line| format!("{line}\n"))
+                        .collect::<String>()
+                })
+                .unwrap_or_default();
+            format!("{summary}{effects}{error}\nRefresh repository state before another write; do not retry an uncertain operation blindly.")
         })?;
         let mut workspace = Workspace::load_with_cancellation(
             &self.context.directory,
@@ -1321,6 +1333,32 @@ pub(crate) fn branch_sync_preview_v1(
             }
         }
         Operation::SwitchBranch(name) => {
+            if status.detached {
+                let head = exists("HEAD").unwrap_or_default();
+                match repo.unreferenced_head_commits_v39() {
+                    Ok(0) => {
+                        lines
+                            .push("DETACHED HEAD: every commit here is on a branch or tag.".into());
+                        lines.push(format!("Switching away from {head} loses nothing."));
+                    }
+                    Ok(count) => {
+                        let (verb, them) = if count == 1 {
+                            ("is", "it")
+                        } else {
+                            ("are", "them")
+                        };
+                        lines.push(format!(
+                            "DETACHED HEAD: {count} commit{} here {verb} on no branch or tag.",
+                            plural(count)
+                        ));
+                        lines.push(format!("After switching away from {head} only the reflog finds {them}. Create branch here first to keep {them}."));
+                    }
+                    Err(_) => {
+                        lines.push("DETACHED HEAD: commits made here may be on no branch.".into());
+                        lines.push(format!("Create branch at {head} first to keep them."));
+                    }
+                }
+            }
             if exists(&format!("refs/heads/{name}")).is_some() {
                 lines.push(upstream_line(name));
             } else if let Some(remote) = repo.remotes().ok().and_then(|remotes| {
@@ -1388,10 +1426,160 @@ pub(crate) fn branch_sync_preview_v1(
         .collect()
 }
 
+fn remote_command_v40(command: LocalCommand) -> bool {
+    matches!(
+        command,
+        LocalCommand::Fetch
+            | LocalCommand::Pull
+            | LocalCommand::Push
+            | LocalCommand::ForcePushLease
+    )
+}
+
+/// Local refs, HEAD and paused operation captured around a remote write, so a failure or
+/// cancellation reports what actually changed here instead of guessing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RefSnapshotV40 {
+    refs: BTreeMap<Vec<u8>, (String, String)>,
+    head: Option<String>,
+    operation: Option<crate::git::Sequencer>,
+}
+impl RefSnapshotV40 {
+    pub(crate) fn read(repo: &GitRepository) -> Option<Self> {
+        let refs = repo
+            .references()
+            .ok()?
+            .into_iter()
+            // refs/remotes/<remote>/HEAD is a symbolic ref that only follows another ref.
+            .filter(|reference| {
+                !(reference.raw_name.starts_with(b"refs/remotes/")
+                    && reference.raw_name.ends_with(b"/HEAD"))
+            })
+            .map(|reference| (reference.raw_name, (reference.name, reference.id)))
+            .collect();
+        Some(Self {
+            refs,
+            head: repo.resolve("HEAD").ok(),
+            operation: repo.sequencer(),
+        })
+    }
+}
+
+fn short_v40(id: &str) -> &str {
+    id.get(..12).unwrap_or(id)
+}
+fn ref_label_v40(name: &str) -> String {
+    if let Some(branch) = name.strip_prefix("refs/heads/") {
+        format!("branch {branch}")
+    } else if let Some(tracking) = name.strip_prefix("refs/remotes/") {
+        format!("tracking {tracking}")
+    } else if let Some(tag) = name.strip_prefix("refs/tags/") {
+        format!("tag {tag}")
+    } else {
+        name.to_owned()
+    }
+}
+
+/// Plain-language local and remote effects after a failed or cancelled fetch/pull/push. The
+/// after-read uses a fresh token: the operation's own token may already be cancelled.
+pub(crate) fn failure_effects_v40(
+    command: LocalCommand,
+    before: &RefSnapshotV40,
+    directory: &Path,
+    error: &str,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let after = repository(directory, CancellationToken::default())
+        .ok()
+        .and_then(|repo| RefSnapshotV40::read(&repo));
+    match &after {
+        None => lines.push(
+            "Local effects: could not re-read refs; Refresh before deciding anything.".into(),
+        ),
+        Some(after) => {
+            let mut changed = Vec::new();
+            for (raw, (name, id)) in &after.refs {
+                let name = ref_label_v40(name);
+                match before.refs.get(raw) {
+                    Some((_, old)) if old == id => {}
+                    Some((_, old)) => changed.push(format!(
+                        "{name} moved {} → {}",
+                        short_v40(old),
+                        short_v40(id)
+                    )),
+                    None => changed.push(format!("{name} created at {}", short_v40(id))),
+                }
+            }
+            for (raw, (name, old)) in &before.refs {
+                if !after.refs.contains_key(raw) {
+                    let name = ref_label_v40(name);
+                    changed.push(format!("{name} removed (was {})", short_v40(old)));
+                }
+            }
+            if changed.is_empty() {
+                lines.push("Local effects: no branch, tag or tracking ref changed.".into());
+            } else {
+                let total = changed.len();
+                changed.truncate(6);
+                if total > changed.len() {
+                    changed.push(format!("and {} more", total - 6));
+                }
+                lines.push(format!("Local effects: {}.", changed.join("; ")));
+            }
+            if after.head != before.head {
+                lines.push(format!(
+                    "HEAD moved {} → {}.",
+                    before.head.as_deref().map(short_v40).unwrap_or("none"),
+                    after.head.as_deref().map(short_v40).unwrap_or("none")
+                ));
+            }
+            if after.operation.is_some() && after.operation != before.operation {
+                let paused = match after.operation {
+                    Some(crate::git::Sequencer::Merge) => "merge",
+                    Some(crate::git::Sequencer::Rebase) => "rebase",
+                    Some(crate::git::Sequencer::CherryPick) => "cherry-pick",
+                    Some(crate::git::Sequencer::Revert) => "revert",
+                    _ => "bug search",
+                };
+                lines.push(format!(
+                    "Git left a paused {paused} in this checkout; your files are kept."
+                ));
+            }
+        }
+    }
+    let has = |needle: &str| error.contains(needle);
+    lines.push(match command {
+        LocalCommand::Fetch | LocalCommand::Pull => {
+            "Remote effect: none; fetch and pull only read the remote.".into()
+        }
+        _ if has("before launch")
+            || has("wait cancelled")
+            || has("wait exceeded")
+            || has("Previous write outcome is unknown")
+            || has("Repository changed since the preview") =>
+        {
+            "Remote effect: none; Git was not started.".into()
+        }
+        _ if has("cancelled") || has("deadline") => "Remote effect: UNKNOWN; Git was stopped before it reported a result, so the remote branch may or may not have changed. Fetch remote and compare before pushing again.".into(),
+        _ if explain_git_failure_v1(command, error).is_some() => {
+            "Remote effect: none; the remote refused the push or was not reached.".into()
+        }
+        _ => "Remote effect: UNKNOWN; Fetch remote and compare before pushing again.".into(),
+    });
+    lines
+}
+
 /// A short plain-language reason placed above the raw Git output for common failures.
 pub(crate) fn explain_git_failure_v1(command: LocalCommand, error: &str) -> Option<&'static str> {
     let has = |needle: &str| error.contains(needle);
-    Some(if crate::git::bisect_only_skipped_v44(error) {
+    Some(if has("Command cancelled") || has("wait cancelled") {
+        "Cancelled: Git was stopped on request. Read the effects below before trying again."
+    } else if has("Command exceeded its deadline")
+        || has("deadline expired")
+        || has("wait exceeded its deadline")
+    {
+        "Timed out: Git took too long and was stopped. Read the effects below before trying again."
+    } else if crate::git::bisect_only_skipped_v44(error) {
         "No feasible candidate: every remaining version was skipped, so Git cannot name one first bad commit. The culprit is one of the versions listed below. Press r Refresh, then test one of them and Mark version good or bad, or End bug search to restore the starting branch."
     } else if has("Previous write outcome is unknown") {
         "An earlier Git write in this session failed or was interrupted. Press r Refresh to re-read the repository, then preview again."
