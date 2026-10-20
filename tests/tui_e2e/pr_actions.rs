@@ -12,6 +12,8 @@ use std::{
 
 #[path = "design_chips_pr_conversation_v95.rs"]
 mod design_chips_pr_conversation_v95;
+#[path = "pr_actor_profile_v1.rs"]
+mod pr_actor_profile_v1;
 #[path = "pr_checks_bridge.rs"]
 mod pr_checks_bridge;
 #[path = "pr_governed_v1.rs"]

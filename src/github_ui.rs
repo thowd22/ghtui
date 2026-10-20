@@ -154,6 +154,21 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
             .with_priority(10)
             .disabled_by((!actions_offered).then(|| OBSERVED_ACTIONS_REASON.to_string())),
     );
+    if matches!(
+        tab,
+        PrTab::Summary | PrTab::Conversation | PrTab::Commits | PrTab::Metadata
+    ) {
+        let (action, reason) = match crate::pr_actor_profile_v1::action(app) {
+            Ok(action) => (action, None),
+            Err(reason) => (Action::Explain(reason.clone()), Some(reason)),
+        };
+        keys.push(
+            KeyControl::new("@", "Actor profile", action)
+                .with_compact("Actor")
+                .with_priority(46)
+                .disabled_by(reason),
+        );
+    }
     if scoped && matches!(tab, PrTab::Summary | PrTab::Timeline) {
         keys.push(
             KeyControl::new("T", "All threads", gh(GithubAction::ReviewThreadsV4))
