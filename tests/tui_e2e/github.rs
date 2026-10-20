@@ -130,6 +130,42 @@ fn personal_inbox_keyboard_overlap_scope_selection_and_partial_warning() {
 }
 
 #[test]
+fn inbox_on_start_keyboard_loads_at_open_and_config_off_waits_for_refresh() {
+    inbox_on_start(false)
+}
+#[test]
+fn inbox_on_start_mouse_loads_at_open_and_config_off_waits_for_refresh() {
+    inbox_on_start(true)
+}
+fn inbox_on_start(mouse: bool) {
+    let binary = std::path::Path::new(env!("CARGO_BIN_EXE_ghtui"));
+    // Default: the Inbox loads as soon as ghtui opens, with no key or click.
+    let fixture = configured();
+    fixture.scripted_gh(&initial(false));
+    let mut session =
+        Session::launch_binary(binary, &fixture, 120, 40, &[("GHTUI_INBOX_ON_START", "")]);
+    session.wait_for_screen("Improve auth");
+    journal(&mut session, &fixture, 7);
+    session.quit_and_assert_restored_terminal(mouse);
+
+    // inbox_on_start = false keeps the old explicit Refresh, by key or click.
+    let fixture = configured();
+    let path = fixture.root.join("config/ghtui/config.toml");
+    let mut config = Config::load(&path).unwrap();
+    config.inbox_on_start = false;
+    config.save(&path).unwrap();
+    fixture.scripted_gh(&initial(false));
+    let mut session =
+        Session::launch_binary(binary, &fixture, 80, 24, &[("GHTUI_INBOX_ON_START", "")]);
+    session.wait_for_screen("Use Refresh to load your authenticated GitHub inbox.");
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    refresh(&mut session, mouse);
+    session.wait_for_screen("Improve auth");
+    journal(&mut session, &fixture, 7);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
 fn cache_storage_keyboard_reassigned_username_never_unlocks_original_private_records() {
     principal_restart(false)
 }

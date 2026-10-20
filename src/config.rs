@@ -110,6 +110,8 @@ pub struct Config {
     pub index_max_documents: usize,
     /// Ranked search index budget: most source bytes one generation admits.
     pub index_max_total_bytes: u64,
+    /// Load the personal Inbox as soon as ghtui opens instead of waiting for Refresh.
+    pub inbox_on_start: bool,
 }
 
 impl Default for Config {
@@ -129,11 +131,22 @@ impl Default for Config {
             max_file_bytes: 2 * 1024 * 1024,
             index_max_documents: 100_000,
             index_max_total_bytes: 128 * 1024 * 1024,
+            inbox_on_start: true,
         }
     }
 }
 
 impl Config {
+    /// Whether to load the Inbox at startup. `GHTUI_INBOX_ON_START=0` or `1` overrides the
+    /// saved preference for one launch (scripts, offline use and the PTY fixtures).
+    pub fn load_inbox_on_start(&self) -> bool {
+        match std::env::var("GHTUI_INBOX_ON_START").as_deref() {
+            Ok("0" | "false") => false,
+            Ok("1" | "true") => true,
+            _ => self.inbox_on_start,
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         match fs::read_to_string(path) {
             Ok(body) => {

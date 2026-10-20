@@ -729,6 +729,9 @@ impl Session {
         command.env("GITHUB_ENTERPRISE_TOKEN", "");
         command.env("GIT_CONFIG_NOSYSTEM", "1");
         command.env("GIT_CONFIG_GLOBAL", "/dev/null");
+        // Journeys script every gh call, so the Inbox loads only when a journey asks.
+        // inbox_on_start journeys pass GHTUI_INBOX_ON_START=1 below to cover the default.
+        command.env("GHTUI_INBOX_ON_START", "0");
         let mut paths = vec![fixture.root.join("bin")];
         paths.extend(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),

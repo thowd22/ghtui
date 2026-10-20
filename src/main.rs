@@ -123,6 +123,12 @@ fn run() -> Result<()> {
             Ok(PreparedView { lines: vec!["No local Git repository detected. Run ghtui inside a checkout to browse local work.".into()], context, status: "Local Git workspace ready • working files preserved".into(), workspace, github:None, form:None, activate_if_untouched: activate, ..PreparedView::default() })
         });
     }
+    if config.load_inbox_on_start() && app.view == ghtui::app::View::Inbox {
+        // Load the personal queues at once; Refresh stays available for later reloads.
+        app.content[ghtui::app::View::Inbox.index()][2] =
+            "Loading your authenticated GitHub inbox…".into();
+        app.refresh_requested = true;
+    }
     while !app.quit {
         // Purpose-closed State Refresh capture/refusal precedes retirement.
         // A refused new enqueue cannot cancel the old accepted source worker.
