@@ -491,8 +491,13 @@ fn refusals_from_metadata(mouse: bool) {
                 if s.completed_cells_end() > before
                     && s.completed_cells_screen().is_some_and(|frame| {
                         crate::support::main_footer_visible(frame)
-                            && frame.contents().contains("Original Conversation unavailable • nothing resent • draft/journal retained")
                             && crate::support::overlay_body(frame, &title()).is_some_and(|body| {
+                                // The form keeps the refusal; a late draft-saved ack may own the
+                                // status line instead (v314).
+                                crate::owned_form_prose_v120::adjacent_literal(
+                                    &body,
+                                    "Original Conversation unavailable • nothing resent • draft/journal retained",
+                                ) &&
                                 body.contains("Selected existing base branch (F2 Choose):")
                                     && body.contains("next")
                                     && body.contains("Exact observed selected tip (read only):")
