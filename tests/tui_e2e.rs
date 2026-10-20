@@ -50,6 +50,8 @@ mod identity;
 mod immutable_git_v1;
 #[path = "tui_e2e/local.rs"]
 mod local;
+#[path = "tui_e2e/local_gaps_v1.rs"]
+mod local_gaps_v1;
 #[path = "tui_e2e/local_management.rs"]
 mod local_management;
 #[path = "tui_e2e/local_management_v41.rs"]

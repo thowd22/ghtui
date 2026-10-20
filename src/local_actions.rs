@@ -1386,6 +1386,10 @@ pub(crate) fn explain_git_failure_v1(command: LocalCommand, error: &str) -> Opti
         "An earlier Git write in this session failed or was interrupted. Press r Refresh to re-read the repository, then preview again."
     } else if has("Committer identity unknown") || has("Please tell me who you are") {
         "Git does not know your name and email. Set user.name and user.email with git config; if an operation is now in progress, Continue operation or Abort operation afterwards."
+    } else if has("failed to sign") {
+        "Commit signing failed: Git could not sign with the configured gpg/ssh signer. Nothing was committed and your staged changes are kept. Fix the signer (or turn off commit.gpgSign), then commit again."
+    } else if has("[remote rejected]") {
+        "The remote refused this push (for example a server hook or branch protection). That remote branch was not changed. Read the remote's message below."
     } else if has("CONFLICT") || has("Merge conflict") || has("could not apply") {
         "CONFLICT: the operation stopped on conflicting changes. Your work is kept: open the conflicted files, choose versions and stage them, then Continue operation, or Abort operation to return to the previous state."
     } else if has("Diverging branches can't be fast-forwarded")

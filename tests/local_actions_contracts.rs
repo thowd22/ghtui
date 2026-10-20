@@ -1090,3 +1090,448 @@ fn v1_local_recovery_paused_merge_overview_rows_marker_warning_and_named_version
     );
     assert!(fixture.repo().join(".git/MERGE_HEAD").exists());
 }
+
+/// Runs installed Git in `directory` with the fixture's isolated configuration; returns success.
+fn v1_gaps_git(directory: &std::path::Path, args: &[&str]) -> bool {
+    Command::new("git")
+        .args(args)
+        .current_dir(directory)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_EDITOR", "true")
+        .output()
+        .unwrap()
+        .status
+        .success()
+}
+fn v1_gaps_conflicting_branches(fixture: &Fixture) -> String {
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"base\n", "base");
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.commit_file("file.txt", b"feature\n", "feature edit");
+    let feature = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["switch", "main"]);
+    fixture.commit_file("file.txt", b"main\n", "main edit");
+    feature
+}
+
+#[test]
+fn v1_local_gaps_rebase_cherry_pick_and_revert_pauses_name_operation_and_recovery_rows() {
+    for (kind, banner) in [
+        ("rebase", "⚠ REBASE PAUSED • 1 unresolved conflict"),
+        (
+            "cherry-pick",
+            "⚠ CHERRY-PICK PAUSED • 1 unresolved conflict",
+        ),
+        ("revert", "⚠ REVERT PAUSED • 1 unresolved conflict"),
+    ] {
+        let fixture = Fixture::new();
+        let feature = v1_gaps_conflicting_branches(&fixture);
+        let paused = match kind {
+            "rebase" => {
+                fixture.git(&["switch", "feature"]);
+                v1_gaps_git(&fixture.repo(), &["rebase", "main"])
+            }
+            "cherry-pick" => v1_gaps_git(&fixture.repo(), &["cherry-pick", &feature]),
+            // Reverting the base commit conflicts with the later main edit.
+            _ => v1_gaps_git(&fixture.repo(), &["revert", "--no-edit", "HEAD~1"]),
+        };
+        assert!(!paused, "{kind} fixture must stop on a conflict");
+        let head = fixture.git(&["rev-parse", "HEAD"]);
+        let view = workspace(&fixture, RepositoryMode::Overview);
+        let labels: Vec<_> = view.rows.iter().map(|row| row.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|label| label.starts_with(banner)),
+            "{kind}: {labels:?}"
+        );
+        let position = |command| {
+            view.rows
+                .iter()
+                .position(|row| row.action == Some(RowAction::Local(command)))
+        };
+        let continue_row = position(LocalCommand::Continue).expect(kind);
+        let skip_row = position(LocalCommand::Skip).expect(kind);
+        let abort_row = position(LocalCommand::Abort).expect(kind);
+        assert!(continue_row < skip_row && skip_row < abort_row, "{kind}");
+        let context = LocalContext::from_row(&view, continue_row);
+        assert!(LocalCommand::Continue
+            .disabled_reason(&context)
+            .unwrap()
+            .contains("Resolve and stage 1 conflicted file"));
+        // Reading the paused state never moves HEAD or finishes the operation.
+        assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+        assert!(view.status.operation.is_some());
+    }
+}
+
+#[test]
+fn v1_local_gaps_linked_worktree_discovery_reports_its_own_branch_and_paused_cherry_pick() {
+    let fixture = Fixture::new();
+    let feature = v1_gaps_conflicting_branches(&fixture);
+    let linked = fixture.root.join("linked-worktree");
+    fixture.git(&[
+        "worktree",
+        "add",
+        "-b",
+        "picker",
+        linked.to_str().unwrap(),
+        "main~1",
+    ]);
+    fs::write(linked.join("file.txt"), b"picker\n").unwrap();
+    assert!(v1_gaps_git(&linked, &["commit", "-qam", "picker edit"]));
+    assert!(!v1_gaps_git(&linked, &["cherry-pick", &feature]));
+    let nested = linked.join("nested");
+    fs::create_dir(&nested).unwrap();
+    let view = Workspace::load(&nested, RepositoryMode::Overview, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.status.branch.as_deref(), Some("picker"));
+    assert!(view
+        .rows
+        .iter()
+        .any(|row| row.label.starts_with("⚠ CHERRY-PICK PAUSED")));
+    // The primary checkout is unaffected by the linked worktree's pause.
+    let main = workspace(&fixture, RepositoryMode::Overview);
+    assert_eq!(main.status.branch.as_deref(), Some("main"));
+    assert!(main.status.operation.is_none());
+}
+
+#[test]
+fn v1_local_gaps_partial_staging_refuses_rename_addition_deletion_and_binary() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("old.txt", b"one\ntwo\n", "saved");
+    fixture.commit_file("gone.txt", b"gone\n", "saved gone");
+    fixture.git(&["mv", "old.txt", "renamed.txt"]);
+    fs::write(fixture.repo().join("added.txt"), b"added line\n").unwrap();
+    fixture.git(&["add", "added.txt"]);
+    fixture.git(&["rm", "-q", "gone.txt"]);
+    let index = fs::read(fixture.repo().join(".git/index")).unwrap();
+    let view = workspace(&fixture, RepositoryMode::Staged);
+    let mut refused = 0;
+    for row in (0..view.rows.len())
+        .filter(|row| matches!(view.rows[*row].action, Some(RowAction::DiffLine(_))))
+    {
+        let context = LocalContext::from_row(&view, row);
+        let error = LocalPlan::prepare(
+            LocalCommand::UnstageSelection,
+            &context,
+            &BTreeMap::new(),
+            CancellationToken::default(),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("Stage the entire file for additions, deletions, renames or binary"),
+            "{error}"
+        );
+        refused += 1;
+    }
+    assert!(refused >= 2, "fixture must expose staged changed lines");
+    assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
+
+    // Binary changes are refused by the shared patch builder itself.
+    let binary = ghtui::diff::Diff::parse(
+        b"diff --git a/b.bin b/b.bin\nindex 1111111..2222222 100644\nBinary files a/b.bin and b/b.bin differ\n",
+    )
+    .unwrap();
+    assert!(binary
+        .selected_patch(0, &[(0, 0)])
+        .unwrap_err()
+        .contains("binary"));
+}
+
+#[test]
+fn v1_local_gaps_failed_partial_apply_reports_git_error_and_discards_nothing() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"one\ntwo\n", "saved version");
+    fs::write(fixture.repo().join("file.txt"), b"one\nadded\ntwo\n").unwrap();
+    let view = workspace(&fixture, RepositoryMode::Working);
+    let row = view
+        .rows
+        .iter()
+        .position(|row| {
+            row.label.contains("added") && matches!(row.action, Some(RowAction::DiffLine(_)))
+        })
+        .unwrap();
+    let plan = prepare(
+        LocalCommand::StageSelection,
+        &LocalContext::from_row(&view, row),
+        &[],
+    );
+    // Another Git process holds the index: `git apply --cached` cannot write it.
+    let lock = fixture.repo().join(".git/index.lock");
+    fs::write(&lock, b"").unwrap();
+    let error = plan
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(error.contains("index.lock"), "{error}");
+    assert!(error.contains("Refresh repository state"), "{error}");
+    fs::remove_file(&lock).unwrap();
+    assert_eq!(fixture.git(&["show", ":file.txt"]), "one\ntwo\n");
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"one\nadded\ntwo\n"
+    );
+}
+
+#[test]
+fn v1_local_gaps_failing_signer_and_noninteractive_editor_prompt_preserve_staged_work() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved\n", "initial");
+    fs::write(fixture.repo().join("file.txt"), b"staged\n").unwrap();
+    fixture.git(&["add", "file.txt"]);
+    let signer = fixture.root.join("failing-signer");
+    fs::write(
+        &signer,
+        b"#!/bin/sh\necho 'fixture signer has no secret key' >&2\nexit 2\n",
+    )
+    .unwrap();
+    fs::set_permissions(&signer, fs::Permissions::from_mode(0o700)).unwrap();
+    fixture.git(&["config", "commit.gpgsign", "true"]);
+    fixture.git(&["config", "gpg.program", signer.to_str().unwrap()]);
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let staged = fixture.git(&["show", ":file.txt"]);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let failure = prepare(LocalCommand::Commit, &context, &[("message", "signed")])
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(failure.starts_with("Commit signing failed"), "{failure}");
+    assert!(failure.contains("failed to sign"), "{failure}");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["show", ":file.txt"]), staged);
+
+    // Hooks run without an interactive editor or credential prompt.
+    fixture.git(&["config", "commit.gpgsign", "false"]);
+    let hook = fixture.repo().join(".git/hooks/pre-commit");
+    fs::write(
+        &hook,
+        b"#!/bin/sh\necho \"editor=$GIT_EDITOR prompt=$GIT_TERMINAL_PROMPT\" >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(hook, fs::Permissions::from_mode(0o700)).unwrap();
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let failure = prepare(LocalCommand::Commit, &context, &[("message", "hooked")])
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    // Git hands hooks a no-op editor (`:`) for a supplied message; ghtui's own is `false`.
+    assert!(
+        failure.contains("editor=: prompt=0") || failure.contains("editor=false prompt=0"),
+        "{failure}"
+    );
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["show", ":file.txt"]), staged);
+}
+
+#[test]
+fn v1_local_gaps_switch_untracked_collision_worktree_owned_branch_and_detached_head() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved\n", "initial");
+    let head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["switch", "-c", "other"]);
+    fixture.commit_file("collide.txt", b"tracked on other\n", "other adds collide");
+    fixture.git(&["switch", "main"]);
+    fs::write(fixture.repo().join("collide.txt"), b"my untracked notes\n").unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let error = LocalPlan::prepare(
+        LocalCommand::SwitchBranch,
+        &context,
+        &values(&[("name", "other")]),
+        CancellationToken::default(),
+    )
+    .and_then(|plan| plan.execute(true, CancellationToken::default()).map(|_| ()))
+    .unwrap_err();
+    assert!(
+        // Refused before Git by the dirty-state gate, or by Git itself.
+        error.contains("Save or stash local changes") || error.contains("would be overwritten"),
+        "{error}"
+    );
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
+    assert_eq!(
+        fs::read(fixture.repo().join("collide.txt")).unwrap(),
+        b"my untracked notes\n"
+    );
+    fs::remove_file(fixture.repo().join("collide.txt")).unwrap();
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    // A branch checked out in a linked worktree can be neither switched to nor deleted here.
+    let linked = fixture.root.join("linked-worktree");
+    fixture.git(&[
+        "worktree",
+        "add",
+        "-b",
+        "linked",
+        linked.to_str().unwrap(),
+        &head,
+    ]);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let error = LocalPlan::prepare(
+        LocalCommand::SwitchBranch,
+        &context,
+        &values(&[("name", "linked")]),
+        CancellationToken::default(),
+    )
+    .and_then(|plan| plan.execute(true, CancellationToken::default()).map(|_| ()))
+    .unwrap_err();
+    assert!(error.contains("worktree"), "{error}");
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let delete = prepare(
+        LocalCommand::DeleteBranch,
+        &context,
+        &[("name", "linked"), ("force", "true")],
+    );
+    assert!(
+        v1_has(&delete, "linked is checked out in linked worktree"),
+        "{:?}",
+        delete.preview
+    );
+    let error = delete
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(
+        error.starts_with("Branch is checked out in this or another worktree"),
+        "{error}"
+    );
+    assert_eq!(fixture.git(&["rev-parse", "linked"]).trim(), head);
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    // Detached HEAD: named, pull requests refused, and a new branch can adopt the commit.
+    fixture.git(&["switch", "--detach", &head]);
+    let view = workspace(&fixture, RepositoryMode::Overview);
+    assert!(view.status.detached);
+    assert!(
+        view.rows
+            .iter()
+            .any(|row| row.label.contains("detached HEAD")),
+        "{:?}",
+        view.rows.iter().map(|row| &row.label).collect::<Vec<_>>()
+    );
+    let context = LocalContext::from_workspace(&view, None, None);
+    assert!(LocalCommand::CreatePullRequest
+        .disabled_reason(&context)
+        .unwrap()
+        .contains("named local branch"));
+    execute(&prepare(
+        LocalCommand::CreateBranch,
+        &context,
+        &[("name", "adopted"), ("revision", &head)],
+    ));
+    execute(&prepare(
+        LocalCommand::SwitchBranch,
+        &context,
+        &[("name", "adopted")],
+    ));
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "adopted\n");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), head);
+}
+
+#[test]
+fn v1_local_gaps_unreachable_remote_cancelled_push_remote_hook_and_pull_conflict() {
+    use std::os::unix::fs::PermissionsExt;
+    let (fixture, remote, local_head, remote_head) = v1_local_branches_diverged_fixture();
+    let absent = fixture.root.join("absent.git");
+    fixture.git(&["remote", "add", "missing", absent.to_str().unwrap()]);
+    let refs = fixture.git(&["show-ref"]);
+
+    // An unreachable remote changes nothing and says so.
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let error = prepare(LocalCommand::Fetch, &context, &[("remote", "missing")])
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(
+        error.starts_with("The remote could not be reached. Nothing was changed"),
+        "{error}"
+    );
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    // A cancelled write has no remote or local effect.
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let lease = prepare(
+        LocalCommand::ForcePushLease,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("expected_remote", &remote_head),
+        ],
+    );
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert!(lease.execute(true, cancelled).is_err());
+    assert_eq!(v1_remote_main(&remote), remote_head);
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    // A server-side hook refusal is reported as a remote refusal; the remote ref is unchanged.
+    let hook = remote.join("hooks/pre-receive");
+    fs::write(
+        &hook,
+        b"#!/bin/sh\necho 'fixture server policy' >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let error = prepare(
+        LocalCommand::ForcePushLease,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("expected_remote", &remote_head),
+        ],
+    )
+    .execute(true, CancellationToken::default())
+    .unwrap_err();
+    assert!(error.starts_with("The remote refused this push"), "{error}");
+    assert!(error.contains("fixture server policy"), "{error}");
+    assert_eq!(v1_remote_main(&remote), remote_head);
+    fs::remove_file(&hook).unwrap();
+    reconcile(&fixture.repo(), CancellationToken::default()).unwrap();
+
+    // A merge pull that conflicts pauses the merge and keeps the local commit and files.
+    fixture.commit_file("remote.txt", b"local conflicting edit\n", "local edit");
+    let local_edit = fixture.git(&["rev-parse", "HEAD"]);
+    assert_ne!(local_edit.trim(), local_head);
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let pull = prepare(
+        LocalCommand::Pull,
+        &context,
+        &[
+            ("remote", "origin"),
+            ("branch", "main"),
+            ("strategy", "merge"),
+        ],
+    );
+    let error = pull
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(
+        error.starts_with("CONFLICT: the operation stopped"),
+        "{error}"
+    );
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), local_edit);
+    assert_eq!(v1_remote_main(&remote), remote_head);
+    let paused = workspace(&fixture, RepositoryMode::Overview);
+    assert!(paused.rows.iter().any(|row| row
+        .label
+        .starts_with("⚠ MERGE PAUSED • 1 unresolved conflict")));
+    assert!(fs::read_to_string(fixture.repo().join("remote.txt"))
+        .unwrap()
+        .contains("local conflicting edit"));
+}

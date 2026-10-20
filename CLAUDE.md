@@ -51,6 +51,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **A wait that the old frame already satisfies proves nothing.** After clicking an option that starts a native diff projection, wait for a new frame that shows `Preparing native diff`, and then for a new settled frame. Do this before you click or resize again. Otherwise a later click can land on the resized layout, and the projection's result can overwrite a newer status such as `Stage disabled:`.
 - **Viewer frames and actor rows match panes now.** An embedded viewer's top border reads `╭─ ▶ Title ─╮` (only colours change when that does not fit), so match the title text, never `╭Title`. Commit-actor rows draw the filled initials chip (`AB author …`); `[AB] author` appears only under `NO_COLOR`, and a cut label keeps the whole `role name` before its email.
 - **Settings focus order is fixed:** Host, Repository set, Theme, Density, Save, Close. If you add a control, update the hard-coded indexes in `src/app.rs` and `src/ui.rs`, and update the keyboard journeys that tab to Save.
+- **Paused-operation rows sit below the fold at 80×24.** A rebase or cherry-pick banner has Continue, Skip and Abort rows, so `[Abort rebase]` is not painted in the Files pane at 80×24. Click those rows at 120×40, or open the same command through `m`. In linked-worktree fixtures, find the index with `git rev-parse --git-path index`, not `.git/index`.
 
 ## 6. Product invariants that are easy to break
 
