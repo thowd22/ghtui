@@ -289,6 +289,18 @@ pub fn prepare(
                     prepared.status = "Default dashboard saved • account-scoped preferences only • original evidence as-of retained".into();
                 }
             }
+            // Retain today's points for a fresh or recomputed snapshot and attach the
+            // window's retained trend. Open keeps the original workspace's trends.
+            if prepared.navigate_to.is_none() {
+                if let Some(metrics) = &mut prepared.metrics {
+                    let retained = crate::metrics_trend_v1::retain_and_load(
+                        &request.database,
+                        &metrics.snapshot,
+                        !cancel.is_cancelled(),
+                    );
+                    metrics.attach_trends(retained);
+                }
+            }
             prepared.verified_identity = Some(final_identity.clone());
             if let Some(metrics) = prepared
                 .metrics

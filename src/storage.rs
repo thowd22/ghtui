@@ -21,6 +21,8 @@ pub(crate) use state_filter_v68::{
     state_disposition_fingerprint_v74, state_origin_fingerprint_v74,
 };
 pub(crate) use state_filter_v68::{StateAckCacheEpochV77, StateAckQueueBoundaryV78};
+mod metric_trends_v1;
+pub use metric_trends_v1::{METRIC_TREND_PAYLOAD_BYTES, METRIC_TREND_RETAINED_DAYS};
 mod metrics_retention;
 pub use metrics_retention::{
     MetricAuthorityPhase, MetricCategoryBatch, MetricEventTarget, MetricEventsReservation,

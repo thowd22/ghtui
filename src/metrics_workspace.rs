@@ -178,6 +178,10 @@ pub enum MetricsWorkspaceAction {
     Select(usize),
     Inspect(usize),
     Repositories,
+    /// Open the retained daily trend of the card at this row (or the card on screen).
+    Trend(usize),
+    /// Inspect one retained trend day's records (index into that trend's retained days).
+    TrendDay(usize),
     Explain(String),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,6 +192,8 @@ pub enum MetricsView {
     Details { card: usize, contributor: usize },
     CardInfo(usize),
     Repositories,
+    Trend(usize),
+    TrendDay { card: usize, day: usize },
 }
 #[derive(Clone, Debug)]
 pub struct MetricsPreparedRow {
@@ -260,6 +266,10 @@ pub struct MetricsWorkspace {
     repository_return: (MetricsView, usize, usize),
     info_return: (MetricsView, usize, usize),
     canonical_index: Arc<BTreeMap<(String, u64), usize>>,
+    /// Retained daily trends per snapshot card; empty until the worker attaches them.
+    pub trends: Arc<[crate::metrics_trend_v1::PreparedTrend]>,
+    trend_return: (MetricsView, usize, usize),
+    trend_day_return: (usize, usize),
 }
 fn row(
     label: String,
@@ -288,7 +298,7 @@ fn coverage_role(coverage: &EvidenceCoverage) -> SemanticToken {
         _ => SemanticToken::Pending,
     }
 }
-fn value_label(value: &MetricValue) -> String {
+pub(crate) fn value_label(value: &MetricValue) -> String {
     match value {
         MetricValue::Count(count) => count.to_string(),
         MetricValue::MeanSeconds {sum, samples} if *samples > 0 => format!("{}s mean / {samples} measured", sum / u128::from(*samples)),
@@ -485,7 +495,7 @@ fn open_action(
             MetricsWorkspaceAction::Metric(MetricsAction::Open(target.clone()))
         })
 }
-fn target_label(target: &MetricTarget) -> String {
+pub(crate) fn target_label(target: &MetricTarget) -> String {
     match target {
         MetricTarget::PullRequest(pr) => format!("{}#{}", pr.repository, pr.number),
         MetricTarget::Review { pr, review_id } => {
@@ -964,6 +974,9 @@ impl MetricsWorkspace {
             repository_return: (MetricsView::Cards, 0, 0),
             info_return: (MetricsView::Cards, 0, 0),
             canonical_index: Arc::new(canonical),
+            trends: Arc::from([]),
+            trend_return: (MetricsView::Cards, 0, 0),
+            trend_day_return: (0, 0),
         };
         prepared.rebuild_layout()?;
         Ok(prepared)
@@ -979,6 +992,27 @@ impl MetricsWorkspace {
             MetricsView::Details { card, contributor } => &self.cards[card].details[contributor],
             MetricsView::CardInfo(card) => &self.cards[card].formula_rows,
             MetricsView::Repositories => &self.repository_rows,
+            MetricsView::Trend(card) => &self.trends[card].rows,
+            MetricsView::TrendDay { card, day } => &self.trends[card].days[day],
+        }
+    }
+    /// Worker-only: prepares every card's trend from retained points (or why they are
+    /// unavailable). Drawing only reads these rows.
+    pub fn attach_trends(
+        &mut self,
+        retained: Result<crate::metrics_trend_v1::RetainedTrends, String>,
+    ) {
+        self.trends = self
+            .snapshot
+            .cards
+            .iter()
+            .map(|card| crate::metrics_trend_v1::prepare(card.kind, &self.snapshot, &retained))
+            .collect();
+        if matches!(
+            self.view,
+            MetricsView::Trend(_) | MetricsView::TrendDay { .. }
+        ) {
+            (self.view, self.selected, self.top) = self.trend_return;
         }
     }
     pub fn selected_action(&self) -> Option<MetricsWorkspaceAction> {
@@ -1053,6 +1087,7 @@ impl MetricsWorkspace {
             &mut self.layout_return,
             &mut self.repository_return,
             &mut self.info_return,
+            &mut self.trend_return,
         ] {
             if position.0 == MetricsView::Cards {
                 position.1 = position.1.min(last);
@@ -1162,7 +1197,9 @@ impl MetricsWorkspace {
                                 .ok_or("Original dashboard widget unavailable")?,
                         );
                     }
-                    MetricsView::Details { card, .. } => {
+                    MetricsView::Details { card, .. }
+                    | MetricsView::Trend(card)
+                    | MetricsView::TrendDay { card, .. } => {
                         self.info_return = original;
                         self.view = MetricsView::CardInfo(card);
                     }
@@ -1172,6 +1209,52 @@ impl MetricsWorkspace {
                         )
                     }
                 }
+                self.selected = 0;
+                self.top = 0;
+            }
+            MetricsWorkspaceAction::Trend(index) => {
+                let card = match self.view {
+                    MetricsView::Cards => self
+                        .displayed_card(index.min(self.card_rows.len().saturating_sub(1)))
+                        .ok_or("Original dashboard widget unavailable")?,
+                    MetricsView::Contributors(card)
+                    | MetricsView::CardInfo(card)
+                    | MetricsView::Details { card, .. } => card,
+                    MetricsView::Trend(_) | MetricsView::TrendDay { .. } => return Ok(None),
+                    MetricsView::Layout | MetricsView::Repositories => {
+                        return Err("Return to dashboard cards before opening a trend".into())
+                    }
+                };
+                if self.trends.len() != self.cards.len() {
+                    return Err(
+                        "Trend history is not prepared for this Dashboard; Refresh first".into(),
+                    );
+                }
+                if self.view == MetricsView::Cards {
+                    self.selected = index.min(self.card_rows.len().saturating_sub(1));
+                }
+                self.remember();
+                self.trend_return = (self.view, self.selected, self.top);
+                self.view = MetricsView::Trend(card);
+                self.selected = 0;
+                self.top = 0;
+            }
+            MetricsWorkspaceAction::TrendDay(day) => {
+                let MetricsView::Trend(card) = self.view else {
+                    return Err("Open a metric trend before inspecting a retained day".into());
+                };
+                if day >= self.trends[card].days.len() {
+                    return Err("Retained trend day unavailable".into());
+                }
+                if let Some(index) = self.trends[card]
+                    .rows
+                    .iter()
+                    .position(|row| row.action == Some(MetricsWorkspaceAction::TrendDay(day)))
+                {
+                    self.selected = index;
+                }
+                self.trend_day_return = (self.selected, self.top);
+                self.view = MetricsView::TrendDay { card, day };
                 self.selected = 0;
                 self.top = 0;
             }
@@ -1224,6 +1307,18 @@ impl MetricsWorkspace {
                     }
                     MetricsView::Repositories => {
                         (self.view, self.selected, self.top) = self.repository_return;
+                    }
+                    MetricsView::Trend(_) => {
+                        (self.view, self.selected, self.top) = self.trend_return;
+                        if self.view == MetricsView::Cards {
+                            self.selected =
+                                self.selected.min(self.card_rows.len().saturating_sub(1));
+                            self.top = self.top.min(self.selected);
+                        }
+                    }
+                    MetricsView::TrendDay { card, .. } => {
+                        self.view = MetricsView::Trend(card);
+                        (self.selected, self.top) = self.trend_day_return;
                     }
                 }
             }

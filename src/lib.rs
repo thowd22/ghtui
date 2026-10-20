@@ -40,6 +40,7 @@ pub mod local_picker;
 pub mod metrics;
 pub mod metrics_repository;
 pub mod metrics_routes;
+pub mod metrics_trend_v1;
 pub mod metrics_ui;
 pub mod metrics_workspace;
 pub mod native_diff_operation_v3;

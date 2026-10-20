@@ -105,7 +105,9 @@ pub fn draw(
         let card = match workspace.view {
             MetricsView::Contributors(card)
             | MetricsView::Details { card, .. }
-            | MetricsView::CardInfo(card) => Some(card),
+            | MetricsView::CardInfo(card)
+            | MetricsView::Trend(card)
+            | MetricsView::TrendDay { card, .. } => Some(card),
             _ => None,
         };
         if let Some(card) = card {
@@ -325,6 +327,19 @@ pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
         KeyControl::new("O", "Open saved", metric(MetricsAction::RestoreDashboard))
             .with_priority(42),
         KeyControl::new("D", "Defaults", metric(MetricsAction::DefaultDashboard)).with_priority(44),
+        KeyControl::new("t", "Trend", Action::Metrics(W::Trend(workspace.selected)))
+            .with_priority(if layout { 64 } else { 46 })
+            .disabled_by(
+                matches!(
+                    workspace.view,
+                    MetricsView::Layout | MetricsView::Repositories
+                )
+                .then(|| "Return to dashboard cards before opening a trend".to_string()),
+            )
+            .with_selected(matches!(
+                workspace.view,
+                MetricsView::Trend(_) | MetricsView::TrendDay { .. }
+            )),
     ]);
     if workspace.pending.is_some() {
         for key in &mut keys {

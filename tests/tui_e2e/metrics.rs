@@ -14,6 +14,8 @@ use std::{collections::BTreeMap, fs, time::Duration};
 mod boundaries;
 #[path = "dashboard_origin_v1.rs"]
 mod dashboard_origin_v1;
+#[path = "dashboard_trends_v1.rs"]
+mod dashboard_trends_v1;
 #[path = "dashboards_v1.rs"]
 mod dashboards_v1;
 #[path = "design_footer_v90.rs"]
