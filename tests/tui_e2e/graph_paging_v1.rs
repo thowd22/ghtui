@@ -787,6 +787,80 @@ fn source_and_cancel(mouse: bool) {
         s.quit_and_assert_restored_terminal(mouse);
     }
 }
+/// TASK-100: the History status is one line on the pane's bottom border (`╰─ Read-only …`),
+/// never a second line inside the table above the app status bar.
+fn status_on_border(screen: &str) {
+    let lines: Vec<&str> = screen
+        .lines()
+        .filter(|line| line.contains("Read-only · "))
+        .collect();
+    assert_eq!(lines.len(), 1, "one History status line\n{screen}");
+    assert!(
+        lines[0].trim_start().starts_with("╰─ Read-only · "),
+        "the status sits on the pane's bottom border\n{screen}"
+    );
+}
+const NEWER: &str = "↑ 200 newer commits · < page";
+/// TASK-100: on a window past the newest commit, a `↑ 200 newer commits · < page` row sits
+/// above the column titles; clicking it or `<` shows the newer page, without a Git walk.
+fn newer_boundary(mouse: bool) {
+    let n = fixture("page");
+    let mut s = launch(&n, mouse);
+    graph(&n, &mut s, mouse, 200);
+    s.wait_for_settled_footer();
+    choose_bar_or_palette(&mut s, mouse, "[L Load more]", b"L");
+    wait_status(&mut s, 361, 0, false);
+    status_on_border(&s.screen());
+    assert!(!s.screen().contains("newer commit"), "{}", s.screen());
+    let loaded = trace(&n).len();
+    for (width, height) in [(120, 40), (80, 24), (140, 42)] {
+        if width != 120 {
+            s.resize(width, height);
+            s.wait_for_main_frame();
+            s.wait_for_history_ready();
+        }
+        s.wait_for_settled_footer();
+        choose_bar_or_palette(&mut s, mouse, "[> Older loaded]", b">");
+        wait_status(&mut s, 361, 200, false);
+        s.wait_for_screen(NEWER);
+        let screen = s.screen();
+        status_on_border(&screen);
+        let lines: Vec<&str> = screen.lines().collect();
+        let y = lines.iter().position(|line| line.contains(NEWER)).unwrap();
+        assert!(
+            lines[y + 1].contains("GRAPH") && lines[y + 1].contains("MESSAGE"),
+            "the boundary row sits above the column titles\n{screen}"
+        );
+        if mouse {
+            let (x, y) = s
+                .locate(NEWER)
+                .unwrap_or_else(|| panic!("boundary row missing\n{}", s.screen()));
+            s.click(x + 4, y);
+        } else {
+            s.send_key(b"<");
+        }
+        wait_status(&mut s, 361, 0, false);
+        s.wait_for_cursorless_condition(
+            |frame| !frame.contents().contains(NEWER),
+            "the newest page has no newer-commits row",
+            Duration::from_secs(8),
+        );
+        status_on_border(&s.screen());
+        s.wait_for_screen(&n.tip[..7]);
+    }
+    // Paging between loaded windows never walks Git again, and nothing is written.
+    unchanged_calls(&n, &mut s, loaded);
+    effects(&n, &s, None);
+    s.quit_and_assert_restored_terminal(mouse);
+}
+#[test]
+fn history_polish_v100_keyboard_newer_boundary_and_border_status_at_80x24_and_140x42() {
+    newer_boundary(false)
+}
+#[test]
+fn history_polish_v100_mouse_newer_boundary_and_border_status_at_80x24_and_140x42() {
+    newer_boundary(true)
+}
 #[test]
 fn commit_graph_v1_native_keyboard_paging_keeps_original_tip_and_disabled_completion() {
     paging(false)

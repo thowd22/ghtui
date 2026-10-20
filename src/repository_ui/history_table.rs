@@ -338,6 +338,67 @@ fn row(parts: &Parts, width: Option<usize>, theme: Theme) -> TableRow<RowAction>
     .with_action(Some(RowAction::Commit(parts.id.clone())))
 }
 
+/// Lanes the capped GRAPH column always fits.
+const GRAPH_MIN_LANES: usize = 4;
+
+/// Cells of the GRAPH column at most: a fifth of the table, never fewer than four lanes.
+pub(crate) fn graph_cap(width: u16) -> usize {
+    usize::from(width / 5).max(GRAPH_MIN_LANES * 2)
+}
+
+/// The summary with the filter's mode when History filters.
+fn summary_text(workspace: &Workspace, label: &str, width: u16) -> String {
+    let filter = &workspace.history_filter_v993;
+    let mut summary = label.to_owned();
+    if filter.spec.matching() {
+        // The long wording only when it fits; the filter row already names the mode.
+        let room = usize::from(width.saturating_sub(6));
+        let long = if filter.spec.hide {
+            " · non-matching commits hidden"
+        } else {
+            " · non-matching commits stay visible for context"
+        };
+        let short = if filter.spec.hide {
+            " · non-matches hidden"
+        } else {
+            " · non-matches dimmed"
+        };
+        let fits =
+            crate::editor::display_width(&summary) + crate::editor::display_width(long) <= room;
+        summary.push_str(if fits { long } else { short });
+        if filter.chip_capped() {
+            summary.push_str(" · matches stop at the 10,000-commit walk");
+        }
+    }
+    crate::app::safe_text(&summary)
+}
+
+/// `╰─ Read-only · N commits loaded · … ─╯`: the status on the pane's bottom border, one
+/// border cell kept at each end.
+fn draw_border_status(frame: &mut Frame, theme: Theme, summary: &str, inner: Rect) {
+    let room = usize::from(inner.width.saturating_sub(4));
+    let text = format!(" {} ", crate::ui_chrome::fit(summary, room));
+    let width = (crate::editor::display_width(&text) as u16).min(inner.width.saturating_sub(2));
+    frame.render_widget(
+        Paragraph::new(text).style(theme.role(Role::TextMuted)),
+        Rect::new(inner.x + 1, inner.bottom(), width, 1),
+    );
+}
+
+/// `↑ 200 newer commits · < page` above the column titles.
+fn draw_newer_boundary(frame: &mut Frame, theme: Theme, newer: usize, rect: Rect) {
+    use ratatui::text::{Line, Span};
+    let mut spans = vec![Span::styled(
+        format!(
+            "  ↑ {newer} newer {} · ",
+            if newer == 1 { "commit" } else { "commits" }
+        ),
+        theme.role(Role::TextMuted),
+    )];
+    spans.extend(crate::ui_chrome::key_token_line(theme, "<", "page", false).spans);
+    frame.render_widget(Paragraph::new(Line::from(spans)), rect);
+}
+
 /// The repository's folder name for the `History › <repo> › <scope>` title.
 pub(crate) fn repository_name(workspace: &crate::workspace::Workspace) -> String {
     crate::app::safe_text(&workspace.directory.file_name().map_or_else(
@@ -392,49 +453,52 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let rows = workspace.display_rows_v1();
-    // Row 0 is the window summary (`Read-only · N commits loaded`): the status line.
+    // Row 0 is the window summary (`Read-only · N commits loaded`): History's one status
+    // line, drawn on the pane's bottom border below the table (TASK-100).
     let summary = rows
         .first()
         .filter(|row| row.action.is_none())
-        .map(|row| row.label.as_str());
-    let status_rows = u16::from(summary.is_some() && inner.height >= 4);
-    let body = Rect::new(inner.x, inner.y, inner.width, inner.height - status_rows);
-    if let (Some(summary), 1) = (summary, status_rows) {
-        let filter = &workspace.history_filter_v993;
-        let mut summary = summary.to_owned();
-        if filter.spec.matching() {
-            // The long wording only when it fits; the filter row already names the mode.
-            let room = usize::from(inner.width.saturating_sub(2));
-            let long = if filter.spec.hide {
-                " · non-matching commits hidden"
-            } else {
-                " · non-matching commits stay visible for context"
-            };
-            let short = if filter.spec.hide {
-                " · non-matches hidden"
-            } else {
-                " · non-matches dimmed"
-            };
-            let fits =
-                crate::editor::display_width(&summary) + crate::editor::display_width(long) <= room;
-            summary.push_str(if fits { long } else { short });
-            if filter.chip_capped() {
-                summary.push_str(" · matches stop at the 10,000-commit walk");
-            }
+        .map(|row| summary_text(workspace, row.label.as_str(), inner.width));
+    // The border row under the table; without one (a bare test area) the summary keeps the
+    // table's last row instead.
+    let on_border = inner.bottom() < frame.area().bottom() && inner.width >= 12;
+    let status_rows = u16::from(summary.is_some() && !on_border && inner.height >= 4);
+    let mut body = Rect::new(inner.x, inner.y, inner.width, inner.height - status_rows);
+    if let Some(summary) = &summary {
+        if on_border {
+            draw_border_status(frame, theme, summary, inner);
+        } else if status_rows == 1 {
+            frame.render_widget(
+                Paragraph::new(crate::ui_chrome::fit(
+                    summary,
+                    usize::from(inner.width.saturating_sub(2)),
+                ))
+                .style(theme.role(Role::TextMuted)),
+                Rect::new(
+                    inner.x + 2,
+                    inner.bottom() - 1,
+                    inner.width.saturating_sub(2),
+                    1,
+                ),
+            );
         }
-        frame.render_widget(
-            Paragraph::new(crate::ui_chrome::fit(
-                &crate::app::safe_text(&summary),
-                usize::from(inner.width.saturating_sub(2)),
-            ))
-            .style(theme.role(Role::TextMuted)),
-            Rect::new(
-                inner.x + 2,
-                inner.bottom() - 1,
-                inner.width.saturating_sub(2),
-                1,
-            ),
-        );
+    }
+    // A window that does not start at the newest loaded commit says how many are newer, as
+    // a row above the column titles that pages to them like `<` (TASK-100).
+    let newer = workspace.graph_projection_start_v2;
+    let mut boundary = None;
+    if newer > 0 && body.height >= 5 {
+        let rect = Rect::new(body.x, body.y, body.width, 1);
+        draw_newer_boundary(frame, theme, newer, rect);
+        boundary = Some(HitRegion {
+            rect,
+            action: Action::RepositoryRow(RowAction::Graph(
+                crate::repository_graph_v1::GraphActionV1::Window(
+                    crate::repository_graph_v1::projection_v2::GraphWindowActionV2::Newer,
+                ),
+            )),
+        });
+        body = Rect::new(body.x, body.y + 1, body.width, body.height - 1);
     }
     let first = usize::from(summary.is_some());
     let now = crate::storage::now();
@@ -481,8 +545,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // GRAPH grows to the widest lanes shown so far and never shrinks while History stays
     // open, so COMMIT and MESSAGE do not jump sideways when scrolling back past a merge, and
     // a burst of parallel branches further down does not squeeze every message up front
-    // (TASK-99). It never takes more than a quarter of the table; wider rows end in `…` and
-    // pan with `<`/`>`.
+    // (TASK-99). It never takes more than a fifth of the table (but always four lanes), so
+    // messages stay readable beside many lanes; wider rows end in `…` before their `●` and
+    // pan with `←`/`→` (TASK-100).
     let lanes = parts
         .iter()
         .skip(top)
@@ -498,7 +563,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or(0)
         .max(app.history_graph_width_v99);
     app.history_graph_width_v99 = lanes;
-    let cap = usize::from(body.width / 4).max(usize::from(HISTORY_COLUMNS[0].min));
+    let cap = graph_cap(body.width);
     natural[0] = u16::try_from(lanes.min(cap))
         .unwrap_or(u16::MAX)
         .max(crate::editor::display_width(HISTORY_COLUMNS[0].title) as u16);
@@ -547,6 +612,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     app.repository_visible_rows = rendered.visible_rows;
     app.hits.extend(hits);
+    app.hits.extend(boundary);
     if app.preview_area_v92.is_none() {
         crate::history::detail::prefetch(app);
     }

@@ -174,3 +174,54 @@ fn history_view_v99_blamed_line_commit_opens_history_without_a_file_source() {
     );
     assert_eq!(real.snapshot(), before);
 }
+
+fn newer_page() -> Action {
+    Action::RepositoryRow(RowAction::Graph(
+        crate::repository_graph_v1::GraphActionV1::Window(
+            crate::repository_graph_v1::projection_v2::GraphWindowActionV2::Newer,
+        ),
+    ))
+}
+
+/// TASK-100: one status line on the pane's bottom border, and a clickable `↑ N newer
+/// commits · < page` row when the window does not start at the newest commit.
+#[test]
+fn history_polish_v100_status_on_border_and_newer_boundary_row_at_80x24_and_140x42() {
+    let real = Real::new("sha1");
+    let before = real.snapshot();
+    let mut app = history_app(&real);
+    for (width, height) in [(80, 24), (140, 42)] {
+        let text = screen(&mut app, width, height);
+        let status: Vec<&str> = text
+            .lines()
+            .filter(|line| line.contains("Read-only · 3 commits loaded"))
+            .collect();
+        assert_eq!(status.len(), 1, "one status line\n{text}");
+        assert!(
+            status[0].starts_with("╰─ Read-only · 3 commits loaded"),
+            "the status sits on the pane's bottom border\n{text}"
+        );
+        assert!(!text.contains("newer commit"), "{text}");
+        assert!(!app.hits.iter().any(|hit| hit.action == newer_page()));
+    }
+    app.workspace.as_mut().unwrap().graph_projection_start_v2 = 200;
+    for (width, height) in [(80, 24), (140, 42)] {
+        let text = screen(&mut app, width, height);
+        let lines: Vec<&str> = text.lines().collect();
+        let y = lines
+            .iter()
+            .position(|line| line.contains("↑ 200 newer commits · < page"))
+            .unwrap_or_else(|| panic!("boundary row missing\n{text}"));
+        assert!(
+            lines[y + 1].contains("GRAPH") && lines[y + 1].contains("MESSAGE"),
+            "the boundary sits above the column titles\n{text}"
+        );
+        let hit = app
+            .hits
+            .iter()
+            .find(|hit| hit.action == newer_page())
+            .expect("the boundary row is a click target");
+        assert_eq!(usize::from(hit.rect.y), y);
+    }
+    assert_eq!(real.snapshot(), before);
+}

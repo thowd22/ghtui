@@ -317,3 +317,17 @@ fn history_filter_v993_rows_dim_non_matches_and_underline_the_query() {
         1
     );
 }
+
+#[test]
+fn history_polish_v100_graph_column_caps_at_a_fifth_but_keeps_four_lanes_and_the_dot() {
+    // 80x24: the table is 78 cells, so GRAPH stops at 15 and leaves MESSAGE its room.
+    assert_eq!(graph_cap(78), 15);
+    assert_eq!(graph_cap(136), 27);
+    // Never fewer than four lanes (`● │ │ │`).
+    assert_eq!(graph_cap(30), 8);
+    let theme = theme(ColorMode::NoColor);
+    let lanes = vec![("│ │ │ │ │ │ │ ●".to_owned(), theme.graph(0))];
+    let clipped = clip_graph(&lanes, graph_cap(30), theme);
+    let text: String = clipped.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(text, "│ │ │ …●", "the commit's dot survives the cut");
+}
