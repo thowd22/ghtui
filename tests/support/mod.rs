@@ -11,6 +11,7 @@ pub use controls::{
 };
 pub mod cursorless_frames;
 pub mod fixture_shell_publication_v1;
+pub mod history_fixture;
 #[cfg(target_os = "linux")]
 pub mod inherited_fixture_writer_v1;
 pub mod owned_pty_processes_v1;
