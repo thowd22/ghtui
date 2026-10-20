@@ -505,3 +505,31 @@ fn design_help_v97_help_overlay_paints_view_keys_before_the_prose_at_80_and_140(
         );
     }
 }
+
+#[test]
+fn navigation_ui_background_completion_reopens_open_palette_with_fresh_targets_and_query() {
+    let mut app = App::default();
+    let mut background = crate::runtime::Background::new();
+    assert!(background.submit(&mut app, View::Dashboard, |_| Err("boom".into())));
+    app.dispatch(Action::Palette);
+    app.handle_event(Event::Paste("Open Repository".into()));
+    let old = app.command_palette_context.unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !background.poll(&mut app) {
+        assert!(std::time::Instant::now() < until);
+        std::thread::yield_now();
+    }
+    // The completion retired the old targets, and Commands came back from the current state.
+    assert_eq!(app.overlay, Some(Overlay::Palette));
+    assert!(!old.is_current(app.view, app.command_source_epoch));
+    assert!(app
+        .command_palette_context
+        .is_some_and(|context| context.is_current(app.view, app.command_source_epoch)));
+    assert_eq!(
+        app.command_palette.as_ref().unwrap().query(),
+        "Open Repository"
+    );
+    let screen = draw(&mut app, 80, 24);
+    assert!(screen.contains("Commands · current context"));
+    assert!(screen.contains("> Open Repository"));
+}

@@ -69,6 +69,17 @@ pub fn open_palette(app: &mut App) {
         Err(error) => app.dispatch(Action::Explain(error)),
     }
 }
+/// Reopens Commands after a background completion retired it, with fresh targets and the
+/// same query. Leaves any overlay the completion opened (or an intact palette) alone.
+pub fn reopen_retired_palette(app: &mut App, query: String) {
+    if app.overlay.is_some() || app.command_palette.is_some() {
+        return;
+    }
+    open_palette(app);
+    if !query.is_empty() {
+        palette_input(app, PaletteAction::Insert(query));
+    }
+}
 pub fn palette_input(app: &mut App, input: PaletteAction) {
     if app.overlay != Some(Overlay::Palette) {
         return;

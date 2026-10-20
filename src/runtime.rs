@@ -1016,6 +1016,20 @@ impl Background {
     }
 
     pub fn poll(&mut self, app: &mut App) -> bool {
+        // A completion retires the open palette's prepared targets; reopen it from the
+        // current state with the typed query instead of silently dropping the user's ':'.
+        let palette_query = (app.overlay == Some(crate::app::Overlay::Palette)).then(|| {
+            app.command_palette
+                .as_ref()
+                .map_or_else(String::new, |palette| palette.query().to_owned())
+        });
+        let changed = self.poll_completions(app);
+        if let Some(query) = palette_query {
+            crate::navigation_ui::reopen_retired_palette(app, query);
+        }
+        changed
+    }
+    fn poll_completions(&mut self, app: &mut App) -> bool {
         let mut changed = false;
         while let Ok(mut completion) = self.completions.try_recv() {
             if let Some(admitted) = self.poll_catalogue_clear_v5(app, &mut completion) {
