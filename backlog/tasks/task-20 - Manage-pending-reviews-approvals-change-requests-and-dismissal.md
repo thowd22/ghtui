@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - review
   - e2e
@@ -387,4 +387,6 @@ Root V74 restart fixture correction VERIFIED ACTUALLY: Personal queue Refresh no
 2026-10-18 a04: PR actions menu reviews usable daily: own-PR/closed-PR review refusal shown before opening a form, review form states exact effect + 'Review summary' field, Summary shows latest decision per reviewer after refresh, menu entry points to Files->F10 Reviews for pending/dismiss/re-request. Gate: node scripts/test-task.mjs v1_pr_reviews passed (2 code + 6 PTY, keyboard+mouse); related pending_reviews_v2_avatars_v7 ready (2), personal_pr_common_v14 pending (2), pr_merge (4), lib avatars_v7 (12), forms (20), pr_legacy_contract (8) passed.
 
 2026-10-20 audit at 74360e48 (5/6 ACs met): Pending reviews in F10 Reviews: create, edit, delete, resume, submit (approve, changes, comment), discard, dismiss and re-request, with paired keyboard and mouse PTY tests and stale-head and restart handling. Remaining: dismiss and re-request permission is shown as UNKNOWN, never checked against a verified capability. Remaining: AC2: approve, request changes, comment, submit, discard, re-request and dismissal are all wired and tested, including a denied 403 dismissal that is not retried (actual_denied_dismissal_unknown_no_retry). But the app never checks permission before dismissal or re-request. The UI labels both as 'eligibility UNKNOWN' (scoped_pr_review_operations_v3.rs:38, browser_v2.rs:557), so they are not tied to a verified capability. Also, pending-review management only lives under Files > F10. The Summary men
+
+2026-10-20 final push (verified at 60167066, 6107/0): Not done in this push: dismissal permission is not checked in advance.
 <!-- SECTION:NOTES:END -->

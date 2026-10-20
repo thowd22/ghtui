@@ -1,11 +1,11 @@
 ---
 id: TASK-22
 title: Track viewed files and resume review progress
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - review
   - e2e
@@ -82,4 +82,6 @@ ACTUAL Root strict-read contracts: sharedtarget/privateTMPDIR/offline locked car
 Fresh coherent Linux whole checkpoint GREEN after native progress activation: sharedtarget/privateTMPDIR/Gitceiling/jobs2/incremental0 offline locked cargo test --all-targets passed580 meaningful code/provider contracts and178 actual compiled-binary PTY journeys, zero failed/ignored; normal main0 is not coverage, PTY17.02s. Counts mechanically summed from every actual target result. Whole cargo fmt --check PASS0.87s, cargo clippy --offline --locked --all-targets -- -D warnings PASS1.70s. Logs target/build/root-actions-progress-all-targets.log, root-actions-progress-fmt.log, root-actions-progress-clippy.log. Checked viewed_files10+2 remains currenttask evidence; README updated to actual checkpoint. Failure/disabled/unknown-write additional matrix, related task dependencies, full product and native macOS/release gates remain open, no Task22 Done or live GitHub parity claim.
 
 2026-10-20 audit at 74360e48 (6/6 ACs met): Viewed/unviewed is in the PR actions menu, and changed-head invalidation and restart resume are verified (viewed_files gate: 10 code tests plus 2 PTY tests, and pr_progress 4 PTY tests). It appears ready to mark Done. Remaining: No AC gap found. The backlog is still In Progress. The selected file is restored after restart from account-bound navigation, and the viewed flag is not restored from cache, as intended. Independent check: The happy path is real and reachable. The PR actions menu has MarkViewed/MarkUnviewed (src/pr_actions.rs:29-30,58-59), opened from 'v Review progress'. tests/tui_e2e/pr_progress.rs is included through pr_actions.rs:23. It runs paired keyboard and mouse at 120x40 and 80x24 and restarts. It checks exactly 2 mutations, then on the new head shows DISMISSED as CHANGED SINCE VIEWED with 0/2 viewed. Both
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

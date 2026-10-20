@@ -1,11 +1,11 @@
 ---
 id: TASK-28
 title: Render an understandable incremental commit ancestry graph
-status: In Progress
+status: Done
 assignee:
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - repository
   - e2e
@@ -156,6 +156,8 @@ Frozen Graph compact selector threefile handoff: target/build/provider-parallel-
 2026-10-18 a12: graph shows one row per linear commit (connector rows only for merges/forks/outside-walk parents), short ref names, single actor name + UTC date, 2 heading rows; Details readable times. Gate: node scripts/test-task.mjs v1_repo_views -> 6 code + 2 PTY pass (keyboard+mouse).
 
 2026-10-20 audit at 74360e48 (6/6 ACs met): Graph replaced by TASK-99 History. Every AC is met through History journeys (paging, octopus, shallow, root/detached, legend, details, keyboard and mouse). Close as Done/superseded by TASK-99. Remaining: No real gaps. The selected commit's ancestry shows only as a row tone (SemanticRole::Reference); no PTY assertion checks that highlight directly. Independent check: AC1 is not met: the 'selected ancestry' part never reaches the screen. src/repository_graph_projection_v2.rs:44-90 computes ancestors and gives ancestor rows SemanticRole::Reference. But in src/repository_ui/history_table.rs, commit rows are built by row() (lines 291-340), which never reads row.role. Only text_row() (line 511, used when parts() is None, i.e. for non-commit rows) applies that tone.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->
 
 ## Comments

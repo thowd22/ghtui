@@ -6,7 +6,7 @@ assignee:
   - '@root'
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - inbox
   - e2e
@@ -284,4 +284,6 @@ V83 ACTUAL focused test results now GREEN (strictClippy still running in origina
 V83 checked gate now TERMINAL0, original41400 consumed: target/build/root-personal-tabs-v83-checked-20261015.json actual pr_details1code/2PTY and personal_pr_entry_v1347code/12PTY allPASS0failed/ignored; actual14unique positive native tests collectively,24cleanup-complete sessions. fmt0 strictClippy0 diffcheck0. Main1088frozen source hashes held unchanged across focused+quality gates; fresh WHOLE remains REQUIRED before any whole-current-green claim. V81failedfull4083PASS2FAIL kept; historicalV57whole3865PASS stilllastunfilteredgreen. No Task14/13/fulltabparity/goalcompletion.
 
 2026-10-20 audit at 74360e48 (6/7 ACs met): Checks->shared Actions bridge, logs, search, failed-step, annotations, watch, rerun/cancel all have both-input PTY and provider coverage; only required-check correlation is missing (shown as 'Required rules unavailable'). Remaining: AC1: pending and failing checks are bound to the exact head (exact-head check-runs, attempt-advance and head-change tests), but required checks are never identified. src/providers/gh/pr_resources_v1/model.rs:297 always shows 'Required rules unavailable; observed results are not certified merge blockers'. Branch protection and ruleset required checks are not loaded, so 'required' is only honestly labelled as unavailable, not correlated. Minor: after a rerun, the PR journey stops at 'accepted, com
+
+2026-10-20 final push (verified at 60167066, 6107/0): Not done in this push: required checks still unidentified.
 <!-- SECTION:NOTES:END -->

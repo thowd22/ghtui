@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -64,4 +64,6 @@ Actual checked node scripts/test-task.mjs remote_git passed 5 code/provider + 2 
 2026-10-18 a09: sync previews show upstream/ahead/behind and predict diverged/remote-ahead/first-push outcomes; plain-language failure summaries; push defaults tracking for unpublished branches. Gate: node scripts/test-task.mjs v1_local_branches passed 2 code + 2 PTY (keyboard+mouse), 0 ignored; local_management PTY group 14/14 and local_actions_contracts 13/13.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Explicit-remote fetch/pull(ff/merge/rebase)/push/lease all wired with divergence previews and keyboard+mouse PTY; remaining: force-lease PTY, pull-conflict PTY, auth/cancel/partial-effect failure coverage. Remaining: AC2: pull strategy explained (Rebase replays N local commits) and ForcePushLease is a guarded menu command (local_actions.rs:978 "Never uses unrestricted --force"), but force-with-lease has no PTY journey, and no PTY test runs a pull that hits a conflict to show the merge/rebase sequencer outcome. AC3: a rejected push is covered and preserves refs, and GIT_TERMINAL_PROMPT=0 (git.rs:3088) keeps credential prompts from blocking. No test covers an auth or network failure, an in-flight fetch/push ca
+
+2026-10-20 final push (verified at 60167066, 6107/0): Force-with-lease and pull-conflict journeys added; push refused by server explained. Remaining: cancelling a running fetch/push, partial push reporting.
 <!-- SECTION:NOTES:END -->

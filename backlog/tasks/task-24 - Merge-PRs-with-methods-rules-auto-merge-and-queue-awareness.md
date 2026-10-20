@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - review
   - e2e
@@ -106,4 +106,6 @@ V68 read-only current-source proposal frozen: manifest target/build/provider-pr-
 2026-10-18 a06: PR actions menu gains Enable/Disable auto-merge (gh pr merge --auto --match-head-commit / --disable-auto, receipt only on read-back). Gate: node scripts/test-task.mjs v1_pr_lifecycle -> lib 2 passed, tui_e2e 14 passed; provider_contracts v1_pr_lifecycle 1 passed.
 
 2026-10-20 audit at 74360e48 (1/6 ACs met): Basic pinned merge (merge, squash or rebase) and enabling or disabling auto-merge work from the PR menu, with keyboard and mouse PTY tests. Missing: repository-allowed methods and permissions, merge queue enqueue and cancel UI, and tests for head-race, denied-method and queue journeys. Remaining: AC1: the merge, squash and rebase choices are hard-coded (pr_actions.rs:541). Repository allow_*_merge settings and caller permission are never read. AC3: merge and auto-merge are distinct outcomes, and no --admin flag is used. But merge queue enqueue/dequeue (and merge-async) has no UI; it exists only in the provider and pr_state_model. A queued or accepted-but-not-merged result only produces an error message (pr_actions.rs:1280). AC4: no provider tests for denied methods or queue timeout recon
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC1 closed: merge forms read allowed methods and write permission; merge queue enqueue/dequeue with keyboard+mouse journeys. Remaining: merge-async endpoint, 80x24 variants, who enabled auto-merge (AC6), rulesets not read in advance.
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - delivery
   - e2e
@@ -206,4 +206,6 @@ SOURCE-ONLY approved V166 causal corrective frozen: target/build/graph-parallel-
 2026-10-16 actual V170 checked node scripts/test-task.mjs metrics PASS107code+20real-binaryPTY/0ignored/bothinputs/exact20positiveunique/allcleanup. New real-computation future day/year/leap and half-open boundary2code pass; relative cohort fixtures retain exact76 GH reads/records/unknowns/formulas. Report25f8e028/log6b9e94f1/coverage9e8bdc5f. fmt/strictalltargetClippy/dependencies0. No taskDone/dependency or wholeproduct acceptance; current full suite required after Metadata/blended repair.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): Snapshot metrics with formulas, cohorts, UTC windows, contributor drill-down and partial labels work, with keyboard/mouse PTY coverage. Historical event retention/backfill sits in uncompiled orphan source files and is not done. Remaining: AC2: partial and unavailable coverage is labelled (metrics_workspace.rs:40, metrics_ui.rs:143). Historical retention and backfill are not implemented, though. src/storage/metrics_retention.rs (57 lines) only stores current observations as 'available-history/backfill coverage not yet proven', and nothing outside storage uses its exports. The history/backfill code (src/metrics_history.rs, src/metrics_retained_detail.rs, src/metrics_health.rs, src/metrics/history_basis.rs, src/storage/metrics_reten
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC2 skipped: retention/backfill needs ~5000 lines of uncompiled metrics_history code switched on and verified.
 <!-- SECTION:NOTES:END -->

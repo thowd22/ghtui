@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - actions
   - e2e
@@ -78,4 +78,6 @@ Actual native PTY checkpoint from root: cargo test --offline --test tui_e2e acti
 Checked task-specific command passed: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 node scripts/test-task.mjs actions_secrets_vars. Selected 6 meaningful code/provider and 2 real-binary PTY tests, all passed zero ignored; 1 real secret-form unit +1 secret-plan contract +4 provider scope/redaction/membership tests and2 native PTY3.35s. Runner independently verified successful actual keyboard=true and mouse=true journey records at /tmp/ghtui-test-coverage-PaiJ3R/journeys.jsonl. Latest global checkpoint also passed258 code+102PTY, cargo fmt --check and cargo clippy --all-targets -- -D warnings (root). Full task acceptance/dependencies/platform/remaining workflow scope remain open, so no Done claim.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Secret metadata and variable management work at repo and org scope, with masked transient secret input and keyboard/mouse PTY coverage. Remaining: PTY coverage for environment scope, variable delete/create, and denied-permission UI. Remaining: AC1: repo and org scope are PTY-verified; environment-scope secrets/variables are covered only by provider contracts. Variable create and delete are never completed in PTY (delete is only cancelled). AC3: selected-repository policy is shown and tested, but denied-permission states are not shown or tested in the TUI.
+
+2026-10-20 final push (verified at 60167066, 6107/0): Variable scope journeys added (create/delete). See commit 6d8636b3.
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -66,4 +66,6 @@ Typed local inventory picker gate passed: CARGO_NET_OFFLINE=true CARGO_TARGET_DI
 2026-10-18 a10: Overview lists commits left behind by amend/reset/rebase from the raw HEAD reflog (no Git child, expiry stated); Enter opens the commit and Create rescue branch is prefilled. Gate node scripts/test-task.mjs v1_local_recovery: 5 code + 6 PTY pass.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Reflog left-behind discovery, open-commit and prefilled rescue branch are reachable and PTY-tested both inputs; remaining: reset preview enumerating affected work, missing/expired-object case tests. Remaining: AC2: a rescue branch works. Reset previews show only a generic 'can replace or remove existing history/files' warning (local_actions.rs:917); they do not list the exact commits or dirty files a hard or mixed reset would discard. AC3: the limitation text is present ('local reflog only, entries expire; not a universal undo', workspace.rs:717), but no test covers an expired, pruned or missing-object reflog entry, and only the HEAD reflog is used (branch reflogs are not).
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC2 closed: reset previews list commits and dirty files a hard/mixed reset discards. Remaining AC3: expired/pruned/missing reflog entries; recovery reads only the HEAD reflog.
 <!-- SECTION:NOTES:END -->

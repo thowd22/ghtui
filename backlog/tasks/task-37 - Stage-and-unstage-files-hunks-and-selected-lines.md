@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -105,4 +105,6 @@ Root integrated inline/normal/readonly candidate Stage regression actualGREEN21m
 2026-10-18 a11: direct + Stage / - Unstage keys and controls (hunk under cursor, selected line/range, or file) open with the read-only preview ready, Ctrl-S confirms; staging reloads the same Working/Staged diff, cursor clamped (fixed index panic), completion names target, new-file preview drops phantom last line. Gate: node scripts/test-task.mjs v1_local_staging -> 4 code + 2 PTY (keyboard+mouse) pass; related tui_e2e staging/local_/untracked/identity/workflow_edit_v9 236 pass.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): File, hunk and line staging with keyboard/mouse parity is implemented and PTY-tested; tests are missing for the partial rename/binary refusal and for patch-apply failure. Remaining: AC3 is partial. Stale-selection guards and untracked binary/symlink previews are tested. The refusal to partially stage a rename, binary, add or delete ('Stage the entire file...', src/diff.rs:196) is not asserted by any test. No test covers a git apply failure surfacing without discard. No rename staging fixture exists.
+
+2026-10-20 final push (verified at 60167066, 6107/0): Partial-stage refusals now asserted. See TASK-36..40 batch.
 <!-- SECTION:NOTES:END -->

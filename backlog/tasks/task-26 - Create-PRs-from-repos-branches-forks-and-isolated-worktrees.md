@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - review
   - e2e
@@ -77,4 +77,6 @@ Actual verification checkpoint: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.g
 2026-10-18 a07: Repository Local operations 'Create pull request' (title/body/base/draft) for the checkout's GitHub origin: read-only preview (account, pushed head, duplicate open PR, compare commits/files; unpushed branch explains Push branch), confirm rechecks then one POST repos/{repo}/pulls; draft kept per branch. Gate: node scripts/test-task.mjs v1_pr_create -> 6 lib + 4 PTY (keyboard+mouse) passed; clippy/fmt clean. Gaps: fork/upstream target, reviewers, inbox refresh after create.
 
 2026-10-20 audit at 74360e48 (1/6 ACs met): Creating a PR from the current checkout's origin branch works (preview, duplicate check, one POST, draft kept per branch). Tests: v1_pr_create, 6 lib and 4 PTY. Missing: fork or upstream target, reviewers, inbox refresh after create, and a test that a failed POST keeps the draft. Remaining: AC1: there is no host, repo or fork chooser (origin only), and no reviewers field. Title, body, base, draft and the diff summary are present. AC3: cancel keeps the draft and success reports the canonical PR, but the authored inbox queue is not refreshed after creation, and there is no test that a failed POST keeps the draft. AC2 has no isolated-worktree option, but its intent is met because nothing is pushed or checked out implicitly. AC4 and AC5: no fork or reviewer scenarios. AC6: not verified
+
+2026-10-20 final push (verified at 60167066, 6107/0): Fork parent chooser and Reviewers field (logins or org/team) in create PR; authored queue refreshed after create. See commit 0bebb7b2.
 <!-- SECTION:NOTES:END -->

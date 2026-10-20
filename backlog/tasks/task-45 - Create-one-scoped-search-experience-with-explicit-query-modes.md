@@ -1,11 +1,11 @@
 ---
 id: TASK-45
 title: Create one scoped search experience with explicit query modes
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - search
   - e2e
@@ -43,7 +43,7 @@ The user needs rapid discovery across repositories, code and discussions. Fuzzy 
 <!-- AC:BEGIN -->
 - [x] #1 Search supports Ranked/Exact/Regex/GitHub modes and applicable repo/org/set/type/path/language/actor/state/date/revision filters.
 - [x] #2 Query validation never silently weakens unsupported remote regex/revision/comment semantics.
-- [ ] #3 Results have type/source/scope/freshness, highlighted preview and correct destination context.
+- [x] #3 Results have type/source/scope/freshness, highlighted preview and correct destination context.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -107,4 +107,6 @@ Fresh full Linux checkpoint passed after actual fixes: CARGO_TARGET_DIR=/tmp/ght
 2026-10-18 a13: GitHub mode keeps checkout-origin default scope; typed repo:/org: qualifiers scope one query; issue/repository Open shows number/state/URL/full description in preview; rows show #N. Gate: node scripts/test-task.mjs v1_search (3 code + 2 PTY keyboard/mouse pass); filtered lib search 115, tui_e2e search 34, search_remote_contracts 8, search_contracts 15 pass.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): Four explicit modes, full filter grammar with explicit (never silent) remote rejection, highlighted results and exact open destinations are PTY-tested both inputs; only per-result freshness display is missing. Remaining: AC3: result rows show a type/path/line/repository table with highlighted snippets (search_ui.rs:27) and exact destinations, and the source and scope are labelled ('including uncommitted content', corpus). Per-result freshness (indexed/fetched time) is not visibly rendered in Search results, and no PTY assertion checks freshness.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

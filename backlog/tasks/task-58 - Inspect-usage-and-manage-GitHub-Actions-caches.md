@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - actions
   - e2e
@@ -78,4 +78,6 @@ Actual shared full checkpoint: root ran cargo test --offline --all-targets with 
 Checked task-specific command passed: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 node scripts/test-task.mjs actions_cache. Selected 2 meaningful code/provider and 2 real-binary PTY tests, all passed zero ignored; 1 prepared-cache +1 provider deletion test and2 native PTY3.50s. Runner independently verified successful actual keyboard=true and mouse=true journey records at /tmp/ghtui-test-coverage-QWQNZl/journeys.jsonl. Latest global checkpoint also passed258 code+102PTY, cargo fmt --check and cargo clippy --all-targets -- -D warnings (root). Full task acceptance/dependencies/platform/remaining workflow scope remain open, so no Done claim.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Cache list, filter, usage and guarded single-cache delete work in the app, with keyboard and mouse PTY journeys. Remaining: tests for stale/missing/permission-denied deletes, and showing host cache limits in the UI. Remaining: AC3: the 'Selected cache changed or disappeared' (StaleHead) and 'still visible after deletion' guards exist in code, but no test exercises them. No test covers denied permissions. Host storage/retention limits (cache_limits, organization_cache_usage in operations.rs:651/707) are covered only by a provider test and are never called from the UI. Refresh after delete is done. AC4: the testing steps ask for paging, partial and stale outcomes, and no provider test covers stale, missing or partial de
+
+2026-10-20 final push (verified at 60167066, 6107/0): Cache delete outcomes explained. Remaining: host storage/retention limits not in the UI; denied-permission states untested.
 <!-- SECTION:NOTES:END -->

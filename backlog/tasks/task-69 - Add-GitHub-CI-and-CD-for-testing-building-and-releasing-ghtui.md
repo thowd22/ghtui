@@ -4,7 +4,7 @@ title: Add GitHub CI and CD for testing building and releasing ghtui
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:30'
+updated_date: '2026-10-20 18:20'
 labels:
   - delivery
   - e2e
@@ -83,4 +83,6 @@ Root FULL-read16068B/68line read-only readiness proposal77961c5c876f0ce81d5334fa
 User explicitly approved separate Linux development readiness and final native macOS release acceptance (17Oct). Keep CI/CD near the end. TASK1/2 original macOS acceptance remains open and release-blocking; hosted native macOS build + actual keyboard/mouse PTY evidence must close it before release promotion. Linux baseline Task79 and cross-compilation are not native macOS evidence. This is a sequencing clarification, not implementation, run evidence, status/AC completion or remote creation.
 
 2026-10-18 a15: added .github/workflows/ci.yml (fmt, clippy -D warnings, shellcheck, test-all.mjs with RUST_TEST_THREADS=2, PTY suites run headless) and release.yml (v* tag: cargo-zigbuild musl x86_64/aarch64 on native runners, --version/static check, file:// install check, gh release create). Not yet run on GitHub; shape test v1_release_workflows_* passes.
+
+2026-10-20 final push (verified at 60167066, 6107/0): ci.yml saves failure logs; release.yml installs each exact archive with install.sh and runs keyboard/mouse PTY journeys before upload; single-archive releases refused. Remaining: actions pinned to tags not SHAs; new release steps not yet run on GitHub; macOS deferred.
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - review
   - e2e
@@ -178,4 +178,6 @@ V10 corrective gate ACTUAL GREEN: manifest root-form-preview-v10-inline-scroll-c
 2026-10-18 a05: Files diff gets [i Comment line] (selected diff line opens images at that side/line with range verified; Shift+arrows/drag extends; P auto-verifies range). Files list now loads for PRs whose 100-file page exceeds 128 KiB (cap 1 MiB). Gate: agent-run.sh a05 node scripts/test-task.mjs v1_pr_threads -> 5 code + 2 PTY (keyboard+mouse) passed; filtered inline_comments 24, file_comment 52, immutable_images lib 239 passed.
 
 2026-10-20 audit at 74360e48 (5/6 ACs met): Single/multiline left/right inline comments, replies and outdated threads are PTY-tested both inputs; head-change refusal keeps the draft but there is no tested explicit re-anchor flow. Remaining: AC3 is only partly met. A changed head or UID is refused, no wrong-line POST is made and the draft is kept (native_inline_comments_*_changed_uid_and_head_reject_without_wrong_anchor_or_post; message at src/scoped_pr_inline_native_v1.rs:691 'Inline preview refused • draft retained • explicitly re-anchor if needed'). But there is no re-anchor control or flow that rebinds the kept draft to a new selection on the new head. No test covers re-anchoring after a head change: the 'path' is only a text hi
+
+2026-10-20 final push (verified at 60167066, 6107/0): Not done in this push.
 <!-- SECTION:NOTES:END -->

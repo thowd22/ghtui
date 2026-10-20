@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@root'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - delivery
   - e2e
@@ -75,4 +75,6 @@ Root postboot V3 checked dashboard gate is genuinely terminal0: hard-capped node
 2026-10-15 Root independent composed Main gate GREEN: node scripts/test-all.mjs executed unfiltered cargo test --locked --all-targets under offline/locked fixed CPU200%,MemoryHigh4GiB/Max6GiB/Swap512MiB/Tasks256 scope, shared verification.lock, jobs1/testthreads2/Rayon2/disk target+TMP. ALL2233code/provider including318strictGH +720real-binaryPTY,0failed/ignored; native601.31s. Logs root-fullside-cache-dashboard-maintenance-{whole,fmt,clippy}-v3-first.log. fmt--check0 and strict alltargetClippy -Dwarnings0(59.99s); no lint waiver or vendor source edits. All66 source/config/docs hashes stayed frozen through these gates; all57 original earlier-negative source paths unchanged. Independent whole journal868records/866nonpanicking exited+cleanup-complete positive sessions759keyboard438mouse;2deliberatepanics excluded,0failedcleanup. Dependency audit86/10300/108/117 and backlog78valid0errors, diff--check0. Host hardcaps unchanged; recorded pidspeak48/max256 and no max/OOM events in live observations. Earlier2232code/165of718PTY negative and causal detached-maintenance control remain preserved; this pass is not proof every old failure had identical cause, nor proof of previous host-reboot cause. README refreshed only actual verified checkpoint/fullside/default-profile features and remaining PR/Mac/release scope. Current full does not complete broader task/dependencies/nativeMac acceptance; no AC/DoD/Done checked.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Single default dashboard with saved layout/scope/window and exact drill-downs works, with keyboard/mouse PTY coverage. Missing: unresolved-thread and trend widgets (blocked on TASK-61 history). Remaining: AC1: the dashboard holds only the 8 metric cards (open PRs, needs my review, age, review wait, first review, merge latency, checks, workflows). There is no unresolved-threads widget (src/metrics/threads.rs exists but no card uses it) and no metric-trend widget, because historical metrics are not built (TASK-61 AC2). Only one default profile, not named dashboards. AC4: tests cover layout, profile, drill-down identity and empty/partial states, but not the missing widgets.
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC1/AC4 skipped: trend widgets depend on TASK-61 AC2; named dashboards not built.
 <!-- SECTION:NOTES:END -->

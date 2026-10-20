@@ -1,10 +1,10 @@
 ---
 id: TASK-31
 title: Build polished native split and unified diff exploration
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - repository
   - e2e
@@ -39,11 +39,11 @@ Readable diffs need more than colored text: reviewers must move quickly through 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Unified/split rendering has syntax/within-line highlighting, line numbers, hunk navigation, search and context expansion.
+- [x] #1 Unified/split rendering has syntax/within-line highlighting, line numbers, hunk navigation, search and context expansion.
 - [x] #2 Whitespace/generated-file controls, binary/LFS/submodule states and large-file bounds are explicit.
 - [x] #3 Mouse scrolling/range selection and keyboard equivalents preserve canonical review coordinates; optional delta/difftastic handoff is bounded and restores the terminal.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 - [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
@@ -300,4 +300,6 @@ Root V7 actual session39844 terminal0 on exact879source freeze14b322c25f9c88f535
 2026-10-18 a12: commit/branch/working/compare diffs use plain file headings (path, Added:, Deleted:, Renamed: a -> b) and hide raw index/rename/mode lines; native patch view unchanged. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass.
 
 2026-10-20 audit at 74360e48 (4/6 ACs met): The native diff is feature-rich and has strong keyboard/mouse PTY coverage (split, wrap, generated, search, range, oversize, delta handoff). Remaining: tests for hunk navigation and PTY coverage of the whitespace, syntax, within-line and context toggles. Remaining: AC1: next/previous hunk ({ and }) is wired and listed as a control but no test exercises it. The syntax toggle (y) and within-line toggle (i) have no PTY journey; within-line has only a unit test. Context expansion is covered only via Full Old/New side (native_full_side_v3). AC5: the main journeys run in keyboard and mouse pairs, but several exposed controls are never driven by a PTY test: hunk nav, s Whitespace, y Syntax, i Within-line, c Context, p Previous match.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

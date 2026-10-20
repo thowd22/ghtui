@@ -1,11 +1,11 @@
 ---
 id: TASK-21
 title: Resolve reopen and manage PR review threads
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - review
   - e2e
@@ -323,4 +323,6 @@ V16 source-only implementation refinement approved by Root: sibling-private clos
 2026-10-15 V96 actual RED-to-GREEN: SAME controlled200ms real receiver hold and max-one-unacknowledged-input assertions now pass for selected history mouse1 and comment PostCancel mouse1, with actual NEW completed opened-detail recorded-actor+attempt+notpending barrier; no production edit or timeout change. V96 report target/build/root-navigation-v96-corrective-20261015.json is FAILED overall because next checked Personal gate ran51codePASS/18PTYpass/2legacy status-oracle failures, not history reproduction. Corrected Personal Back oracle now requires exact whole owned Inbox Files body equality pinned immediately after genuine file selection, not ephemeral status; all17actualThreadchildren/Git/SQL/config/TTY remain. New V97 focused runner original45284 launched under same hardcaps, frozen1118/only3testfiles changed vsV93; pending actual checkedPersonal/history/comment/file, fmt/strict/audits. Do not mark planned pending gates PASS. Also retain follow-up investigation: fixed10 paging can theoretically exceed tiny visible body; no production pagination defect was reproduced by current diagnostics, so no speculative production patch or claim made.
 
 2026-10-20 audit at 74360e48 (6/6 ACs met): Thread browsing, reply, edit, delete, reactions, resolve and reopen, and outdated provenance are all implemented and covered by paired PTY and lib tests. It appears ready to mark Done after the gate note is recorded. Remaining: No AC gap found. Two caveats: the backlog status is still In Progress, and thread management runs only through the Files/Catalogue native path, not the Summary actions menu. The Definition of Done also needs a recorded gate, but notes from V57 show focused and whole gates green. Independent check: I checked the cited evidence. AC1, AC3, AC5 and AC6 hold up. Expand and collapse are in review_threads_v1. Reply, resolve and reopen are on Timeline in review_thread_detail_v4 and on the file/native path in review_thread_publication_v1 and file_thread_controls_v75. Edit and delete are in review_thread_comments_v2 and timeline_management_v5. Reactions are in reactions_v3 and timeline_reactions_v5.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

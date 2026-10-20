@@ -1,11 +1,11 @@
 ---
 id: TASK-15
 title: Load PR files canonical diffs and read-only review navigation
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - inbox
   - e2e
@@ -40,7 +40,7 @@ PR review needs a usable diff immediately without cloning. Inline reviews later 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Changed-file navigation and basic unified/split diffs work through gh with exact base/head/path/line identities.
-- [ ] #2 Large/truncated/binary/renamed files and missing patches have explicit states and a bounded fallback.
+- [x] #2 Large/truncated/binary/renamed files and missing patches have explicit states and a bounded fallback.
 - [x] #3 File/hunk navigation, scroll, context, and line/range selection work by mouse and keyboard.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -114,4 +114,6 @@ Current impacted checked regressions passed scoped_pr_resource12-code/4-PTY arti
 V73 Personal Native Source test now selects exact actual completed owned Source box and compares complete labelled original H/M across hard wrapping (whitespace only), never covered Files rows or shortened digests. V72actualframe revealed M was split across2lines; no production identity/parser/permission changes and all Git/SQL/config/GH/TTY preservation assertions retained. Real both-input rerun pending, not passes.
 
 2026-10-20 audit at 74360e48 (5/6 ACs met): PR Files/diff with unified/split, ranges, native diff and canonical coordinates is implemented and PTY-tested; explicit binary/truncated/large-patch states in the PR Files view still lack coverage. Remaining: AC2 is only partly met. A missing patch shows ' • API patch unavailable' (src/scoped_pr_resources_v1.rs:978), and the >128 KiB Files page now loads (v1_pr_threads_files_page_over_128kib_*). No PR-Files PTY test covers a binary file, a truncated or too-large patch, or the GitHub 3000-file list cap. Binary, rename and absent states are tested only for the local native diff (original_diff_sides_v1.rs *_absent_rename_binary_symlink_lfs_submodule_root), not for the gh-sourced PR Files view.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

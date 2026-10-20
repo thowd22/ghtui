@@ -6,7 +6,7 @@ assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - review
   - e2e
@@ -1045,4 +1045,6 @@ V306 TERMINAL staging refusal before Cargo/app tests, original44744 closed1 ands
 2026-10-18 a08: Metadata tab gains clickable/keyboard quick controls (l/L label, a/A assignee, w/W reviewer, g/G team, m/M milestone) reusing the exact p-menu actions; empty sets show 'none'; plain access line/statuses; picker header drops byte/cap diagnostics; p-menu Home/End. Gate: node scripts/test-task.mjs v1_pr_metadata -> 3 lib + 10 PTY passed; filtered tui_e2e 'metadata' 221/222 (1 pre-existing failure pr_metadata_base_v32_metadata_tab_v51_mouse_actual_nochange..., fails without these changes); lib 'metadata' 442 passed, 'picker' 36 passed; clippy -D warnings clean.
 
 2026-10-20 audit at 74360e48 (5/6 ACs met): Title/body/base, labels, assignees, reviewers/teams, milestone, linked issues all wired and tested by key+mouse; Projects v2 placement exists only as an uncalled provider function. Remaining: AC2: project placement is not reachable. src/providers/gh/pr.rs:1965 add_project_item (addProjectV2ItemById) has no callers in src or tests. Capability text (capability_requirements_v1.rs:170) advertises 'project placement', but there is no UI action, picker, PTY journey or contract test for it.
+
+2026-10-20 final push (verified at 60167066, 6107/0): Advertised 'project placement' capability text removed (no UI). Project placement remains unimplemented.
 <!-- SECTION:NOTES:END -->

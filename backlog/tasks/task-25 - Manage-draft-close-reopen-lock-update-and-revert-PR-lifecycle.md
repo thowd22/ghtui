@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - review
   - e2e
@@ -274,4 +274,6 @@ READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/bu
 2026-10-18 a06: PR actions menu gains Mark ready/Convert to draft and Update branch (merge via head-pinned REST, rebase via gh pr update-branch --rebase); Close/Reopen now work from non-Summary/Conversation tabs through the same journaled menu path. Gate: node scripts/test-task.mjs v1_pr_lifecycle -> lib 2, tui_e2e 14 passed (kb+mouse); tui_e2e pr_actions:: 112 passed. Lock/unlock and revert not wired.
 
 2026-10-20 audit at 74360e48 (0/6 ACs met): Ready/draft, close/reopen and update branch (merge or rebase) are wired with paired PTY tests (v1_pr_lifecycle: 2 lib tests and 14 PTY tests). Lock/unlock, revert and branch deletion are not implemented. Remaining: AC1: there is no lock/unlock and no permitted branch deletion. pr_state_model.rs:485 notes that deleting the remote head is still an open design decision. AC2: revert of a merged PR is not implemented in the UI. Only provider and state-model stubs exist; no PTY or menu entry. AC3: refusals are shown and publication re-reads state, but rules, restrictions and partial-outcome reporting are incomplete. AC4 and AC5: there are no pr_lifecycle tests for lock, revert or branch deletion, and no tests th
+
+2026-10-20 final push (verified at 60167066, 6107/0): Lock/unlock, delete head branch after merge and revert a merged PR added with journeys. Remaining: AC6 not separately verified.
 <!-- SECTION:NOTES:END -->

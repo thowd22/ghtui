@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - inbox
   - e2e
@@ -109,4 +109,6 @@ READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/bu
 2026-10-18 a14: Inbox shows refresh prompt, per-queue counts on the Queue line and an empty-queue hint pointing at a populated queue. Gate: test-task v1_navigation 8 code + 2 PTY pass.
 
 2026-10-20 audit at 74360e48 (5/6 ACs met): Cross-repo queues, overlap, partial-coverage warnings, actor chips and key+mouse PTY are done. Inbox rows still lack review/check state. Remaining: AC2: Inbox rows (src/github_ui.rs:634-666) show repo#N, title with [draft], author, age and queue. They have no review-decision or check/CI state column, and PullRequest (src/providers/gh.rs:211) carries no review or check rollup, so the queue read cannot show it. Selection is kept by PrKey across refresh (github_workspace.rs:981), and the measured_refresh journey covers this for scoped repos. Notes also say whole-host completeness of the default queues cannot be proven. The product reports this
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC2 not done: Inbox REST search/issues lacks review decision and check rollup; adding a gh call needs a fixture migration across ~30 test files.
 <!-- SECTION:NOTES:END -->

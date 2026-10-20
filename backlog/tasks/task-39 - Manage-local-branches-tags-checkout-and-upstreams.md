@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -74,4 +74,6 @@ Raw reference safety: native picker classifies canonical raw_name bytes, shows n
 2026-10-18 a09: delete-branch preview shows recovery SHA, unmerged/upstream-saved state and other-worktree checkout; switch preview names remote-tracking DWIM; overview shows missing upstream. Covered by v1_local_branches gate (2 code + 2 PTY, 0 ignored).
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Branch, tag and upstream management, the dirty-switch guard and delete previews work in PTYs; tests are missing for worktree-owned branches, untracked collisions and detached HEAD. Remaining: AC2 is partial. A dirty tracked-file switch is refused in the PTY and in git_contracts.rs:1671. No test covers an untracked-file collision on switch. Nothing tests a branch checked out in another worktree; the message 'used by worktree' at local_actions.rs:1406 is untested. Branch operations on a detached HEAD are untested. AC4: the Testing steps ask for 'branches used by another worktree'; it is missing. Successful branch and tag deletion are not run in a PTY.
+
+2026-10-20 final push (verified at 60167066, 6107/0): Untracked collision and other-worktree branch cases covered. See TASK-36..40 batch.
 <!-- SECTION:NOTES:END -->

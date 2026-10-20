@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -65,4 +65,6 @@ Error defect fixed and reverified: failed Git operations retain bounded redacted
 2026-10-18 a10: Overview shows paused merge/rebase/cherry-pick/revert banner with conflict count, next step and clickable Continue/Skip/Abort rows; menu guards conflicting actions while paused; conflict view shows working file markers; ours/theirs/base names; stage warns on leftover markers. Gate node scripts/test-task.mjs v1_local_recovery: 5 code + 6 PTY pass (keyboard+mouse); local_management:: 12/12, local:: 12/12.
 
 2026-10-20 audit at 74360e48 (0/5 ACs met): Merge conflict flow (banner, base/ours/theirs view, choose version, stage, continue) is solid with keyboard+mouse PTY; rebase/cherry-pick/revert/abort journeys, affected-commit previews, selective hunk resolution and dir/rename conflicts remain. Remaining: AC1: merge/rebase/cherry-pick/revert previews only show the generic destructive header, not the affected commits. Only merge is exercised end to end. Rebase, cherry-pick and revert have no contract or PTY test, and Skip/Abort are tested only at the git_contracts plan level for merge. AC2: resolution is whole-file ours/theirs/base only, with no hunk-level selection or in-app editing. AC3: binary conflicts get a preview line, but directory and rename conflicts and dirty-state races have no explici
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC1 closed: merge/rebase/cherry-pick/revert previews list affected commits by full SHA; contract+PTY for rebase, cherry-pick, revert. Remaining AC3: directory/rename conflicts and changes made while a preview is open.
 <!-- SECTION:NOTES:END -->

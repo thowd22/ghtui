@@ -1,11 +1,11 @@
 ---
 id: TASK-46
 title: Embed fast exact and regex search across local code
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - search
   - e2e
@@ -41,7 +41,7 @@ Exact matches and regex should work locally with predictable semantics and no ad
 - [x] #2 Worktree and selected-commit searches are explicitly labelled and include correct uncommitted or committed content.
 - [x] #3 Invalid/expensive regex, unusual paths and binary files show understandable bounded behavior.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -71,4 +71,6 @@ Manifest owner resolved embedded official ignore/grep crates; corpus+scan module
 Checked exact_search gate passed10 code/provider and2 real-binary PTY tests, zero failures/ignored, actual keyboard and mouse input coverage. Artifact /tmp/ghtui-test-coverage-lYxJFT. Verifies explicit working/saved contents and line/column destinations at120x40/80x24, immutable original SHA file opening without checkout/index changes, traversal/symlink rejection, unavailable/promisor objects never silently fetching, regex/multiline/Unicode/exclusion/cancellation bounds, and one shared Arc source body for many matches rather than per-hit megabyte duplication. Full regression and broader Task45 Ranked/GitHub integration gates remain open.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): Exact/regex local search is implemented and covered by PTY for both inputs. The only gap is a PTY journey that cancels a slow scan. Remaining: AC5: the PTY journeys cover phrase, regex, invalid regex, worktree/saved scope, exclusions and exact open, with keyboard and mouse at 120x40 and 80x24. No PTY journey cancels a slow scan. Cancellation is reachable (Action::Cancel and query edits set cancel_requested, src/search_ui.rs:490/558) but only the contracts test it.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

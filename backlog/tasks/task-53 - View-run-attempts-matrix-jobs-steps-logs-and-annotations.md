@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - actions
   - e2e
@@ -216,4 +216,6 @@ Actions W Cancel source-only follow-on in isolated DR2mCo: same existing Actions
 2026-10-18 a01: run opens on first failed/first job, opened job stays selected (incl. Back), Enter on info rows stays in Actions, >/< + clickable failure jumps over failed jobs/steps/##[error] lines, step durations, BOM timestamp fix (commit 107636e0). Gate: agent-run.sh node scripts/test-task.mjs v1_actions_runs -> 7 code + 2 PTY (keyboard+mouse) passed; tui_e2e actions:: 160, scoped_checks 82, actions_v1 206, lib actions 806 passed.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): Run, attempt, job and step view, failure jumps, exact/regex log search, annotations and watch are built and tested by keyboard and mouse. Still missing: bounded log export. Remaining: AC2: the failed-step and ##[error] jump works (runs_focus_v1 '> Next failure'). Exact and regex log search works (scoped_actions_read_v2 *_shared_log_search_regex_matches_and_clear and *_invalid_regex...). Annotations work and refresh limits are visible ('refreshes every 5s', finite Watch). There is no log export: nothing in src/actions_* writes a log to a file. AC1 caveat: the run view itself shows no needs/dependency context; that context appears only on the workflow definition page.
+
+2026-10-20 final push (verified at 60167066, 6107/0): AC2 closed: x Export log writes the loaded job log to a new path after preview; never overwrites, no GitHub calls.
 <!-- SECTION:NOTES:END -->

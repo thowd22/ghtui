@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@root'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - foundation
   - e2e
@@ -211,6 +211,8 @@ Sequential Root reactivation2026-10-17 after Task8Done/a3061f3d. Current global5
 First implemented focused gate task9-repo_catalog_local_mapping-2026-10-17T19-49-07-949Z.json failed during lib-test compilation: two snapshot tests accidentally called a shadowed Config local variable as config(). This is test compile evidence, not a runtime failure or RED acceptance. Corrected to borrowing the Config value; original report/log retained. Product remains unaccepted pending actual focused execution.
 
 2026-10-20 audit at 74360e48 (5/5 ACs met): Org, user and accessible inventories with full pagination, metadata, local mapping, filter/select/pin/save, partial/retry and avatars are all implemented. repo_catalog gate reports 250 code + 88 PTY passing. Ready to verify and mark Done. Remaining: None found. The AC checkboxes are unticked in the backlog, but the code and tests cover every criterion. Independent check: Mostly implemented, but the evidence does not support calling it fully done. The Organization path is strong. It is reachable through ': Commands > Discover repositories' and 's Source > o Organization'. tests/tui_e2e/repository_catalogue_native_v1.rs:656/660 runs as keyboard and mouse pairs over 11 pages and 1001 repos, covering filter, select, pin, save, restart and activate. It checks the saved
+
+2026-10-20 final push (verified at 60167066, 6107/0): Most gaps closed (user inventories covered). Remaining: archived/fork filters are dead code (src/repo_catalog.rs is not compiled); live filter is text only.
 <!-- SECTION:NOTES:END -->
 
 ## Comments

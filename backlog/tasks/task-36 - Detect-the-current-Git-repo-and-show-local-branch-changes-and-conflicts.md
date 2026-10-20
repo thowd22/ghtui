@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -84,4 +84,6 @@ Root current Main normal-entry integration actualGREEN: node scripts/test-task.m
 2026-10-15 Root verified combined Main checkpoint: cargo test --offline --locked --all-targets terminal0 with2141code/provider (318strictGH)+690realbinaryPTY0failed/ignored, native98.71s; cargo fmt--all--check0, cargo clippy --offline --locked --all-targets -- -D warnings0(58.59s). Frozen76-path root-inline-normal-readonly-selection-freeze-v1-20261015.json source hashes held unchanged across gates; subsequent README-only documentation updates actual counts. Checked inline59/8, selectedplan21/6, readonly23/6, normal8/2, stash15/12, completedframe19/8, corrective18/8 and18continuationPTY all independently passed. Full/quality/focused exact logs and SHA are recorded in root-inline-normal-readonly-selection-final-gates-v1-20261015.json. Dependency audit86roots/10300files/108adaptations/117registry0, current backlog78valid0 after CLI correction. Cache-journal candidate and full-side WIP are NOT admitted. Earlier Main8negative and isolated candidate negatives remain explicit; TASK78 owns controlled generic focus/scroll/overlay diagnosis. This verified Linux feature checkpoint is not full task/dependency/native-macOS/release completion.
 
 2026-10-20 audit at 74360e48 (5/5 ACs met): Local workspace discovery, diff modes, conflict and merge banners and no-auth/unborn states are implemented with keyboard and mouse PTYs; minor gaps are sequencer and worktree startup PTYs. Remaining: Minor: rebase and cherry-pick indicators (git.rs:814) have no PTY journey, only merge does. Startup inside a linked worktree is contract-tested only. Detached and shallow are covered in contracts and in History PTYs, not in a local_workspace journey. Independent check: I refuted this claim on AC2 and AC5, and AC1 is only partly met. AC2: the current-branch diff mode is RepositoryMode::Branch, labelled 'b Branch' in repository_ui::mode_controls. It has no PTY coverage at all: grep finds no '[b Branch]', 'Branch changes' or RepositoryMode::Branch anywhere under tests/. The b presses in tests/ belong to other views' Back controls. The Testing steps require 'all dif
+
+2026-10-20 final push (verified at 60167066, 6107/0): Branch mode PTY journeys and paused rebase/cherry-pick/revert banners covered. Remaining: detached and shallow repos have no local-workspace PTY journey.
 <!-- SECTION:NOTES:END -->

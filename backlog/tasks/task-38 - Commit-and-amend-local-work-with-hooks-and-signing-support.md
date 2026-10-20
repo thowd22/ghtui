@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - localgit
   - e2e
@@ -74,4 +74,6 @@ Canonical diff parser repair verified by shared checked staging gate: 14 code/pr
 2026-10-18 a11: K Commit key/control; Commit disabled with explanation while nothing is staged (Amend unaffected); commit form status explains Ctrl-P then Ctrl-S; stale preview-first error cleared once preview is ready. Gate: node scripts/test-task.mjs v1_local_staging -> 4 code + 2 PTY pass.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Commit and amend with staged preview, hooks and a keyboard/mouse PTY all work; signing-failure and editor/prompt handling are untested. Remaining: AC2: hooks are covered (rejecting hook, and a successful hook with redacted output at git_contracts.rs:1585). Signing is only left enabled; no test configures a failing gpg/ssh signer to check the error shows. GIT_EDITOR and GIT_TERMINAL_PROMPT are set (git.rs:3088-3094), but no test checks editor or prompt handling. AC4: the Testing steps list signing failure; it is untested. A successful amend is tested only in contracts, not in a PTY.
+
+2026-10-20 final push (verified at 60167066, 6107/0): Signing failure explained and tested. Remaining: successful amend has no PTY journey.
 <!-- SECTION:NOTES:END -->

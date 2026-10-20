@@ -1,11 +1,11 @@
 ---
 id: TASK-51
 title: Save searches repository contexts and quick discovery views
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - search
   - e2e
@@ -37,11 +37,11 @@ Frequent searches and meaningful repository groups should be one action away. Sa
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Saved queries/contexts retain mode, filters, scope and sort and are editable/pinnable.
+- [x] #1 Saved queries/contexts retain mode, filters, scope and sort and are editable/pinnable.
 - [x] #2 Fuzzy pickers use nucleo for commands/repos/paths/refs while content uses its explicit search mode.
 - [x] #3 Saved views survive restart and explain missing/inaccessible repos or unsupported filters.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -69,4 +69,6 @@ Preparatory SavedSearch serde model retains version/mode/query/repositories/per-
 Checked saved_searches runner passed2 meaningful code contracts and2 actual keyboard/mouse PTY journeys, zero ignored/failures. Artifact /tmp/ghtui-test-coverage-VzVSdw. Verified exact regex input/path filter, saved-version scope, selected repo, SQLite values, wide/narrow restart, then mapping changed to a different existing repo: restore reports unavailable original scope and refuses to broaden results. No gh calls or HEAD changes. Native pin/edit/list picker breadth and broader collaboration prerequisites remain open.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Saving, restoring after restart and the missing-scope warning work for keyboard and mouse. Remaining: pin/edit/delete controls in the UI, plus PTY coverage for them. Remaining: AC1: the model stores mode/input/filters/repositories/revision/sort/pinned (workspace.rs:1067-1148), but the UI always saves pinned=false (src/main.rs:2772). Users cannot pin, rename or delete a saved search; editing is only re-saving under the same name. AC5: the saved_searches PTY covers save, restore and the missing-mapping warning only, so pin/edit actions have no keyboard/mouse coverage and the 'modify its repo set' step is done by rewriting config, not through the UI.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

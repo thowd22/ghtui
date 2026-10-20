@@ -4,7 +4,7 @@ title: Provide one curl-to-Bash installer and macOS/Linux release binaries
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:30'
+updated_date: '2026-10-20 18:20'
 labels:
   - delivery
   - e2e
@@ -124,4 +124,6 @@ V37 genuine QA SOURCE successors frozen, NOT built/tested: target/build/provider
 V57 bounded READ-ONLY review (no new installer implementation): target/build/provider-parallel-task68-contract-review-v57-20261016.json SHA3c88fb35c87cbbce2d9d709881be33af9bd42825188495f71d0456c2c567903b. Authenticated installer17 manifest5276b277 +all1267outputs/1257baselines; read complete441line installer,168line assembler,3Rust wrappers/all36Node declarations and supplied-product/8PTY48session helpers. No concrete source-contract blocker; all7 existing installer baseline paths still EXACT namedRootV1821311ab405a24 (tennew absent). Reuse exact17, do not manufacture competing installer. Actual QA env FIRST/SECOND absent here, bounded target inventory found no actual provenance inputs; V37 two1304 source trees are stale uncompiledV150 ancestors with known later corrections, not current tested release source. Review supplies exact Root-only shell/TLS/assets→genuine differently versioned product builds→actual assembler provenance descriptors→checked release_install/whole/fmt/strict/audit/native four-target commands and all original absence-of-proof constraints. No test/build/install/assembler/Cargo/rustc/cc/PTY/remote/publication/CI69 or acceptance/status/dependency changes. Formal67/73 remain blocked; publicURL/nativeMac/Bash3.2/BSD/minruntime/current-product evidence open.
 
 2026-10-18 a15: added scripts/install.sh (Linux x86_64/aarch64 musl, sha256-verified, ~/.local/bin, no sudo, truncation-safe) and scripts/package-release.sh; gate: node scripts/test-task.mjs v1_release -> 8 code + 2 PTY (keyboard+mouse) passed. macOS binaries still deferred.
+
+2026-10-20 final push (verified at 60167066, 6107/0): Installer hardened (curl HTTPS-only, checksum and target checks, refusal paths) with shell contract tests. Remaining: macOS evidence (deferred), PTY journeys for upgrade/rollback/failure.
 <!-- SECTION:NOTES:END -->

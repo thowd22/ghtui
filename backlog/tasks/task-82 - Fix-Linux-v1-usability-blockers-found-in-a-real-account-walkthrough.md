@@ -1,11 +1,11 @@
 ---
 id: TASK-82
 title: Fix Linux v1 usability blockers found in a real-account walkthrough
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-17 20:32'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels: []
 dependencies:
   - TASK-9
@@ -46,4 +46,6 @@ Deferred: Inbox auto-load on first visit (about 53 PTY files assert the manual-r
 Batch verification 2026-10-17: lib 3357 (one SQLite 'database is locked' flake under 6 threads in pr_lifecycle_v68 receipts test, which passed 3/3 alone); integration+PTY 2271 passed, 0 failed (1560 PTY). Later fixes (offline label order, wrap limited to Summary/Conversation, plain-language status/coverage strings) were verified by targeted reruns of every affected test, not another full run. fmt and strict clippy clean. Inbox auto-load is intentionally not done: ~53 PTY files would change to save one keypress.
 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Origin detection, newest-page Actions runs, the DefaultPersonal unblock and UTC labels are all implemented. Two PTY journeys are missing: Dashboard origin scope, and Inbox PR followed by Actions/Search/Dashboard. Add them, then mark Done. Remaining: AC1: no PTY journey shows Dashboard scoped to the checkout origin; only Actions and Search have one. AC3: covered only by a lib unit test. No real-binary journey opens an Inbox PR and then reaches Actions, Search or Dashboard without the 'ID-bound repository access required' block. Deferred items (Inbox auto-load, status jargon) are noted as intentionally not done.
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

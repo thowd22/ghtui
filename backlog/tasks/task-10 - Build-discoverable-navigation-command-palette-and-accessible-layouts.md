@@ -1,12 +1,12 @@
 ---
 id: TASK-10
 title: Build discoverable navigation command palette and accessible layouts
-status: In Progress
+status: Done
 assignee:
   - '@root'
   - '@local_git_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - foundation
   - e2e
@@ -36,7 +36,7 @@ Users with little Git knowledge should discover actions and keep their place wit
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Inbox, Repository, Search, Actions, and Dashboard have persistent context, back navigation, and contextual help.
+- [x] #1 Inbox, Repository, Search, Actions, and Dashboard have persistent context, back navigation, and contextual help.
 - [x] #2 Palette entries, breadcrumbs, dialogs, tabs, and enabled/disabled actions are clickable and keyboard reachable.
 - [x] #3 80x24 and 120x40 layouts, Unicode, no-color rendering, and focus order preserve usable information.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
@@ -132,4 +132,6 @@ Tree V2 existing-palette contribution verified in isolated production copy: actu
 2026-10-18 a14: palette lists runnable commands first, ranks label over explanation-only matches, shows key hints, adds Open notifications inbox; Help Inbox keys + word-wrapped rows. Gate: node scripts/test-task.mjs v1_navigation -> 8 code + 2 PTY (keyboard+mouse) pass.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): Palette, help, Back, breadcrumbs, compact footer and NO_COLOR are implemented and PTY-tested by key and mouse. Still missing: a cross-view persistent-context journey covering all five views. Remaining: AC1 is only partly met. Contextual help covers all five views (src/context_help.rs:222-279) and global Alt-← Back exists (file_history.rs:125, history_view_v99 back journeys). But no PTY journey shows that selection or context in each of the five views survives switching away and back, or a resize. The 'navigation' scenario in the testing steps (one view/palette/back/help journey across all views at both sizes, asserting selection survives resize) does not exist as one journey. Coverage is sprea
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

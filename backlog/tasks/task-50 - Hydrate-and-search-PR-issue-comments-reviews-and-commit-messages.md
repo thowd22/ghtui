@@ -1,11 +1,11 @@
 ---
 id: TASK-50
 title: Hydrate and search PR issue comments reviews and commit messages
-status: In Progress
+status: Done
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:19'
 labels:
   - search
   - e2e
@@ -224,4 +224,6 @@ SOURCE-ONLY judged-quality audit: existing5 undeclared lexical/fusion contracts 
 2026-10-14 Task18 central label-filter repair/cached-access integration regression ACTUAL: current genuine repo-ID plus explicit nullable-read permission revalidated separately from numeric principal and SQL/journal epoch before/after selected/discovered private body admission and retained Open. Strict cached query/Open6, repo403 refusal5, empty-source/new-principal4 protocols preserve UID/auth/permission canaries and Git/cache/draft/view effects; current unavailable access never becomes fake complete0. Focused collaboration_index_ actual28/28 zeroignored4.41s includes all12 collaboration plus16 Blend/privacy; foundation-metadata-actions-collaboration-native28-readable-rerun.log. Current coherent whole ACTUAL861code/provider incl200GH +286PTY, allzeroignored/failed, foundation-metadata-actions-all-targets-final-rerun.log; fmt and strict all-targetClippy PASS. Fixed real80-column critical denied-access status clipping without weakening assertions. Existing relevance-quality source5 undeclared and broader search/index/host/platform scope remain unverified/open; no Task Done or full privacy inference from numeric OPEN4.
 
 2026-10-20 audit at 74360e48 (5/5 ACs met): PR/issue bodies, comments, inline threads and opt-in commit messages are hydrated into the shared index, with coverage, revocation and remote blending all PTY-verified. Ready to mark Done. Remaining: None blocking. The relevance-quality fusion contracts (fusion/blend/relevance_quality_tests.rs) are unregistered, but they belong to TASK-49's AC3. Independent check: Mostly strong, but the coverage part is not verified the way the task requires. AC1 is met: the registered PTY tests collaboration.rs:378/575/95 index the PR comment, review and inline thread, the issue body and comment, and opt-in commit messages, by keyboard and mouse, opening exact context. The PR body ('PrBodyOnlyNeedle') is loaded into the index (the 4 records) but no PTY test searches for it
+
+2026-10-20 final push, verified at 60167066: node scripts/test-all.mjs 6107 passed 0 failed; fmt and clippy -D warnings clean. All audit gaps closed.
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - actions
   - e2e
@@ -140,4 +140,6 @@ Root admitted exact48-path A2-R1+Corecompat+R2V1/V2/editorV3 using authenticated
 Root received SOURCE-ONLY coherent Cancel W3V2 39path handoff40eb2259889c0e5443260b794ec7c7d9933e3005f353bc283f60874c10090577, fullpatcha740e1709a8ebfffa275bde842813d8d78b21c4e98b884bffce1b98c36fa4f24. Independently authenticated actual39output SHA/bytes +both patch hashes +RootV38 baseline manifest. Read-only currentMain git apply --check NEGATIVE1 only forms.rs/main.rs hunks; current differentbase paths4 (App/Forms/Main/Gh), other35baselineexact including18new. No Main/source edits or admission occurred. Report target/build/root-actions-cancel-w3-v57-readonly-preflight-20261015.json SHA2b5a5a388c908f9be1b254fd5c8bee20eddde801f3af1aac15905ca1d865e10c records actual check, not compilation/evidence. Root still reviewing same-owner/samefence/sameCore/opaqueClaim/explicit numeric history recovery before current-relative composition. Declared44meaningfulcode+16pairedPTY/22sessions are entirelyUNCOMPILED/UNRUN. Broader8Actions slices/task/nativeMac/hostedCI/release remainOPEN; agents continue nextrequiredslice planning while soleRoot PR/recoveryV56verificationruns.
 
 2026-10-20 audit at 74360e48 (4/5 ACs met): Capability inventory, filtered paged runs catalog with actors/freshness, and PR and repo entry into Actions are built and tested by keyboard and mouse. Still missing: a commit (History) status indicator that opens Actions. Remaining: AC3: the PR checks indicator opens the exact run, attempt and job in Actions (tui_e2e/pr_checks_bridge.rs happy keyboard/mouse), and the repository catalogue has '[Open Actions]' (repository_catalogue_actions_v1.rs). There is no commit-level CI/Actions indicator: History (src/history/*) shows no run status and has no route into Actions. AC2 caveat: runs are listed one selected repository at a time, with a Repository(usize) switcher. They are not merged across the whole set; cross-repo activity i
+
+2026-10-20 final push (verified at 60167066, 6107/0): Untouched in this push.
 <!-- SECTION:NOTES:END -->

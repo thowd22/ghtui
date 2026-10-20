@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-20 18:20'
 labels:
   - inbox
   - e2e
@@ -141,4 +141,6 @@ Root current-Main admission 2026-10-15: independently read Timeline projection/r
 Root frozen combined Timeline + saved-native-diff + long-local-identity checkpoint, 2026-10-15: actual cargo test --offline --locked --all-targets terminal 0; 1,957 code/provider contracts (306 strict GitHub) and 646 actual PTY test functions pass, zero failed/ignored, PTY 85.66 s. 33 test targets include the zero-test main target, which is not counted as coverage. Root whole log target/build/root-diff-timeline-longpath-whole-first.log; strict all-target Clippy exit 0, fmt exit 0, dependency audit exit 0 (86 sources, 10,300 files, 108 adaptations, 117 registry packages). All 43 frozen production/test hashes unchanged through gates. Root preserved current SQLite/PID/Related guards and catalogue-close prerequisites. This green integrated checkpoint does not prove the causes of retained older negative artifacts, complete broad product coverage, native macOS verification, or release readiness.
 
 2026-10-20 audit at 74360e48 (4/6 ACs met): PR detail tabs with all-page loading, metadata, actors and key+mouse PTY are done. Still missing: linked issues in personal PR detail, and navigation from timeline items. Remaining: AC2 is partly met. Permissions, requested reviewers/teams, fork origin, base/head SHA and coverage/error reasons are shown (github_workspace.rs:333-334, 630-740). Linked items are not loaded in the personal PR detail: Metadata only shows a hint ('Linked issues: inspect closing keywords...', github_workspace.rs ~739). Issue links do exist in the scoped-catalogue PR flow (src/scoped_pr_issue_links_v87.rs). AC3 is partly met. Tabs connect to Files/Checks and Back returns to the selected Inbox row,
+
+2026-10-20 final push (verified at 60167066, 6107/0): Closing-keyword linked issues listed in Metadata. Remaining AC3: Timeline items do not navigate to files or checks.
 <!-- SECTION:NOTES:END -->
