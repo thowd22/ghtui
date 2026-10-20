@@ -261,6 +261,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(github) = app.github.as_ref() else {
         return;
     };
+    // Remember the open PR page's review and check state for its Inbox row (no I/O).
+    app.inbox_status_v1.observe(github);
     let theme = app.theme();
     frame.render_widget(Clear, area);
     let pending_observed = github.scoped_pr_navigation.is_some() && github.pr.is_none();
@@ -496,9 +498,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // its own scroll (`app.inbox_list.top`; the wheel may leave the cursor off screen).
     let visible = github.visible();
     let host = github.identity.host.clone();
+    let statuses = visible
+        .iter()
+        .map(|pr| app.inbox_status_v1.label(github, pr))
+        .collect::<Vec<_>>();
     let rows = visible
         .iter()
-        .map(|pr| inbox_row(pr, &host))
+        .zip(&statuses)
+        .map(|(pr, status)| inbox_row(pr, &host, status))
         .collect::<Vec<_>>();
     let table = crate::ui_table::Table {
         columns: &INBOX_COLUMNS,
@@ -537,6 +544,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // The detail line starts under TITLE; it names the queues when the QUEUE column left.
     let detail_x = painter.column_x(1).unwrap_or(area.x);
     let queues_shown = painter.column_x(4).is_some();
+    let status_shown = painter.column_x(5).is_some();
     for (offset, index) in (app.inbox_list.top..visible.len())
         .take(app.github_visible_rows)
         .enumerate()
@@ -548,7 +556,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 frame.buffer_mut(),
                 detail_x,
                 y + 1,
-                &inbox_detail(visible[index], !queues_shown),
+                &inbox_detail_with_status(
+                    visible[index],
+                    !queues_shown,
+                    (!status_shown).then_some(&statuses[index]),
+                ),
             );
         }
         if index == selected {
@@ -564,6 +576,20 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             rect,
             action: Action::Github(GithubAction::Open(visible[index].into())),
         });
+    }
+}
+
+/// The detail line plus the row's review/check state when the STATUS column left for width.
+pub(crate) fn inbox_detail_with_status(
+    pr: &crate::providers::gh::PullRequest,
+    queues: bool,
+    status: Option<&crate::inbox_status_v1::RowLabel>,
+) -> String {
+    let detail = inbox_detail(pr, queues);
+    match status {
+        Some(status) if !detail.is_empty() => format!("{detail} · {}", status.text),
+        Some(status) => status.text.clone(),
+        None => detail,
     }
 }
 
@@ -631,7 +657,9 @@ pub(crate) fn compact_queue_header(
 /// Inbox queue columns. The PR reference never leaves; title, author and age share a priority
 /// so a long title is cut before author or age leave; queues go first. The title takes most of
 /// the spare width (a long login is cut before the title is).
-const INBOX_COLUMNS: [crate::ui_table::Column; 5] = [
+/// STATUS (review and checks, TASK-12) is last and leaves first, before the title is cut; the
+/// detail line then carries it.
+const INBOX_COLUMNS: [crate::ui_table::Column; 6] = [
     crate::ui_table::Column::new("PR", 6).priority(0),
     crate::ui_table::Column::new("TITLE", 10)
         .flex(4)
@@ -642,10 +670,16 @@ const INBOX_COLUMNS: [crate::ui_table::Column; 5] = [
         .actor(),
     crate::ui_table::Column::new("AGE", 3).priority(1).right(),
     crate::ui_table::Column::new("QUEUE", 5).priority(3),
+    crate::ui_table::Column::new("STATUS", 6).priority(4),
 ];
 
-/// One Inbox table row: `owner/repo#N`, title (`[draft]` kept), author chip, age, queues.
-fn inbox_row(pr: &crate::providers::gh::PullRequest, host: &str) -> crate::ui_table::TableRow<()> {
+/// One Inbox table row: `owner/repo#N`, title (`[draft]` kept), author chip, age, queues and
+/// the review/check state of the PR page last read (`review/checks not loaded` before that).
+fn inbox_row(
+    pr: &crate::providers::gh::PullRequest,
+    host: &str,
+    status: &crate::inbox_status_v1::RowLabel,
+) -> crate::ui_table::TableRow<()> {
     use crate::providers::gh::Queue;
     let queues = pr
         .queues
@@ -663,6 +697,7 @@ fn inbox_row(pr: &crate::providers::gh::PullRequest, host: &str) -> crate::ui_ta
         String::new().into(),
         crate::ui_table::relative_age(&pr.created_at).into(),
         crate::ui_table::Cell::styled(queues, crate::theme::Role::TextMuted),
+        crate::ui_table::Cell::styled(status.text.clone(), status.role),
     ])
     .with_actor(Some(ActorIdentity::github(host, &pr.author)))
 }

@@ -599,6 +599,14 @@ fn detail(mouse: bool) {
     );
     refresh(&mut session, mouse);
     session.wait_for_screen("3 unique PRs across 5 queue matches");
+    // TASK-12 AC2: before any PR page is read, rows say their review/check state is not
+    // loaded instead of inventing one (the queue search carries neither).
+    session.wait_for_screen("review/checks");
+    assert!(
+        !session.screen().contains("Changes requested"),
+        "{}",
+        session.screen()
+    );
     if mouse {
         session.click_visible_action("Improve auth")
     } else {
@@ -656,6 +664,35 @@ fn detail(mouse: bool) {
     session.wait_for_screen("Label: security");
     choose(&mut session, mouse, "[b Back]", b"b");
     session.wait_for_screen("3 unique PRs across 5 queue matches");
+    // TASK-12 AC2: the Inbox row now shows the review state and check rollup that the PR
+    // page read (CHANGES_REQUESTED review, one successful check run) with no further gh
+    // command; rows never opened still say not loaded.
+    session.wait_for_screen("Changes requested, checks pass");
+    let screen = session.screen();
+    let alpha = screen
+        .lines()
+        .position(|line| line.contains("org/alpha#7"))
+        .unwrap_or_else(|| panic!("alpha row\n{screen}"));
+    assert!(
+        screen
+            .lines()
+            .skip(alpha)
+            .take(2)
+            .any(|line| line.contains("Changes requested, checks pass")),
+        "{screen}"
+    );
+    let beta = screen
+        .lines()
+        .position(|line| line.contains("org/beta#7"))
+        .unwrap_or_else(|| panic!("beta row\n{screen}"));
+    assert!(
+        screen
+            .lines()
+            .skip(beta)
+            .take(2)
+            .any(|line| line.contains("review/checks not loaded")),
+        "{screen}"
+    );
     journal(&mut session, &fixture, steps.len());
     session.quit_and_assert_restored_terminal(mouse);
     assert_eq!(detail_sql_v83(&fixture, true), files_sql);

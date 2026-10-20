@@ -29,6 +29,7 @@ pub mod github_ui;
 pub mod github_workspace;
 pub mod history;
 pub mod identity;
+pub mod inbox_status_v1;
 pub mod list_preview_v92;
 pub mod local_actions;
 pub mod local_availability;

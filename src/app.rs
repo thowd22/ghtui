@@ -376,6 +376,8 @@ pub struct App {
     pub preview_scroll_v92: usize,
     pub preview_item_v92: String,
     pub github_visible_rows: usize,
+    /// Review and check state of PR pages read this session, shown on Inbox rows (TASK-12).
+    pub inbox_status_v1: crate::inbox_status_v1::InboxStatusMemo,
     pub pr_checks_origin: Option<std::sync::Arc<crate::pr_checks_native::PrChecksOrigin>>,
     pub pr_checks_route: Option<std::sync::Arc<crate::pr_checks_native::PrChecksRoute>>,
     pub pr_checks_request: bool,
@@ -632,6 +634,7 @@ impl Default for App {
             preview_scroll_v92: 0,
             preview_item_v92: String::new(),
             github_visible_rows: 10,
+            inbox_status_v1: Default::default(),
             pr_checks_origin: None,
             pr_checks_route: None,
             pr_checks_request: false,
