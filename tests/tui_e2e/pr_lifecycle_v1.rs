@@ -1,6 +1,7 @@
 //! PR lifecycle from the PR actions menu: mark ready / convert to draft,
-//! enable / disable auto-merge, update branch and close from any tab. Each
-//! previews first, then sends exactly one write after confirmation.
+//! enable / disable auto-merge, update branch and close / reopen from any tab.
+//! Each previews first, then sends exactly one write after confirmation; a
+//! cancelled close sends nothing.
 use super::*;
 
 const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -276,6 +277,83 @@ fn close_case() -> Case {
         tab: COMMITS,
         opening: vec![],
     }
+}
+fn reopen_case() -> Case {
+    Case {
+        before: pr_with(|v| v["state"] = json!("closed")),
+        label: "Reopen unmerged PR",
+        choice: None,
+        preview: "Reopens this closed, unmerged PR",
+        write: cli(&["pr", "reopen", "7", "--repo", REPO]),
+        after: pr(),
+        done: "Native collaboration • open",
+        // Summary and Conversation route Close/Reopen through the native
+        // State composer (pr_lifecycle_v68); other tabs use this menu path.
+        tab: COMMITS,
+        opening: vec![],
+    }
+}
+
+/// Close is destructive: cancelling its preview sends no `gh pr` command,
+/// no GitHub write, and leaves the PR open and the checkout untouched.
+fn cancelled_close(mouse: bool) {
+    let fixture = configured();
+    let git = local_git_witness(&fixture);
+    let mut steps = initial();
+    steps.extend(details(vec![starter()]));
+    let opened = steps.len();
+    steps.extend(guard());
+    let previewed = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_summary(&mut session, mouse);
+    records(&mut session, &fixture, opened);
+    let (label, key, visible) = COMMITS.unwrap();
+    choose(&mut session, mouse, label, key);
+    session.wait_for_screen(visible);
+    menu(&mut session, mouse, "Close without merging");
+    session.wait_for_screen("Close without merging • example/repo#7");
+    session.wait_for_screen("Local PR intent ready");
+    preview(&mut session, mouse);
+    session.wait_for_screen("Closes this PR without merging");
+    choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("Local PR intent ready")
+                && text.contains("Native collaboration • open")
+                && crate::support::controls::main_footer_visible(frame)
+        },
+        "PR view restored, still open, after cancelling the close preview",
+        Duration::from_secs(8),
+    );
+    let after = records(&mut session, &fixture, previewed);
+    assert_eq!(mutation_count(&after), 0, "no GitHub write");
+    assert!(
+        !after.iter().any(|record| record["args"][0] == "pr"),
+        "no gh pr lifecycle command after cancel"
+    );
+    assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    // The PR key bar re-lays out after the form closes; the cancel above was
+    // the mouse step.
+    session.quit_and_assert_restored_terminal(false);
+}
+
+#[test]
+fn v1_pr_lifecycle_keyboard_reopens_closed_pr_with_one_write() {
+    journey(reopen_case(), false)
+}
+#[test]
+fn v1_pr_lifecycle_mouse_reopens_closed_pr_with_one_write() {
+    journey(reopen_case(), true)
+}
+#[test]
+fn v1_pr_lifecycle_keyboard_cancelled_close_sends_nothing() {
+    cancelled_close(false)
+}
+#[test]
+fn v1_pr_lifecycle_mouse_cancelled_close_sends_nothing() {
+    cancelled_close(true)
 }
 
 #[test]
