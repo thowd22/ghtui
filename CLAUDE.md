@@ -65,6 +65,9 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
   - Browse only, and never push or edit.
   - Record `git status` and refs before and after, and confirm nothing changed.
 - **On worklappy, never overwrite `~/.local/bin/ghtui`.** Copy the binary into a new `mktemp -d` directory under `/tmp`, use a temporary `--config-dir`, and `rm -rf` the directory afterwards.
+- **The worklappy checkout's `core.worktree` points at an old directory,** so ghtui correctly shows its explanation screen there instead of the repository. To capture real History screens, work in a throwaway local clone inside that same `mktemp` directory:
+  - `git clone --no-checkout <repo>/.git repo`, then `git fetch --update-head-ok origin '+refs/heads/*:refs/heads/*' '+refs/remotes/*:refs/remotes/*' '+refs/tags/*:refs/tags/*'` to copy every branch, remote branch and tag.
+  - Compare `git for-each-ref` checksums of the original before and after. Don't run `git status` in the original, because it would touch the other worktree's index.
 - **Do any writes in throwaway repositories,** like the temp fixtures, never in the user's working trees.
 
 ## 8. Reporting

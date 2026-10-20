@@ -294,7 +294,11 @@ impl Cache {
         records: &[Record],
         complete: bool,
     ) -> Result<bool> {
-        let transaction = self.connection.transaction()?;
+        // Take the write lock up front: a deferred read-then-write upgrade gets SQLITE_BUSY at
+        // once, without the busy timeout, while the draft writer holds the database.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let published = Self::publish_sync(
             &transaction,
             scope,
@@ -835,7 +839,9 @@ impl Cache {
     }
 
     pub fn clear_scope(&mut self, scope: &Scope, include_drafts: bool) -> Result<()> {
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         Self::fence_reservations(&transaction, scope)?;
         bindings::fence_binding_visibility(&transaction, scope, None)?;
         transaction.execute(
@@ -862,7 +868,9 @@ impl Cache {
 
     /// Remove derivative source data without deleting drafts or saved searches.
     pub fn clear_records(&mut self, scope: &Scope) -> Result<()> {
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         Self::clear_records_transaction_v5(&transaction, scope)?;
         transaction.commit()?;
         Ok(())
