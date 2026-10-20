@@ -296,6 +296,98 @@ fn local_commit_mouse_stage_message_hook_failure_and_amend_cancel() {
 }
 
 #[test]
+fn local_commit_keyboard_signing_failure_then_successful_amend() {
+    signing_and_amend(false)
+}
+#[test]
+fn local_commit_mouse_signing_failure_then_successful_amend() {
+    signing_and_amend(true)
+}
+
+/// A failing configured signer is explained and keeps the staged work; once signing is
+/// turned off, Amend previews the commit it replaces and rewrites it with only staged bytes.
+fn signing_and_amend(mouse: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("z.txt", b"keep\n", "First saved version");
+    let base = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.commit_file("a.txt", b"draft\n", "Draft subject");
+    let draft = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    std::fs::write(fixture.repo().join("a.txt"), b"polished\n").unwrap();
+    fixture.git(&["add", "a.txt"]);
+    std::fs::write(fixture.repo().join("z.txt"), b"unstaged work to preserve\n").unwrap();
+    let signer = fixture.root.join("failing-signer");
+    std::fs::write(
+        &signer,
+        "#!/bin/sh\necho 'fixture signer has no secret key' >&2\nexit 2\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&signer, std::fs::Permissions::from_mode(0o700)).unwrap();
+    fixture.git(&["config", "commit.gpgsign", "true"]);
+    fixture.git(&["config", "gpg.program", signer.to_str().unwrap()]);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+
+    operation(&mut session, mouse, "Commit staged changes", 4);
+    session.paste("Signed attempt");
+    preview(&mut session, mouse);
+    confirm(&mut session, mouse, 1);
+    session.wait_for_screen("Commit signing failed");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), draft);
+    assert_eq!(fixture.git(&["show", ":a.txt"]), "polished\n");
+    assert_eq!(fixture.git(&["show", ":z.txt"]), "keep\n");
+    close(&mut session, mouse);
+
+    fixture.git(&["config", "commit.gpgsign", "false"]);
+    if mouse {
+        session.click_visible_action("[r Refresh]")
+    } else {
+        session.send_key(b"r")
+    };
+    session.wait_for_screen("Repository loaded • read-only exploration");
+    operation(&mut session, mouse, "Amend latest commit", 5);
+    session.paste("Polished subject\n\nAmended body");
+    session.wait_for_screen("Polished subject");
+    preview(&mut session, mouse);
+    session.wait_for_screen("Commit replaced by this amend");
+    session.wait_for_screen("Draft subject");
+    session.wait_for_screen("+polished");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), draft);
+    confirm(&mut session, mouse, 1);
+    session.wait_for_screen("Completed • Amend latest commit");
+    session.resize(80, 24);
+    session.wait_for_screen("Polished subject");
+    let amended = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    assert_ne!(amended, draft);
+    assert_eq!(
+        fixture
+            .git(&["show", "--format=%P", "--no-patch", "HEAD"])
+            .trim(),
+        base
+    );
+    assert_eq!(
+        fixture
+            .git(&["show", "--format=%B", "--no-patch", "HEAD"])
+            .trim(),
+        "Polished subject\n\nAmended body"
+    );
+    assert_eq!(fixture.git(&["show", "HEAD:a.txt"]), "polished\n");
+    assert_eq!(fixture.git(&["show", "HEAD:z.txt"]), "keep\n");
+    assert_eq!(
+        std::fs::read(fixture.repo().join("z.txt")).unwrap(),
+        b"unstaged work to preserve\n"
+    );
+    assert_eq!(fixture.git(&["diff", "--cached", "--name-only"]), "");
+    assert!(fixture
+        .git(&["reflog", "--format=%H"])
+        .lines()
+        .any(|line| line == draft));
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
 fn staging_keyboard_canonical_range_and_hunk_produce_exact_index_content() {
     partial_staging(false)
 }

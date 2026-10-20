@@ -1329,6 +1329,106 @@ fn v1_local_gaps_failing_signer_and_noninteractive_editor_prompt_preserve_staged
 }
 
 #[test]
+fn v1_local_gaps_unstage_staged_rename_restores_both_paths_and_stale_stage_is_refused() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("old.txt", b"one\ntwo\n", "saved");
+    fixture.git(&["mv", "old.txt", "renamed.txt"]);
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let context = LocalContext::from_workspace(
+        &workspace(&fixture, RepositoryMode::Overview),
+        Some(RawPath::new(b"renamed.txt".to_vec())),
+        None,
+    );
+    let plan = prepare(LocalCommand::UnstageFile, &context, &[]);
+    assert!(
+        plan.preview
+            .iter()
+            .any(|line| line.contains("restore --staged -- renamed.txt old.txt")),
+        "{:?}",
+        plan.preview
+    );
+    execute(&plan);
+    // Both sides of the rename leave the index together: no lone staged deletion.
+    assert_eq!(fixture.git(&["show", ":old.txt"]), "one\ntwo\n");
+    assert_eq!(fixture.git(&["ls-files", "--", "renamed.txt"]), "");
+    assert_eq!(fixture.git(&["diff", "--cached", "--name-only"]), "");
+    assert_eq!(
+        fs::read(fixture.repo().join("renamed.txt")).unwrap(),
+        b"one\ntwo\n"
+    );
+    assert!(!fixture.repo().join("old.txt").exists());
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+
+    // A file edited after its preview is not staged with bytes the user never saw.
+    fs::write(fixture.repo().join("renamed.txt"), b"one\ntwo\nshown\n").unwrap();
+    let context = LocalContext::from_workspace(
+        &workspace(&fixture, RepositoryMode::Overview),
+        Some(RawPath::new(b"renamed.txt".to_vec())),
+        None,
+    );
+    let plan = prepare(LocalCommand::StageFile, &context, &[]);
+    fs::write(fixture.repo().join("renamed.txt"), b"one\ntwo\nunseen\n").unwrap();
+    assert!(plan.execute(true, CancellationToken::default()).is_err());
+    assert_eq!(fixture.git(&["ls-files", "--", "renamed.txt"]), "");
+    assert_eq!(
+        fs::read(fixture.repo().join("renamed.txt")).unwrap(),
+        b"one\ntwo\nunseen\n"
+    );
+}
+
+#[test]
+fn v1_local_commit_amend_preview_names_replaced_published_commit_and_keeps_it_in_reflog() {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("z.txt", b"keep\n", "base");
+    let base = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.commit_file("a.txt", b"draft\n", "Draft subject");
+    let draft = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["branch", "published"]);
+    fixture.git(&["branch", "--set-upstream-to=published"]);
+    fs::write(fixture.repo().join("a.txt"), b"polished\n").unwrap();
+    fixture.git(&["add", "a.txt"]);
+    fs::write(fixture.repo().join("z.txt"), b"unstaged\n").unwrap();
+    let context =
+        LocalContext::from_workspace(&workspace(&fixture, RepositoryMode::Overview), None, None);
+    let plan = prepare(
+        LocalCommand::Amend,
+        &context,
+        &[("message", "Polished subject\n\nBody")],
+    );
+    let has = |needle: &str| plan.preview.iter().any(|line| line.contains(needle));
+    assert!(
+        has("Commit replaced by this amend; the reflog keeps it until it expires (1):"),
+        "{:?}",
+        plan.preview
+    );
+    assert!(has(&format!("{draft} Draft subject")), "{:?}", plan.preview);
+    assert!(has("already on published"), "{:?}", plan.preview);
+    assert!(has("+polished"), "{:?}", plan.preview);
+    assert!(plan.execute(false, CancellationToken::default()).is_err());
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), draft);
+    execute(&plan);
+    assert_eq!(
+        fixture
+            .git(&["show", "--format=%P", "--no-patch", "HEAD"])
+            .trim(),
+        base
+    );
+    assert_eq!(fixture.git(&["show", "HEAD:a.txt"]), "polished\n");
+    assert_eq!(fixture.git(&["show", "HEAD:z.txt"]), "keep\n");
+    assert_eq!(
+        fs::read(fixture.repo().join("z.txt")).unwrap(),
+        b"unstaged\n"
+    );
+    assert_eq!(fixture.git(&["rev-parse", "published"]).trim(), draft);
+    assert!(fixture
+        .git(&["reflog", "--format=%H"])
+        .lines()
+        .any(|line| line == draft));
+}
+
+#[test]
 fn v1_local_gaps_switch_untracked_collision_worktree_owned_branch_and_detached_head() {
     let fixture = Fixture::new();
     fixture.init_git();

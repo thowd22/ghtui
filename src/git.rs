@@ -1869,6 +1869,25 @@ impl GitRepository {
                 }
                 Ok(lines)
             }
+            Operation::Commit { amend: true, .. } => {
+                // An unborn branch has nothing to amend; Git itself refuses it.
+                let Ok(id) = head() else {
+                    return Ok(Vec::new());
+                };
+                let mut lines = list(
+                    "Commit replaced by this amend; the reflog keeps it until it expires",
+                    &format!("{id}^!"),
+                    false,
+                )?;
+                if let Some(upstream) = &status.upstream {
+                    if status.ahead == 0 {
+                        lines.push(format!(
+                            "Warning: this commit is already on {upstream}; amending rewrites published history and the next push needs force-with-lease."
+                        ));
+                    }
+                }
+                Ok(lines)
+            }
             _ => Ok(Vec::new()),
         }
     }
@@ -2195,8 +2214,27 @@ impl GitRepository {
                 } else {
                     add(&["restore", "--staged", "--"]);
                 }
+                let mut restored = Vec::<&RawPath>::new();
                 for path in paths {
                     validate_path(path)?;
+                    if !restored.contains(&path) {
+                        restored.push(path);
+                    }
+                    // Unstaging one side of a staged rename restores both paths, so the
+                    // index never keeps a lone deletion of the original name.
+                    if let Some(original) = status
+                        .entries
+                        .iter()
+                        .find(|entry| entry.index == 'R' && entry.path == *path)
+                        .and_then(|entry| entry.original_path.as_ref())
+                    {
+                        validate_path(original)?;
+                        if !restored.contains(&original) {
+                            restored.push(original);
+                        }
+                    }
+                }
+                for path in restored {
                     args.push(path.as_os_str().to_owned());
                 }
             }
