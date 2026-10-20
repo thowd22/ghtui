@@ -17,8 +17,12 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 
 ## 2. Builds and host resources
 
-- **Build and test only through `~/.cache/ghtui-agents/shared/agent-run.sh <agent-name> <cmd>`.** It allows at most 4 builds at once, each in a systemd scope with a 6 GiB cap and `CARGO_BUILD_JOBS=1`, and gives every agent its own target and temp directories. An unbounded `cargo` run can make the host unresponsive.
+- **Build and test only through `~/.cache/ghtui-agents/shared/agent-run.sh <agent-name> <cmd>`.** It allows at most 6 builds at once, and only while the host has at least 6.5 GiB available. Each build runs in a systemd scope with a 6 GiB cap and `CARGO_BUILD_JOBS=1`, and gives every agent its own target and temp directories. An unbounded `cargo` run can make the host unresponsive.
 - **Never `cargo clean` and never delete `target/`.** A rebuild from nothing costs everyone a lot of time.
+- **A fresh agent target directory needs about 9 minutes for its first compile.** Start `cargo test --no-run` in the background before editing. Prefer a direct `cargo test --test <t> -- <filters>` to `scripts/test-task.mjs`, which compiles every test target. Several space-separated filters after `--` run as one command.
+- **Never pipe cargo into `| head`.** When head exits, cargo dies of SIGPIPE (exit 101), which looks like a compile error. Write to a log file and grep it.
+- **Never wait or kill by command-line substring.** `pgrep -f`/`pkill -f '<text>'` matches its own shell and any waiter carrying the same text: waits never end and kills hit your own build. Wait on a status line in a log, or on a PID. agent-run.sh puts cargo in a systemd scope, so `pgrep -f ghtui-agent-<name>` never matches.
+- **Pick test filters that only hit your area.** `local_commit_` also selects `collaboration_index_*_local_commit_*`; use a module path such as `local::local_commit_`.
 - **Keep `TMPDIR` outside this repository.** Otherwise Git-discovery tests walk up into ghtui's own `.git` and fail in confusing ways.
 - **Write logs only under `~/.cache/ghtui-agents/<agent-name>/`.** A shared scratch directory let agents overwrite each other's logs.
 
@@ -57,6 +61,19 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **Switching views keeps each view's list place** (`App::view_lists_v10`). Only choosing the view already shown starts its list from the top. A journey that leaves a view and expects row 1 on return must select it explicitly.
 - **Settings focus order is fixed:** Host, Repository set, Theme, Density, Save, Close. If you add a control, update the hard-coded indexes in `src/app.rs` and `src/ui.rs`, and update the keyboard journeys that tab to Save.
 - **Paused-operation rows sit below the fold at 80×24.** A rebase or cherry-pick banner has Continue, Skip and Abort rows, so `[Abort rebase]` is not painted in the Files pane at 80×24. Click those rows at 120×40, or open the same command through `m`. In linked-worktree fixtures, find the index with `git rev-parse --git-path index`, not `.git/index`.
+- **Locate click targets only on a completed frame (TASK-101).** A frame arrives over several PTY reads, top rows first, so under load a half-drawn screen can lack the key bar and `[? Help]` matched the Inbox hint `• ? help`. `Session::wait_for_control` now reads the latest completed frame; don't bypass it with raw screen text.
+- **Inside full-screen owned overlays use `session.resize_owned_modal`.** Plain `session.resize()` waits for the main footer and times out there.
+- **Keyboard selection helpers must wait for each repaint.** `select_comment` once sent Downs every 10 ms and overshot. Move one row, wait for the `▌` row to change, repeat. In Overview journeys the first Down only focuses the rows pane.
+- **Notice overlays are 72×16 (68 inner columns).** Keep explanation lines under 68 characters or `wait_for_screen` misses wrapped fragments. At 80×24 count the 78 inner columns of a row and assert on its leading fields, not the cut tail.
+- **Form outcomes that stay open block quitting.** An `Uncertain publication` PR form must be closed (Esc or `[Keep draft / Close]`) before `quit_and_assert_restored_terminal`. A successful Create pull request closes its own form, so assert the form is gone instead of closing it.
+- **PR menu Close/Reopen route by tab.** On Summary and Conversation they open the native State composer (v68); on other tabs the v1 lifecycle form. A v1 lifecycle journey must switch tabs (e.g. `h Commits`) before `p PR actions`.
+- **New gh reads shift strict fixtures.** PR Checks now reads the base branch's protection and rulesets (2 GETs); Actions Usage reads cache storage-limit and retention-limit. Script those steps in any fixture that opens those views.
+- **A new PR write command must be declared in both impact lists** in `src/pr_projection/discussion_invalidation.rs` (`impact_categories` and `possible_text_categories`), or a confirmed write reports `discussion-cache visibility failed` and hides private pages.
+- **Repository permission flags are three-state.** A missing flag is UNKNOWN, never denied; most fixtures report only `pull`.
+- **Full key bars:** at 140 columns the Dashboard bar is full. Add new controls at the lowest priority and test their mouse path at 160+ columns.
+- **Create view-specific SQLite tables lazily** (`CREATE TABLE IF NOT EXISTS` at first write), so PTY tests that snapshot `sqlite_master` elsewhere stay stable.
+- **runtime.rs assigns `app.status = prepared.status` after installing a GitHub workspace.** Post-install status or selection hooks run after that line; `GithubAction::PrTab` resets the list selection, so carry a selection across tabs separately.
+- **Ref snapshots must skip `refs/remotes/<remote>/HEAD`.** It is symbolic and appears to move whenever its target does.
 - **A bold History SHA means two things.** Unfiltered, it marks the selected commit and its ancestors (TASK-28); while filtering, only matches are bold. Check the SHA's bold state only together with the filter state.
 
 ## 6. Product invariants that are easy to break
