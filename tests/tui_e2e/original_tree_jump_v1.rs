@@ -10,7 +10,7 @@ mod viewport_v2;
 fn saved_root(native: &Native, session: &mut Session, mouse: bool, summary: &str) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "[g History]", b"g");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_screen("commits loaded");
     session.open_saved_graph_subject(mouse, summary, &native.chosen);
     session.wait_for_screen(&native.chosen);
     choose(session, mouse, "[t Tree]", b"t");
@@ -110,11 +110,13 @@ fn nested(mouse: bool) {
     session.wait_for_screen("[Folder: nested]");
     assert!(!session.screen().contains("future excluded source"));
     no_discovery_delta(&native, before);
-    choose(&mut session, mouse, "[H History]", b"H");
-    session.wait_for_screen("File history — chosen saved version");
-    session.wait_for_screen("Rename: history.txt → nested/renamed.txt");
-    session.choose_compact(mouse, "[u File back]", "[u Back]");
-    session.wait_for_screen("saved nested line 002");
+    path_history(
+        &mut session,
+        mouse,
+        "path: nested/renamed.txt",
+        &native.chosen,
+    );
+    path_history_back(&mut session, mouse, "saved nested line 002");
     // Loaded directory/root navigation and collapse use actual original raw
     // member tickets; no filesystem/revision/object read or hidden retry.
     let before = starts(&native).len();

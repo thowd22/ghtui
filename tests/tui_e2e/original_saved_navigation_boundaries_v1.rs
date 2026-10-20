@@ -5,7 +5,7 @@ use super::*;
 fn tree_before_file(native: &Native, session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "[g History]", b"g");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_screen("commits loaded");
     session.open_saved_graph_subject(mouse, "Chosen immutable rename", &native.chosen);
     session.wait_for_screen(&native.chosen);
     choose(session, mouse, "[t Tree]", b"t");
@@ -34,9 +34,7 @@ fn hold_loose_object(native: &Native, sha: &str) -> (std::path::PathBuf, std::pa
 
 fn failure_is_still_owned(native: &Native, session: &mut Session, prior: usize) {
     session.wait_for_screen("Error:");
-    assert!(!session
-        .screen()
-        .contains("File history — chosen saved version"));
+    assert!(no_path_history(session), "{}", session.screen());
     assert!(!session.screen().contains("future excluded source"));
     no_discovery_delta(native, prior);
     let completed = starts(native).len();
@@ -110,7 +108,7 @@ fn missing_commit(mouse: bool) {
     saved_file(&native, &mut session, mouse);
     let (path, held) = hold_loose_object(&native, &native.chosen);
     let prior = starts(&native).len();
-    choose(&mut session, mouse, "[H History]", b"H");
+    choose(&mut session, mouse, "[f File history]", b"f");
     failure_is_still_owned(&native, &mut session, prior);
     assert!(!path.exists());
     assert!(
@@ -119,9 +117,12 @@ fn missing_commit(mouse: bool) {
     );
     fs::rename(&held, &path).unwrap();
     let prior = starts(&native).len();
-    choose(&mut session, mouse, "[H History]", b"H");
-    session.wait_for_screen("File history — chosen saved version");
-    session.wait_for_screen("Rename: history.txt → nested/renamed.txt");
+    path_history(
+        &mut session,
+        mouse,
+        "path: nested/renamed.txt",
+        &native.chosen,
+    );
     session.wait_for_screen(&native.chosen);
     no_discovery_delta(&native, prior);
     effects(&native, &session);
@@ -202,7 +203,7 @@ fn git_locator(mouse: bool) {
     );
     let replacement_state = state(&native.fixture);
     let prior = starts(&native).len();
-    choose(&mut session, mouse, "[H History]", b"H");
+    choose(&mut session, mouse, "[f File history]", b"f");
     session.wait_for_screen("Error:");
     session.wait_for_screen("source/locator changed");
     assert_eq!(
@@ -210,9 +211,7 @@ fn git_locator(mouse: bool) {
         prior,
         "Same root/SHA cannot bypass original .git identity before any child"
     );
-    assert!(!session
-        .screen()
-        .contains("File history — chosen saved version"));
+    assert!(no_path_history(&session), "{}", session.screen());
     session.resize(80, 24);
     session.wait_for_screen("Error:");
     session.resize(120, 40);
@@ -264,10 +263,14 @@ fn object_type(mouse: bool) {
     let mut session = launch(&native, mouse);
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "[g History]", b"g");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_screen("commits loaded");
     session.open_saved_graph_subject(mouse, "Special object saved source", &native.chosen);
-    choose(&mut session, mouse, "[D Details]", b"D");
-    session.wait_for_screen("This saved version follows parent");
+    // D (the full-width commit detail) leaves the bar beside the 120-column detail pane;
+    // the mouse picks the same action in Commands.
+    choose_bar_or_palette(&mut session, mouse, "[D Details]", b"D");
+    session.wait_for_screen(&format!("History › repo › Commit {}", &native.chosen[..7]));
+    session.wait_for_screen(&format!("SHA       {}", native.chosen));
+    session.wait_for_screen("A saved-link");
     assert!(!session.screen().contains("Reading original local source"));
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
@@ -281,7 +284,7 @@ fn object_type(mouse: bool) {
     session.wait_for_screen("not a regular text file");
     assert!(!session.screen().contains("Original line:"));
     for (label, key) in [
-        ("[G Responsible graph]", b"G".as_slice()),
+        ("[G Commit in History]", b"G".as_slice()),
         ("[D Introduced diff]", b"D".as_slice()),
         ("[F Original file]", b"F".as_slice()),
     ] {
@@ -289,7 +292,7 @@ fn object_type(mouse: bool) {
         // The genuine Tree mode tab, captured before the explanation overlay opens.
         let underlying_tree = session.wait_for_control("[t Tree]");
         choose(&mut session, mouse, label, key);
-        session.wait_for_screen("Select an exact history entry or attributed line");
+        session.wait_for_screen("Select an attributed line before navigating its commit");
         assert_eq!(
             starts(&native).len(),
             prior,
@@ -297,7 +300,7 @@ fn object_type(mouse: bool) {
         );
         if mouse {
             session.click(underlying_tree.0, underlying_tree.1);
-            session.wait_for_screen("Select an exact history entry or attributed line");
+            session.wait_for_screen("Select an attributed line before navigating its commit");
             assert_eq!(starts(&native).len(), prior);
         }
         choose(&mut session, mouse, "[Esc Close]", b"\x1b");

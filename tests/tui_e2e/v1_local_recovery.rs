@@ -209,7 +209,8 @@ fn rescue(mouse: bool) {
         }
         session.send_key(b"\r");
     }
-    session.wait_for_screen(&format!("Commit {draft}"));
+    // The History detail shows the full SHA beside its `SHA` label (or on its own row).
+    session.wait_for_screen(&draft);
 
     session.resize(80, 24);
     operation(&mut session, mouse, LocalCommand::RecoverBranch);

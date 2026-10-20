@@ -746,10 +746,9 @@ fn deep_body(mouse: bool) {
     choose_focus(&mut session, mouse, "[Enter Open]");
     session.wait_for_overlay_close(TITLE);
     session.wait_for_screen("deep original body row 01");
-    choose(&mut session, mouse, "[H History]", b"H");
-    session.wait_for_screen("File history — chosen saved version");
-    choose(&mut session, mouse, "[u File back]", b"u");
-    session.wait_for_screen("deep original body row 01");
+    // A long path may be cut to fit the chip; the bar still sits on the chosen version.
+    path_history(&mut session, mouse, "path: ", &native.chosen);
+    path_history_back(&mut session, mouse, "deep original body row 01");
     session.resize(80, 24);
     session.resize(40, 24);
     for line in 1..=4 {

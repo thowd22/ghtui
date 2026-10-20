@@ -224,7 +224,7 @@ fn effects(native: &Native, session: &Session) {
 fn saved_file(native: &Native, session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "[g History]", b"g");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_screen("commits loaded");
     session.open_saved_graph_subject(mouse, "Chosen immutable rename", &native.chosen);
     session.wait_for_screen(&native.chosen);
     choose(session, mouse, "[t Tree]", b"t");
@@ -234,6 +234,37 @@ fn saved_file(native: &Native, session: &mut Session, mouse: bool) {
     select_row(session, mouse, "· renamed.txt");
     session.wait_for_screen("saved nested line 002");
     assert!(!session.screen().contains("future excluded source"));
+}
+/// `f File history` on the saved file opens History (TASK-99.3) with the file's `path:` chip
+/// and the `▌` bar on `sha`, the file's latest change in the saved version's own ancestry.
+fn path_history(session: &mut Session, mouse: bool, chip: &str, sha: &str) {
+    choose(session, mouse, "[f File history]", b"f");
+    path_history_shown(session, chip, sha);
+}
+fn path_history_shown(session: &mut Session, chip: &str, sha: &str) {
+    session.wait_for_history_filter("file History path chip", |row| {
+        row.removable
+            .iter()
+            .any(|(label, _)| label.starts_with(chip))
+    });
+    session.wait_for_history_selected(sha);
+    // The detail's file keys join the bar once its changed files load; clicks wait for it.
+    session.wait_for_settled_footer();
+}
+/// Global Back from the file's History returns to the exact saved file it was opened from.
+fn path_history_back(session: &mut Session, mouse: bool, line: &str) {
+    choose(session, mouse, "Alt-← Back", b"\x1b[1;3D");
+    session.wait_for_screen(line);
+    assert!(no_path_history(session), "{}", session.screen());
+}
+/// Neither the History pane nor a removable `path:` chip (`path: … ✕`) is shown; the saved
+/// file's own `Saved path:` line is not a chip.
+fn no_path_history(session: &Session) -> bool {
+    let screen = session.screen();
+    !screen.contains("History ›")
+        && !screen
+            .lines()
+            .any(|line| line.contains("path: ") && line.contains('✕'))
 }
 fn fresh_crumb_restore(
     native: &Native,
@@ -309,18 +340,23 @@ fn happy(mouse: bool) {
         let mut session = launch(&native, mouse);
         saved_file(&native, &mut session, mouse);
         let prior = starts(&native).len();
-        choose(&mut session, mouse, "[H History]", b"H");
-        session.wait_for_screen("File history — chosen saved version");
-        session.wait_for_screen("Rename: history.txt → nested/renamed.txt");
+        path_history(
+            &mut session,
+            mouse,
+            "path: nested/renamed.txt",
+            &native.chosen,
+        );
         no_discovery_delta(&native, prior);
         fresh_crumb_restore(
             &native,
             &mut session,
             mouse,
-            "Repository • File history",
-            "File history — chosen saved version",
+            "Repository • History",
+            "commits loaded",
         );
-        session.wait_for_screen("File history — chosen saved version");
+        path_history_shown(&mut session, "path: nested/renamed.txt", &native.chosen);
+        // The detail beside the table lists the commit's file; Y blames it at that commit.
+        session.wait_for_screen("CHANGED FILES  1 file");
         session.wait_for_screen(&native.chosen);
         choose(&mut session, mouse, "[Y Blame]", b"Y");
         session.wait_for_screen("Blame lines 1–100 of 145");
@@ -352,15 +388,15 @@ fn happy(mouse: bool) {
         provenance_row(&mut session, mouse, "saved nested line 102");
         choose(&mut session, mouse, "[G Responsible graph]", b"G");
         session.wait_for_screen(&native.responsible);
-        session.wait_for_screen("loaded (limit 10000)");
+        session.wait_for_screen("commits loaded");
         fresh_crumb_restore(
             &native,
             &mut session,
             mouse,
-            "Repository • Source graph",
-            "loaded (limit 10000)",
+            "Repository • History",
+            "commits loaded",
         );
-        session.wait_for_screen("loaded (limit 10000)");
+        session.wait_for_screen("commits loaded");
         session.wait_for_screen(&native.responsible);
         exact_blame_back(&native, &mut session, mouse);
         provenance_row(&mut session, mouse, "saved nested line 102");
@@ -413,12 +449,10 @@ fn replacement(mouse: bool) {
     .unwrap();
     let replacement = state(&native.fixture);
     let prior = starts(&native).len();
-    choose(&mut session, mouse, "[H History]", b"H");
+    choose(&mut session, mouse, "[f File history]", b"f");
     session.wait_for_screen("source/locator changed");
     session.wait_for_screen("Error:");
-    assert!(!session
-        .screen()
-        .contains("File history — chosen saved version"));
+    assert!(no_path_history(&session), "{}", session.screen());
     assert_eq!(starts(&native).len(), prior);
     assert_eq!(state(&native.fixture), replacement);
     assert_eq!(
@@ -454,15 +488,16 @@ fn cancel(mouse: bool) {
     let root = native.fixture.root.display().to_string();
     // A transparent offline wrapper first executes REAL installed Git, then
     // holds that actual READ's stdout before publication. Actual Trace2 plus
-    // wrapper PID is the readiness fence; no sleep-based test readiness.
+    // wrapper PID is the readiness fence; no sleep-based test readiness. The held read is
+    // History's `path:` filter (`log --full-history … -- <path>`, TASK-99.3).
     let program = native.fixture.root.join("bin/git");
-    let script=format!("#!/bin/sh\ncase \" $* \" in *' --follow '*) '{installed}' \"$@\" > '{root}/held-history-output' || exit $?; printf '%s\\n' \"$$\" > '{root}/held-history-pid'; while [ ! -f '{root}/release-history' ]; do /bin/sleep 0.02; done; /bin/cat '{root}/held-history-output';; *) exec '{installed}' \"$@\";; esac\n");
+    let script=format!("#!/bin/sh\ncase \" $* \" in *' --full-history '*)'{installed}' \"$@\" > '{root}/held-history-output' || exit $?; printf '%s\\n' \"$$\" > '{root}/held-history-pid'; while [ ! -f '{root}/release-history' ]; do /bin/sleep 0.02; done; /bin/cat '{root}/held-history-output';; *) exec '{installed}' \"$@\";; esac\n");
     fs::write(&program, script).unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
     let mut session = launch(&native, mouse);
     saved_file(&native, &mut session, mouse);
     let prior = starts(&native).len();
-    choose(&mut session, mouse, "[H History]", b"H");
+    choose(&mut session, mouse, "[f File history]", b"f");
     let deadline = Instant::now() + Duration::from_secs(8);
     while !fs::read_to_string(native.fixture.root.join("held-history-pid")).is_ok_and(|text| {
         text.ends_with('\n') && text.trim().parse::<i32>().is_ok_and(|pid| pid > 0)
@@ -494,13 +529,14 @@ fn cancel(mouse: bool) {
             "Canceled actual Git read child survived cleanup"
         );
     }
-    assert!(fs::read(native.fixture.root.join("held-history-output"))
-        .unwrap()
-        .windows(b"Responsible nested source".len())
-        .any(|window| window == b"Responsible nested source"));
-    assert!(!session
-        .screen()
-        .contains("File history — chosen saved version"));
+    // The held path-filter read genuinely selected the chosen rename commit.
+    assert!(
+        fs::read_to_string(native.fixture.root.join("held-history-output"))
+            .unwrap()
+            .lines()
+            .any(|line| line == native.chosen)
+    );
+    assert!(no_path_history(&session), "{}", session.screen());
     choose_bar_or_palette(&mut session, mouse, "[a Author]", b"a");
     session.wait_for_screen("Actor profile — Git author");
     session.wait_for_screen(&native.chosen);

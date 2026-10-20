@@ -98,7 +98,7 @@ fn queued(mouse: bool) {
     choose(&mut session, mouse, "2 Repository", b"2");
     session.wait_for_screen("saved nested line 002");
     let prior = starts(&native).len();
-    choose(&mut session, mouse, "[H History]", b"H");
+    choose(&mut session, mouse, "[f File history]", b"f");
     session.wait_for_screen("Reading original local source");
     assert!(alive(tree_pid) && alive(gh_pid));
     assert_eq!(
@@ -110,9 +110,7 @@ fn queued(mouse: bool) {
     session.wait_for_screen("Cancelled");
     assert!(alive(tree_pid) && alive(gh_pid));
     assert_eq!(starts(&native).len(), prior);
-    assert!(!session
-        .screen()
-        .contains("File history — chosen saved version"));
+    assert!(no_path_history(&session), "{}", session.screen());
     choose(&mut session, mouse, "1 Inbox", b"1");
     choose(&mut session, mouse, "[Esc Cancel]", b"\x1b");
     session.wait_for_screen("Cancelled");
@@ -145,9 +143,7 @@ fn queued(mouse: bool) {
         prior,
         "Releasing/reaping other workers cannot start the canceled original Repo read"
     );
-    assert!(!session
-        .screen()
-        .contains("File history — chosen saved version"));
+    assert!(no_path_history(&session), "{}", session.screen());
     assert!(!session.screen().contains("GitHub reports this commit"));
     assert_eq!(state(&native.fixture), native.before);
     assert_eq!(sql(&native.fixture), native.sql);

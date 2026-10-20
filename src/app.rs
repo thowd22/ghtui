@@ -3149,10 +3149,12 @@ impl App {
                         match key.code {
                             KeyCode::Up | KeyCode::Char('k') => {
                                 self.move_repository_selection(false);
+                                self.choose_history_bar_commit();
                                 return;
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
                                 self.move_repository_selection(true);
+                                self.choose_history_bar_commit();
                                 return;
                             }
                             KeyCode::Enter => {
@@ -3739,6 +3741,30 @@ impl App {
             self.dispatch(Action::GithubRow(next));
         } else {
             self.dispatch(Action::Scroll(if down { 1 } else { -1 }));
+        }
+    }
+
+    /// Moving the History bar by key chooses its commit, exactly like clicking the row: the
+    /// saved version (`Saved:`, `t Tree`) follows the bar. Read-only and in memory for a
+    /// loaded commit; nothing changes when the bar stays on the saved commit.
+    fn choose_history_bar_commit(&mut self) {
+        let Some(workspace) = &self.workspace else {
+            return;
+        };
+        if !workspace.graph_visible_v1() {
+            return;
+        }
+        let Some(crate::workspace::RowAction::Commit(id)) = workspace
+            .display_rows_v1()
+            .get(self.repository_list.selected)
+            .and_then(|row| row.action.clone())
+        else {
+            return;
+        };
+        if id != workspace.revision {
+            self.dispatch(Action::RepositoryRow(crate::workspace::RowAction::Commit(
+                id,
+            )));
         }
     }
 
