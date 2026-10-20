@@ -82,7 +82,9 @@ impl Lab {
         exact
     }
     fn command(&self) -> Command {
-        let mut command = Command::new("bash");
+        // Absolute: a test may give the child a PATH without bash on it,
+        // and Command resolves the program with the child's PATH.
+        let mut command = Command::new("/bin/bash");
         command
             .env_clear()
             .env("HOME", self.home())
@@ -426,6 +428,247 @@ fn v1_release_uninstall_removes_only_the_executable() {
     assert!(text(&again).contains("nothing to remove"));
 }
 
+/// A PATH directory holding only the named host tools, so a test controls
+/// exactly which dependencies the installer can find.
+fn tool_dir(lab: &Lab, name: &str, tools: &[&str]) -> PathBuf {
+    let dir = lab.root.join(name);
+    fs::create_dir_all(&dir).unwrap();
+    for tool in tools {
+        let found = ["/usr/bin", "/bin"]
+            .iter()
+            .map(|prefix| Path::new(prefix).join(tool))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| panic!("host tool {tool} is missing"));
+        std::os::unix::fs::symlink(found, dir.join(tool)).unwrap();
+    }
+    dir
+}
+const INSTALL_TOOLS: &[&str] = &[
+    "curl",
+    "tar",
+    "gzip",
+    "mktemp",
+    "awk",
+    "grep",
+    "head",
+    "tr",
+    "sha256sum",
+    "cmp",
+    "cp",
+    "chmod",
+    "mv",
+    "rm",
+    "mkdir",
+];
+
+#[test]
+fn v1_release_transport_is_certificate_verified_https_only_and_bounded() {
+    let lab = Lab::new();
+    // A recording curl that refuses to transfer anything.
+    let log = lab.root.join("curl-args");
+    executable(
+        &lab.root.join("fakebin/curl"),
+        format!(
+            "#!/bin/sh\nfor arg in \"$@\"; do printf '%s\\n' \"$arg\"; done >> '{}'\nexit 22\n",
+            log.display()
+        )
+        .as_bytes(),
+    );
+    let output = lab.install(&["--release-base", "https://releases.invalid/ghtui"]);
+    assert_failure(
+        &output,
+        "download failed: https://releases.invalid/ghtui/latest/download/release-version.txt",
+    );
+    let args: Vec<String> = fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    // --disable must be first so ~/.curlrc cannot weaken the transfer.
+    assert_eq!(args[0], "--disable");
+    for (flag, value) in [
+        ("--proto", "=https"),
+        ("--proto-redir", "=https"),
+        ("--max-time", "600"),
+        ("--connect-timeout", "20"),
+        ("--max-redirs", "10"),
+    ] {
+        let at = args
+            .iter()
+            .position(|arg| arg == flag)
+            .unwrap_or_else(|| panic!("{flag} missing: {args:?}"));
+        assert_eq!(args[at + 1], value, "{flag}");
+    }
+    for required in ["--fail", "--tlsv1.2"] {
+        assert!(args.iter().any(|arg| arg == required), "{required} missing");
+    }
+    for insecure in ["-k", "--insecure", "--proto-default", "--cacert"] {
+        assert!(
+            !args.iter().any(|arg| arg == insecure),
+            "{insecure} in {args:?}"
+        );
+    }
+    assert!(!lab.installed().exists());
+    lab.assert_no_leftovers();
+}
+
+#[test]
+fn v1_release_integrity_failure_never_executes_the_download() {
+    let lab = Lab::new();
+    let marker = lab.root.join("executed");
+    let tripwire = lab.root.join("stage/tripwire");
+    executable(
+        &tripwire,
+        format!(
+            "#!/bin/sh\ntouch '{}'\necho 'ghtui 0.5.0'\n",
+            marker.display()
+        )
+        .as_bytes(),
+    );
+    let exact = lab.publish("v0.5.0", &[(X86, &tripwire)], true);
+    let archive = exact.join(format!("ghtui-v0.5.0-{X86}.tar.gz"));
+    let bytes = fs::read(&archive).unwrap();
+    // A truncated (streamed prefix) archive, a wrong checksum and a malformed
+    // SHA256SUMS all fail before the binary inside is ever run.
+    fs::write(&archive, &bytes[..bytes.len() / 2]).unwrap();
+    assert_failure(&lab.install(&[]), "checksum mismatch");
+    fs::write(&archive, &bytes).unwrap();
+    let sums = exact.join("SHA256SUMS");
+    let listed = fs::read_to_string(&sums).unwrap();
+    fs::write(&sums, listed.replacen(&sha256(&bytes), &"0".repeat(64), 1)).unwrap();
+    assert_failure(&lab.install(&["--version", "v0.5.0"]), "checksum mismatch");
+    fs::write(&sums, "not a checksum file\n").unwrap();
+    assert_failure(
+        &lab.install(&["--version", "v0.5.0"]),
+        "SHA256SUMS has no single entry",
+    );
+    assert!(!marker.exists(), "the unverified download was executed");
+    assert!(!lab.installed().exists());
+    lab.assert_no_leftovers();
+}
+
+#[test]
+fn v1_release_concurrent_and_interrupted_upgrades_keep_a_working_binary() {
+    let lab = Lab::new();
+    let old = lab.fake_binary("0.1.0");
+    lab.publish("v0.1.0", &[(X86, &old)], false);
+    assert_success(&lab.install(&["--version", "v0.1.0"]));
+
+    // The new binary kills the installer while it is being verified.
+    let killer = lab.root.join("stage/killer");
+    executable(
+        &killer,
+        b"#!/bin/sh\nkill -TERM $PPID\nsleep 1\necho 'ghtui 0.2.0'\n",
+    );
+    lab.publish("v0.2.0", &[(X86, &killer)], false);
+    let interrupted = lab.install(&["--version", "v0.2.0"]);
+    assert!(!interrupted.status.success(), "{}", text(&interrupted));
+    assert_eq!(fs::read(lab.installed()).unwrap(), fs::read(&old).unwrap());
+    assert_eq!(mode(&lab.installed()), 0o755);
+    lab.assert_no_leftovers();
+
+    // Two upgrades at once both finish and leave one complete binary.
+    let new = lab.fake_binary("0.3.0");
+    lab.publish("v0.3.0", &[(X86, &new)], true);
+    let children: Vec<_> = (0..2)
+        .map(|_| {
+            lab.command()
+                .arg(script("install.sh"))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for child in children {
+        assert_success(&child.wait_with_output().unwrap());
+    }
+    assert_eq!(fs::read(lab.installed()).unwrap(), fs::read(&new).unwrap());
+    assert_eq!(mode(&lab.installed()), 0o755);
+    lab.assert_no_leftovers();
+}
+
+#[test]
+fn v1_release_refuses_unrelated_files_and_guides_missing_tools_and_path() {
+    let lab = Lab::new();
+    let binary = lab.fake_binary("0.1.0");
+    lab.publish("v0.1.0", &[(X86, &binary)], true);
+
+    // An unrelated file named ghtui is neither replaced nor uninstalled.
+    fs::create_dir_all(lab.home().join(".local/bin")).unwrap();
+    let unrelated = "#!/bin/sh\necho someone else\n";
+    fs::write(lab.installed(), unrelated).unwrap();
+    assert_failure(&lab.install(&[]), "does not look like ghtui");
+    assert_failure(&lab.install(&["--uninstall"]), "does not look like ghtui");
+    assert_eq!(fs::read_to_string(lab.installed()).unwrap(), unrelated);
+    fs::remove_file(lab.installed()).unwrap();
+
+    // Missing curl is reported with a fix before anything is written.
+    let fakebin = lab.root.join("fakebin");
+    let no_curl = tool_dir(&lab, "no-curl", &INSTALL_TOOLS[1..]);
+    let output = lab
+        .command()
+        .env(
+            "PATH",
+            format!("{}:{}", fakebin.display(), no_curl.display()),
+        )
+        .arg(script("install.sh"))
+        .output()
+        .unwrap();
+    assert_failure(
+        &output,
+        "curl is required; install it with your system package manager",
+    );
+    assert!(!lab.installed().exists());
+
+    // Without git and gh the install succeeds and explains both, leaving gh
+    // authentication to gh. Quoted spaces and Unicode paths work, and an
+    // earlier ghtui on PATH is reported as shadowing the new one.
+    let tools = tool_dir(&lab, "tools", INSTALL_TOOLS);
+    let target = lab.root.join("home/my apps/ünïcode bin");
+    let shadow = lab.root.join("shadow");
+    fs::create_dir_all(&shadow).unwrap();
+    executable(&shadow.join("ghtui"), b"#!/bin/sh\necho 'ghtui 0.0.1'\n");
+    let output = lab
+        .command()
+        .env(
+            "PATH",
+            format!(
+                "{}:{}:{}:{}",
+                fakebin.display(),
+                tools.display(),
+                shadow.display(),
+                target.display()
+            ),
+        )
+        .arg(script("install.sh"))
+        .arg("--install-dir")
+        .arg(&target)
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let log = text(&output);
+    assert_eq!(
+        fs::read(target.join("ghtui")).unwrap(),
+        fs::read(&binary).unwrap()
+    );
+    assert!(
+        log.contains(&format!(
+            "another ghtui earlier on PATH shadows this one: {}",
+            shadow.join("ghtui").display()
+        )),
+        "{log}"
+    );
+    assert!(log.contains("git is not installed"), "{log}");
+    assert!(
+        log.contains("gh is not installed") && log.contains("gh auth login"),
+        "{log}"
+    );
+    assert!(!lab.home().join(".bashrc").exists());
+    assert!(!lab.home().join(".profile").exists());
+    lab.assert_no_leftovers();
+}
+
 fn yaml(name: &str) -> Yaml {
     let path = Path::new(ROOT).join(".github/workflows").join(name);
     let source = fs::read_to_string(path).unwrap();
@@ -465,6 +708,42 @@ fn v1_release_workflows_build_both_musl_targets_and_gate_ci() {
     assert!(publish_steps.contains("gh release create"));
     assert_eq!(release["permissions"]["contents"].as_str(), Some("read"));
 
+    // The exact archive is installed by the script and driven by the
+    // installed-binary keyboard/mouse PTY journeys before upload.
+    let install_check = build_steps.find("GHTUI_E2E_RELEASE_DIST").unwrap();
+    assert!(build_steps[install_check..].contains("cargo test --locked --test tui_e2e v1_release"));
+    assert!(install_check < build_steps.find("actions/upload-artifact").unwrap());
+    // Upload as a draft, prove the uploaded bytes are the tested bytes, and
+    // only then publish; a partial matrix is refused first.
+    let order = [
+        "missing archive for",
+        "bash dist/install.sh",
+        "--verify-tag --draft",
+        "gh release download",
+        "sha256sum -c SHA256SUMS",
+        "--draft=false --latest",
+    ];
+    let positions: Vec<_> = order
+        .iter()
+        .map(|needle| {
+            publish_steps
+                .find(needle)
+                .unwrap_or_else(|| panic!("publish lacks {needle}"))
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{order:?} out of order"
+    );
+    assert_eq!(publish["permissions"]["id-token"].as_str(), Some("write"));
+    assert!(publish_steps.contains("actions/attest-build-provenance"));
+    assert_eq!(
+        release["concurrency"]["cancel-in-progress"].as_bool(),
+        Some(false)
+    );
+    assert!(release["on"]["pull_request"].is_badvalue());
+    assert!(release["on"]["pull_request_target"].is_badvalue());
+
     let ci = yaml("ci.yml");
     assert_eq!(ci["env"]["RUST_TEST_THREADS"].as_str(), Some("2"));
     let all: String = ["lint", "installer", "test"]
@@ -479,5 +758,27 @@ fn v1_release_workflows_build_both_musl_targets_and_gate_ci() {
         "shellcheck scripts/install.sh",
     ] {
         assert!(all.contains(needle), "ci.yml lacks {needle}");
+    }
+    // Fork pull requests run with a read-only token and no secrets.
+    assert_eq!(ci["permissions"]["contents"].as_str(), Some("read"));
+    assert!(ci["on"]["pull_request_target"].is_badvalue());
+    assert!(
+        all.contains("actions/upload-artifact"),
+        "no failure log upload"
+    );
+
+    // Every action names a ref and no checkout leaves a token in .git.
+    for workflow in [&ci, &release] {
+        for job in workflow["jobs"].as_hash().unwrap().values() {
+            for step in job["steps"].as_vec().unwrap() {
+                if let Some(uses) = step["uses"].as_str() {
+                    let (_, reference) = uses.split_once('@').expect("unpinned action");
+                    assert!(!reference.is_empty() && reference != "main" && reference != "master");
+                    if uses.starts_with("actions/checkout@") {
+                        assert_eq!(step["with"]["persist-credentials"].as_bool(), Some(false));
+                    }
+                }
+            }
+        }
     }
 }

@@ -85,8 +85,14 @@ ghtui_fetch() {
     # --disable must come first: it stops ~/.curlrc from changing the transfer.
     curl --disable --fail --silent --show-error --location --max-redirs 10 \
         --proto "=$ghtui_proto" --proto-redir "=$ghtui_proto" \
-        --connect-timeout 20 --max-time 600 --retry 2 \
+        --tlsv1.2 --connect-timeout 20 --max-time 600 --retry 2 \
         --output "$2" "$1" || ghtui_fail "download failed: $1"
+}
+
+# An existing destination must look like a ghtui executable before this
+# installer replaces or removes it, so an unrelated file named ghtui is kept.
+ghtui_owned() {
+    LC_ALL=C grep -qaF 'ghtui' -- "$1" 2>/dev/null
 }
 
 # shellcheck disable=SC2317 # invoked by the EXIT trap below
@@ -164,6 +170,7 @@ ghtui_main() {
         if [ -L "$binary" ]; then
             ghtui_fail "$binary is a symlink not created by this installer; remove it yourself"
         elif [ -f "$binary" ]; then
+            ghtui_owned "$binary" || ghtui_fail "$binary does not look like ghtui; refusing to remove it"
             rm -f -- "$binary"
             ghtui_say "removed $binary (configuration, cache and drafts were kept)"
         else
@@ -175,8 +182,9 @@ ghtui_main() {
     local target
     target=$(ghtui_target)
     local tool
-    for tool in curl tar mktemp uname awk; do
-        command -v "$tool" >/dev/null 2>&1 || ghtui_fail "$tool is required"
+    for tool in curl tar gzip mktemp awk grep; do
+        command -v "$tool" >/dev/null 2>&1 ||
+            ghtui_fail "$tool is required; install it with your system package manager, then run this installer again"
     done
     ghtui_proto=$(ghtui_protocol "$base")
     base=${base%/}
@@ -196,6 +204,9 @@ ghtui_main() {
     [ -w "$install_dir" ] || ghtui_fail "$install_dir is not writable (this installer never uses sudo)"
     if [ -L "$binary" ] || { [ -e "$binary" ] && [ ! -f "$binary" ]; }; then
         ghtui_fail "$binary exists and is not a regular file; refusing to replace it"
+    fi
+    if [ -f "$binary" ] && ! ghtui_owned "$binary"; then
+        ghtui_fail "$binary does not look like ghtui; move it away or pass --install-dir DIR"
     fi
 
     trap ghtui_cleanup EXIT

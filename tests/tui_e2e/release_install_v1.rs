@@ -22,6 +22,9 @@ fn run(command: &mut Command) -> String {
 
 /// Package the test build of ghtui as this crate's version, publish it in
 /// the GitHub release layout and install it into the fixture's ~/.local/bin.
+/// With GHTUI_E2E_RELEASE_DIST naming a directory of assembled release
+/// assets (the release workflow's dist), those exact assets are installed
+/// instead, so the journeys drive the artifact that will be published.
 fn install_real_binary(fixture: &Fixture) -> PathBuf {
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let target = if cfg!(target_arch = "aarch64") {
@@ -29,16 +32,30 @@ fn install_real_binary(fixture: &Fixture) -> PathBuf {
     } else {
         "x86_64-unknown-linux-musl"
     };
-    let dist = fixture.root.join("dist");
-    let packager = Path::new(ROOT).join("scripts/package-release.sh");
-    run(Command::new("bash")
-        .arg(&packager)
-        .args(["archive", &version, target, env!("CARGO_BIN_EXE_ghtui")])
-        .arg(&dist));
-    run(Command::new("bash")
-        .arg(&packager)
-        .args(["finish", &version])
-        .arg(&dist));
+    let dist = match std::env::var_os("GHTUI_E2E_RELEASE_DIST") {
+        Some(dist) if !dist.is_empty() => PathBuf::from(dist),
+        _ => {
+            let dist = fixture.root.join("dist");
+            let packager = Path::new(ROOT).join("scripts/package-release.sh");
+            run(Command::new("bash")
+                .arg(&packager)
+                .args(["archive", &version, target, env!("CARGO_BIN_EXE_ghtui")])
+                .arg(&dist));
+            run(Command::new("bash")
+                .arg(&packager)
+                .args(["finish", &version])
+                .arg(&dist));
+            dist
+        }
+    };
+    let archive = dist.join(format!("ghtui-{version}-{target}.tar.gz"));
+    let released = Command::new("tar")
+        .arg("-xzOf")
+        .arg(&archive)
+        .arg("ghtui")
+        .output()
+        .unwrap();
+    assert!(released.status.success(), "cannot read {archive:?}");
     let release = fixture.root.join("release");
     for layout in [format!("download/{version}"), "latest/download".into()] {
         let directory = release.join(layout);
@@ -69,7 +86,7 @@ fn install_real_binary(fixture: &Fixture) -> PathBuf {
     );
     assert_eq!(
         fs::read(&installed).unwrap(),
-        fs::read(env!("CARGO_BIN_EXE_ghtui")).unwrap(),
+        released.stdout,
         "installed bytes differ from the released binary"
     );
     installed

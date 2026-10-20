@@ -43,8 +43,48 @@ Pass options through `bash -s --`, for example to pin a version:
 curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --version v0.1.0
 ```
 
-Running the installer again upgrades in place. Release binaries for macOS aren't
-published yet, so on macOS build from source (see below).
+Running the installer again upgrades in place. To roll back, run it again with
+the older `--version`. Release binaries for macOS aren't published yet, so on
+macOS build from source (see below).
+
+#### What the installer checks, and what it can't
+
+- Downloads use HTTPS only, including redirects, with certificate checks and
+  time limits. Your `~/.curlrc` is ignored.
+- The archive must match its SHA-256 in the release's `SHA256SUMS`, must hold
+  exactly one file named `ghtui`, and that file must report the requested
+  version. All of this happens before anything is installed. If a check
+  fails, the binary you already had stays as it was.
+- The new binary is written next to the old one and renamed over it, so an
+  interrupted or concurrent install never leaves a half-written `ghtui`.
+- It refuses to replace or uninstall a symlink, a directory, or a file that
+  doesn't look like ghtui.
+
+`SHA256SUMS` comes from the same release as the archive. It catches corrupt or
+truncated downloads, but it can't protect you if the release itself has been
+tampered with. When the repository is public, each release asset also has a
+GitHub build provenance attestation that you can check with `gh`:
+
+```sh
+gh attestation verify ghtui-v0.1.0-x86_64-unknown-linux-musl.tar.gz --repo thowd22/ghtui
+```
+
+To read the script before running it, download it first:
+
+```sh
+curl -fsSLO https://github.com/thowd22/ghtui/releases/latest/download/install.sh
+less install.sh
+bash install.sh
+```
+
+To install by hand without the script, download `SHA256SUMS` and the archive
+for your CPU from the release page, then:
+
+```sh
+sha256sum --ignore-missing -c SHA256SUMS
+tar -xzf ghtui-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+install -m 755 ghtui ~/.local/bin/ghtui
+```
 
 ### Requirements
 
@@ -211,3 +251,23 @@ offline fake `gh`, so they never touch your accounts. Contributor and agent
 rules are in [AGENTS.md](AGENTS.md). Planned work is tracked with
 [Backlog.md](https://github.com/MrLesk/Backlog.md): run `backlog board`.
 The product specifications are in [backlog/docs](backlog/docs).
+
+### CI and releases
+
+`.github/workflows/ci.yml` runs formatting, Clippy, ShellCheck and the whole
+test suite, including the terminal tests, on every push and pull request. Pull
+requests get a read-only token and no secrets, and a failed run keeps its test
+log as an artifact.
+
+Pushing a `vX.Y.Z` tag that matches `Cargo.toml` runs
+`.github/workflows/release.yml`. It builds static x86_64 and aarch64 Linux
+binaries, each on a runner of the same CPU. It then installs each archive with
+`scripts/install.sh` and runs the keyboard and mouse terminal tests against the
+installed binary. Next it uploads a draft release, checks the uploaded files
+byte for byte against the tested ones, and only then publishes it. To assemble
+the assets locally without uploading anything, use
+`scripts/package-release.sh`.
+
+Local checks of these workflows only test their structure and the scripts they
+call. They are not evidence of a hosted run. Native macOS builds are not part
+of the release yet.

@@ -1,7 +1,8 @@
 name: Release
 
 # Pushing a tag such as v0.1.0 builds static Linux binaries, verifies them and
-# the installer against the assembled assets, then publishes a GitHub release.
+# the installer against the assembled assets, uploads a draft release, checks
+# the uploaded bytes match the tested ones and only then publishes it.
 # workflow_dispatch is a dry run: it builds, verifies and assembles the
 # assets for the Cargo.toml version but never creates a release.
 on:
@@ -11,6 +12,12 @@ on:
 
 permissions:
   contents: read
+
+# Never run two releases of the same ref at once, and never cancel one that
+# may already be uploading.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,6 +40,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Resolve the release tag
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
@@ -72,6 +81,29 @@ jobs:
           test "$("$binary" --version)" = "ghtui ${RELEASE_TAG#v}"
       - name: Package
         run: scripts/package-release.sh archive "$RELEASE_TAG" ${{ matrix.target }} target/${{ matrix.target }}/release/ghtui dist
+      # Install this exact archive with scripts/install.sh and drive the
+      # INSTALLED binary through the keyboard and mouse PTY journeys before
+      # anything is uploaded.
+      - name: Install the archive and run the installed-binary PTY journeys
+        shell: bash
+        run: |
+          check=$(mktemp -d)
+          cp dist/ghtui-*.tar.gz "$check/"
+          scripts/package-release.sh finish "$RELEASE_TAG" "$check"
+          GHTUI_E2E_RELEASE_DIST="$check" cargo test --locked --test tui_e2e v1_release -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/installed-pty.log"
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: maintenance.autoDetach
+          GIT_CONFIG_VALUE_0: "false"
+          GIT_CONFIG_KEY_1: gc.autoDetach
+          GIT_CONFIG_VALUE_1: "false"
+      - name: Upload the installed-binary test log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-pty-${{ matrix.target }}
+          path: ${{ runner.temp }}/installed-pty.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ghtui-${{ matrix.target }}
@@ -83,10 +115,16 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Only this job can write, and only on a pushed tag; pull requests never
+    # run this workflow, so fork code never sees these credentials.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Resolve the release tag
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
@@ -101,7 +139,15 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Write install.sh, release-version.txt and SHA256SUMS
-        run: scripts/package-release.sh finish "$RELEASE_TAG" dist
+        run: |
+          # Refuse a partial matrix: both targets must be present.
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            test -f "dist/ghtui-$RELEASE_TAG-$target.tar.gz" || {
+              echo "missing archive for $target" >&2
+              exit 1
+            }
+          done
+          scripts/package-release.sh finish "$RELEASE_TAG" dist
       - name: Install from the assembled assets before publishing
         run: |
           release=$(mktemp -d)
@@ -110,17 +156,44 @@ jobs:
           cp dist/* "$release/latest/download/"
           bash dist/install.sh --release-base "file://$release" --install-dir "$RUNNER_TEMP/bin"
           test "$("$RUNNER_TEMP/bin/ghtui" --version)" = "ghtui ${RELEASE_TAG#v}"
-      - name: Create the GitHub release
+      # Build provenance for every asset. Attestations need a public
+      # repository (or a plan that supports them for private ones).
+      - name: Attest build provenance
+        if: ${{ github.event_name == 'push' && github.event.repository.visibility == 'public' }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: Upload a draft GitHub release
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A tag like v0.2.0-rc.1 is published as a prerelease, so the
-          # installer's latest/download URLs keep pointing at the last stable tag.
-          prerelease=
-          case "$RELEASE_TAG" in *-*) prerelease=--prerelease ;; esac
           gh release create "$RELEASE_TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "ghtui $RELEASE_TAG" \
             --generate-notes \
-            --verify-tag $prerelease
+            --verify-tag --draft
+      - name: Check the uploaded assets are the tested bytes
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uploaded=$(mktemp -d)
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$uploaded"
+          for file in dist/*; do
+            cmp -- "$file" "$uploaded/$(basename -- "$file")"
+          done
+          test "$(ls "$uploaded" | wc -l)" = "$(ls dist | wc -l)"
+          (cd "$uploaded" && sha256sum -c SHA256SUMS)
+      # Only now does the release become visible. A tag like v0.2.0-rc.1 is
+      # published as a prerelease, so the installer's latest/download URLs
+      # keep pointing at the last stable tag.
+      - name: Publish the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$RELEASE_TAG" in
+            *-*) gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease ;;
+            *) gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest ;;
+          esac

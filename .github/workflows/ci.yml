@@ -33,6 +33,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy
@@ -46,6 +48,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: bash -n scripts/install.sh && bash -n scripts/package-release.sh
       - run: shellcheck scripts/install.sh scripts/package-release.sh
 
@@ -55,6 +59,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.93.1
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
@@ -65,7 +71,8 @@ jobs:
       # needed. test-all.mjs runs `cargo test --locked --all-targets` with the
       # test-only Git environment (foreground automatic maintenance).
       - if: ${{ inputs.pty_filter == '' }}
-        run: node scripts/test-all.mjs
+        shell: bash
+        run: node scripts/test-all.mjs 2>&1 | tee "$RUNNER_TEMP/test-all.log"
         env:
           # Saturated hosted runners produce rare one-off PTY timing flakes;
           # each failed test is retried once alone and listed in the log.
@@ -79,7 +86,8 @@ jobs:
           git config --list --show-origin --global || true
           id; ulimit -a | tr '\n' ';'; echo
       - if: ${{ inputs.pty_filter != '' }}
-        run: cargo test --locked --test tui_e2e -- "$FILTER"
+        shell: bash
+        run: cargo test --locked --test tui_e2e -- "$FILTER" 2>&1 | tee "$RUNNER_TEMP/test-all.log"
         env:
           FILTER: ${{ inputs.pty_filter }}
           GIT_CONFIG_COUNT: "2"
@@ -90,3 +98,13 @@ jobs:
       - name: Node script tests
         if: ${{ inputs.pty_filter == '' }}
         run: node --test tests/test_env.test.mjs tests/test_task_runner.test.mjs
+      # Keep the full test log (with PTY screen dumps of failed journeys) for
+      # diagnosis when the suite fails.
+      - name: Upload the test log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: ${{ runner.temp }}/test-all.log
+          if-no-files-found: ignore
+          retention-days: 14
