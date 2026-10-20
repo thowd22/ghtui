@@ -628,3 +628,220 @@ fn metadata(mouse: bool, empty: bool) {
     effects(&native, &session);
     session.quit_and_assert_restored_terminal(mouse);
 }
+
+/// TASK-31: two hunks, a whitespace-only pair and two `mark` lines for the controls below.
+fn explore_fixture() -> Native {
+    let mut native = fixture("sha256");
+    let body = |first: &str, spaced: &str, tail: &str| {
+        let mut text = format!("fn main() {{\n{first}\n");
+        for n in 1..=12 {
+            text.push_str(&format!("    let keep_{n} = {n};\n"));
+        }
+        text.push_str(&format!("{spaced}\n{tail}\n}}\n"));
+        text.into_bytes()
+    };
+    let old = body(
+        "    let old_name = 1; // mark one",
+        "    let spaced = 3;",
+        "    let tail = \"old\"; // mark two",
+    );
+    let new = body(
+        "    let new_name = 2;",
+        "    let  spaced = 3;",
+        "    let tail = \"new\";",
+    );
+    native.c = commit(
+        &native.fixture,
+        &tree(&native.fixture, &[(b"code.rs", &old, "100644")]),
+        None,
+        "Native-common",
+    );
+    native.a = commit(
+        &native.fixture,
+        &tree(
+            &native.fixture,
+            &[(b"code.rs", b"REQUESTED A IS NOT OLD\n", "100644")],
+        ),
+        Some(&native.c),
+        "Native-requested",
+    );
+    native.b = commit(
+        &native.fixture,
+        &tree(&native.fixture, &[(b"code.rs", &new, "100644")]),
+        Some(&native.c),
+        "Native-target",
+    );
+    native
+        .fixture
+        .git(&["update-ref", "refs/heads/requested-A", &native.a]);
+    native
+        .fixture
+        .git(&["update-ref", "refs/heads/target-B", &native.b]);
+    native.before = state(&native.fixture);
+    native
+}
+/// A new completed, ready native frame that satisfies `check`.
+fn ready_when(session: &mut Session, after: usize, label: &str, check: impl Fn(&str) -> bool) {
+    session.wait_for_new_cursorless_condition(
+        after,
+        |frame| {
+            let screen = frame.contents();
+            screen.contains(NATIVE_TITLE)
+                && screen.contains("Native saved diff ready")
+                && !screen.contains("Preparing native diff")
+                && check(&screen)
+        },
+        label,
+        Duration::from_secs(8),
+    );
+}
+/// The row carrying the `>` cursor shows `text`.
+fn cursor_on(screen: &str, text: &str) -> bool {
+    screen
+        .lines()
+        .any(|line| line.contains("│>") && line.contains(text))
+}
+/// One Options control: the key directly, or by mouse Options, the control, Back to diff.
+fn control(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        session.click_visible_action("[o Options]");
+        session.wait_for_screen("[o Back to diff]");
+        session.click_visible_action(label);
+        session.click_visible_action("[o Back to diff]");
+        session.wait_for_screen("[o Options]");
+    } else {
+        session.send_key(key);
+    }
+}
+/// Is the first cell of `text` on the completed frame bold?
+fn bold_at(session: &Session, text: &str) -> Option<bool> {
+    let screen = session.completed_cursorless_screen()?;
+    let (x, y) = crate::support::locate_screen(screen, text)?;
+    screen.cell(y, x).map(|cell| cell.bold())
+}
+#[test]
+fn native_diff_keyboard_hunks_matches_context_whitespace_syntax_within_line_readonly() {
+    explore(false);
+}
+#[test]
+fn native_diff_mouse_hunks_matches_context_whitespace_syntax_within_line_readonly() {
+    explore(true);
+}
+fn explore(mouse: bool) {
+    let native = explore_fixture();
+    let mut session = launch(&native, mouse);
+    open_comparison(&native, &mut session, mouse, true);
+    choose(&mut session, mouse, "[: Commands]", b":");
+    session.wait_for_screen("Commands");
+    session.paste("native saved diff");
+    session.wait_for_screen("Explore native saved diff");
+    if mouse {
+        session.click_visible_action("Explore native saved diff");
+    } else {
+        session.send_key(b"\r");
+    }
+    ready(&mut session, "keep_1 = 1;");
+    let before = starts(&native).len();
+
+    // i Within-line: the changed bytes of a paired line are bold, and plain once it is off.
+    assert_eq!(
+        bold_at(&session, "new_name"),
+        Some(true),
+        "{}",
+        session.screen()
+    );
+    for on in [false, true] {
+        let after = session.completed_cursorless_end();
+        control(&mut session, mouse, "[i Within-line]", b"i");
+        ready_when(&mut session, after, "within-line toggled", |s| {
+            s.contains("old_name")
+        });
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while bold_at(&session, "new_name") != Some(on) {
+            assert!(
+                Instant::now() < deadline,
+                "within-line {on}\n{}",
+                session.screen()
+            );
+            session.poll_output(Duration::from_millis(10));
+        }
+    }
+
+    // y Syntax: the metadata line says when highlighting is off, and recovers.
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[y Syntax]", b"y");
+    ready_when(&mut session, after, "syntax off", |s| {
+        s.contains("Syntax off; original patch text")
+    });
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[y Syntax]", b"y");
+    ready_when(&mut session, after, "syntax on", |s| {
+        !s.contains("Syntax off") && s.contains("old_name")
+    });
+
+    // c Context: unchanged lines leave and return; the changed lines stay.
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[c Context]", b"c");
+    ready_when(&mut session, after, "context hidden", |s| {
+        !s.contains("keep_1 = 1;") && s.contains("old_name") && s.contains("new_name")
+    });
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[c Context]", b"c");
+    ready_when(&mut session, after, "context shown", |s| {
+        s.contains("keep_1 = 1;")
+    });
+
+    // s Whitespace cycles Show, Mark, hide whitespace-only pairs, Show.
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[s Whitespace]", b"s");
+    ready_when(&mut session, after, "whitespace marked", |s| {
+        s.contains("let··spaced")
+    });
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[s Whitespace]", b"s");
+    ready_when(&mut session, after, "whitespace-only pair hidden", |s| {
+        !s.contains("spaced") && s.contains("mark two")
+    });
+    let after = session.completed_cursorless_end();
+    control(&mut session, mouse, "[s Whitespace]", b"s");
+    ready_when(&mut session, after, "whitespace shown", |s| {
+        s.contains("let  spaced")
+    });
+
+    // Search, then { } hunk navigation and n / p match navigation move the cursor row.
+    if mouse {
+        session.click_visible_action("Exact:");
+    } else {
+        session.send_key(b"/");
+    }
+    session.paste("mark");
+    session.send_key(b"\r");
+    ready(&mut session, "2 matches");
+    for (label, key, row) in [
+        ("[{ Previous hunk]", &b"{"[..], "fn main() {"),
+        ("[} Next hunk]", b"}", "keep_10 = 10;"),
+        ("[{ Previous hunk]", b"{", "fn main() {"),
+        ("[n Matching line]", b"n", "mark one"),
+        ("[n Matching line]", b"n", "mark two"),
+        ("[p Previous match]", b"p", "mark one"),
+    ] {
+        let after = session.completed_cursorless_end();
+        control(&mut session, mouse, label, key);
+        ready_when(
+            &mut session,
+            after,
+            &format!("{label} selects {row}"),
+            |s| cursor_on(s, row),
+        );
+    }
+    assert_eq!(
+        starts(&native).len(),
+        before,
+        "every exploration control reuses the prepared source: no Git child"
+    );
+    effects(&native, &session);
+    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
+    session.wait_for_screen("Native saved diff closed");
+    effects(&native, &session);
+    session.quit_and_assert_restored_terminal(mouse);
+}

@@ -746,7 +746,7 @@ impl Theme {
         self.lanes()[slot % 8]
     }
     pub fn legend(self) -> Vec<String> {
-        let mut rows=vec!["Git graph legend — colors trace parent paths, never permanent branch identities".into(),"● commit: a saved version; │ parent path; ╲ merge: joining histories".into(),"Names in brackets are branches/tags pointing to a saved version; HEAD is where you are".into(),"A boundary means earlier versions are not loaded or available in a shallow clone".into()];
+        let mut rows=vec!["Git graph legend — colors trace parent paths, never permanent branch identities".into(),"● commit: a saved version; │ parent path; ╲ merge: joining histories".into(),"Names in brackets are branches/tags pointing to a saved version; HEAD is where you are".into(),"A boundary means earlier versions are not loaded or available in a shallow clone".into(),"A bold commit ID marks the selected commit and the commits it descends from".into()];
         rows.extend(
             [
                 SemanticToken::Added,

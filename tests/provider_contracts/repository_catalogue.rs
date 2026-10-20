@@ -398,6 +398,62 @@ fn repo_catalog_provider_authenticated_and_public_user_sources_use_exact_distinc
     assert_eq!(loaded.repositories()[0].private, Some(false));
     reads(&fixture, 7);
 }
+/// TASK-9: both user inventories follow a full page with the next one and stop on a short page.
+#[test]
+fn repo_catalog_provider_user_inventories_paginate_full_then_short_page() {
+    let mine = |page: usize| {
+        format!("user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=full_name&direction=asc&per_page=2&page={page}")
+    };
+    let fixture = Fixture::new();
+    let mut steps = principal(42);
+    steps.push(get(
+        &mine(1),
+        json!([repository(101, "a"), repository(102, "b")]),
+    ));
+    steps.push(get(&mine(2), json!([repository(103, "c")])));
+    steps.extend(principal(42));
+    fixture.scripted_gh(&steps);
+    let loaded = provider(&fixture)
+        .repository_catalogue_read(
+            None,
+            &RepositoryCatalogueSource::AuthenticatedAccessible,
+            &limits(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(loaded.repositories().len(), 3);
+    reads(&fixture, 6);
+
+    let public = |id: u64, name: &str| {
+        let mut row = repository(id, name);
+        row["private"] = json!(false);
+        row["owner"] = owner("User");
+        row
+    };
+    let page = |page: usize| {
+        format!(
+            "users/example/repos?type=owner&sort=full_name&direction=asc&per_page=2&page={page}"
+        )
+    };
+    let fixture = Fixture::new();
+    let mut steps = principal(42);
+    steps.push(get("users/example", owner("User")));
+    steps.push(get(&page(1), json!([public(101, "a"), public(102, "b")])));
+    steps.push(get(&page(2), json!([public(103, "c")])));
+    steps.push(get("users/example", owner("User")));
+    steps.extend(principal(42));
+    fixture.scripted_gh(&steps);
+    let loaded = provider(&fixture)
+        .repository_catalogue_read(
+            None,
+            &RepositoryCatalogueSource::PublicUser("example".into()),
+            &limits(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(loaded.repositories().len(), 3);
+    reads(&fixture, 8);
+}
 #[test]
 fn repo_catalog_provider_strict_cli_unverified_build_stops_before_user_or_api() {
     for version_text in [

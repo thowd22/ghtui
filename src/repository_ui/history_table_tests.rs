@@ -36,6 +36,7 @@ fn parts(theme: Theme, chips: Vec<RefChip>) -> Parts {
         ),
         age: "17h".into(),
         focused: false,
+        ancestor: false,
         matched: None,
         query: None,
         renamed: None,
@@ -301,6 +302,16 @@ fn history_filter_v993_rows_dim_non_matches_and_underline_the_query() {
         let plain = row(&parts(theme, Vec::new()), None, theme);
         assert_eq!(plain.cells[1].role, Some(Role::TextMuted));
         assert!(plain.actor.is_some());
+        // TASK-28: unfiltered, an ancestor of the selected commit has a bold SHA.
+        let mut ancestor = parts(theme, Vec::new());
+        ancestor.ancestor = true;
+        assert!(row(&ancestor, None, theme).cells[1].spans[0]
+            .1
+            .add_modifier
+            .contains(Modifier::BOLD));
+        // While filtering, the match state alone decides the SHA.
+        other.ancestor = true;
+        assert_eq!(row(&other, None, theme).cells[1].role, Some(Role::TextDim));
     }
     // Overlapping and repeated occurrences, and a subject whose lowercase changes length.
     let base = Style::default();

@@ -889,6 +889,124 @@ fn partial(mouse: bool) {
     finish(&mut session, &fixture, mouse, 21, &before, &config);
 }
 
+/// TASK-9: `u My accessible repositories` and `p Public user` page through 101 rows each
+/// (a full page of 100, then a short page), chosen by key or click.
+fn user_inventories() -> Vec<GhStep> {
+    let page = |range: std::ops::Range<u64>, public: bool| {
+        json!(range
+            .map(|index| {
+                let mut row = repository(index);
+                if public {
+                    row["private"] = json!(false);
+                    row["owner"] = user();
+                }
+                row
+            })
+            .collect::<Vec<_>>())
+    };
+    let mine = |page: usize| {
+        format!("user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=full_name&direction=asc&per_page=100&page={page}")
+    };
+    let public = |page: usize| {
+        format!(
+            "users/example/repos?type=owner&sort=full_name&direction=asc&per_page=100&page={page}"
+        )
+    };
+    let mut result = principal(42);
+    result.push(get(&mine(1), page(0..100, false)));
+    result.push(get(&mine(2), page(100..101, false)));
+    result.extend(principal(42));
+    result.extend(principal(42));
+    result.push(get("users/example", user()));
+    result.push(get(&public(1), page(2000..2100, true)));
+    result.push(get(&public(2), page(2100..2101, true)));
+    result.push(get("users/example", user()));
+    result.extend(principal(42));
+    assert_eq!(result.len(), 14);
+    result
+}
+fn user() -> Value {
+    json!({"id":72,"node_id":"OWNER_catalogue_72","login":"example","type":"User"})
+}
+#[test]
+fn repo_catalog_native_keyboard_my_accessible_and_public_user_sources_page_101_rows() {
+    user_sources(false);
+}
+#[test]
+fn repo_catalog_native_mouse_my_accessible_and_public_user_sources_page_101_rows() {
+    user_sources(true);
+}
+fn user_sources(mouse: bool) {
+    let fixture = configured(&user_inventories());
+    let before = git_state(&fixture);
+    let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
+    let mut session = launch(&fixture, mouse);
+    open_catalogue(&mut session, &fixture, mouse, 0);
+    choose(&mut session, mouse, "[s Source]", b"s");
+    overlay_ready(&mut session, SOURCE, &["[u My accessible repositories]"]);
+    choose(&mut session, mouse, "[u My accessible repositories]", b"u");
+    overlay_ready(
+        &mut session,
+        SOURCE,
+        &["Owner not used for My accessible repositories"],
+    );
+    choose(&mut session, mouse, "[Enter Discover]", b"\r");
+    session.wait_for_overlay_close(SOURCE);
+    ready(
+        &mut session,
+        &[TITLE, "Observed: 101", "Source: My accessible", FIRST],
+    );
+    assert_commands(&session, &fixture, 6);
+    leave_filter(&mut session, mouse);
+    choose(&mut session, mouse, "[s Source]", b"s");
+    overlay_ready(&mut session, SOURCE, &["[p Public user]"]);
+    choose(&mut session, mouse, "[p Public user]", b"p");
+    if mouse {
+        session.click_visible_action("Owner");
+    } else {
+        session.send_key(b"\t");
+    }
+    session.send_key(b"\x01");
+    session.paste("example");
+    overlay_ready(&mut session, SOURCE, &["example", "[Enter Discover]"]);
+    choose(&mut session, mouse, "[Enter Discover]", b"\r");
+    session.wait_for_overlay_close(SOURCE);
+    ready(
+        &mut session,
+        &[
+            TITLE,
+            "Observed: 101",
+            "Source: Public user example",
+            "example/repo2000",
+        ],
+    );
+    assert!(!session.screen().contains(FIRST), "{}", session.screen());
+    assert_commands(&session, &fixture, 14);
+    // Discovery saves nothing: no repository set, and the other account sees nothing.
+    let cache = Cache::open(&database(&fixture)).unwrap();
+    assert!(cache
+        .saved_views(&Scope::github(HOST, Some(42)).unwrap())
+        .unwrap()
+        .iter()
+        .all(|(_, value)| value["sets"][SET].is_null()));
+    leave_filter(&mut session, mouse);
+    finish(&mut session, &fixture, mouse, 14, &before, &config);
+}
+/// A finished discovery leaves the filter focused; Tab moves to the list so keys are actions.
+fn leave_filter(session: &mut Session, mouse: bool) {
+    if mouse {
+        return;
+    }
+    session.send_key(b"\t");
+    session
+        .try_wait_for_condition(
+            |screen| screen.contains(TITLE) && !screen.contains("Filter focused:"),
+            "catalogue list focus after discovery",
+            Duration::from_secs(8),
+        )
+        .unwrap();
+}
+
 #[test]
 fn repo_catalog_native_keyboard_final_uid43_reused_login_hides_private_results_and_hits() {
     principal_change(false);

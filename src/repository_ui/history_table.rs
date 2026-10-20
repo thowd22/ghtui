@@ -61,6 +61,8 @@ struct Parts {
     author: crate::identity::ActorIdentity,
     age: String,
     focused: bool,
+    /// An ancestor of the selected commit: the projection's ancestry (TASK-28).
+    ancestor: bool,
     /// Some while History filters: does this commit match (TASK-99.3)?
     matched: Option<bool>,
     /// The lowercase search text, underlined where it occurs in the subject.
@@ -151,7 +153,8 @@ fn clip_graph(spans: &[(String, Style)], width: usize, theme: Theme) -> Vec<(Str
 }
 
 fn parts(workspace: &Workspace, index: usize, now: u64, theme: Theme) -> Option<Parts> {
-    let Some(RowAction::Commit(id)) = &workspace.display_rows_v1().get(index)?.action else {
+    let display = workspace.display_rows_v1().get(index)?;
+    let Some(RowAction::Commit(id)) = &display.action else {
         return None;
     };
     let state = workspace.graph_state_v1.as_ref()?;
@@ -173,6 +176,7 @@ fn parts(workspace: &Workspace, index: usize, now: u64, theme: Theme) -> Option<
         ),
         age,
         focused: workspace.graph_focus_row_v1() == Some(index),
+        ancestor: display.role == crate::repository_view::SemanticRole::Reference,
         matched,
         query: filter
             .spec
@@ -300,12 +304,18 @@ fn row(parts: &Parts, width: Option<usize>, theme: Theme) -> TableRow<RowAction>
     } else {
         Role::TextMuted
     };
+    // Unfiltered, the selected commit and its ancestry carry a bold full-ink SHA, so the
+    // path that led to the selection reads at a glance (also without color) (TASK-28).
     let sha = match parts.matched {
         Some(true) => Cell::spans(vec![(
             sha.to_owned(),
             theme.role(sha_role).add_modifier(Modifier::BOLD),
         )]),
         Some(false) => Cell::styled(sha, Role::TextDim),
+        None if parts.focused || parts.ancestor => Cell::spans(vec![(
+            sha.to_owned(),
+            theme.role(Role::Text).add_modifier(Modifier::BOLD),
+        )]),
         None => Cell::styled(sha, sha_role),
     };
     TableRow::cells(vec![

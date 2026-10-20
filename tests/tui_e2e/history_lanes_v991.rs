@@ -264,6 +264,47 @@ fn assert_lane_colors(s: &Session, lanes: &Lanes) {
     assert_ne!(color(merge.dot), vt100::Color::Default);
 }
 
+/// TASK-28: the selected commit and its ancestors carry a bold SHA (in color and without);
+/// commits that only descend from it, or sit on other lines, keep a plain SHA.
+fn assert_ancestry(s: &mut Session, lanes: &Lanes, ancestry: &[&str], others: &[&str]) {
+    let sha = |subject: &str| {
+        lanes
+            .commits
+            .iter()
+            .find(|(name, _)| *name == subject)
+            .map(|(_, id)| id[..7].to_owned())
+            .unwrap()
+    };
+    let mut last = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        s.poll_output(Duration::from_millis(20));
+        if let Some(screen) = s.completed_cursorless_screen() {
+            let rows = support::history_fixture::history_rows(screen);
+            let bold = |subject: &str| {
+                let sha = sha(subject);
+                rows.iter()
+                    .find(|row| row.sha == sha)
+                    .map(|row| screen.cell(row.y, row.sha_x).unwrap().bold())
+            };
+            let wrong: Vec<String> = ancestry
+                .iter()
+                .filter(|subject| bold(subject) != Some(true))
+                .chain(others.iter().filter(|subject| bold(subject) != Some(false)))
+                .map(|subject| (*subject).to_owned())
+                .collect();
+            if wrong.is_empty() {
+                return;
+            }
+            last = format!("{wrong:?}");
+        }
+        if std::time::Instant::now() >= deadline {
+            s.save_artifacts();
+            panic!("ancestry highlight wrong for {last}\n{}", s.screen());
+        }
+    }
+}
+
 fn select(s: &mut Session, mouse: bool, subject: &str) {
     if mouse {
         s.click_visible_action(subject);
@@ -315,6 +356,18 @@ fn journey(mouse: bool) {
     select(&mut s, mouse, "Lane feature one");
     wait_graph(&mut s, &lanes, true, "Lane feature one");
     s.wait_for_screen("8 commits loaded");
+    assert_ancestry(
+        &mut s,
+        &lanes,
+        &["Lane feature one", "Lane main one", "Lane root"],
+        &[
+            "Lane feature two",
+            "Lane merge feature",
+            "Lane main two",
+            "Lane remote only",
+            "Lane detached head",
+        ],
+    );
     assert_eq!(state(&lanes.fixture.repo()), lanes.baseline);
 
     // At 80x24 the graph column, the joins and the alignment hold for every visible row.
@@ -326,6 +379,18 @@ fn journey(mouse: bool) {
     s.resize(140, 42);
     s.wait_for_main_frame();
     wait_graph(&mut s, &lanes, true, "Lane main two");
+    // The highlight follows the selection to the other line of history.
+    assert_ancestry(
+        &mut s,
+        &lanes,
+        &["Lane main two", "Lane main one", "Lane root"],
+        &[
+            "Lane feature one",
+            "Lane feature two",
+            "Lane merge feature",
+            "Lane detached head",
+        ],
+    );
 
     assert_eq!(state(&lanes.fixture.repo()), lanes.baseline);
     assert!(s.inspect_command_journal(&lanes.fixture).is_empty());

@@ -55,6 +55,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **Merge, auto-merge, merge-queue, lock and branch-deletion forms read GitHub when they open** (repository settings, the merge-context GraphQL query, the issue's `locked` flag). In strict fake-gh journeys, script that read after the PR opens and before the preview `guard()`, or the fixture stops matching.
 - **Settings focus order is fixed:** Host, Repository set, Theme, Density, Save, Close. If you add a control, update the hard-coded indexes in `src/app.rs` and `src/ui.rs`, and update the keyboard journeys that tab to Save.
 - **Paused-operation rows sit below the fold at 80×24.** A rebase or cherry-pick banner has Continue, Skip and Abort rows, so `[Abort rebase]` is not painted in the Files pane at 80×24. Click those rows at 120×40, or open the same command through `m`. In linked-worktree fixtures, find the index with `git rev-parse --git-path index`, not `.git/index`.
+- **A bold History SHA means two things.** Unfiltered, it marks the selected commit and its ancestors (TASK-28); while filtering, only matches are bold. Check the SHA's bold state only together with the filter state.
 
 ## 6. Product invariants that are easy to break
 
