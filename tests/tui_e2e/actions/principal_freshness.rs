@@ -50,7 +50,9 @@ fn journey(mouse: bool) {
         &["api", "user", "--hostname", "github.com", "--method", "GET"],
         "{\"login\":\"old-account-must-not-appear\",\"id\":42}",
     );
-    old_user.delay_ms = 5_000;
+    // Held far longer than the journey needs: the cancel kills this child, and a
+    // short hold expired under full-suite load before the mouse cancel landed.
+    old_user.delay_ms = 60_000;
     let mut authentication_error = GhStep::read(&["--version"], "");
     authentication_error.status = 1;
     authentication_error.stderr = b"HTTP 401: fixture auth expired".to_vec();

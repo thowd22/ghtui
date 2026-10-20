@@ -397,16 +397,21 @@ fn routing(mouse: bool) {
                 // The Files tab and the Native diff key-bar token, compact or full.
                 && crate::support::locate_control(frame, "[v Native diff]").is_some()
                 && crate::support::overlay_body(frame, "Inbox • focused view").is_some_and(|body| {
+                    // Inbox keeps its place across view switches (TASK-10): the Next-file
+                    // selection is restored, so the coverage row above it stays scrolled off.
                     crate::support::controls::text_has_control(&body, "[f Files]")
-                        && body.contains("Files: all 1 loaded")
+                        && body.contains("▌ File src/界.rs")
                         && body.contains("File src/界.rs")
                         && body.contains("new-no-newline")
-                        && body
-                            .chars()
-                            .filter(|character| !character.is_whitespace())
-                            .collect::<String>()
-                            .contains(&h.h)
                 })
+                // The exact head stays in the pane title even when the restored place
+                // scrolls the coverage row off.
+                && frame
+                    .contents()
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>()
+                    .contains(&h.h)
         },
         "NEW completed exact cached original Inbox Files/H after pure Discovery Back",
         Duration::from_secs(8),
