@@ -878,9 +878,9 @@ pub fn rescue_candidates_for_ref_v1(
             "before amend"
         } else if message.starts_with("reset:") {
             "before reset"
-        } else if message.starts_with("rebase") && message.contains("(start)") {
-            "before rebase"
-        } else if branch && message.starts_with("rebase") && message.contains("(finish)") {
+        } else if message.starts_with("rebase")
+            && (message.contains("(start)") || branch && message.contains("(finish)"))
+        {
             "before rebase"
         } else if branch && message.starts_with("branch: Reset to") {
             "before branch move"

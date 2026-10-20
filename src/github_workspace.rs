@@ -548,6 +548,7 @@ impl PrPage {
                                 actor: None,
                                 anchor: None,
                                 comment: None,
+                                link: None,
                                 cells: Some(PrCells::Row(vec![
                                     format!("{context} (required)"),
                                     "expected".into(),

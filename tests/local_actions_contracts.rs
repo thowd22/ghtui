@@ -1818,6 +1818,7 @@ fn v39_detached_head_refuses_pull_and_switch_preview_names_unreferenced_commits(
     execute(&switch);
     assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
     assert_eq!(fixture.git(&["rev-parse", "kept"]).trim(), detached);
+}
 
 /// main deleted `old.txt` and changed file `thing`; feature renamed `old.txt`
 /// to `new.txt` and replaced `thing` with a directory. The merge stops on a

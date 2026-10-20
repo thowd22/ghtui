@@ -95,6 +95,7 @@ fn page(
         },
         diff: None,
         checks,
+        required_checks: None,
         rows: vec![],
         context: None,
         metadata_display_v51: None,

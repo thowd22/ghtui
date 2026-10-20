@@ -122,9 +122,8 @@ fn suggestions_body_round_trips_and_grows_its_fence_past_backticks() {
     assert!(body.starts_with("````suggestion\n"), "{body}");
     assert!(body.ends_with("\n````"));
     assert_eq!(parse_suggestions(&body), vec![lines]);
-    let two = format!(
-        "Please:\r\n```suggestion\r\nfn a() {{}}\r\n```\nand\n```suggestion\n```\n```suggestion\nunclosed"
-    );
+    let two = "Please:\r\n```suggestion\r\nfn a() {}\r\n```\nand\n```suggestion\n```\n```suggestion\nunclosed"
+        .to_string();
     assert_eq!(
         parse_suggestions(&two),
         vec![vec!["fn a() {}".to_owned()], vec![]]

@@ -102,6 +102,7 @@ fn page() -> PrPage {
         },
         tab: PrTab::Timeline,
         diff: None,
+        required_checks: None,
         checks: Some(vec![Check {
             id: 50,
             name: "Rust tests".into(),
