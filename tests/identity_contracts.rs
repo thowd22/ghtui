@@ -900,8 +900,10 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
     // History pairs the author with the `Saved:` row and the committer with the `HEAD:` row
     // (TASK-99); this bare App has no source identity, so only the `Saved:` row and its
     // author are painted.
-    assert!(text.contains("author Fixture Author"));
-    assert!(text.contains("[FA]"));
+    // In colour the actor row draws the filled initials chip (`FA author …`); the bracketed
+    // `[FA]` form is reserved for NO_COLOR and is asserted in the monochrome half below.
+    assert!(text.contains("FA author Fixture Author"), "{text}");
+    assert!(!text.contains("[FA]"), "{text}");
     let author = app
         .hits
         .iter()
