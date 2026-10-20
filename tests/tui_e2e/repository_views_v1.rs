@@ -105,15 +105,28 @@ fn journey(mouse: bool) {
     assert!(!session.screen().contains("• committer Fixture Author"));
 
     choose(&mut session, mouse, "[g History]", b"g");
-    session.wait_for_screen("Visible commits 1–3 of 3 loaded (limit 10000)");
-    session.wait_for_screen(&format!(
-        "▶ selected {} Second note (HEAD, main) • Fixture Author",
-        &head[..8]
-    ));
-    session.wait_for_screen("Add the main program • Fixture Author");
+    // History (TASK-99): every loaded commit is one aligned row; the bar starts on HEAD with
+    // its HEAD and main chips, and a linear history is one lane of ● dots.
+    let rows = session.wait_for_history_ready();
+    session.wait_for_screen("Read-only · 3 commits loaded");
+    assert_eq!(rows.len(), 3, "{}", session.screen());
+    let selected = rows.iter().find(|row| row.selected).unwrap();
+    assert_eq!(selected.sha, head[..7], "{selected:?}");
     assert!(
-        !session.screen().contains("↳ parent"),
-        "linear history uses one row per commit\n{}",
+        selected.chips.iter().any(|chip| chip == "HEAD")
+            && selected.chips.iter().any(|chip| chip == "main"),
+        "{selected:?}"
+    );
+    assert_eq!(selected.message, "Second note", "{selected:?}");
+    assert!(
+        rows.iter().any(|row| row.message == "Add the main program"
+            && row.author.contains("FA")
+            && row.author.contains("Fixture")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().all(|row| row.graph == "●"),
+        "linear history uses one row and one lane per commit\n{}",
         session.screen()
     );
 
@@ -271,8 +284,14 @@ fn overview_table(mouse: bool) {
         assert!(selected.contains(&middle[..7]), "{selected}");
         session.send_key(b"\r");
     }
-    // The opened commit's detail row keeps the full id.
-    session.wait_for_screen(&format!("Commit {middle} — a saved version"));
+    // The opened commit is the saved version, by its full id, and its explanation names the
+    // parent it follows.
+    let first = fixture.git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+    session.wait_for_screen(&format!("Saved: {middle}"));
+    session.wait_for_screen(&format!(
+        "This saved version follows parent {}",
+        &first[..8]
+    ));
 
     choose(&mut session, mouse, "[o Overview]", b"o");
     session.wait_for_screen("Recent commits");

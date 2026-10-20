@@ -382,7 +382,7 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
 ) {
     use crate::{
         git::RawPath,
-        navigation_local_source_v1::OriginalSavedVisitsV1,
+        navigation_local_source_v1::{OriginalSavedVisitV1, OriginalSavedVisitsV1},
         providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
         workspace::{FileAction, ProvenanceView, Workspace},
     };
@@ -419,10 +419,16 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
         FileAction::Blame,
         FileAction::Next,
         FileAction::BlameLine(102),
-        FileAction::Graph,
     ] {
         workspace.open(RowAction::FileProvenance(action)).unwrap();
     }
+    // TASK-99: G opens the blamed line's commit in History; global Back restores the exact
+    // Blame visit captured before that navigation.
+    let blame_visit = OriginalSavedVisitV1::capture(&workspace).unwrap();
+    workspace
+        .open(RowAction::FileProvenance(FileAction::Graph))
+        .unwrap();
+    assert!(workspace.graph_visible_v1() && workspace.file_provenance.is_none());
     let mut visits = OriginalSavedVisitsV1::default();
     let visit = visits.capture_graph_v2(&workspace).unwrap();
     let request = visit
@@ -450,11 +456,9 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
     let mut background = Background::new();
     assert!(
         background.submit_original_local_v1(&mut app, None, move |owner| {
-            let mut workspace = worker;
-            workspace.open_original_with_operation_v1(
-                RowAction::FileProvenance(FileAction::Back),
-                owner.operation(),
-            )?;
+            // Global Back retires the History the worker holds and restores the Blame visit.
+            drop(worker);
+            let workspace = blame_visit.restore(owner.operation())?;
             Ok(PreparedView {
                 workspace: Some(workspace),
                 status: "Actual exact Blame Back completed".into(),
@@ -474,9 +478,15 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
     assert_eq!(app.status, "Actual exact Blame Back completed");
     let workspace = app.workspace.as_ref().unwrap();
     let state = workspace.file_provenance.as_ref().unwrap();
-    assert_eq!((&workspace.revision, &state.revision), (&chosen, &chosen));
+    // Back restores exactly the view G left: line 102's source (its responsible commit is the
+    // shown revision) over the chosen file, whose own Back is the Blame page from line 101.
+    assert_eq!(
+        (&workspace.revision, &state.revision),
+        (&responsible, &chosen)
+    );
     assert_eq!(state.path.0, b"nested/renamed.txt");
-    assert_eq!(state.view, ProvenanceView::Blame);
+    assert_eq!(state.view, ProvenanceView::Detail);
+    assert_eq!(state.return_view, ProvenanceView::Blame);
     assert_eq!(state.blame_start, 101);
     let selected = state.selection.as_ref().unwrap();
     assert_eq!(selected.commit, responsible);
@@ -484,14 +494,6 @@ fn original_diff_sides_fresh_source_graph_back_publishes_exact_chosen_blame_line
     assert_eq!(
         (selected.original_line, selected.final_line),
         (Some(102), Some(102))
-    );
-    assert_eq!(
-        workspace.display_rows_v1()[app.repository_list.selected].action,
-        Some(RowAction::FileProvenance(FileAction::BlameLine(102)))
-    );
-    assert_eq!(
-        workspace.provenance_focus_row(),
-        Some(app.repository_list.selected)
     );
     assert!(
         app.repository_list.selected >= app.repository_list.top

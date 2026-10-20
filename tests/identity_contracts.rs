@@ -911,9 +911,21 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
         .iter()
         .find(|hit| hit.action == Action::RepositoryRow(RowAction::Commit(head.clone())))
         .unwrap();
-    let selected =
-        terminal.backend().buffer()[(selected_hit.rect.x + 4, selected_hit.rect.y)].modifier;
-    assert!(selected.contains(Modifier::REVERSED));
+    // The selected History row carries the `▌` bar and the Selection background (TASK-99).
+    let buffer = terminal.backend().buffer();
+    let selection = ghtui::ui_table::selection_style(app.theme());
+    let row_text = (0..selected_hit.rect.right())
+        .map(|x| buffer[(x, selected_hit.rect.y)].symbol())
+        .collect::<String>();
+    assert!(
+        row_text.contains(ghtui::ui_table::SELECTION_BAR) && row_text.contains(&head[..7]),
+        "{row_text}"
+    );
+    let selected = &buffer[(selected_hit.rect.x + 4, selected_hit.rect.y)];
+    assert!(
+        selection.bg.is_some_and(|bg| selected.bg == bg)
+            || selected.modifier.contains(Modifier::REVERSED)
+    );
     // The graph Legend is a key-bar control: its key opens the graph legend, and where the
     // bar paints its token that token is the same action's click target.
     let legend = Action::RepositoryRow(RowAction::Graph(
@@ -1048,10 +1060,31 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                         .contains("Original snapshots • replacements: 2 • legacy grafts: present"));
                 }
                 let content_start = rows.get(app.repository_list.top).map(|first| {
-                    let prefix = first.label.chars().take(24).collect::<String>();
+                    // History rows show a commit by its 7-character SHA in the COMMIT column
+                    // (TASK-99); other rows keep their label.
+                    let prefix = match &first.action {
+                        Some(ghtui::workspace::RowAction::Commit(id)) => {
+                            format!(" {} ", &id[..7])
+                        }
+                        _ => first.label.chars().take(24).collect::<String>(),
+                    };
                     (0..24)
-                        .find(|y| row(*y).contains(&prefix))
-                        .expect("The actual first borrowed Graph row must be visibly painted")
+                        // A History row carries its lane dot; the commit detail beside the
+                        // table repeats the short SHA without one.
+                        .find(|y| {
+                            row(*y).contains(&prefix)
+                                && (!matches!(
+                                    first.action,
+                                    Some(ghtui::workspace::RowAction::Commit(_))
+                                ) || row(*y).contains('●'))
+                        })
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "The actual first borrowed Graph row {prefix:?} must be visibly \
+                                 painted ({width}, {override_count})\n{}",
+                                (0..24).map(row).collect::<Vec<_>>().join("\n")
+                            )
+                        })
                 });
                 if let Some(start) = content_start {
                     assert!(

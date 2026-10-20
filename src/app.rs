@@ -3149,12 +3149,10 @@ impl App {
                         match key.code {
                             KeyCode::Up | KeyCode::Char('k') => {
                                 self.move_repository_selection(false);
-                                self.choose_history_bar_commit();
                                 return;
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
                                 self.move_repository_selection(true);
-                                self.choose_history_bar_commit();
                                 return;
                             }
                             KeyCode::Enter => {
@@ -3744,14 +3742,19 @@ impl App {
         }
     }
 
-    /// Moving the History bar by key chooses its commit, exactly like clicking the row: the
-    /// saved version (`Saved:`, `t Tree`) follows the bar. Read-only and in memory for a
-    /// loaded commit; nothing changes when the bar stays on the saved commit.
+    /// History (TASK-99): moving the `▌` bar onto a commit by keyboard chooses it exactly as a
+    /// click on its row does, so the saved version (`Saved:`, actor rows, `a`/`c`, Tree,
+    /// Working and the Source identity) follows the bar. Read-only and in memory for a loaded
+    /// commit; nothing changes when the bar stays on the saved commit, and a running read (a
+    /// page of older commits) is not replaced by mere cursor movement.
     fn choose_history_bar_commit(&mut self) {
         let Some(workspace) = &self.workspace else {
             return;
         };
-        if !workspace.graph_visible_v1() {
+        if !workspace.graph_visible_v1()
+            || workspace.graph_view_v1 != crate::repository_graph_v1::GraphViewV1::Timeline
+            || self.loading[View::Repository.index()]
+        {
             return;
         }
         let Some(crate::workspace::RowAction::Commit(id)) = workspace
@@ -3797,17 +3800,7 @@ impl App {
             } else if next >= self.repository_list.top + self.repository_visible_rows {
                 self.repository_list.top = next + 1 - self.repository_visible_rows.max(1);
             }
-            // In History the bar is the chosen commit, as a click on its row makes it: the
-            // saved commit, its actor rows and `a`/`c` follow the keyboard too. A running read
-            // (a page of older commits) is not replaced by mere cursor movement.
-            let workspace = self.workspace.as_ref().unwrap();
-            if workspace.graph_visible_v1() && !self.loading[View::Repository.index()] {
-                if let Some(action @ crate::workspace::RowAction::Commit(_)) =
-                    workspace.display_rows_v1()[next].action.clone()
-                {
-                    self.dispatch(Action::RepositoryRow(action));
-                }
-            }
+            self.choose_history_bar_commit();
         } else {
             self.dispatch(Action::Scroll(if down { 1 } else { -1 }));
         }

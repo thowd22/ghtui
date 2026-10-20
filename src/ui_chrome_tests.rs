@@ -690,7 +690,9 @@ fn design_header_v89_back_keeps_its_label_when_a_long_key_does_not_fit() {
 
 #[test]
 fn design_header_v89_source_identity_closes_the_pane_border_and_keeps_hit_order() {
-    for (width, height, label) in [(80, 24, "I Source"), (140, 42, "I Source identity")] {
+    // At 140 columns History's commit detail takes the right column (TASK-99.4), so the
+    // History pane is under 100 cells wide and keeps the compact token too.
+    for (width, height, label) in [(80, 24, "I Source"), (140, 42, "I Source")] {
         for mouse in [false, true] {
             let (_dir, mut app) = source_app();
             let buffer = draw_app(&mut app, width, height);
@@ -712,9 +714,12 @@ fn design_header_v89_source_identity_closes_the_pane_border_and_keeps_hit_order(
             assert_eq!(cells(&buffer, source), label);
             let top = row(&buffer, 1);
             assert!(top.starts_with("╭─ ▶ Repository • focused view"), "{top}");
-            assert!(top.ends_with(&format!("─ {label} ─╮")), "{top}");
+            // The token closes the History pane's border, left of any detail column.
+            let pane_top: String = top.chars().take(usize::from(source.right() + 3)).collect();
+            assert!(pane_top.ends_with(&format!("─ {label} ─╮")), "{top}");
             // The scope keeps the rest of the border, one dash clear of the token.
-            assert!(top.contains("no repository selected ─ "), "{top}");
+            // (Beside the History detail the scope keeps its tail: `…itory selected`.)
+            assert!(pane_top.contains("selected ─ "), "{top}");
             assert!(top.contains(&format!(" ─ {label}")), "{top}");
             assert_eq!(crate::editor::display_width(&top), usize::from(width));
             assert!(buffer[(source.x, 1)].modifier.contains(Modifier::BOLD));

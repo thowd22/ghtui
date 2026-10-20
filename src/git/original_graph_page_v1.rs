@@ -706,7 +706,9 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
             if parts[7].is_empty() {
                 chips.entry(id.into()).or_default().push(HistoryRefV1 {
                     kind,
-                    name: display_bytes(short),
+                    // Escaped, never lossy: a raw `na\xff` branch must not read as a genuine
+                    // `na\u{fffd}` one.
+                    name: display_path_bytes(short),
                     raw_name: name.to_vec(),
                     target: id.into(),
                     current: parts[5] == b"*",

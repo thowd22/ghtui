@@ -25,7 +25,7 @@ fn intent(mouse: bool) {
     );
     session.wait_for_screen("Recent commits");
     command(&mut session, mouse, "Show History");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
     // The Working mode tab, located before the overlay covers it.
@@ -41,7 +41,7 @@ fn intent(mouse: bool) {
     }
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close("Action unavailable • explanation only");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     assert_eq!(
         starts(&local.fixture),
         no_read,

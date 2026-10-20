@@ -89,6 +89,23 @@ fn fixture() -> LocalFixture {
         before,
     }
 }
+/// The History commit detail reads the commit's changed files (one bounded read-only
+/// `git diff-tree`) once the bar rests on it. Waits for that read so a Git count taken after
+/// it covers only what follows.
+pub(crate) fn wait_detail_files(session: &mut Session) {
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            text.contains("CHANGED FILES")
+                && (text.contains(" file · ")
+                    || text.contains(" files · ")
+                    || text.contains("No file changes"))
+        },
+        "History detail with its changed files read",
+        Duration::from_secs(8),
+    );
+}
+
 fn launch(fixture: &Fixture, mouse: bool) -> Session {
     let trace = fixture.root.join("navigation-child-git-trace.jsonl");
     let trace = trace.to_str().unwrap();
@@ -366,14 +383,19 @@ fn journey(mouse: bool) {
     session.wait_for_screen("working navigation needle β");
     session.wait_for_screen("Repository loaded • read-only exploration");
     command(&mut session, mouse, "Show History");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
-    let selected = session.locate("Original navigation ancestry").unwrap();
-    assert!(
-        session.cell_inverted(selected.1, selected.0),
-        "Actual responsible commit selection must remain visible"
+    let selected = crate::support::history_fixture::selected_history_row(
+        session.completed_cursorless_screen().unwrap(),
     );
+    assert!(
+        selected.as_ref().is_some_and(|row| {
+            row.message.starts_with("Original navi") && local.original.starts_with(&row.sha)
+        }),
+        "Actual responsible commit selection must remain visible: {selected:?}"
+    );
+    wait_detail_files(&mut session);
     let count = starts(&local.fixture);
     command(&mut session, mouse, "Help for this view");
     // The Repository key tables come first; the Git prose follows them.
@@ -437,20 +459,19 @@ fn journey(mouse: bool) {
     let before_back = session.completed_cursorless_end();
     choose(&mut session, mouse, GLOBAL_BACK, GLOBAL_BACK_KEY);
     session.assert_focused_view("Repository");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     session.wait_for_screen(&local.original);
-    let selected = session.wait_for_saved_graph_return(
+    session.wait_for_saved_graph_return(
         before_back,
         &local.original,
-        "Original navigation ancestry",
+        // The MESSAGE cell ends in `…` at 80 columns.
+        "Original navigati",
     );
     assert!(
-        session
-            .completed_cursorless_screen()
-            .unwrap()
-            .cell(selected.1, selected.0)
-            .unwrap()
-            .inverse(),
+        crate::support::history_fixture::selected_history_row(
+            session.completed_cursorless_screen().unwrap()
+        )
+        .is_some_and(|row| local.original.starts_with(&row.sha)),
         "Back restores actual canonical commit, not old row index"
     );
     session.resize(120, 40);
@@ -486,9 +507,10 @@ fn unavailable(mouse: bool) {
     let mut session = launch(&local.fixture, mouse);
     session.wait_for_screen("Recent commits");
     command(&mut session, mouse, "Show History");
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);
+    wait_detail_files(&mut session);
     let count = starts(&local.fixture);
     open_palette(&mut session, mouse);
     filter(&mut session, mouse, "unmatched-navigation-command-🦀");

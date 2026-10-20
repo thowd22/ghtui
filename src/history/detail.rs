@@ -876,12 +876,22 @@ fn content(
     rows.push(Row::blank());
 
     // The full SHA stays visible: beside its label when it fits, else on its own row.
-    let full = Span::styled(id.to_owned(), theme.role(Role::Commit));
     if LABEL + 1 + id.len() <= width {
+        let full = Span::styled(id.to_owned(), theme.role(Role::Commit));
         rows.push(Row::new(Line::from(vec![label(theme, "SHA"), full])));
     } else {
+        // Indented when the whole SHA still fits (a SHA-1 at the 44-column detail beside the
+        // table does not), else flush left and, for a SHA-256 in a narrow pane, wrapped:
+        // never cut.
         rows.push(Row::new(Line::from(label(theme, "SHA"))));
-        rows.push(Row::new(Line::from(vec![Span::raw("  "), full])));
+        let indent = if id.len() + 2 <= width { 2 } else { 0 };
+        let chars: Vec<char> = id.chars().collect();
+        for part in chars.chunks(width.saturating_sub(indent).max(1)) {
+            rows.push(Row::new(Line::from(vec![
+                Span::raw(" ".repeat(indent)),
+                Span::styled(part.iter().collect::<String>(), theme.role(Role::Commit)),
+            ])));
+        }
     }
     let author = ActorIdentity::local(&commit.author, GitRole::Author);
     let committer = ActorIdentity::local(&commit.committer, GitRole::Committer);

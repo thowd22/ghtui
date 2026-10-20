@@ -302,7 +302,9 @@ fn journey(mouse: bool) {
     session.wait_for_screen("Repository • Commit changes");
     session.resize(80, 24);
     mode(&mut session, mouse, b"D", "[D Details]");
-    session.wait_for_screen("root commit:");
+    // The History commit drill-down names the root commit's missing parent (TASK-99.4).
+    session.wait_for_screen("none · root commit");
+    session.wait_for_screen(&root);
     mode(&mut session, mouse, b"d", "[d Changes]");
     session.wait_for_screen("Root commit — compared to an empty starting tree");
     session.wait_for_screen("+first saved content");

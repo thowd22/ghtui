@@ -9,36 +9,51 @@ mod exact_avatar_v1;
 #[path = "git_actor_labels_v1.rs"]
 mod git_actor_labels_v1;
 
-fn select_graph_subject(session: &mut Session, mouse: bool, subject: &str) {
-    session.wait_for_cursorless_condition(
-        |frame| frame.contents().contains(subject) && !frame.contents().contains("[Esc Cancel]"),
-        "Actual original graph subject in a completed frame",
-        std::time::Duration::from_secs(8),
-    );
-    if mouse {
-        session.click_visible_action(subject);
-        return;
-    }
+/// Puts the History `▌` bar on the commit whose MESSAGE shows `subject` (a click on its SHA
+/// cell, or ↑/↓), then waits until it is the saved version and the commit detail beside the
+/// table names a parent. Returns the row's short SHA.
+fn select_graph_subject(session: &mut Session, mouse: bool, subject: &str) -> String {
+    use crate::support::history_fixture::selected_history_row;
+    let rows = session.wait_for_history_ready();
+    let sha = rows
+        .iter()
+        .find(|row| row.message.contains(subject))
+        .unwrap_or_else(|| panic!("History row {subject} not visible\n{}", session.screen()))
+        .sha
+        .clone();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        session.poll_output(std::time::Duration::from_millis(1));
-        if let Some((column, row)) = session.locate(subject) {
-            if session
-                .completed_cursorless_screen()
-                .is_some_and(|frame| frame.cell(row, column).is_some_and(|cell| cell.inverse()))
-            {
-                session.send_key(b"\r");
-                return;
-            }
+        session.poll_output(std::time::Duration::from_millis(20));
+        let rows = session.history_rows();
+        let at = rows.iter().position(|row| row.selected);
+        let wanted = rows.iter().position(|row| row.sha == sha);
+        match (at, wanted) {
+            (Some(at), Some(wanted)) if at == wanted => break,
+            (_, Some(_)) if mouse => session.click_history_row(&sha),
+            (Some(at), Some(wanted)) if wanted < at => session.send_key(b"\x1b[A"),
+            _ => session.send_key(b"\x1b[B"),
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "Original subject never keyboard-selected: {subject}\n{}",
+            "History commit never selected: {subject} {sha}\n{}",
             session.screen()
         );
-        session.send_key(b"\x1b[B");
         session.poll_output(std::time::Duration::from_millis(50));
     }
+    let saved = format!("Saved: {sha}");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            text.contains(&saved)
+                && selected_history_row(frame).is_some_and(|row| row.sha == sha)
+                && text.contains("│ Parent ")
+                && !text.contains("none · root commit")
+                && !text.contains("[Esc Cancel]")
+        },
+        "History commit saved with its parent in the detail",
+        std::time::Duration::from_secs(8),
+    );
+    sha
 }
 
 fn fixture() -> Fixture {
@@ -135,7 +150,7 @@ fn inspect_graph_and_changed_file(session: &mut Session, mouse: bool, fixture: &
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     for (subject, reference) in [
         ("Feature saved version", "feature"),
         ("Main saved version", "HEAD^1"),
@@ -144,7 +159,17 @@ fn inspect_graph_and_changed_file(session: &mut Session, mouse: bool, fixture: &
         let revision = fixture.git(&["rev-parse", reference]);
         session.open_saved_graph_subject(mouse, subject, revision.trim());
     }
-    session.wait_for_screen("This merge joins 2 histories.");
+    // The merge row joins its second parent's lane on the same row (`●─╮`); both ordered
+    // parents stay visible as rows.
+    let merge = crate::support::history_fixture::selected_history_row(
+        session.completed_cursorless_screen().unwrap(),
+    )
+    .unwrap();
+    assert!(merge.graph.starts_with("●─╮"), "{merge:?}");
+    let parents = fixture.git(&["show", "--format=%P", "--no-patch", "HEAD"]);
+    for parent in parents.split_whitespace() {
+        session.wait_for_screen(&parent[..7]);
+    }
     if mouse {
         session.click_visible_action("[w Working]");
     } else {
@@ -291,12 +316,11 @@ fn immutable_overrides_journey(mouse: bool) {
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     session.wait_for_screen("New saved version");
     session.wait_for_screen("Root saved version");
     assert!(!session.screen().contains("Replacement root history"));
     select_graph_subject(&mut session, mouse, "New saved version");
-    session.wait_for_screen("This saved version follows parent");
     if mouse {
         session.click_visible_action("[t Tree]");
     } else {
@@ -419,12 +443,11 @@ fn raw_ref_override_journey(mouse: bool) {
     } else {
         session.send_key(b"g");
     }
-    session.wait_for_screen("loaded (limit 10000)");
+    session.wait_for_history_ready();
     session.wait_for_screen("Original head");
     session.wait_for_screen("Original root");
     session.wait_for_screen(r"na\xff");
     select_graph_subject(&mut session, mouse, "Original head");
-    session.wait_for_screen("This saved version follows parent");
     if mouse {
         session.click_visible_action("[t Tree]");
     } else {

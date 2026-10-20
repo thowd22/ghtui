@@ -264,14 +264,22 @@ fn source_journey(mouse: bool) {
         );
         session.wait_for_screen("Recent commits");
         command(&mut session, mouse, "Show History");
-        session.wait_for_screen("loaded (limit 10000)");
+        session.wait_for_history_ready();
         session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
         session.wait_for_screen(&format!("Saved: {}", local.original));
         session.wait_for_screen(&format!("HEAD: {}", local.before.head.trim()));
         session.wait_for_screen("Original Source Writer");
         session.wait_for_screen("Source Integrator");
-        let selected = session.locate("Original navigation ancestry").unwrap();
-        assert!(session.cell_inverted(selected.1, selected.0));
+        let selected = crate::support::history_fixture::selected_history_row(
+            session.completed_cursorless_screen().unwrap(),
+        );
+        assert!(
+            selected.as_ref().is_some_and(|row| {
+                row.message.starts_with("Original navi") && local.original.starts_with(&row.sha)
+            }),
+            "{selected:?}"
+        );
+        wait_detail_files(&mut session);
         let background_tab = session.locate("3 Search").unwrap();
         let reads = starts(&local.fixture);
         assert!(reads > 0, "Actual child Git trace must be present");
@@ -324,9 +332,11 @@ fn source_journey(mouse: bool) {
         close_source(&mut session, mouse);
         session.wait_for_screen(&format!("Saved: {}", local.original));
         session.wait_for_screen(&format!("HEAD: {}", local.before.head.trim()));
-        let selected = session.locate("Original navigation ancestry").unwrap();
         assert!(
-            session.cell_inverted(selected.1, selected.0),
+            crate::support::history_fixture::selected_history_row(
+                session.completed_cursorless_screen().unwrap()
+            )
+            .is_some_and(|row| local.original.starts_with(&row.sha)),
             "Source detail/resize preserves exact original commit focus"
         );
         assert_pure_source(&local, &session, reads, &saved);

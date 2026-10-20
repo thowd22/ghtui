@@ -548,10 +548,18 @@ fn proposed(mouse: bool) {
         &native.b,
         "TARGET new bytes",
     );
-    choose(&mut session, mouse, "[H History]", b"H");
-    session.wait_for_screen("File history — chosen saved version");
+    // The saved side's History (TASK-99): `H` (an alias of `f`) by key, the `f File history`
+    // token by mouse, open History with the file's `path:` chip and the bar on the chosen
+    // saved version; global Back returns to the side.
+    session.wait_for_settled_footer();
+    choose(&mut session, mouse, "[f File history]", b"H");
+    session.wait_for_history_filter("shared path chip", |row| {
+        row.removable.iter().any(|(chip, _)| chip == "path: shared")
+    });
+    session.wait_for_history_selected(&native.b);
     session.wait_for_screen(&native.b);
-    session.choose_compact(mouse, "[u File back]", "[u Back]");
+    session.wait_for_settled_footer();
+    choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     session.wait_for_screen("Original new saved file");
     back(&native, &mut session, mouse);
     choose(&mut session, mouse, "3 Search", b"3");
@@ -630,8 +638,9 @@ fn special(mouse: bool) {
     session.wait_for_overlay_close(TITLE);
     choose(&mut session, mouse, "[g History]", b"g");
     session.open_saved_graph_subject(mouse, "Common exact side version", &native.c);
-    choose(&mut session, mouse, "[D Details]", b"D");
-    session.wait_for_screen("root commit:");
+    // From 120 columns the commit detail sits beside the History table (TASK-99.4): the
+    // root commit names no parent and keeps its full SHA visible.
+    session.wait_for_screen("none · root commit");
     session.wait_for_screen(&native.c);
     choose(&mut session, mouse, "[d Changes]", b"d");
     session.wait_for_screen("empty starting tree");
