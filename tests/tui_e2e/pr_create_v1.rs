@@ -200,6 +200,181 @@ fn unpushed_journey(mouse: bool) {
     session.quit_and_assert_restored_terminal(mouse);
 }
 
+fn create_post(repo: &str, stdin: Value, number: u64) -> GhStep {
+    let endpoint = format!("repos/{repo}/pulls");
+    let mut post = GhStep::read(
+        &["api", &endpoint, "--hostname", HOST, "--method", "POST", "--input", "-"],
+        &json!({"number": number, "html_url": format!("https://github.invalid/{repo}/pull/{number}"), "draft": false})
+            .to_string(),
+    );
+    post.stdin = serde_json::to_vec(&stdin).unwrap();
+    post
+}
+/// Reviewers and the target choice by keys, or by clicks. The multiline
+/// Description fills the form, so F6 (key or button) pages one field down:
+/// four presses from the title focus Reviewers at the top.
+fn choose_reviewers_and_parent(session: &mut Session, mouse: bool, reviewers: &str) {
+    for _ in 0..4 {
+        if mouse {
+            session.click_visible_action("[F6 Fields↓]");
+        } else {
+            session.send_key(b"\x1b[17~");
+        }
+    }
+    session.wait_for_screen("Reviewers to request (comma-separated");
+    if mouse {
+        let (column, row) = session
+            .locate("Reviewers to request (comma-separated")
+            .unwrap();
+        session.click(column, row + 1);
+    }
+    session.send_key(b"\x15");
+    session.paste(reviewers);
+    session.wait_for_screen(reviewers);
+    if mouse {
+        session.click_visible_action("[parent]");
+    } else {
+        session.send_key(b"\t ");
+    }
+}
+
+/// A fork's PR targets GitHub's recorded parent, then requests reviewers once.
+fn fork_journey(mouse: bool) {
+    let (fixture, head) = checkout();
+    let open_upstream = get(
+        "repos/upstream/repo/pulls?state=open&head=example%3Afeature&per_page=10",
+        json!([]),
+    );
+    let mut steps = identity();
+    steps.push(get(
+        "repos/example/repo",
+        json!({"full_name": "example/repo", "default_branch": "main", "archived": false, "fork": true,
+               "parent": {"full_name": "upstream/repo", "default_branch": "trunk", "archived": false}}),
+    ));
+    steps.push(refs(Some(&head)));
+    steps.push(open_upstream.clone());
+    steps.push(get(
+        "repos/upstream/repo/compare/trunk...example:feature",
+        json!({"ahead_by": 1, "behind_by": 0,
+               "commits": [{"sha": head, "commit": {"message": "Add the feature"}}],
+               "files": [{"filename": "a.txt", "additions": 1, "deletions": 1}]}),
+    ));
+    let previewed = steps.len();
+    steps.extend(identity());
+    steps.push(refs(Some(&head)));
+    steps.push(open_upstream);
+    steps.push(create_post(
+        "upstream/repo",
+        json!({"title": "Ship from fork", "head": "example:feature", "base": "trunk", "body": "", "draft": false}),
+        7,
+    ));
+    let mut request = GhStep::read(
+        &[
+            "api",
+            "repos/upstream/repo/pulls/7/requested_reviewers",
+            "--hostname",
+            HOST,
+            "--method",
+            "POST",
+            "--input",
+            "-",
+        ],
+        &json!({"number": 7, "requested_reviewers": [{"login": "alice"}], "requested_teams": []})
+            .to_string(),
+    );
+    request.stdin =
+        serde_json::to_vec(&json!({"reviewers": ["alice"], "team_reviewers": []})).unwrap();
+    steps.push(request);
+    fixture.scripted_gh(&steps);
+    let before = witness(&fixture);
+    let mut session = launch(&fixture);
+    open_form(&mut session, mouse);
+    type_title(&mut session, mouse, "Ship from fork");
+    choose_reviewers_and_parent(&mut session, mouse, "alice");
+    preview(&mut session, mouse);
+    session.wait_for_screen("(fork example/repo) → upstream/repo:trunk");
+    session.wait_for_screen("Reviewers to request after creation: alice");
+    let records = journal(&session, &fixture);
+    assert_eq!(records.len(), previewed);
+    assert_eq!(posts(&records), 0, "preview never writes");
+    if mouse {
+        session.click_visible_action("[Confirm action]");
+    } else {
+        session.send_key(b"\x13");
+    }
+    session.wait_for_screen("Created pull request upstream/repo#7");
+    session.wait_for_command_count(&fixture, steps.len());
+    let records = journal(&session, &fixture);
+    assert_eq!(records.len(), steps.len());
+    assert_eq!(posts(&records), 2, "one create, then one reviewer request");
+    assert!(records.iter().all(|record| record["matched"] == true));
+    assert_eq!(witness(&fixture), before, "checkout unchanged");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+/// GitHub refuses the create: the typed draft stays, and nothing is retried.
+fn failed_post_journey(mouse: bool) {
+    let (fixture, head) = checkout();
+    let mut steps = identity();
+    steps.push(repository());
+    steps.push(refs(Some(&head)));
+    steps.push(open());
+    steps.push(get(
+        "repos/example/repo/compare/main...feature",
+        json!({"ahead_by": 1, "behind_by": 0, "commits": [], "files": []}),
+    ));
+    steps.extend(identity());
+    steps.push(refs(Some(&head)));
+    steps.push(open());
+    let mut post = create_post(
+        "example/repo",
+        json!({"title": "Refused title", "head": "feature", "base": "main", "body": "", "draft": false}),
+        1,
+    );
+    post.stdout = b"{\"message\":\"Validation Failed\"}".to_vec();
+    post.stderr = b"gh: Validation Failed (HTTP 422)\n".to_vec();
+    post.status = 1;
+    steps.push(post);
+    fixture.scripted_gh(&steps);
+    let before = witness(&fixture);
+    let mut session = launch(&fixture);
+    open_form(&mut session, mouse);
+    type_title(&mut session, mouse, "Refused title");
+    preview(&mut session, mouse);
+    if mouse {
+        session.click_visible_action("[Confirm action]");
+    } else {
+        session.send_key(b"\x13");
+    }
+    session.wait_for_screen("Pull request not created • draft kept locally");
+    let records = journal(&session, &fixture);
+    assert_eq!(records.len(), steps.len());
+    assert_eq!(posts(&records), 1, "the refused create is not retried");
+    close(&mut session, mouse);
+    open_form(&mut session, mouse);
+    session.wait_for_screen("Refused title");
+    assert_eq!(journal(&session, &fixture).len(), steps.len());
+    assert_eq!(witness(&fixture), before, "checkout unchanged");
+    close(&mut session, mouse);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn v1_pr_create_keyboard_fork_parent_with_reviewers() {
+    fork_journey(false)
+}
+#[test]
+fn v1_pr_create_mouse_fork_parent_with_reviewers() {
+    fork_journey(true)
+}
+#[test]
+fn v1_pr_create_keyboard_failed_post_keeps_draft() {
+    failed_post_journey(false)
+}
+#[test]
+fn v1_pr_create_mouse_failed_post_keeps_draft() {
+    failed_post_journey(true)
+}
 #[test]
 fn v1_pr_create_keyboard_previews_then_creates_exactly_one_pr() {
     journey(false)

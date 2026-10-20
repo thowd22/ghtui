@@ -231,6 +231,7 @@ fn only_empty(p: &PreparedView) -> bool {
         github_origin: None,
         invalidate_metrics: false,
         invalidate_pr_metadata: false,
+        refresh_authored_queue: false,
         navigation_restore: None,
         catalogue: None,
         local_actor_result: None,

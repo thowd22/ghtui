@@ -167,7 +167,7 @@ pub fn capability_requirement_contract_v1(id: &str) -> Option<CapabilityRequirem
         "pr-details" => (&[PrDetails], Read, "PR summary, event timeline, commits, canonical files and reviews; all pages with stable PR and exact base/head identities.", &[13,15,20]),
         "pr-checks" => (&[PrChecks], Checks, "Required checks/status, SHA-correlated jobs and logs; rerun/cancel uses the separately guarded exact Actions operation.", &[14,53,55]),
         "pr-create" => (&[PrCreate], Create, "Create a PR with fork/head/base/draft choices, exact diff preview and canonical new-PR readback.", &[26]),
-        "pr-metadata" => (&[PrMetadata,PrDismissal], PrWrite, "Title/body/base, labels, assignees, reviewers and re-request; milestone, linked issues and project placement with selected-field readback.", &[18,20]),
+        "pr-metadata" => (&[PrMetadata,PrDismissal], PrWrite, "Title/body/base, labels, assignees, reviewers and re-request; milestone and linked issues with selected-field readback. Project placement is not offered.", &[18,20]),
         "pr-lifecycle" => (&[PrLifecycle], PrWrite, "Draft/ready and close/reopen transitions with explicit original head/state and outcome.", &[25]),
         "pr-lock-update-revert" => (&[PrLifecycle,PrRevert], PrWrite, "Lock/unlock, update branch, branch deletion and reverting PR followups; preserve exact scope and traceable outcomes.", &[25]),
         "pr-comments" => (&[PrConversation], Discussion, "Create conversation comments on the canonical PR; verify the original actor/permission and refresh the paginated discussion.", &[17]),

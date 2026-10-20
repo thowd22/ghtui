@@ -68,6 +68,9 @@ pub struct PreparedView {
     /// A known invocation/effect makes old structured private projections
     /// unavailable independently of whether optional fresh view loading worked.
     pub invalidate_pr_metadata: bool,
+    /// A PR was created: the cached personal queues are stale, so the Inbox
+    /// reloads the next time it is shown (TASK-26).
+    pub refresh_authored_queue: bool,
     pub navigation_restore: Option<crate::navigation_state::NavigationRestore>,
     pub catalogue: Option<crate::repository_catalogue_native::CataloguePrepared>,
     pub local_actor_result: Option<
@@ -1794,6 +1797,11 @@ impl Background {
                         app.hits.clear();
                         app.avatar_states.clear();
                     }
+                    if prepared.refresh_authored_queue {
+                        if let Some(github) = &mut app.github {
+                            github.needs_refresh = true;
+                        }
+                    }
                     if prepared.invalidate_pr_metadata {
                         crate::pr_checks_native::retire(app, true);
                         self.cancel(View::Search);
@@ -2975,6 +2983,31 @@ mod tests {
         );
         poll_to_completion(&mut background, &mut app, View::Inbox);
         assert_eq!(app.search.unwrap().input, "local query");
+    }
+
+    #[test]
+    fn create_pr_completion_marks_cached_personal_queues_for_refresh() {
+        let mut background = Background::new();
+        let mut app = App::default();
+        let mut cached = github(42);
+        cached.needs_refresh = false;
+        app.github = Some(cached);
+        background.submit(&mut app, View::Repository, |_| {
+            Ok(PreparedView {
+                status: "Created pull request example/repo#12".into(),
+                refresh_authored_queue: true,
+                ..PreparedView::default()
+            })
+        });
+        poll_to_completion(&mut background, &mut app, View::Repository);
+        let github = app
+            .github
+            .as_ref()
+            .expect("cached queues stay until reloaded");
+        assert!(
+            github.needs_refresh,
+            "the Inbox reloads its queues when next shown"
+        );
     }
 
     #[test]

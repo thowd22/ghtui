@@ -18,7 +18,10 @@ use std::collections::BTreeMap;
 pub struct PrCreatePlanV1 {
     pub host: String,
     pub login: String,
+    /// The repository the PR is opened against (origin, or origin's fork parent).
     pub repository: String,
+    /// The repository holding `head` (always the checkout's origin).
+    pub head_repository: String,
     pub head: String,
     /// The head commit GitHub holds for `head` at Preview time.
     pub head_sha: String,
@@ -26,6 +29,9 @@ pub struct PrCreatePlanV1 {
     pub title: String,
     pub body: String,
     pub draft: bool,
+    /// Requested after creation; team slugs belong to the target owner.
+    pub reviewers: Vec<String>,
+    pub team_reviewers: Vec<String>,
     pub preview: Vec<String>,
 }
 
@@ -35,6 +41,8 @@ pub struct PrCreatedV1 {
     pub number: u64,
     pub url: String,
     pub draft: bool,
+    /// Outcome of the optional reviewer request, read back from GitHub's reply.
+    pub reviewers_note: Option<String>,
 }
 
 fn short(sha: &str) -> &str {
@@ -46,6 +54,55 @@ fn single_line(values: &BTreeMap<String, String>, key: &str) -> Result<String, S
         return Err(format!("{key} must be a single line of text."));
     }
     Ok(value.into())
+}
+fn plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+/// `alice, org/team` → (["alice"], ["team"]); a team must belong to `owner`.
+fn reviewers(
+    values: &BTreeMap<String, String>,
+    owner: &str,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let (mut users, mut teams): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    for entry in single_line(values, "reviewers")?.split(',') {
+        let entry = entry.trim().trim_start_matches('@');
+        if entry.is_empty() {
+            continue;
+        }
+        let (list, name) = match entry.split_once('/') {
+            Some((org, team)) if org.eq_ignore_ascii_case(owner) => (&mut teams, team),
+            Some((org, _)) => {
+                return Err(format!(
+                    "Team {entry} belongs to {org}; only teams of {owner} can review this pull request."
+                ))
+            }
+            None => (&mut users, entry),
+        };
+        if !plain_name(name) {
+            return Err(format!(
+                "Reviewer {entry} is not a valid GitHub login or team."
+            ));
+        }
+        if !list.iter().any(|known| known.eq_ignore_ascii_case(name)) {
+            list.push(name.to_owned());
+        }
+    }
+    Ok((users, teams))
+}
+/// `owner:branch` for a pull request from a fork, else the bare branch.
+fn head_ref(head_repository: &str, repository: &str, branch: &str) -> String {
+    if head_repository.eq_ignore_ascii_case(repository) {
+        branch.to_owned()
+    } else {
+        format!("{}:{branch}", owner(head_repository))
+    }
+}
+fn owner(repository: &str) -> &str {
+    repository.split('/').next().unwrap_or_default()
 }
 fn github(error: GithubError) -> String {
     error.message
@@ -102,7 +159,7 @@ impl PrCreatePlanV1 {
             .clone()
             .filter(|_| !context.status.detached)
             .ok_or("Switch to a named local branch first; a pull request needs a head branch.")?;
-        let repository = crate::origin_repository::detect(&context.directory, &host).ok_or_else(|| {
+        let origin = crate::origin_repository::detect(&context.directory, &host).ok_or_else(|| {
             format!("No origin remote on {host} was found for this checkout. Add a GitHub origin (or run ghtui inside a GitHub clone) before creating a pull request.")
         })?;
         let title = single_line(values, "title")?;
@@ -119,10 +176,31 @@ impl PrCreatePlanV1 {
             "true" => true,
             _ => return Err("draft must be true or false.".into()),
         };
+        let target = values
+            .get("target")
+            .map(|value| value.trim())
+            .unwrap_or("origin");
+        if !matches!(target, "origin" | "parent") {
+            return Err("target must be origin or parent.".into());
+        }
         let identity = provider.identity(cancel).map_err(github)?;
-        let repo = provider
-            .pr_create_read_v1(&repository, "", cancel)
+        let origin_repo = provider
+            .pr_create_read_v1(&origin, "", cancel)
             .map_err(github)?;
+        // GitHub's own fork link chooses the parent; nothing is inferred locally.
+        let (repository, repo) = if target == "parent" {
+            let parent = origin_repo["parent"].clone();
+            let name = parent["full_name"].as_str().unwrap_or("").to_owned();
+            if crate::config::validate_repository(&name).is_err() {
+                return Err(format!(
+                    "{origin} is not a fork on GitHub, so it has no parent repository. Choose origin."
+                ));
+            }
+            (name, parent)
+        } else {
+            (origin.clone(), origin_repo)
+        };
+        let (reviewers, team_reviewers) = reviewers(values, owner(&repository))?;
         if repo["archived"].as_bool() == Some(true) {
             return Err(format!(
                 "{repository} is archived; GitHub does not accept new pull requests."
@@ -135,17 +213,17 @@ impl PrCreatePlanV1 {
         if base.is_empty() {
             return Err("Base branch is required (the repository default is unknown).".into());
         }
-        if base == branch {
+        if base == branch && repository.eq_ignore_ascii_case(&origin) {
             return Err(format!(
                 "Base and head are both {branch}. Create the pull request from a feature branch."
             ));
         }
-        let Some(head_sha) = remote_head(provider, &repository, &branch, cancel)? else {
-            return Err(push_explanation(&branch, &repository));
+        let Some(head_sha) = remote_head(provider, &origin, &branch, cancel)? else {
+            return Err(push_explanation(&branch, &origin));
         };
-        let owner = repository.split('/').next().unwrap_or_default();
+        let head_owner = owner(&origin);
         let open = provider
-            .pr_create_open_for_head_v1(&repository, owner, &branch, cancel)
+            .pr_create_open_for_head_v1(&repository, head_owner, &branch, cancel)
             .map_err(github)?;
         if let Some(reason) = duplicate_reason(&open, &branch, &repository) {
             return Err(reason);
@@ -154,8 +232,13 @@ impl PrCreatePlanV1 {
             .pr_create_read_v1(
                 &repository,
                 &format!(
-                    "compare/{}...{}",
+                    "compare/{}...{}{}",
                     crate::providers::gh::encode_component_v1(&base, true),
+                    if repository.eq_ignore_ascii_case(&origin) {
+                        String::new()
+                    } else {
+                        format!("{}:", crate::providers::gh::encode_component_v1(head_owner, false))
+                    },
                     crate::providers::gh::encode_component_v1(&branch, true)
                 ),
                 cancel,
@@ -176,12 +259,34 @@ impl PrCreatePlanV1 {
             "Create pull request — nothing is sent until confirmation".into(),
             format!("Account: {} on {host}", identity.login),
             format!("Repository: {repository}"),
-            format!(
-                "Proposed: {owner}:{branch} → {base} • {}",
-                if draft { "draft" } else { "ready for review" }
-            ),
+            if repository.eq_ignore_ascii_case(&origin) {
+                format!(
+                    "Proposed: {head_owner}:{branch} → {base} • {}",
+                    if draft { "draft" } else { "ready for review" }
+                )
+            } else {
+                format!(
+                    "Proposed: {head_owner}:{branch} (fork {origin}) → {repository}:{base} • {}",
+                    if draft { "draft" } else { "ready for review" }
+                )
+            },
             format!("Title: {}", sanitize_terminal(&title)),
         ];
+        let requested: Vec<String> = reviewers
+            .iter()
+            .cloned()
+            .chain(
+                team_reviewers
+                    .iter()
+                    .map(|team| format!("{}/{team}", owner(&repository))),
+            )
+            .collect();
+        if !requested.is_empty() {
+            preview.push(format!(
+                "Reviewers to request after creation: {}",
+                requested.join(", ")
+            ));
+        }
         if body.trim().is_empty() {
             preview.push("Body: (empty)".into());
         } else {
@@ -242,6 +347,7 @@ impl PrCreatePlanV1 {
         Ok(Self {
             host,
             login: identity.login,
+            head_repository: origin,
             repository,
             head: branch,
             head_sha,
@@ -249,6 +355,8 @@ impl PrCreatePlanV1 {
             title,
             body,
             draft,
+            reviewers,
+            team_reviewers,
             preview,
         })
     }
@@ -269,8 +377,8 @@ impl PrCreatePlanV1 {
                 self.login, identity.login
             ));
         }
-        match remote_head(provider, &self.repository, &self.head, cancel)? {
-            None => return Err(push_explanation(&self.head, &self.repository)),
+        match remote_head(provider, &self.head_repository, &self.head, cancel)? {
+            None => return Err(push_explanation(&self.head, &self.head_repository)),
             Some(sha) if sha != self.head_sha => {
                 return Err(format!(
                     "GitHub's {} moved from {} to {} since Preview; Preview again. Nothing was created.",
@@ -281,16 +389,20 @@ impl PrCreatePlanV1 {
             }
             Some(_) => {}
         }
-        let owner = self.repository.split('/').next().unwrap_or_default();
         let open = provider
-            .pr_create_open_for_head_v1(&self.repository, owner, &self.head, cancel)
+            .pr_create_open_for_head_v1(
+                &self.repository,
+                owner(&self.head_repository),
+                &self.head,
+                cancel,
+            )
             .map_err(github)?;
         if let Some(reason) = duplicate_reason(&open, &self.head, &self.repository) {
             return Err(reason);
         }
         let payload = json!({
             "title": self.title,
-            "head": self.head,
+            "head": head_ref(&self.head_repository, &self.repository, &self.head),
             "base": self.base,
             "body": self.body,
             "draft": self.draft,
@@ -312,6 +424,75 @@ impl PrCreatePlanV1 {
             number,
             url: sanitize_terminal(created["html_url"].as_str().unwrap_or("")),
             draft: created["draft"].as_bool().unwrap_or(self.draft),
+            reviewers_note: self.request_reviewers(provider, number, cancel),
+        })
+    }
+
+    /// The PR already exists, so a failed request is reported, never retried
+    /// as a create. GitHub's reply lists who is now requested.
+    fn request_reviewers(
+        &self,
+        provider: &GithubProvider,
+        number: u64,
+        cancel: &CancellationToken,
+    ) -> Option<String> {
+        if self.reviewers.is_empty() && self.team_reviewers.is_empty() {
+            return None;
+        }
+        let reply = match provider.pr_create_request_reviewers_v1(
+            &self.repository,
+            number,
+            &self.reviewers,
+            &self.team_reviewers,
+            cancel,
+        ) {
+            Ok(reply) => reply,
+            Err(error) => {
+                return Some(format!(
+                    "reviewers not requested: {} (request them from PR metadata)",
+                    sanitize_terminal(&error.message)
+                ))
+            }
+        };
+        let listed = |key: &str, field: &str| -> Vec<String> {
+            reply[key]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item[field].as_str().map(str::to_ascii_lowercase))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let users = listed("requested_reviewers", "login");
+        let teams = listed("requested_teams", "slug");
+        let missing: Vec<&str> = self
+            .reviewers
+            .iter()
+            .filter(|name| !users.contains(&name.to_ascii_lowercase()))
+            .chain(
+                self.team_reviewers
+                    .iter()
+                    .filter(|team| !teams.contains(&team.to_ascii_lowercase())),
+            )
+            .map(String::as_str)
+            .collect();
+        Some(if missing.is_empty() {
+            format!(
+                "reviewers requested: {}",
+                self.reviewers
+                    .iter()
+                    .chain(&self.team_reviewers)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            format!(
+                "GitHub did not list {} as requested reviewers; check PR metadata",
+                missing.join(", ")
+            )
         })
     }
 }

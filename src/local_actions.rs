@@ -383,6 +383,17 @@ pub fn fields(command: LocalCommand, context: &LocalContext) -> Vec<LocalField> 
             },
             field("base", "Base branch (empty = repository default)", ""),
             choice("draft", "Open as draft?", "false", &["false", "true"]),
+            field(
+                "reviewers",
+                "Reviewers to request (comma-separated logins or org/team, optional)",
+                "",
+            ),
+            choice(
+                "target",
+                "Open against (origin = this repository, parent = the repository origin was forked from)",
+                "origin",
+                &["origin", "parent"],
+            ),
         ],
         StashSave => vec![
             field("message", "Stash description", ""),

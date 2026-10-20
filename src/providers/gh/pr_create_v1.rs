@@ -82,6 +82,31 @@ impl GithubProvider {
             cancel,
         )
     }
+    /// Optional follow-up after a successful create: one POST asking the
+    /// chosen people/teams to review. Its reply is the PR, read back by the caller.
+    pub(crate) fn pr_create_request_reviewers_v1(
+        &self,
+        repo: &str,
+        number: u64,
+        reviewers: &[String],
+        team_reviewers: &[String],
+        cancel: &CancellationToken,
+    ) -> GithubResult<Value> {
+        validate_repo(repo)?;
+        for name in reviewers.iter().chain(team_reviewers) {
+            super::validate_name(name)?;
+        }
+        let endpoint = format!("repos/{repo}/pulls/{number}/requested_reviewers");
+        let resource = format!("{}/{endpoint}", self.host);
+        self.api(
+            &endpoint,
+            "POST",
+            Some(serde_json::json!({"reviewers": reviewers, "team_reviewers": team_reviewers})),
+            Some(resource),
+            false,
+            cancel,
+        )
+    }
 }
 
 #[cfg(test)]

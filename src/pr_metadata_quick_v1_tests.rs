@@ -81,3 +81,30 @@ fn v1_pr_metadata_rows_say_none_for_empty_sets_and_list_present_values() {
     assert!(!full.contains("Assignees: none"));
     assert!(full.contains("Requested reviewers: none"));
 }
+
+#[test]
+fn v1_pr_metadata_lists_issues_linked_by_closing_keywords() {
+    use crate::github_workspace::closing_keyword_issues_v1;
+    assert_eq!(
+        closing_keyword_issues_v1(
+            "Fixes #12. Also closes: other/repo#3, resolves #12 and mentions #99;\nfix #abc FIXED #7)"
+        ),
+        ["#12", "other/repo#3", "#7"]
+    );
+    let linked = text(&context(
+        json!({"labels":[],"assignees":[],"milestone":null,"locked":false,"body":"Closes #41"}),
+        true,
+    ));
+    assert!(
+        linked.contains("Linked issues (closing keywords in Description; closed on merge to the default branch): #41"),
+        "{linked}"
+    );
+    let none = text(&context(
+        json!({"labels":[],"assignees":[],"milestone":null,"locked":false,"body":"See #41"}),
+        true,
+    ));
+    assert!(
+        none.contains("Linked issues: none via closing keywords"),
+        "{none}"
+    );
+}

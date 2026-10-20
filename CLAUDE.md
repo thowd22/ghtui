@@ -44,6 +44,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **The selection marker is the `▌` bar, not `> `.** Update the expected text, not the command or storage assertion.
 - **Without colour, chips print differently.** Under `NO_COLOR`, an initials chip prints as `[AL] alice`, not `AL alice`. Match the login, not the chip styling.
 - **Avoid vacuous negatives.** `!screen.contains("[Something")` passes trivially once a control has moved. Use `assert_control_absent`, or check the disabled reason.
+- **Fake gh is a numbered step script.** One extra `gh` call in a shared read (for example, the Inbox `search/issues` load) shifts every later step in about 30 fixture files. Before adding a call there, derive the value from data already fetched, or plan the fixture migration as its own task.
 - **A followed path chip puts "was <old path>" before the subject** in a History row's MESSAGE, so `HistoryRow.message` starts with it and `message_fg` is the label's muted ink there. Compare inks only on rows without a rename label.
 - **`f` is File history in Search and PR Files; Search's Save query is `S`.** On PR Files, `f` is pushed before the tabs, so it shadows `f Files` (the tab already shown).
 - **Match whole column headers.** A column parser found `AGE` inside `MESSAGE`. Parse header cells by word, not by substring.

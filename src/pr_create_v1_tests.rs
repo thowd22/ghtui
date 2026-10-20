@@ -269,3 +269,132 @@ fn v1_pr_create_submit_refuses_when_github_branch_moved() {
     assert!(error.contains("moved from"), "{error}");
     assert!(!journal(&fixture).contains("POST"));
 }
+
+fn post(endpoint: &str, stdin: Value, reply: Value) -> GhStep {
+    let mut step = GhStep::read(
+        &[
+            "api",
+            endpoint,
+            "--hostname",
+            HOST,
+            "--method",
+            "POST",
+            "--input",
+            "-",
+        ],
+        &reply.to_string(),
+    );
+    step.stdin = serde_json::to_vec(&stdin).unwrap();
+    step
+}
+fn fork_values(reviewers: &str) -> BTreeMap<String, String> {
+    let mut values = values("Add a", "", false);
+    values.insert("target".into(), "parent".into());
+    values.insert("reviewers".into(), reviewers.into());
+    values
+}
+fn fork_origin() -> GhStep {
+    get(
+        "repos/example/repo",
+        json!({"full_name": "example/repo", "default_branch": "main", "archived": false, "fork": true,
+               "parent": {"full_name": "upstream/repo", "default_branch": "trunk", "archived": false}}),
+    )
+}
+
+#[test]
+fn v1_pr_create_fork_parent_target_and_reviewers_post_once_then_request() {
+    let fixture = Fixture::new();
+    let head = checkout(&fixture);
+    let fork_open = get(
+        "repos/upstream/repo/pulls?state=open&head=example%3Afeature&per_page=10",
+        json!([]),
+    );
+    let mut steps = identity("octocat");
+    steps.push(fork_origin());
+    steps.push(refs(Some(&head)));
+    steps.push(fork_open.clone());
+    steps.push(get(
+        "repos/upstream/repo/compare/trunk...example:feature",
+        json!({"ahead_by": 1, "behind_by": 0, "commits": [], "files": []}),
+    ));
+    steps.extend(identity("octocat"));
+    steps.push(refs(Some(&head)));
+    steps.push(fork_open);
+    steps.push(post(
+        "repos/upstream/repo/pulls",
+        json!({"title": "Add a", "head": "example:feature", "base": "trunk", "body": "Why this changes", "draft": false}),
+        json!({"number": 7, "html_url": "https://github.invalid/upstream/repo/pull/7", "draft": false}),
+    ));
+    steps.push(post(
+        "repos/upstream/repo/pulls/7/requested_reviewers",
+        json!({"reviewers": ["alice"], "team_reviewers": ["core"]}),
+        json!({"number": 7, "requested_reviewers": [{"login": "Alice"}], "requested_teams": [{"slug": "core"}]}),
+    ));
+    fixture.scripted_gh(&steps);
+    let provider = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let plan = PrCreatePlanV1::prepare(
+        &context(&fixture),
+        &fork_values("@alice, upstream/core, alice"),
+        &provider,
+        &cancel,
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            plan.repository.as_str(),
+            plan.head_repository.as_str(),
+            plan.base.as_str()
+        ),
+        ("upstream/repo", "example/repo", "trunk")
+    );
+    let text = plan.preview.join("\n");
+    assert!(
+        text.contains("Proposed: example:feature (fork example/repo) → upstream/repo:trunk"),
+        "{text}"
+    );
+    assert!(text.contains("Reviewers to request after creation: alice, upstream/core"));
+    let created = plan.submit(&provider, &cancel).unwrap();
+    assert_eq!(
+        (created.repository.as_str(), created.number),
+        ("upstream/repo", 7)
+    );
+    assert_eq!(
+        created.reviewers_note.as_deref(),
+        Some("reviewers requested: alice, core")
+    );
+    let journal = journal(&fixture);
+    assert_eq!(journal.matches("\"POST\"").count(), 2);
+    assert_eq!(journal.lines().count(), steps.len());
+    assert!(journal
+        .lines()
+        .all(|line| line.contains("\"matched\":true")));
+}
+
+#[test]
+fn v1_pr_create_refuses_parent_of_non_fork_and_foreign_team_before_any_write() {
+    let fixture = Fixture::new();
+    checkout(&fixture);
+    let mut steps = identity("octocat");
+    steps.push(get(
+        "repos/example/repo",
+        json!({"full_name": "example/repo", "default_branch": "main", "archived": false, "fork": false}),
+    ));
+    steps.extend(identity("octocat"));
+    steps.push(fork_origin());
+    fixture.scripted_gh(&steps);
+    let provider = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let error = PrCreatePlanV1::prepare(&context(&fixture), &fork_values(""), &provider, &cancel)
+        .unwrap_err();
+    assert!(error.contains("example/repo is not a fork"), "{error}");
+    let error = PrCreatePlanV1::prepare(
+        &context(&fixture),
+        &fork_values("other/core"),
+        &provider,
+        &cancel,
+    )
+    .unwrap_err();
+    assert!(error.contains("only teams of upstream"), "{error}");
+    assert!(!journal(&fixture).contains("POST"));
+}

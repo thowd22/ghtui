@@ -56,6 +56,7 @@ fn only_personal(prepared: &PreparedView) -> bool {
         github_origin,
         invalidate_metrics,
         invalidate_pr_metadata,
+        refresh_authored_queue,
         navigation_restore,
         catalogue,
         local_actor_result,
@@ -111,6 +112,7 @@ fn only_personal(prepared: &PreparedView) -> bool {
         && github_origin.is_none()
         && !invalidate_metrics
         && !invalidate_pr_metadata
+        && !refresh_authored_queue
         && navigation_restore.is_none()
         && catalogue.is_none()
         && local_actor_result.is_none()

@@ -56,7 +56,7 @@ fn journey_contracts(mouse: bool) {
             "pr-metadata",
             "Title, body, base",
             "pr.metadata",
-            "project placement",
+            "offered",
             "May write remote state",
             "TASK-18",
         ),

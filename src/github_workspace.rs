@@ -627,6 +627,45 @@ impl PrPage {
             .map(|row| row + usize::from(!self.details.coverage.complete))
     }
 }
+/// Issue references after GitHub's closing keywords (`Fixes #12`,
+/// `closes owner/repo#3`), in order and without duplicates. Read from the
+/// already loaded Description only; nothing else is inferred.
+pub(crate) fn closing_keyword_issues_v1(body: &str) -> Vec<String> {
+    const KEYWORDS: [&str; 9] = [
+        "close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved",
+    ];
+    let valid = |reference: &str| {
+        let Some((repository, number)) = reference.rsplit_once('#') else {
+            return false;
+        };
+        let name = |part: &str| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        };
+        !number.is_empty()
+            && number.len() <= 10
+            && number.bytes().all(|b| b.is_ascii_digit())
+            && (repository.is_empty()
+                || repository
+                    .split_once('/')
+                    .is_some_and(|(owner, repo)| name(owner) && name(repo)))
+    };
+    let words: Vec<&str> = body.split_whitespace().collect();
+    let mut found: Vec<String> = Vec::new();
+    for pair in words.windows(2) {
+        let keyword = pair[0].trim_end_matches(':').to_ascii_lowercase();
+        if !KEYWORDS.contains(&keyword.as_str()) {
+            continue;
+        }
+        let reference = pair[1].trim_end_matches(['.', ',', ';', ':', ')', '!', '?']);
+        if valid(reference) && !found.iter().any(|known| known == reference) {
+            found.push(reference.to_owned());
+        }
+    }
+    found
+}
 pub(crate) fn metadata_rows_v51(
     context: &crate::providers::gh::PrContext,
     observed: Option<&crate::providers::gh::MetadataDisplayFactsV51>,
@@ -736,7 +775,17 @@ pub(crate) fn metadata_rows_v51(
             team.name, team.slug
         )));
     }
-    rows.push(PrRow::text("Linked issues: inspect closing keywords in Description; GitHub resolves them on the default branch."));
+    let closing = closing_keyword_issues_v1(context.issue_metadata["body"].as_str().unwrap_or(""));
+    rows.push(PrRow::text(if context.issue_metadata.get("body").is_none() {
+        "Linked issues: inspect closing keywords in Description; GitHub resolves them on the default branch.".to_owned()
+    } else if closing.is_empty() {
+        "Linked issues: none via closing keywords in Description (issues linked in GitHub's sidebar are not listed here).".to_owned()
+    } else {
+        format!(
+            "Linked issues (closing keywords in Description; closed on merge to the default branch): {}",
+            closing.join(", ")
+        )
+    }));
     for url in &context.source_urls {
         rows.push(PrRow::text(format!("Source: {url}")));
     }

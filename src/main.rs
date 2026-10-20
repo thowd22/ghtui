@@ -1090,15 +1090,19 @@ fn run() -> Result<()> {
                             form.dirty = false;
                             return Ok(PreparedView {
                                 status: format!(
-                                    "Created pull request {}#{}{} • {}{}",
+                                    "Created pull request {}#{}{} • {}{}{}",
                                     created.repository,
                                     created.number,
                                     if created.draft { " (draft)" } else { "" },
                                     created.url,
+                                    created
+                                        .reviewers_note
+                                        .map_or(String::new(), |note| format!(" • {note}")),
                                     draft_result.err().map_or(String::new(), |error| format!(
                                         " • draft cleanup failed: {error}"
                                     ))
                                 ),
+                                refresh_authored_queue: true,
                                 form: Some(form),
                                 ..PreparedView::default()
                             });
