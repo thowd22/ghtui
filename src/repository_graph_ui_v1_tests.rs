@@ -44,10 +44,12 @@ fn commit_graph_v3_resize_keeps_real_selected_commit_painted_without_resetting_m
     let text = (hit.rect.x..hit.rect.right())
         .map(|x| terminal.backend().buffer()[(x, hit.rect.y)].symbol())
         .collect::<String>();
-    assert!(text.contains(&real.original[..8]));
-    assert!(terminal.backend().buffer()[(hit.rect.x, hit.rect.y)]
-        .modifier
-        .contains(ratatui::style::Modifier::REVERSED));
+    // The History table shows the 7-character SHA and the `▌` bar on the selected row.
+    assert!(text.contains(&real.original[..7]));
+    assert_eq!(
+        terminal.backend().buffer()[(hit.rect.x, hit.rect.y)].symbol(),
+        crate::ui_table::SELECTION_BAR
+    );
     app.repository_list.top = 0;
     terminal
         .draw(|frame| crate::ui::draw(frame, &mut app))

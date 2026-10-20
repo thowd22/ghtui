@@ -256,7 +256,7 @@ impl GraphPresentationV1 {
                     .expect("selected genuine member");
                 for line in [
                     format!("Saved commit: {}", selected.id),
-                    graph_explanation_v1(selected),
+                    graph_explanation_v1(row),
                     format!(
                         "Author: {}",
                         crate::repository_view::actor_label(&selected.author)
@@ -281,6 +281,10 @@ impl GraphPresentationV1 {
                     } else {
                         builder.push(line, SemanticRole::Reference, None, Vec::new())?;
                     }
+                }
+                // HEAD is a typed chip, never a look-alike ref name.
+                if let Some(head) = head_label_v992(row) {
+                    builder.push(head, SemanticRole::Head, None, Vec::new())?;
                 }
                 for name in selected.refs.iter().take(64) {
                     let shown = name.chars().take(1024).collect::<String>();
@@ -356,7 +360,8 @@ impl GraphPresentationV1 {
         builder.finish()
     }
 }
-fn graph_explanation_v1(commit: &Commit) -> String {
+fn graph_explanation_v1(observed: &OriginalGraphCommitV1) -> String {
+    let commit = observed.commit();
     let history = match commit.parents.len() {
         0 => "This is a root commit: the first saved version in this history.".into(),
         1 => format!(
@@ -373,8 +378,7 @@ fn graph_explanation_v1(commit: &Commit) -> String {
                 .join(", ")
         ),
     };
-    let names = short_names_v1(commit);
-    let names = names.trim().trim_start_matches('(').trim_end_matches(')');
+    let names = crate::history::refs::summary(&crate::history::refs::chips(observed.chips()), 1024);
     if names.is_empty() {
         history
     } else {
@@ -400,37 +404,32 @@ fn wrap_graph_line_v1(line: &str, width: usize) -> Vec<String> {
     }
     rows
 }
-/// Compact `git log --decorate` style names for one graph row, e.g.
-/// ` (HEAD, main, origin/main)`. Full names stay in Details.
-pub(crate) fn short_names_v1(commit: &Commit) -> String {
-    if commit.refs.is_empty() {
+/// Compact `git log --decorate` style names for one graph row's label, e.g.
+/// ` (HEAD, main ⇅, origin/topic, tag v1.0)`: every typed chip up to 1 KiB of names, then an
+/// explicit `+N`. Full names stay in Details.
+pub(crate) fn short_names_v1(observed: &OriginalGraphCommitV1) -> String {
+    let chips = crate::history::refs::chips(observed.chips());
+    if chips.is_empty() {
         return String::new();
     }
-    let names = commit
-        .refs
-        .iter()
-        .take(3)
-        .map(|name| {
-            let short = if name == "HEAD at graph load" {
-                "HEAD".to_owned()
-            } else if let Some(tag) = name.strip_prefix("refs/tags/") {
-                format!("tag {tag}")
-            } else {
-                name.strip_prefix("refs/heads/")
-                    .or_else(|| name.strip_prefix("refs/remotes/"))
-                    .unwrap_or(name)
-                    .to_owned()
-            };
-            short.chars().take(64).collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    let more = commit.refs.len().saturating_sub(3);
-    if more > 0 {
-        format!(" ({names}, +{more})")
-    } else {
-        format!(" ({names})")
+    format!(" ({})", crate::history::refs::summary(&chips, 1024))
+}
+/// Where HEAD was when the graph loaded, when it names this commit.
+fn head_label_v992(observed: &OriginalGraphCommitV1) -> Option<String> {
+    use crate::git::HistoryRefKindV1 as Kind;
+    let chips = observed.chips();
+    if chips.iter().any(|chip| chip.kind == Kind::Head) {
+        return Some("HEAD at graph load: detached at this commit".into());
     }
+    chips
+        .iter()
+        .find(|chip| chip.kind == Kind::Local && chip.current)
+        .map(|chip| {
+            format!(
+                "HEAD at graph load: on branch {}",
+                chip.name.chars().take(1024).collect::<String>()
+            )
+        })
 }
 #[derive(Default)]
 struct ProjectionBuilderV1 {
@@ -445,6 +444,9 @@ struct ProjectionBuilderV1 {
 #[cfg(test)]
 #[path = "repository_graph_lanes_v991_tests.rs"]
 mod lanes_v991_tests;
+#[cfg(test)]
+#[path = "repository_graph_refs_v992_tests.rs"]
+mod refs_v992_tests;
 #[cfg(test)]
 #[path = "repository_graph_v1_tests.rs"]
 mod tests;

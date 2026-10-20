@@ -3,6 +3,7 @@
 #[path = "repository_diff_header_v1_tests.rs"]
 mod diff_header_v1_tests;
 mod file_history;
+pub(crate) mod history_table;
 #[cfg(test)]
 #[path = "repository_views_v1_tests.rs"]
 mod repository_views_v1_tests;
@@ -537,6 +538,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         } else {
             draw_overview_v91(frame, app, body);
         }
+        return;
+    }
+    if history_table::active(workspace) {
+        let body = Rect::new(
+            area.x,
+            area.y + content_offset,
+            area.width,
+            area.height.saturating_sub(content_offset),
+        );
+        history_table::draw(frame, app, body);
         return;
     }
     let visible_rows = usize::from(area.height.saturating_sub(content_offset));

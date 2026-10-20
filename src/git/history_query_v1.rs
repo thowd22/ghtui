@@ -50,6 +50,8 @@ pub struct HistoryRefV1 {
     pub target: String,
     /// The local branch HEAD is attached to.
     pub current: bool,
+    /// A local branch's configured upstream refname (`refs/remotes/origin/main`).
+    pub upstream: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -293,7 +295,7 @@ impl GitRepository {
         let raw = self.original_bytes_with_capture_limit_v1(
             [
                 "for-each-ref",
-                "--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(HEAD)%00%(refname)",
+                "--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(HEAD)%00%(upstream)%00%(refname)",
                 "refs/heads",
                 "refs/remotes",
                 "refs/tags",
@@ -550,8 +552,8 @@ fn parse_refs(raw: &[u8], head: Option<String>) -> GitResult<HistoryRefSnapshotV
         .split(|byte| *byte == b'\n')
         .filter(|line| !line.is_empty())
     {
-        let fields = line.splitn(6, |byte| *byte == 0).collect::<Vec<_>>();
-        let [object, kind, peeled, peeled_kind, current, name] = fields[..] else {
+        let fields = line.splitn(7, |byte| *byte == 0).collect::<Vec<_>>();
+        let [object, kind, peeled, peeled_kind, current, upstream, name] = fields[..] else {
             return Err(GitError("Truncated History ref record".into()));
         };
         let target = match (kind, peeled_kind) {
@@ -587,6 +589,7 @@ fn parse_refs(raw: &[u8], head: Option<String>) -> GitResult<HistoryRefSnapshotV
             raw_name: name.to_vec(),
             target,
             current,
+            upstream: (!upstream.is_empty()).then(|| upstream.to_vec()),
         });
     }
     if let Some(id) = head.as_ref().filter(|_| !attached) {
@@ -596,6 +599,7 @@ fn parse_refs(raw: &[u8], head: Option<String>) -> GitResult<HistoryRefSnapshotV
             raw_name: b"HEAD".to_vec(),
             target: id.clone(),
             current: false,
+            upstream: None,
         });
     }
     refs.sort_by(|a, b| (a.kind, !a.current, &a.raw_name).cmp(&(b.kind, !b.current, &b.raw_name)));

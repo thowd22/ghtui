@@ -86,23 +86,39 @@ impl Column {
     }
 }
 
-/// A cell's text and an optional role; `None` inherits the row's tone.
+/// A cell's text and an optional role; `None` inherits the row's tone. A cell built from
+/// [`Cell::spans`] paints its own styled runs (History graph lanes and ref chips); `text` is
+/// then their concatenation, used for the natural width.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Cell {
     pub text: String,
     pub role: Option<Role>,
+    pub spans: Vec<(String, Style)>,
 }
 impl Cell {
     pub fn styled(text: impl Into<String>, role: Role) -> Self {
         Self {
             text: text.into(),
             role: Some(role),
+            spans: Vec::new(),
+        }
+    }
+    /// Styled runs painted left to right and cut with `…` at the column's edge.
+    pub fn spans(spans: Vec<(String, Style)>) -> Self {
+        Self {
+            text: spans.iter().map(|(text, _)| text.as_str()).collect(),
+            role: None,
+            spans,
         }
     }
 }
 impl From<String> for Cell {
     fn from(text: String) -> Self {
-        Self { text, role: None }
+        Self {
+            text,
+            role: None,
+            spans: Vec::new(),
+        }
     }
 }
 impl From<&str> for Cell {
@@ -435,6 +451,44 @@ fn put(buffer: &mut Buffer, x: u16, y: u16, right: u16, text: &str, style: Style
     end
 }
 
+/// Styled runs from `x` up to `right`; a cut run ends in `…` in its own style.
+fn put_spans(buffer: &mut Buffer, x: u16, y: u16, right: u16, spans: &[(String, Style)]) {
+    let width = usize::from(right.saturating_sub(x));
+    let total: usize = spans
+        .iter()
+        .map(|(text, _)| display_width(&sanitize_terminal(text)))
+        .sum();
+    let mut x = x;
+    let mut room = width;
+    for (text, style) in spans {
+        if room == 0 {
+            break;
+        }
+        let text = sanitize_terminal(text);
+        let cells = display_width(&text);
+        // Only the run that reaches the edge of a row that does not fit is cut, so the
+        // ellipsis sits in the last cell.
+        let shown = if total > width && cells >= room {
+            fit(&format!("{text}…"), room)
+        } else {
+            text
+        };
+        x = put(buffer, x, y, right, &shown, *style);
+        room = usize::from(right.saturating_sub(x));
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn put_spans_for_tests(
+    buffer: &mut Buffer,
+    x: u16,
+    y: u16,
+    right: u16,
+    spans: &[(String, Style)],
+) {
+    put_spans(buffer, x, y, right, spans)
+}
+
 fn draw_actor(
     buffer: &mut Buffer,
     theme: Theme,
@@ -692,6 +746,10 @@ impl<'t> TablePainter<'t> {
                     let Some(cell) = item.cells.get(column.column) else {
                         continue;
                     };
+                    if !cell.spans.is_empty() {
+                        put_spans(buffer, x, y, right, &cell.spans);
+                        continue;
+                    }
                     put(
                         buffer,
                         x,
@@ -716,11 +774,11 @@ pub fn select_line(buffer: &mut Buffer, line: Rect, focused: bool, theme: Theme)
     if line.is_empty() {
         return;
     }
-    // Initials chips keep their identity hue on the selected row, so a person reads the same
-    // in every row and the chip ink stays legible over the Selection background.
-    let hues: Vec<_> = (0..crate::theme::IDENTITY_HUES)
-        .filter_map(|slot| theme.identity_chip(slot).bg)
-        .collect();
+    // Initials and ref chips keep their fill on the selected row, so a person or a branch
+    // reads the same in every row and the chip ink stays legible over the Selection
+    // background. Without color, reverse-video chips turn back to normal video inside the
+    // reversed row so they still stand apart.
+    let hues = theme.chip_fills();
     let chips: Vec<(u16, ratatui::style::Color)> = if theme.mode == ColorMode::NoColor {
         Vec::new()
     } else {
@@ -731,10 +789,26 @@ pub fn select_line(buffer: &mut Buffer, line: Rect, focused: bool, theme: Theme)
             })
             .collect()
     };
+    let reversed: Vec<u16> = if theme.mode == ColorMode::NoColor {
+        (line.x..line.right())
+            .filter(|x| {
+                buffer
+                    .cell((*x, line.y))
+                    .is_some_and(|cell| cell.modifier.contains(Modifier::REVERSED))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     buffer.set_style(line, selection_style(theme));
     for (x, bg) in chips {
         if let Some(cell) = buffer.cell_mut((x, line.y)) {
             cell.set_bg(bg);
+        }
+    }
+    for x in reversed {
+        if let Some(cell) = buffer.cell_mut((x, line.y)) {
+            cell.modifier.remove(Modifier::REVERSED);
         }
     }
     let bar = theme

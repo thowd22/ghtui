@@ -661,6 +661,45 @@ impl Theme {
             ][slot],
         )
     }
+    /// Ink on a role's color: History ref chips (Head, Branch, Remote, Tag). Without color it
+    /// is reverse video, like every other filled chip.
+    pub fn chip(self, role: Role) -> Style {
+        self.fill(
+            self.palette().map(|palette| palette.role(role, self.hue)),
+            ansi16_role(role, self.hue),
+        )
+    }
+    /// A role's ink on the raised surface (the border color): remote-branch chips, so they
+    /// read apart from the filled local-branch chips that share the hue.
+    pub fn soft_chip(self, role: Role) -> Style {
+        if self.mode == ColorMode::NoColor {
+            return self
+                .base()
+                .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+        }
+        let surface = match self.palette() {
+            Some(palette) => downsample(rgb(palette.border), self.mode),
+            None => Color::DarkGray,
+        };
+        self.role(role).bg(surface).add_modifier(Modifier::BOLD)
+    }
+    /// Backgrounds of filled chips (identity, ref and soft chips) that keep their fill on a
+    /// selected row.
+    pub fn chip_fills(self) -> Vec<Color> {
+        if self.mode == ColorMode::NoColor {
+            return Vec::new();
+        }
+        let mut fills: Vec<Color> = (0..IDENTITY_HUES)
+            .filter_map(|slot| self.identity_chip(slot).bg)
+            .collect();
+        fills.extend(
+            [Role::Head, Role::Branch, Role::Remote, Role::Tag]
+                .into_iter()
+                .filter_map(|role| self.chip(role).bg)
+                .chain(self.soft_chip(Role::Remote).bg),
+        );
+        fills
+    }
     fn fill(self, hex: Option<u32>, named: Color) -> Style {
         if self.mode == ColorMode::NoColor {
             return self

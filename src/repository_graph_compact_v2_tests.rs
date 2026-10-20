@@ -51,14 +51,12 @@ fn commit_graph_v2_ordinary10000_full_loaded_raw_and_compact_fit_unchanged8mib()
                 .count(),
             200
         );
-        assert!(shown.rows()[0].label.contains(&format!(
-            "Visible commits {}–{}",
-            start + 1,
-            start + 200
-        )));
         assert!(shown.rows()[0]
             .label
-            .contains("of 10000 loaded (limit 10000)"));
+            .contains(&format!("showing {}–{}", start + 1, start + 200)));
+        assert!(shown.rows()[0]
+            .label
+            .starts_with("Read-only · 10000 commits loaded"));
     }
     assert_eq!(real.snapshot(), baseline);
 }

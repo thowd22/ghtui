@@ -32,6 +32,8 @@ mod github;
 mod help_scrollbar;
 #[path = "tui_e2e/history_lanes_v991.rs"]
 mod history_lanes_v991;
+#[path = "tui_e2e/history_refs_v992.rs"]
+mod history_refs_v992;
 #[path = "support/hydration.rs"]
 mod hydration_fixture;
 #[path = "tui_e2e/identity.rs"]

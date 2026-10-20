@@ -294,7 +294,7 @@ fn history_lanes_v991_branches_merge_tag_remote_and_detached_head_match_git_log_
     // The fork point closes the feature lane on its own row: `●─╯`.
     let fork_text = row_of(&state, &rows, &fork).text();
     assert!(fork_text.contains(['╯', '╰', '┴']), "{fork_text:?}");
-    // The timeline has exactly one row per commit, plus headings and coverage.
+    // The timeline has exactly one row per commit, plus the summary and coverage.
     let shown = GraphPresentationV1::prepare(&state, &detached, GraphViewV1::Timeline).unwrap();
     let commits = shown
         .rows()
@@ -302,7 +302,7 @@ fn history_lanes_v991_branches_merge_tag_remote_and_detached_head_match_git_log_
         .filter(|row| matches!(row.action, Some(RowAction::Commit(_))))
         .count();
     assert_eq!(commits, 8);
-    assert_eq!(shown.rows().len(), 8 + 3);
+    assert_eq!(shown.rows().len(), 8 + 2);
     assert!(shown.rows().iter().all(|row| !row.label.contains("↳")));
     // Messages start in one column: every graph column is padded to the window width.
     let widths = (0..shown.rows().len())
@@ -492,5 +492,5 @@ fn history_lanes_v991_paging_keeps_lane_columns_and_colors_stable() {
     let older = all.member_at_v2(200).unwrap().id.clone();
     let shown =
         GraphPresentationV1::prepare_window_v2(&all, &older, GraphViewV1::Timeline, 200).unwrap();
-    assert_eq!(shown.rows().len(), all.loaded() - 200 + 3);
+    assert_eq!(shown.rows().len(), all.loaded() - 200 + 2);
 }

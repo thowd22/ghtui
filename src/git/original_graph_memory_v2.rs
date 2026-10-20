@@ -24,15 +24,43 @@ impl OriginalGraphPageV1 {
                 + c.refs.capacity() * size_of::<String>()
                 + c.refs.iter().map(String::capacity).sum::<usize>()
                 + c.raw_refs.capacity() * size_of::<Vec<u8>>()
-                + c.raw_refs.iter().map(Vec::capacity).sum::<usize>();
+                + c.raw_refs.iter().map(Vec::capacity).sum::<usize>()
+                + observed.chips.capacity() * size_of::<HistoryRefV1>()
+                + observed
+                    .chips
+                    .iter()
+                    .map(|chip| {
+                        chip.name.capacity()
+                            + chip.raw_name.capacity()
+                            + chip.target.capacity()
+                            + chip.upstream.as_ref().map_or(0, Vec::capacity)
+                    })
+                    .sum::<usize>();
             commit_bytes = commit_bytes
                 .checked_add(payload)
                 .ok_or("Original page payload charge overflow")?;
         }
         let mut ref_bytes = size_of::<RefSnapshotV1>()
-            + self.refs.captured_bytes.len()
             + self.refs.head.as_ref().map_or(0, String::capacity)
+            + self.refs.chips.capacity() * (size_of::<(String, Vec<HistoryRefV1>)>() + 8)
             + self.refs.by_oid.capacity() * (size_of::<(String, Vec<(Vec<u8>, String)>)>() + 8);
+        for (id, chips) in &self.refs.chips {
+            ref_bytes = ref_bytes
+                .checked_add(
+                    id.capacity()
+                        + chips.capacity() * size_of::<HistoryRefV1>()
+                        + chips
+                            .iter()
+                            .map(|chip| {
+                                chip.name.capacity()
+                                    + chip.raw_name.capacity()
+                                    + chip.target.capacity()
+                                    + chip.upstream.as_ref().map_or(0, Vec::capacity)
+                            })
+                            .sum::<usize>(),
+                )
+                .ok_or("Original references charge overflow")?;
+        }
         for (id, names) in &self.refs.by_oid {
             ref_bytes = ref_bytes
                 .checked_add(

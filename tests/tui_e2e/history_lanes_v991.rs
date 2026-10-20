@@ -113,11 +113,6 @@ fn chars(screen: &vt100::Screen, row: u16) -> Vec<char> {
         })
         .collect()
 }
-fn find(line: &[char], needle: &str) -> Option<usize> {
-    let needle = needle.chars().collect::<Vec<_>>();
-    line.windows(needle.len())
-        .position(|window| window == needle)
-}
 
 /// One painted commit row: its screen row, the dot column and the short-SHA column.
 struct Row {
@@ -135,40 +130,34 @@ fn check_graph(
     screen: &vt100::Screen,
     all_visible: bool,
 ) -> Result<Vec<Row>, String> {
-    let (height, _) = screen.size();
+    let parsed = support::history_fixture::history_rows(screen);
     let mut rows = Vec::new();
     for (subject, id) in &lanes.commits {
-        let found = (0..height).find_map(|y| {
-            let line = chars(screen, y);
-            let at = find(&line, &format!("{} {subject}", &id[..8]))?;
-            Some((y, line, at))
-        });
-        let Some((y, line, at)) = found else {
+        let Some(row) = parsed.iter().find(|row| row.sha == id[..7]) else {
             if all_visible {
                 return Err(format!("{subject} is not painted"));
             }
             continue;
         };
-        let selected = line[..at]
-            .iter()
-            .collect::<String>()
-            .ends_with("▶ selected ");
-        let sha = if selected {
-            at - "▶ selected ".chars().count()
-        } else {
-            at
-        };
+        if !row
+            .message
+            .starts_with(subject.split_at(subject.len().min(8)).0)
+        {
+            return Err(format!("{subject} shows {:?}", row.message));
+        }
+        let line = chars(screen, row.y);
+        let sha = usize::from(row.sha_x);
         let dot = line[..sha]
             .iter()
             .position(|c| *c == '●')
             .ok_or(format!("{subject} has no commit dot"))?;
         rows.push(Row {
             subject,
-            y,
+            y: row.y,
             line,
             dot,
             sha,
-            selected,
+            selected: row.selected,
         });
     }
     if rows.len() < 4 {
@@ -179,7 +168,7 @@ fn check_graph(
     if screen.contents().contains('↳') {
         return Err("a separate connector row is painted".into());
     }
-    // Messages start in one column; the selected row's marker takes the SHA's place.
+    // SHAs (and so messages) start in one column under the COMMIT title.
     let sha = rows[0].sha;
     if let Some(row) = rows.iter().find(|row| row.sha != sha) {
         return Err(format!("{} starts at {} not {sha}", row.subject, row.sha));
@@ -283,11 +272,12 @@ fn select(s: &mut Session, mouse: bool, subject: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(8);
     loop {
         s.poll_output(Duration::from_millis(20));
-        if let Some((column, row)) = s.locate(subject) {
-            if s.cell_inverted(row, column) {
-                s.send_key(b"\r");
-                return;
-            }
+        if s.history_rows()
+            .iter()
+            .any(|row| row.selected && subject.starts_with(row.message.trim_end_matches('…')))
+        {
+            s.send_key(b"\r");
+            return;
         }
         assert!(
             std::time::Instant::now() < deadline,
@@ -314,7 +304,7 @@ fn journey(mouse: bool) {
     );
     s.wait_for_screen("Recent commits");
     s.choose(mouse, "[g Graph]", b"g");
-    s.wait_for_screen("of 8 loaded");
+    s.wait_for_screen("8 commits loaded");
     s.wait_for_settled_footer();
     // Opened at the detached HEAD, every branch, the remote-only branch and the tag show.
     wait_graph(&mut s, &lanes, true, "Lane detached head");
@@ -324,7 +314,7 @@ fn journey(mouse: bool) {
     // Selecting a commit re-centres the same walk on it without a Git write.
     select(&mut s, mouse, "Lane feature one");
     wait_graph(&mut s, &lanes, true, "Lane feature one");
-    s.wait_for_screen("of 8 loaded");
+    s.wait_for_screen("8 commits loaded");
     assert_eq!(state(&lanes.fixture.repo()), lanes.baseline);
 
     // At 80x24 the graph column, the joins and the alignment hold for every visible row.

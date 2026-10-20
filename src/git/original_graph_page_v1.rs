@@ -18,7 +18,10 @@ const MAX_OFFSET: usize = 10_000;
 const MAX_OBJECT: usize = 1024 * 1024;
 const MAX_RAW_PAGE: usize = 16 * 1024 * 1024;
 const MAX_MESSAGE: usize = 16 * 1024;
-const MAX_REFS: usize = 128 * 1024;
+/// Bytes of one `for-each-ref` capture: 4096 rows of 1 KiB names and upstreams fit.
+const MAX_REFS: usize = 8 * 1024 * 1024;
+/// Names kept per snapshot; refs past it are counted and reported, never silently dropped.
+const MAX_REF_ROWS: usize = 4096;
 const MAX_SHALLOW: usize = 128 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +67,8 @@ impl OriginalGraphEpochV1 {
 #[derive(Clone, Debug)]
 pub struct OriginalGraphCommitV1 {
     commit: Commit,
+    /// Typed branch, remote, tag and HEAD chips of this commit at graph load.
+    chips: Vec<HistoryRefV1>,
     message: String,
     message_complete: bool,
     retained_bytes: usize,
@@ -71,6 +76,11 @@ pub struct OriginalGraphCommitV1 {
 impl OriginalGraphCommitV1 {
     pub fn commit(&self) -> &Commit {
         &self.commit
+    }
+    /// Local branches, remote branches, tags and a detached HEAD naming this commit when the
+    /// graph was loaded, in chip order (an attached HEAD is the `current` local branch).
+    pub fn chips(&self) -> &[HistoryRefV1] {
+        &self.chips
     }
     pub fn message(&self) -> &str {
         &self.message
@@ -85,10 +95,15 @@ impl OriginalGraphCommitV1 {
 #[derive(Clone, Debug)]
 struct RefSnapshotV1 {
     by_oid: HashMap<String, Vec<(Vec<u8>, String)>>,
+    /// Typed chips per commit, in chip order.
+    chips: HashMap<String, Vec<HistoryRefV1>>,
     /// Commits named by local branches, remote branches and tags.
     tips: Vec<String>,
-    captured_bytes: Arc<[u8]>,
+    /// Digest of the whole capture: a changed name, target or upstream is a changed snapshot.
+    captured: [u8; 32],
     head: Option<String>,
+    /// Refs past the 4096-name cap: neither named nor walked from.
+    overflow: usize,
 }
 pub enum OriginalGraphReadV1<'a> {
     Start(&'a str),
@@ -153,6 +168,10 @@ impl OriginalGraphPageV1 {
     }
     pub fn observed_head(&self) -> Option<&str> {
         self.refs.head.as_deref()
+    }
+    /// Refs past the 4096-name cap of this walk's snapshot; shown as an explicit overflow.
+    pub fn ref_overflow(&self) -> usize {
+        self.refs.overflow
     }
     pub(crate) fn matches_source(&self, origin: &OriginalLocalActorOriginV1) -> bool {
         self.source.as_ref() == origin.source()
@@ -294,12 +313,23 @@ impl GitRepository {
                     observed.commit.refs.push(label.clone());
                 }
             }
-            if references.head.as_ref() == Some(id) {
-                observed.commit.refs.insert(0, "HEAD at graph load".into());
+            if let Some(chips) = references.chips.get(id) {
+                observed.chips = chips.clone();
             }
             observed.retained_bytes += observed.commit.raw_refs.iter().map(Vec::len).sum::<usize>()
                 + observed.commit.refs.iter().map(String::len).sum::<usize>()
-                + observed.commit.refs.len() * 128;
+                + observed.commit.refs.len() * 128
+                + observed
+                    .chips
+                    .iter()
+                    .map(|chip| {
+                        chip.name.len()
+                            + chip.raw_name.len()
+                            + chip.target.len()
+                            + chip.upstream.as_ref().map_or(0, Vec::len)
+                            + 128
+                    })
+                    .sum::<usize>();
             prepared_bytes = prepared_bytes
                 .checked_add(observed.retained_bytes)
                 .filter(|n| *n <= 8 * 1024 * 1024)
@@ -313,9 +343,7 @@ impl GitRepository {
         }
         if previous.is_none() {
             let current = ref_snapshot(self, deadline)?;
-            if current.captured_bytes != references.captured_bytes
-                || current.head != references.head
-            {
+            if current.captured != references.captured || current.head != references.head {
                 return fail("Graph initial names/HEAD changed during original read; no atomic snapshot guessed");
             }
         }
@@ -520,7 +548,7 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
         repo,
         [
             "for-each-ref",
-            "--format=%(objectname)%00%(refname)%00%(*objectname)%00%(objecttype)%00%(*objecttype)",
+            "--format=%(objectname)%00%(refname)%00%(*objectname)%00%(objecttype)%00%(*objecttype)%00%(HEAD)%00%(upstream)%00%(symref)",
         ],
         None,
         MAX_REFS,
@@ -537,20 +565,26 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
         .map_err(|_| GitError("Original HEAD is not a full saved SHA".into()))?;
     saved_oid(head)?;
     let mut names: HashMap<String, Vec<(Vec<u8>, String)>> = HashMap::new();
+    let mut chips: HashMap<String, Vec<HistoryRefV1>> = HashMap::new();
     let mut tips = Vec::new();
     let mut count = 0usize;
+    let mut overflow = 0usize;
+    let mut attached = false;
     for row in bytes
         .split(|byte| *byte == b'\n')
         .filter(|row| !row.is_empty())
     {
-        count += 1;
-        if count > 4096 {
-            return fail("Original graph ref snapshot exceeds4096");
-        }
         let parts = row.split(|byte| *byte == 0).collect::<Vec<_>>();
-        if parts.len() != 5 || parts[1].len() > 1024 || parts[1].is_empty() {
+        if parts.len() != 8
+            || parts[1].len() > 1024
+            || parts[1].is_empty()
+            || parts[6].len() > 1024
+            || parts[7].len() > 1024
+        {
             return fail("Original graph ref row malformed or oversized");
         }
+        // HEAD names its branch even when that branch is past the cap: never a false detach.
+        attached |= parts[5] == b"*";
         let object = if parts[3] == b"commit" {
             parts[0]
         } else if parts[4] == b"commit" {
@@ -558,25 +592,66 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
         } else {
             continue;
         };
+        if count == MAX_REF_ROWS {
+            overflow += 1;
+            continue;
+        }
+        count += 1;
         let id = std::str::from_utf8(object)
             .map_err(|_| GitError("Original ref object is not ASCII".into()))?;
         saved_oid(id)?;
-        if [&b"refs/heads/"[..], b"refs/remotes/", b"refs/tags/"]
-            .iter()
-            .any(|prefix| parts[1].starts_with(prefix))
-        {
+        let name = parts[1];
+        let kind = [
+            (&b"refs/heads/"[..], HistoryRefKindV1::Local),
+            (b"refs/remotes/", HistoryRefKindV1::Remote),
+            (b"refs/tags/", HistoryRefKindV1::Tag),
+        ]
+        .into_iter()
+        .find_map(|(prefix, kind)| name.strip_prefix(prefix).map(|short| (kind, short)));
+        if let Some((kind, short)) = kind {
             tips.push(id.to_owned());
+            // `origin/HEAD` is a symbolic pointer at another remote branch, not a chip.
+            if parts[7].is_empty() {
+                chips.entry(id.into()).or_default().push(HistoryRefV1 {
+                    kind,
+                    name: display_bytes(short),
+                    raw_name: name.to_vec(),
+                    target: id.into(),
+                    current: parts[5] == b"*",
+                    upstream: (!parts[6].is_empty()).then(|| parts[6].to_vec()),
+                });
+            }
         }
         names
             .entry(id.into())
             .or_default()
-            .push((parts[1].to_vec(), display_bytes(parts[1])));
+            .push((name.to_vec(), display_bytes(name)));
     }
+    if !attached {
+        chips.entry(head.into()).or_default().push(HistoryRefV1 {
+            kind: HistoryRefKindV1::Head,
+            name: "HEAD".into(),
+            raw_name: b"HEAD".to_vec(),
+            target: head.into(),
+            current: false,
+            upstream: None,
+        });
+    }
+    for list in chips.values_mut() {
+        list.sort_by(|a, b| {
+            (a.kind, !a.current, &a.raw_name).cmp(&(b.kind, !b.current, &b.raw_name))
+        });
+    }
+    let mut captured = Sha256::new();
+    captured.update(&bytes);
+    captured.update([u8::from(attached)]);
     Ok(RefSnapshotV1 {
         by_oid: names,
+        chips,
         tips,
-        captured_bytes: Arc::from(bytes),
+        captured: captured.finalize().into(),
         head: Some(head.into()),
+        overflow,
     })
 }
 /// Sorted distinct walk tips (branches, remotes, tags, HEAD and the opened
@@ -775,6 +850,7 @@ fn parse_commit(id: &str, object: &[u8]) -> GitResult<OriginalGraphCommitV1> {
         + 256;
     Ok(OriginalGraphCommitV1 {
         commit,
+        chips: Vec::new(),
         message,
         message_complete: raw.len() <= MAX_MESSAGE,
         retained_bytes,

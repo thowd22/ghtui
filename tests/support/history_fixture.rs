@@ -838,10 +838,16 @@ pub fn history_pane(screen: &vt100::Screen) -> Option<(u16, u16, u16, u16)> {
         .map(|(x, y)| (x + 2, y))
         .or_else(|| super::controls::locate_text(screen, HISTORY_PANE))?;
     use super::controls::{cell_is_corner, Corner};
-    let left = (0..title_x)
-        .rev()
-        .find(|x| cell_is_corner(screen, top, *x, Corner::TopLeft))?;
-    let right = (title_x..columns).find(|x| cell_is_corner(screen, top, *x, Corner::TopRight))?;
+    // A pane of its own (`╭─ History`) or a titled rule inside the Repository pane, whose
+    // ends meet the pane's sides as `├`/`┤`.
+    let is = |x: u16, corner: Corner, junction: &str| {
+        cell_is_corner(screen, top, x, corner)
+            || screen
+                .cell(top, x)
+                .is_some_and(|cell| cell.contents() == junction)
+    };
+    let left = (0..title_x).rev().find(|x| is(*x, Corner::TopLeft, "├"))?;
+    let right = (title_x..columns).find(|x| is(*x, Corner::TopRight, "┤"))?;
     let bottom = (top + 1..rows).find(|y| cell_is_corner(screen, *y, left, Corner::BottomLeft))?;
     Some((left, right, top, bottom))
 }
@@ -881,8 +887,15 @@ pub fn history_columns(screen: &vt100::Screen) -> Option<HistoryColumns> {
     for y in top + 1..bottom {
         let row = cells(screen, y, left + 1, right);
         let text = text_of(&row);
+        // Whole titles only: `AGE` also ends `MESSAGE`.
         let find = |label: &str| {
-            let byte = text.find(label)?;
+            let byte = text.match_indices(label).map(|(at, _)| at).find(|at| {
+                text[..*at].ends_with(' ')
+                    && text[at + label.len()..]
+                        .chars()
+                        .next()
+                        .is_none_or(char::is_whitespace)
+            })?;
             let index = text[..byte].chars().count();
             row.get(index).map(|(x, _, _)| *x)
         };
@@ -934,7 +947,8 @@ pub fn history_rows(screen: &vt100::Screen) -> Vec<HistoryRow> {
             .find(|(_, text, _)| text != " ")
             .map(|(_, _, cell)| cell.clone())
             .unwrap();
-        let graph = text_of(&cells(screen, y, left + 2, columns.commit))
+        // Lanes start under the GRAPH title (after the `▌` slot and its blank).
+        let graph = text_of(&cells(screen, y, columns.graph, columns.commit))
             .trim_end()
             .to_owned();
         let message_cells = cells(screen, y, columns.message, columns.author);
@@ -1057,7 +1071,9 @@ pub fn history_filter_row(screen: &vt100::Screen) -> Option<HistoryFilterRow> {
 /// The status line's `Read-only · N commits loaded` count, when painted.
 pub fn history_loaded_count(screen: &str) -> Option<usize> {
     screen.lines().find_map(|line| {
-        let (before, _) = line.split_once(" commits loaded")?;
+        let (before, _) = line
+            .split_once(" commits loaded")
+            .or_else(|| line.split_once(" commit loaded"))?;
         before.split_whitespace().last()?.parse().ok()
     })
 }

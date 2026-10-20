@@ -35,21 +35,11 @@ impl GraphPresentationV1 {
             limit: MAX_RETAINED.saturating_sub(state.retained_bytes),
             ..Default::default()
         };
-        // Two compact heading rows: where you are, and what the selection is.
-        // Lane meaning and paging details stay in the Legend (l).
+        // One summary row: read-only, how much is loaded and which window shows. The History
+        // table paints it as its status line; the selected commit's explanation stays in
+        // Details (D) and lane meaning in the Legend (l).
         builder.push(
-            format!(
-                "Visible commits {}–{} of {} loaded (limit 10000) • < > page • N load more",
-                start + 1,
-                end,
-                state.loaded()
-            ),
-            SemanticRole::Reference,
-            None,
-            Vec::new(),
-        )?;
-        builder.push(
-            graph_explanation_v1(selected),
+            history_summary_v992(state, start, end),
             SemanticRole::Reference,
             None,
             Vec::new(),
@@ -98,12 +88,16 @@ impl GraphPresentationV1 {
                 text: " ".repeat(graph_width.saturating_sub(lane.cells.len()) + 2),
                 color: Some(0),
             });
+            let observed = state
+                .topology
+                .observed(&state.pages, node.member)
+                .ok_or("Compact graph actual member lost")?;
             let label = format!(
                 "{}{} {}{} • {}",
                 if is_selected { "▶ selected " } else { "" },
                 &commit.id[..8],
                 commit.subject,
-                short_names_v1(commit),
+                short_names_v1(observed),
                 crate::git_actor_labels_v1::commit_summary(commit),
             );
             paint.push(GraphSpanV1 {
@@ -177,6 +171,31 @@ impl GraphPresentationV1 {
                 .map(Vec::capacity)
                 .sum::<usize>()
     }
+}
+
+/// `Read-only · 230 commits loaded · showing 201–230 · < > page · N load more`, plus the
+/// refs past the 4096-name cap when there are any: they are neither named nor walked.
+fn history_summary_v992(state: &OriginalGraphStateV1, start: usize, end: usize) -> String {
+    let loaded = state.loaded();
+    let mut text = format!(
+        "Read-only · {loaded} {} loaded",
+        if loaded == 1 { "commit" } else { "commits" }
+    );
+    if loaded > GRAPH_PROJECTION_COMMITS_V2 {
+        text.push_str(&format!(" · showing {}–{end} · < > page", start + 1));
+    }
+    match state.coverage {
+        GraphCoverageV1::MoreAvailable => text.push_str(" · N load more"),
+        GraphCoverageV1::Capped => text.push_str(" · 10000-commit limit"),
+        _ => {}
+    }
+    let overflow = state.last_page().ref_overflow();
+    if overflow > 0 {
+        text.push_str(&format!(
+            " · {overflow} refs past the 4096-ref cap not shown or walked"
+        ));
+    }
+    text
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]

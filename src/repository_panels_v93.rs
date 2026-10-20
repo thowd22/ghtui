@@ -473,7 +473,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// Turns the pane border cells beside a panel rule at `rect.y` into `├`/`┤` junctions.
-fn join_rule(frame: &mut Frame, rect: Rect) {
+pub(crate) fn join_rule(frame: &mut Frame, rect: Rect) {
     let screen = frame.area();
     let buffer = frame.buffer_mut();
     for (x, junction) in [

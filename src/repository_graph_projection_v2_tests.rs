@@ -23,8 +23,10 @@ fn commit_graph_v2_projection_window_navigation_is_real_global_members_and_zero_
     assert_eq!(last.member.node, 400);
     let show =
         GraphPresentationV1::prepare_window_v2(&state, &last.selected, last.view, 400).unwrap();
-    assert!(show.rows()[0].label.contains("Visible commits 401–430"));
-    assert!(show.rows()[0].label.contains("of 430 loaded"));
+    assert!(show.rows()[0].label.contains("showing 401–430 · < > page"));
+    assert!(show.rows()[0]
+        .label
+        .starts_with("Read-only · 430 commits loaded"));
     assert_eq!(
         show.rows()
             .iter()
@@ -84,16 +86,23 @@ fn v1_repo_views_linear_graph_has_one_row_per_commit_with_names_and_dates() {
         !shown.rows().iter().any(|row| row.label.starts_with("↳")),
         "a straight single-parent lane needs no connector row"
     );
-    // Two heading rows, the commits and the coverage boundary only.
-    assert_eq!(shown.rows().len(), 2 + 30 + 1);
-    assert!(shown.rows()[0]
-        .label
-        .starts_with("Visible commits 1–30 of 30 loaded (limit 10000)"));
+    // The summary row, the commits and the coverage boundary only.
+    assert_eq!(shown.rows().len(), 1 + 30 + 1);
+    assert_eq!(shown.rows()[0].label, "Read-only · 30 commits loaded");
     let selected = &shown.rows()[shown.focus().unwrap()];
-    assert!(selected.label.starts_with(&format!(
-        "▶ selected {} Ordinary graph version 00029 (HEAD, graph-v2, main) • ",
-        &tip[..8]
-    )));
+    // HEAD is a typed chip before its current branch; every name is listed.
+    let names = selected
+        .label
+        .strip_prefix(&format!(
+            "▶ selected {} Ordinary graph version 00029 (HEAD, ",
+            &tip[..8]
+        ))
+        .and_then(|rest| rest.split_once(") • "))
+        .map(|(names, _)| names)
+        .unwrap_or_else(|| panic!("{}", selected.label));
+    let mut names = names.split(", ").collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(names, ["graph-v2", "main"]);
     assert!(selected
         .label
         .ends_with("author Graph Writer • committer Graph Recorder • 2023-11-14"));
