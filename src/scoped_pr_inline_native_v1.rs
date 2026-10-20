@@ -514,7 +514,13 @@ pub fn execute(
                     publication, true, None, &owner.cancel, owner.deadline,
                 ) {
                     Ok(result) => ResultKind::Published(result),
-                    Err(error) => failure(error),
+                    // Refused before any journal entry: same explicit re-anchor path.
+                    Err(error) => failure(super::plan::keep_for_reanchor_v1(
+                        error,
+                        request.intent(),
+                        request.body(),
+                        database,
+                    )),
                 },
                 _ => ResultKind::Failed {
                     hide_private: false,
@@ -657,11 +663,15 @@ pub fn publish(
 ) {
     match result.kind {
         ResultKind::Opened(form) => {
+            app.status = if form.title.ends_with(" • re-anchored") {
+                "Older draft text carried to this new selection • check the lines (F2), then Preview"
+            } else {
+                "Original inline draft opened • fresh Preview required • nothing published"
+            }
+            .into();
             app.form = Some(*form);
             app.form_dismissed = false;
             app.overlay = Some(Overlay::Form);
-            app.status =
-                "Original inline draft opened • fresh Preview required • nothing published".into();
         }
         ResultKind::Preview(preview) => {
             if let (Some(form), Some(request)) = (&mut app.form, owner.work.request()) {
@@ -680,7 +690,11 @@ pub fn publish(
         } => {
             if hide_private || owner.work.phase() == ScopedInlinePhaseV1::Confirm {
                 retire_private(app, background);
-                app.status="Original inline source unavailable • private views hidden • draft/journal preserved • nothing resent".into();
+                app.status = if message == super::REANCHOR_KEPT_V1 {
+                    message
+                } else {
+                    "Original inline source unavailable • private views hidden • draft/journal preserved • nothing resent".into()
+                };
             } else if owner.work.native_origin().is_some() {
                 app.dispatch(crate::app::Action::Explain(message));
             } else if let Some(form) = &mut app.form {

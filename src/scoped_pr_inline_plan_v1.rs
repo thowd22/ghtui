@@ -101,6 +101,7 @@ pub struct ScopedInlineDraftV1 {
     publication: Option<PrPublicationReference>,
     identity: HostIdentity,
     draft_key: String,
+    carried_from: Option<String>,
 }
 impl std::fmt::Debug for ScopedInlineDraftV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -126,6 +127,10 @@ impl ScopedInlineDraftV1 {
     /// serializes original source metadata during ordinary editing saves.
     pub fn draft_key(&self) -> &str {
         &self.draft_key
+    }
+    /// Label of the older selection whose text was carried into this anchor.
+    pub fn carried_from(&self) -> Option<&str> {
+        self.carried_from.as_deref()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -186,10 +191,17 @@ impl ScopedInlineDraftV1 {
         let key = intent
             .draft_key()
             .map_err(|_| refused("Inline anchor cannot be fingerprinted"))?;
-        let encoded = Cache::open(database)
+        let mut encoded = Cache::open(database)
             .map_err(|_| source_failure(safe_local()))?
             .bounded_draft(intent.scope(), &key, 128 * 1024)
             .map_err(|_| source_failure(safe_local()))?;
+        let mut carried_from = None;
+        if encoded.is_none() {
+            if let Some((moved, from)) = carry_reanchor_v1(&intent, &key, database)? {
+                encoded = Some(moved);
+                carried_from = Some(from);
+            }
+        }
         let mut body = Arc::<str>::from("");
         let mut publication = None;
         if let Some(encoded) = encoded {
@@ -262,10 +274,90 @@ impl ScopedInlineDraftV1 {
             publication,
             identity: closed.identity().clone(),
             draft_key: key,
+            carried_from,
         };
         check(cancel, original_deadline)?;
         Ok(result)
     }
+}
+/// Shown after a changed head or anchor kept the text for an explicit re-anchor.
+pub const REANCHOR_KEPT_V1: &str = "PR changed since this selection • draft text kept • reload Files, select the new lines and P Comment carries it";
+const SELECTION_CHANGED_V1: &str =
+    "Original immutable inline selection changed; retain the draft and explicitly re-anchor";
+impl InlineFailureV1 {
+    /// The selection no longer matches the current PR head/patch.
+    pub fn needs_reanchor(&self) -> bool {
+        matches!(self.kind, Some(GithubErrorKind::StaleHead))
+            || self.message == SELECTION_CHANGED_V1
+    }
+}
+/// Keep the exact body TEXT in the head-independent re-anchor slot of the
+/// same account, PR and API filename. No anchor, approval or publication
+/// reference is copied; a later explicit selection decides the new lines.
+pub(crate) fn keep_for_reanchor_v1(
+    failure: InlineFailureV1,
+    intent: &ScopedInlineIntentV1,
+    body: &str,
+    database: &Path,
+) -> InlineFailureV1 {
+    if !failure.needs_reanchor() || body.trim().is_empty() || body.len() > 65_536 {
+        return failure;
+    }
+    let encoded =
+        serde_json::json!({"version":1,"body":body,"from":intent.anchor_label()}).to_string();
+    match Cache::open(database)
+        .and_then(|cache| cache.put_draft(intent.scope(), &intent.reanchor_key(), &encoded))
+    {
+        Ok(()) => InlineFailureV1 {
+            message: REANCHOR_KEPT_V1,
+            ..failure
+        },
+        Err(_) => failure,
+    }
+}
+/// Move re-anchor text into this new anchor's own draft key exactly once.
+/// Only runs when the new anchor has no draft of its own.
+fn carry_reanchor_v1(
+    intent: &ScopedInlineIntentV1,
+    key: &str,
+    database: &Path,
+) -> Result<Option<(String, String)>, InlineFailureV1> {
+    let cache = Cache::open(database).map_err(|_| source_failure(safe_local()))?;
+    let slot = intent.reanchor_key();
+    let Some(text) = cache
+        .bounded_draft(intent.scope(), &slot, 128 * 1024)
+        .map_err(|_| source_failure(safe_local()))?
+    else {
+        return Ok(None);
+    };
+    let malformed = || refused("Malformed re-anchor draft; nothing carried or published");
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|_| malformed())?;
+    let object = value
+        .as_object()
+        .filter(|object| {
+            object.len() == 3
+                && object.get("version").and_then(serde_json::Value::as_u64) == Some(1)
+        })
+        .ok_or_else(malformed)?;
+    let body = object
+        .get("body")
+        .and_then(serde_json::Value::as_str)
+        .filter(|body| body.len() <= 65_536)
+        .ok_or_else(malformed)?;
+    let from = object
+        .get("from")
+        .and_then(serde_json::Value::as_str)
+        .filter(|from| from.len() <= 256)
+        .ok_or_else(malformed)?;
+    let moved =
+        serde_json::json!({"version":2,"values":{"body":body},"publication":null}).to_string();
+    cache
+        .put_draft(intent.scope(), key, &moved)
+        .map_err(|_| source_failure(safe_local()))?;
+    cache
+        .remove_draft(intent.scope(), &slot)
+        .map_err(|_| source_failure(safe_local()))?;
+    Ok(Some((moved, crate::git::display_bytes(from.as_bytes()))))
 }
 impl std::fmt::Display for InlineFailureV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -340,8 +432,32 @@ impl std::fmt::Debug for ScopedInlinePreviewV1 {
     }
 }
 impl ScopedInlinePreviewV1 {
+    /// A changed head or anchor keeps the body for an explicit re-anchor.
     #[allow(clippy::too_many_arguments)]
     pub fn prepare(
+        intent: Arc<ScopedInlineIntentV1>,
+        body: Arc<str>,
+        provider: &GithubProvider,
+        database: &Path,
+        limits: &PrImmutableFileLimitsV1,
+        access: &RepositoryCatalogueAccessLimits,
+        cancel: &CancellationToken,
+        original_deadline: Instant,
+    ) -> Result<Arc<Self>, InlineFailureV1> {
+        Self::prepare_checked(
+            intent.clone(),
+            body.clone(),
+            provider,
+            database,
+            limits,
+            access,
+            cancel,
+            original_deadline,
+        )
+        .map_err(|failure| keep_for_reanchor_v1(failure, &intent, &body, database))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_checked(
         intent: Arc<ScopedInlineIntentV1>,
         body: Arc<str>,
         provider: &GithubProvider,
@@ -421,7 +537,7 @@ impl ScopedInlinePreviewV1 {
                         || current.absent() != original.absent()
                 })
         {
-            return Err(refused("Original immutable inline selection changed; retain the draft and explicitly re-anchor"));
+            return Err(refused(SELECTION_CHANGED_V1));
         }
         let closing = session
             .verify(intent.proof.navigation.original(), cancel)

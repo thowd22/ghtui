@@ -507,6 +507,161 @@ fn inline_comments_keyboard_explicit_range_left_context_and_changed_current_uid_
 fn inline_comments_mouse_explicit_range_left_context_and_changed_current_uid_fail_closed() {
     refusal_journey(true)
 }
+/// TASK-19 AC3: an older-head draft is carried only into an explicit NEW
+/// selection, explained there, and a Preview on a moved head keeps the text
+/// again for re-anchoring with no write.
+fn reanchor_journey(mouse: bool) {
+    let (fixture, h, mut steps) = fixture_and_steps(|_| {});
+    // Preview's first four reads; the PR parent now reports a moved head.
+    let mut stale = steps[steps.len() - 17..steps.len() - 13].to_vec();
+    assert!(json!(stale[3].args).to_string().contains("pulls/7"));
+    let mut moved: Value = serde_json::from_slice(&stale[3].stdout).unwrap();
+    moved["head"]["sha"] = json!(h.m);
+    stale[3].stdout = moved.to_string().into_bytes();
+    steps.extend(source_phase(&h, true));
+    steps.extend(stale);
+    fixture.scripted_gh(&steps);
+    let database = fixture.root.join("config/ghtui/cache.sqlite3");
+    let slot = format!(
+        "inline/reanchor/{}/{}/{:x}",
+        repository(0)["id"],
+        parent_resource()["id"],
+        <sha2::Sha256 as sha2::Digest>::digest(history::PATH.as_bytes())
+    );
+    let scope = ghtui::storage::Scope::github(HOST, Some(42)).unwrap();
+    // Text an earlier Preview kept when the head moved under LEFT 3–4.
+    ghtui::storage::Cache::open(&database)
+        .unwrap()
+        .put_draft(
+            &scope,
+            &slot,
+            &json!({"version":1,"body":BODY,"from":"LEFT 3–4 at 0123456789ab"}).to_string(),
+        )
+        .unwrap();
+    let before_git = git_state(&fixture);
+    let before_drafts = stable_drafts(&fixture);
+    let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
+    let mut session = launch(&fixture, mouse);
+    files_selected(&mut session, &fixture, mouse);
+    choose(&mut session, mouse, "[O Old image]", b"O");
+    session.wait_for_command_count(&fixture, 58);
+    overlay_ready(
+        &mut session,
+        "Immutable file images",
+        &[
+            "[R Range]",
+            "[P Comment]",
+            "old-no-newline",
+            "new-no-newline",
+        ],
+    );
+    let git_journal = git_commands(&fixture);
+    choose(&mut session, mouse, "[O Old]", b"O");
+    ready(&mut session, &["Selection LEFT 1–1"]);
+    if mouse {
+        let first = session.locate("L      1").unwrap();
+        let last = session.locate("L      2").unwrap();
+        session.drag(first, last);
+    } else {
+        session.send_key(b"\x1b[1;2B");
+    }
+    choose(&mut session, mouse, "[R Range]", b"R");
+    ready(&mut session, &["READ-ONLY LEFT 1–2", &h.h]);
+    choose(&mut session, mouse, "[P Comment]", b"P");
+    session.wait_for_command_count(&fixture, 66);
+    editing_ready(&mut session, BODY);
+    ready(&mut session, &["re-anchored"]);
+    choose(&mut session, mouse, "[F2 Full anchor details]", b"\x1bOQ");
+    overlay_ready(
+        &mut session,
+        "Original inline anchor",
+        &[
+            "RE-ANCHORED • text carried from LEFT 3–4 at 0123456789ab",
+            "LEFT lines 1–2",
+            &h.h,
+            "[Esc Back to draft]",
+        ],
+    );
+    if mouse {
+        session.click_visible_action("[Esc Back to draft]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    editing_ready(&mut session, BODY);
+    let db = raw(&fixture);
+    let slots = |db: &rusqlite::Connection| -> u64 {
+        db.query_row(
+            "SELECT count(*) FROM drafts WHERE resource LIKE 'inline/reanchor/%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(slots(&db), 0, "carried text leaves the re-anchor slot");
+    let owned: Value = serde_json::from_str(
+        &db.query_row(
+            "SELECT body FROM drafts WHERE resource LIKE 'inline/%' AND resource NOT LIKE 'inline/reanchor/%'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(owned["values"]["body"], BODY);
+    assert_eq!(owned["publication"], Value::Null);
+    let before = session.completed_cursorless_end();
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_command_count(&fixture, steps.len());
+    session.wait_for_new_cursorless_condition(
+        before,
+        |frame| {
+            let text = frame.contents();
+            text.contains("PR changed since this selection")
+                && text.contains("draft text kept")
+                && !text.contains("old-no-newline")
+                && !text.contains("new-no-newline")
+                && !text.contains("READ-ONLY PREVIEW")
+        },
+        "Moved head refuses Preview, explains the re-anchor path and hides the stale images",
+        Duration::from_secs(8),
+    );
+    let kept: Value = serde_json::from_str(
+        &db.query_row(
+            "SELECT body FROM drafts WHERE resource=?1",
+            rusqlite::params![slot],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        kept,
+        json!({"version":1,"body":BODY,"from":format!("LEFT 1–2 at {}", &h.h[..12])})
+    );
+    let attempts: u64 = db
+        .query_row("SELECT count(*) FROM pr_write_attempts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(attempts, 0, "no write began on the moved head");
+    assert_eq!(stable_drafts(&fixture), before_drafts);
+    assert_eq!(git_state(&fixture), before_git);
+    assert_eq!(git_commands(&fixture), git_journal);
+    assert_eq!(
+        fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap(),
+        config
+    );
+    exact_commands(&session, &fixture, &steps, 0);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+#[test]
+fn inline_comments_keyboard_changed_head_keeps_text_and_new_selection_carries_it() {
+    reanchor_journey(false)
+}
+#[test]
+fn inline_comments_mouse_changed_head_keeps_text_and_new_selection_carries_it() {
+    reanchor_journey(true)
+}
 fn held_preview_paste(mouse: bool) {
     let (fixture, h, mut steps) = fixture_and_steps(|_| {});
     let mut preview = steps[steps.len() - 17..].to_vec();

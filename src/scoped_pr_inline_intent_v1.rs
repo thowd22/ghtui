@@ -18,7 +18,7 @@ mod plan;
 pub mod ui_v1;
 pub use plan::{
     InlineFailureV1, ScopedInlineDraftV1, ScopedInlinePreviewV1, ScopedInlinePublicationStateV1,
-    ScopedInlinePublicationV1,
+    ScopedInlinePublicationV1, REANCHOR_KEPT_V1,
 };
 
 const PATH_CAP: usize = 4096;
@@ -132,6 +132,33 @@ impl ScopedInlineIntentV1 {
             return Err("Original inline anchor metadata exceeds32KiB".into());
         }
         Ok(format!("inline/{:x}", Sha256::digest(bytes)))
+    }
+
+    /// Head-independent re-anchor slot for the same PR and canonical API
+    /// filename. It holds draft TEXT only (never an anchor, approval or
+    /// publication reference); a later explicit selection on a fresh source
+    /// carries it into that new anchor's own draft key.
+    pub fn reanchor_key(&self) -> String {
+        format!(
+            "inline/reanchor/{}/{}/{:x}",
+            self.original_repository_id(),
+            self.original_pr_id(),
+            Sha256::digest(self.server_path().as_bytes())
+        )
+    }
+    /// Short human label for the selection this draft text was written for.
+    pub fn anchor_label(&self) -> String {
+        let side = match self.side {
+            PrImageSideV1::Old => "LEFT",
+            PrImageSideV1::New => "RIGHT",
+        };
+        let head = self.review_head();
+        format!(
+            "{side} {}–{} at {}",
+            self.first,
+            self.last,
+            &head[..head.len().min(12)]
+        )
     }
 
     /// Worker-only semantic preflight on the SAME existing canonical parser.

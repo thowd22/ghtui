@@ -953,6 +953,109 @@ fn inline_comments_prepost_changed_parent_retains_pending_reference_and_never_cl
     unchanged_git_and_exact_script(&s);
 }
 #[test]
+fn inline_comments_changed_head_preview_keeps_text_and_explicit_new_selection_carries_it_once() {
+    let mut s = inline_setup(|h, steps| {
+        let mut stale = image_steps(h);
+        // version, user, repository, then the PR parent: its head moved.
+        assert!(json!(stale[3].args).to_string().contains("pulls/7"));
+        let mut changed: Value = serde_json::from_slice(&stale[3].stdout).unwrap();
+        changed["head"]["sha"] = json!(h.m);
+        stale[3].stdout = changed.to_string().into_bytes();
+        stale.truncate(4);
+        steps.extend(stale);
+        steps.extend(source_fence_steps(h, true));
+    });
+    let result = read(&mut s, &Default::default(), &Default::default()).unwrap();
+    let old = ScopedInlineIntentV1::capture(
+        &result
+            .proof
+            .canonical_range(PrImageSideV1::Old, 1, 2)
+            .unwrap(),
+    )
+    .unwrap();
+    let error = ScopedInlinePreviewV1::prepare(
+        old.clone(),
+        Arc::from(INLINE_BODY),
+        &provider(&s.fixture),
+        &database(&s.fixture),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        Instant::now() + Duration::from_secs(30),
+    )
+    .unwrap_err();
+    assert!(error.needs_reanchor());
+    assert!(error.hide_private);
+    assert_eq!(error.to_string(), images::inline_v1::REANCHOR_KEPT_V1);
+    let label = format!("LEFT 1–2 at {}", &s.h.h[..12]);
+    let cache = Cache::open(&database(&s.fixture)).unwrap();
+    let kept: Value = serde_json::from_str(
+        &cache
+            .draft(old.scope(), &old.reanchor_key())
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        kept,
+        json!({"version":1,"body":INLINE_BODY,"from":label.clone()})
+    );
+    assert!(old.reanchor_key().starts_with("inline/reanchor/410/1007/"));
+    let attempts = |s: &Setup| -> u64 {
+        sql(&s.fixture)
+            .query_row("SELECT count(*) FROM pr_write_attempts", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    assert_eq!(attempts(&s), 0, "a stale Preview never begins a write");
+    // The user explicitly selects NEW lines; the old anchor is never reused.
+    let new = ScopedInlineIntentV1::capture(
+        &result
+            .proof
+            .canonical_range(PrImageSideV1::Old, 2, 2)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(new.reanchor_key(), old.reanchor_key());
+    assert_ne!(new.draft_key().unwrap(), old.draft_key().unwrap());
+    let draft = ScopedInlineDraftV1::open(
+        new.clone(),
+        &provider(&s.fixture),
+        &database(&s.fixture),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        Instant::now() + Duration::from_secs(30),
+    )
+    .unwrap();
+    assert_eq!(draft.body(), INLINE_BODY);
+    assert_eq!(draft.carried_from(), Some(label.as_str()));
+    assert!(draft.publication().is_none());
+    assert_eq!(draft.draft_key(), new.draft_key().unwrap());
+    // Moved exactly once: the slot is empty and the new anchor owns the text.
+    assert!(cache
+        .draft(old.scope(), &old.reanchor_key())
+        .unwrap()
+        .is_none());
+    let moved: Value = serde_json::from_str(
+        &cache
+            .draft(new.scope(), &new.draft_key().unwrap())
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        moved,
+        json!({"version":2,"values":{"body":INLINE_BODY},"publication":null})
+    );
+    let form = images::inline_v1::ui_v1::form_from_draft(draft).unwrap();
+    assert!(form.title.ends_with("LEFT 2–2 • re-anchored"));
+    assert_eq!(form.fields[0].editor.text, INLINE_BODY);
+    assert_eq!(attempts(&s), 0);
+    unchanged_git_and_exact_script(&s);
+}
+#[test]
 fn inline_comments_mismatched_post_receipt_is_uncertain_with_draft_and_no_readback_or_resend() {
     let mut s = inline_setup(|h, steps| {
         steps.extend(image_steps(h));

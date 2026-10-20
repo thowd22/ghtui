@@ -193,8 +193,14 @@ pub fn form_from_draft(draft: ScopedInlineDraftV1) -> Result<Form, String> {
         crate::providers::gh::DiffSide::Left => "LEFT",
         crate::providers::gh::DiffSide::Right => "RIGHT",
     };
-    let anchor_lines:Arc<[String]>=vec![
-        "ORIGINAL INLINE ANCHOR • navigation intent, not permission".into(),
+    let mut anchor_lines =
+        vec!["ORIGINAL INLINE ANCHOR • navigation intent, not permission".into()];
+    if let Some(from) = draft.carried_from() {
+        // Explicit re-anchor: text only; this NEW selection is the anchor.
+        anchor_lines.push(format!("RE-ANCHORED • text carried from {from}"));
+        anchor_lines.push("The PR changed since that selection. Check these new lines fit the text before Preview.".into());
+    }
+    anchor_lines.extend::<[String; 9]>([
         format!("Canonical API filename: {}",crate::git::display_bytes(intent.server_path().as_bytes())),
         format!("Selected image path: {}",crate::git::display_bytes(intent.selected_image_path())),
         format!("{side} lines {}–{}",intent.start(),intent.end()),
@@ -202,7 +208,8 @@ pub fn form_from_draft(draft: ScopedInlineDraftV1) -> Result<Form, String> {
         "Old content common starting point M:".into(),intent.merge_base().into(),
         "LEFT must end on a deleted line; unchanged context needs an explicitly selected RIGHT range. No automatic side conversion.".into(),
         "Edit/paste/restore never publishes. Fresh Preview and explicit Confirm independently recheck current source, account, head and storage.".into(),
-    ].into();
+    ]);
+    let anchor_lines: Arc<[String]> = anchor_lines.into();
     if anchor_lines.iter().map(String::len).sum::<usize>() > 64 * 1024 {
         return Err("Inline anchor exceeds bounded display metadata".into());
     }
@@ -227,11 +234,16 @@ pub fn form_from_draft(draft: ScopedInlineDraftV1) -> Result<Form, String> {
         identity: identity.clone(),
     })?;
     form.title = format!(
-        "Inline comment • {}#{} • {side} {}–{}",
+        "Inline comment • {}#{} • {side} {}–{}{}",
         intent.proof.observed().parent().repository(),
         intent.proof.observed().parent().number(),
         intent.start(),
-        intent.end()
+        intent.end(),
+        if draft.carried_from().is_some() {
+            " • re-anchored"
+        } else {
+            ""
+        }
     );
     form.fields[0].editor = crate::editor::TextBuffer::new(draft.body())?;
     form.publication = draft.publication().cloned();
