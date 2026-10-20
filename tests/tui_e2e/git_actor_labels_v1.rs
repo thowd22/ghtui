@@ -350,7 +350,7 @@ fn journey(mouse: bool) {
             &source.head,
             "[EW] author Exact Writer <write@example.invalid> [local Git]",
         );
-        choose(&mut session, mouse, "[g Graph]", b"g");
+        choose(&mut session, mouse, "[g History]", b"g");
         select_original(&mut session, mouse, &source.original);
         saved_ready(
             &mut session,

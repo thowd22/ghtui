@@ -274,12 +274,13 @@ fn history_detail_v994_files_select_and_open_the_same_way_by_key_and_click() {
             act: Act::FileHistory(path.clone()),
         }))
         .unwrap();
-    let provenance = workspace.file_provenance.as_ref().unwrap();
+    // File history is History itself with a `path:` chip for the file (TASK-99).
+    assert!(workspace.file_provenance.is_none());
+    assert_eq!(workspace.mode, crate::workspace::RepositoryMode::Graph);
     assert_eq!(
-        (provenance.revision.as_str(), &provenance.path),
-        (commit.as_str(), &path)
+        workspace.history_filter_v993.spec.path.as_ref(),
+        Some(&path)
     );
-    assert_eq!(provenance.view, crate::workspace::ProvenanceView::History);
 }
 
 #[test]
@@ -309,7 +310,7 @@ fn history_detail_v994_drilldown_below_the_split_width() {
     app.workspace = Some(workspace);
     let screen = draw(&mut app, &mut terminal);
     for text in [
-        "History › Commit ",
+        "› Commit ",
         &real.original[..7],
         "Original saved actors",
         "Original Writer",

@@ -72,7 +72,7 @@ fn original_saved_boundaries_missing_chosen_commit_history_requires_explicit_sam
     let op = operation(&workspace);
     fixture.real.clear_trace();
     assert!(workspace
-        .open_original_with_operation_v1(RowAction::FileProvenance(FileAction::History), &op)
+        .open_original_with_operation_v1(RowAction::FileProvenance(FileAction::PathHistory), &op)
         .is_err());
     assert!(op.seal().unwrap().children_started() > 0);
     assert!(!path.exists());
@@ -87,20 +87,17 @@ fn original_saved_boundaries_missing_chosen_commit_history_requires_explicit_sam
     fs::rename(held, path).unwrap();
     fixture.action(
         &mut workspace,
-        RowAction::FileProvenance(FileAction::History),
+        RowAction::FileProvenance(FileAction::PathHistory),
     );
-    let history = workspace
-        .file_provenance
+    // File history is History with the file's `path:` chip (TASK-99).
+    assert_eq!(workspace.mode, crate::workspace::RepositoryMode::Graph);
+    assert!(workspace.history_filter_v993.spec.path.is_some());
+    assert!(workspace
+        .graph_state_v1
         .as_ref()
         .unwrap()
-        .history
-        .as_ref()
-        .unwrap();
-    assert_eq!(history.revision, fixture.chosen);
-    assert!(history
-        .entries
-        .iter()
-        .any(|entry| entry.commit.id == fixture.responsible));
+        .selected_commit(&fixture.responsible)
+        .is_some());
     assert_eq!(fixture.real.snapshot(), before);
 }
 
@@ -171,7 +168,7 @@ fn original_saved_boundaries_same_working_root_replaced_git_directory_stops_befo
     let op = operation(&workspace);
     fixture.real.clear_trace();
     let err = workspace
-        .open_original_with_operation_v1(RowAction::FileProvenance(FileAction::History), &op)
+        .open_original_with_operation_v1(RowAction::FileProvenance(FileAction::PathHistory), &op)
         .unwrap_err();
     assert!(err.contains("source/locator changed"));
     assert_eq!(op.accounting().unwrap().children_started(), 0);
@@ -225,7 +222,7 @@ fn original_saved_boundaries_symlink_observation_is_not_fabricated_regular_line_
     assert!(workspace
         .provenance_available(&FileAction::OriginalFile)
         .unwrap_err()
-        .contains("exact history entry"));
+        .contains("attributed line"));
     for target in [
         FileAction::Graph,
         FileAction::Diff,

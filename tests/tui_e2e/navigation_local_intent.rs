@@ -24,7 +24,7 @@ fn intent(mouse: bool) {
         ],
     );
     session.wait_for_screen("Recent commits");
-    command(&mut session, mouse, "Show Graph");
+    command(&mut session, mouse, "Show History");
     session.wait_for_screen("loaded (limit 10000)");
     session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
     session.wait_for_screen(&local.original);

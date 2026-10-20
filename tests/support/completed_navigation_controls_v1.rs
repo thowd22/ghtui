@@ -127,11 +127,12 @@ pub fn saved_graph_position(
     let columns = bounds.left + 1..bounds.right;
     // The selected Graph mode: a reversed bracketed button, or the selected tab of the
     // Repository tab strip (its label filled bold, or reversed without color).
-    let graph_selected = match unique_position(frame, "[g Graph]", body.clone(), columns.clone()) {
+    let graph_selected = match unique_position(frame, "[g History]", body.clone(), columns.clone())
+    {
         Some((graph_x, graph_y)) => frame.cell(graph_y, graph_x)?.inverse(),
         None => {
             let (graph_x, graph_y) =
-                unique_position(frame, " g Graph ", body.clone(), columns.clone())?;
+                unique_position(frame, " g History ", body.clone(), columns.clone())?;
             frame
                 .cell(graph_y, graph_x + 3)
                 .is_some_and(|cell| cell.inverse() || cell.bold())
@@ -141,7 +142,11 @@ pub fn saved_graph_position(
         return None;
     }
     let (x, y) = unique_position(frame, subject, body, columns)?;
-    frame.cell(y, x)?.inverse().then_some((x, y))
+    // Selected: reversed, or the History row carrying the `▌` selection bar.
+    let bar = frame
+        .cell(y, bounds.left + 1)
+        .is_some_and(|cell| cell.contents() == "▌");
+    (frame.cell(y, x)?.inverse() || bar).then_some((x, y))
 }
 
 /// One completed main Actions frame: its owned content box and the key bar in the last row.

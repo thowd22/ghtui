@@ -12,8 +12,12 @@ impl DownBatchV1 {
 pub fn selected_subject(frame: &vt100::Screen) -> Result<String, String> {
     let contents = frame.contents();
     let mut selected = contents.lines().enumerate().filter_map(|(row, line)| {
-        (line.starts_with('│') && frame.cell(row as u16, 1).is_some_and(|cell| cell.inverse()))
-            .then_some(line)
+        // A reversed row, or the History row that carries the `▌` selection bar.
+        (line.starts_with('│')
+            && frame
+                .cell(row as u16, 1)
+                .is_some_and(|cell| cell.inverse() || cell.contents() == "▌"))
+        .then_some(line)
     });
     let line = selected.next().ok_or("No actual inverted graph body row")?;
     if selected.next().is_some() {

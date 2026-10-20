@@ -834,8 +834,11 @@ pub fn history_row(text: &str) -> Option<HistoryRow> {
 pub fn history_pane(screen: &vt100::Screen) -> Option<(u16, u16, u16, u16)> {
     let (rows, columns) = screen.size();
     // Prefer the pane title as drawn after its border (`╭─ History ›`).
+    // The `g History` mode tab comes first on screen, so the title is found by its border
+    // dash, focused (`─ ▶ History`) or not.
     let (title_x, top) = super::controls::locate_text(screen, "─ History")
         .map(|(x, y)| (x + 2, y))
+        .or_else(|| super::controls::locate_text(screen, "─ ▶ History").map(|(x, y)| (x + 4, y)))
         .or_else(|| super::controls::locate_text(screen, HISTORY_PANE))?;
     use super::controls::{cell_is_corner, Corner};
     // A pane of its own (`╭─ History`) or a titled rule inside the Repository pane, whose

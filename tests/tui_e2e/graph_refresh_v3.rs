@@ -15,7 +15,7 @@ fn older400(native: &NativeGraph, session: &mut Session, mouse: bool) -> String 
         .to_owned();
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
     choose_bar_or_palette(session, mouse, "[→ Pan right]", b"\x1b[C");
-    session.wait_for_screen("Graph horizontal: 8 cells");
+    session.wait_for_screen("History pan: 8 cells");
     selected
 }
 fn exact_recheck(native: &NativeGraph, before: usize, expected: usize) {
@@ -51,7 +51,7 @@ fn refresh_full(mouse: bool) {
     session.wait_for_screen("Original Graph snapshot refreshed");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
-    session.wait_for_screen("Graph horizontal: 8 cells");
+    session.wait_for_screen("History pan: 8 cells");
     exact_recheck(&native, before, 10);
     session.resize(80, 24);
     session.wait_for_main_frame();
@@ -116,7 +116,11 @@ fn deliberate_reread(mouse: bool) {
     session.wait_for_screen("Original Graph re-read • first200 loaded");
     ready_loaded(&mut session, 200, 0);
     session.wait_for_screen(&format!("▶ selected {}", &native.tip[..8]));
-    session.wait_for_screen("Graph horizontal: 0 cells");
+    session.wait_for_cursorless_condition(
+        |frame| !frame.contents().contains("History pan:"),
+        "lanes back at their start",
+        std::time::Duration::from_secs(8),
+    );
     let actual = trace(&native);
     let reads = &actual[before..];
     assert_eq!(
@@ -140,7 +144,7 @@ fn deliberate_reread(mouse: bool) {
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
-    session.wait_for_screen("Graph horizontal: 8 cells");
+    session.wait_for_screen("History pan: 8 cells");
     exact_recheck(&native, back, 10);
     effects(&native, &session, None);
     session.quit_and_assert_restored_terminal(mouse);

@@ -195,7 +195,7 @@ fn full_back(mouse: bool) {
         .to_owned();
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
     choose_bar_or_palette(&mut session, mouse, "[→ Pan right]", b"\x1b[C");
-    session.wait_for_screen("Graph horizontal: 8 cells");
+    session.wait_for_screen("History pan: 8 cells");
     if mouse {
         choose(&mut session, true, "[P Parents]", b"P");
     } else {
@@ -257,7 +257,7 @@ fn full_back(mouse: bool) {
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
     session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
-    session.wait_for_screen("Graph horizontal: 8 cells");
+    session.wait_for_screen("History pan: 8 cells");
     let restore = &trace(&native)[before_back..];
     assert!(!restore.is_empty());
     assert!(

@@ -1,9 +1,10 @@
 ---
 id: TASK-99
 title: 'History: one GitKraken-style view for graph, file history and commit search'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-18 20:38'
+updated_date: '2026-10-20 04:01'
 labels:
   - ui-design
   - history
@@ -31,3 +32,9 @@ Replace Repository's separate Graph (g), file History (H) and commit searching w
 - [ ] #3 Large repositories stream and page without blocking; loaded-history boundaries stay visible
 - [ ] #4 PTY journeys at 140x42 and 80x24 with keyboard and mouse on real Git fixtures (branches, merges, tags, remotes); working tree unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Umbrella: mode named History (tab, palette Show History with graph/log tags, Help History section, pane title History › <repo> › <scope>, crumb Repository • History); ProvenanceView::History/Graph, FileAction::History/HistoryEntry and the old file-history page removed; blame G opens the commit in History; global Back from History's diff/drill-down returns to the table. Footer: / n N f Enter Y C y. Status 'Read-only · N commits loaded · scroll for more', boundary row kept. Helpers moved to the History layout. Gate: focused lib 402/402, contracts 59/59, PTY history_* 7/10 on run 3; history_view_v99 (2) and the detail mouse journey fixed after the last run, not re-run. Older file_history/original_saved_* PTY journeys still expect the retired views.
+<!-- SECTION:NOTES:END -->

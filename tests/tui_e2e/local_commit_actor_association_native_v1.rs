@@ -394,7 +394,7 @@ fn journey(mouse: bool, case: Case) {
             &source.head,
             &["Recent commits"],
         );
-        choose(&mut session, mouse, "[g Graph]", b"g");
+        choose(&mut session, mouse, "[g History]", b"g");
         select_original(&mut session, mouse, &source.original);
         // At 80 columns the Graph keys fill the key bar; the author identity row above the
         // graph is the same Author target for the mouse.

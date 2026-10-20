@@ -148,7 +148,7 @@ fn selected_sha(s: &mut Session) -> String {
 }
 
 fn wait_scope(s: &mut Session, title: &str, loaded: usize) {
-    let wanted = format!("History › {title}");
+    let wanted = format!("History › repo › {title}");
     s.wait_for_cursorless_condition(
         |screen| {
             let text = screen.contents();
@@ -360,7 +360,7 @@ fn history_filter_v993_mouse_detached_no_color_chips_scope_and_clear_at_140x42_a
     let baseline = repo.state();
     let mut s = launch(&fixture, 140, 42, true);
     s.wait_for_screen("Recent commits");
-    s.choose(true, "[g Graph]", b"g");
+    s.choose(true, "[g History]", b"g");
     s.wait_for_history_ready();
     s.wait_for_settled_footer();
     s.wait_for_history_selected(repo.sha("release"));
@@ -390,16 +390,19 @@ fn history_filter_v993_mouse_detached_no_color_chips_scope_and_clear_at_140x42_a
     s.click(count_x, count_y);
     s.wait_for_history_selected(repo.sha("parser2"));
 
-    // `h Hide non-matches`, then `h Show non-matches`, as clicked tokens.
-    s.wait_for_settled_footer();
-    s.click_visible_action("[h Hide non-matches]");
+    // The filter row's `h hide`, then `h show`, hint is the click target of `h` (the key bar
+    // keeps the commit's own actions at 140 columns).
+    let row = s.wait_for_history_filter("hide hint", |row| row.text.contains("h hide"));
+    let x = locate_in_row(screen(&s), row.y, "h hide").unwrap();
+    s.click(x, row.y);
     s.wait_for_cursorless_condition(
         |screen| history_ready(screen) && history_rows(screen).len() == config.len(),
         "only matches",
         Duration::from_secs(10),
     );
-    s.wait_for_settled_footer();
-    s.click_visible_action("[h Show non-matches]");
+    let row = s.wait_for_history_filter("show hint", |row| row.text.contains("h show"));
+    let x = locate_in_row(screen(&s), row.y, "h show").unwrap();
+    s.click(x, row.y);
     s.wait_for_cursorless_condition(
         |screen| history_ready(screen) && history_rows(screen).len() == 17,
         "every commit again",

@@ -2,8 +2,9 @@
 //! (branches, a merge, an octopus merge, tags, a local bare remote, a detached HEAD in the
 //! mouse run). At 140x42 the detail sits beside the table: short and full SHA, chips, author
 //! and committer, relative and UTC dates, clickable parents and the changed files with counts.
-//! A parent link moves the bar inside the same window; Enter opens the diff, `f` file history
-//! and `Y` blame, each returning with Back to the same row, and `y` shows the SHA to copy, by
+//! A parent link moves the bar inside the same window; Enter opens the diff and `Y` blame,
+//! each returning with Back to the same row, `f` sets the file's `path:` chip (Esc Clear
+//! returns), and `y` shows the SHA to copy, by
 //! key and by click. At 80x24 `D` opens the same detail as a drill-down that follows parents and returns
 //! with `u`. HEAD, refs, status, the index and config never change.
 use super::*;
@@ -172,7 +173,7 @@ fn journey(mouse: bool) {
         &env,
     );
     s.wait_for_screen("Recent commits");
-    s.choose(mouse, "[g Graph]", b"g");
+    s.choose(mouse, "[g History]", b"g");
     s.wait_for_history_ready();
     s.wait_for_settled_footer();
 
@@ -283,14 +284,23 @@ fn journey(mouse: bool) {
     } else {
         s.send_key(b"f");
     }
-    wait_all(
-        &mut s,
-        &[
-            "File history — chosen saved version",
-            "docs/manual/guide.md",
-        ],
+    // File history is History with the file's `path:` chip (TASK-99); Esc Clear returns to
+    // every commit with the bar where it was.
+    let row = s.wait_for_history_filter("path chip for the guide", |row| {
+        row.removable
+            .iter()
+            .any(|(chip, _)| chip == "path: docs/manual/guide.md")
+    });
+    assert!(row.text.contains("path: docs/manual/guide.md ✕"), "{row:?}");
+    s.wait_for_history_selected(repo.sha("manual"));
+    s.wait_for_settled_footer();
+    s.choose(mouse, "[Esc Clear filter]", b"\x1b");
+    s.wait_for_cursorless_condition(
+        |screen| history_filter_row(screen).is_none() && history_ready(screen),
+        "path chip cleared",
+        Duration::from_secs(8),
     );
-    back_to(&mut s, &repo, mouse, "manual");
+    s.wait_for_history_selected(repo.sha("manual"));
     wait_detail(&mut s, &["M docs/manual/guide.md"]);
     if mouse {
         click_in_detail(&mut s, "Y blame");

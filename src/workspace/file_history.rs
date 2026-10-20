@@ -1,35 +1,28 @@
 //! Native immutable-file provenance; all reads run on Workspace workers.
 use super::*;
-use crate::{
-    git::{FileBlameLine, FileHistoryEntry, FileHistoryPage},
-    repository_view::BlobPreviewKind,
-};
+use crate::{git::FileBlameLine, repository_view::BlobPreviewKind};
 
 #[path = "file_history/original_saved_restore_v1.rs"]
 mod original_saved_restore_v1;
-const HISTORY_PAGE: usize = 10;
 const BLAME_PAGE: usize = 100;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvenanceView {
     File,
-    History,
     Blame,
     Detail,
-    Graph,
     Diff,
     OriginalFile,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileAction {
-    History,
     /// History of every branch with a `path:` chip for this file (TASK-99.3; `f`, alias `H`).
     PathHistory,
     Blame,
     BlameAt(u32),
-    HistoryEntry(String),
     BlameLine(u32),
     Previous,
     Next,
+    /// The selected line's responsible commit in History (TASK-99: the old Graph view).
     Graph,
     Diff,
     OriginalFile,
@@ -49,7 +42,6 @@ pub struct FileProvenance {
     pub revision: String,
     pub path: RawPath,
     pub view: ProvenanceView,
-    pub history: Option<FileHistoryPage>,
     pub blame: Vec<FileBlameLine>,
     pub blame_start: usize,
     pub line_count: usize,
@@ -62,7 +54,6 @@ impl FileProvenance {
             revision,
             path,
             view: ProvenanceView::File,
-            history: None,
             blame: vec![],
             blame_start: 1,
             line_count: 0,
@@ -71,23 +62,11 @@ impl FileProvenance {
         }
     }
     pub fn can_previous(&self) -> bool {
-        match self.view {
-            ProvenanceView::History => self.history.as_ref().is_some_and(|page| page.offset > 0),
-            ProvenanceView::Blame => self.blame_start > 1,
-            _ => false,
-        }
+        self.view == ProvenanceView::Blame && self.blame_start > 1
     }
     pub fn can_next(&self) -> bool {
-        match self.view {
-            ProvenanceView::History => self
-                .history
-                .as_ref()
-                .is_some_and(|page| page.has_more && page.offset + page.entries.len() < 10_000),
-            ProvenanceView::Blame => {
-                self.blame_start.saturating_add(self.blame.len()) <= self.line_count
-            }
-            _ => false,
-        }
+        self.view == ProvenanceView::Blame
+            && self.blame_start.saturating_add(self.blame.len()) <= self.line_count
     }
 }
 impl Workspace {
@@ -95,8 +74,6 @@ impl Workspace {
         let state = self.file_provenance.as_ref()?;
         let selected = state.selection.as_ref();
         let row=match state.view {
-            ProvenanceView::Graph=>return self.graph_focus_row_v1(),
-            ProvenanceView::History=>self.rows.iter().position(|row|matches!(&row.action,Some(RowAction::FileProvenance(FileAction::HistoryEntry(id))) if selected.is_some_and(|selection|&selection.commit==id))).or_else(||self.rows.iter().position(|row|matches!(&row.action,Some(RowAction::FileProvenance(FileAction::HistoryEntry(_)))))),
             ProvenanceView::Blame=>self.rows.iter().position(|row|matches!(&row.action,Some(RowAction::FileProvenance(FileAction::BlameLine(line))) if selected.and_then(|selection|selection.final_line)==Some(*line))).or_else(||self.rows.iter().position(|row|matches!(&row.action,Some(RowAction::FileProvenance(FileAction::BlameLine(_)))))),
             ProvenanceView::OriginalFile=>self.rows.iter().position(|row|matches!(&row.action,Some(RowAction::FileProvenance(FileAction::BlameAt(line))) if selected.and_then(|selection|selection.original_line)==Some(*line))),
             _=>None,
@@ -142,7 +119,7 @@ impl Workspace {
             FileAction::Diff if self.status.shallow && state.and_then(|state|state.selection.as_ref()).is_some_and(|selection|selection.boundary) && self.selected_commit.as_ref().is_some_and(|commit|!commit.parents.is_empty())=>Err("Shallow boundary: the responsible parent comparison is unavailable in loaded history; no fetch or invented empty-tree diff".into()),
             FileAction::Previous if state.is_none_or(|state|!state.can_previous())=>Err("First source page; no earlier page is available".into()),
             FileAction::Next if state.is_none_or(|state|!state.can_next())=>Err("No next page within this chosen source or safety budget; absence is not proof of complete ancestry".into()),
-            FileAction::Graph|FileAction::Diff|FileAction::OriginalFile if state.and_then(|state|state.selection.as_ref()).is_none()=>Err("Select an exact history entry or attributed line before navigating its commit".into()),
+            FileAction::Graph|FileAction::Diff|FileAction::OriginalFile if state.and_then(|state|state.selection.as_ref()).is_none()=>Err("Select an attributed line before navigating its commit".into()),
             FileAction::OriginalFile if state.and_then(|state|state.selection.as_ref()).is_some_and(|selection|!selection.exists || selection.path.is_none())=>Err("This commit has no verified file target; open its graph/diff instead".into()),
             _=>Ok(()),
         }
@@ -179,7 +156,7 @@ impl Workspace {
             .ok_or("Choose a file at an immutable saved version before opening history/blame")?;
         if matches!(
             action,
-            FileAction::History | FileAction::Blame | FileAction::BlameAt(_)
+            FileAction::PathHistory | FileAction::Blame | FileAction::BlameAt(_)
         ) && matches!(
             state.view,
             ProvenanceView::File | ProvenanceView::OriginalFile
@@ -245,15 +222,6 @@ impl Workspace {
                 }
                 return Ok(());
             }
-            FileAction::History => {
-                state.view = ProvenanceView::History;
-                state.history = Some(
-                    repo.file_history_page(&state.revision, &state.path, 0, HISTORY_PAGE)
-                        .map_err(|error| error.to_string())?,
-                );
-                state.selection = None;
-                self.render_history(repo, &state)?;
-            }
             FileAction::Blame | FileAction::BlameAt(_) => {
                 let line = if let FileAction::BlameAt(line) = action {
                     line as usize
@@ -265,7 +233,7 @@ impl Workspace {
                     // Unsupported content has no attributed member, but its
                     // keyboard target actions still need clickable explanations.
                     for (label, target) in [
-                        ("[G Responsible graph]", FileAction::Graph),
+                        ("[G Commit in History]", FileAction::Graph),
                         ("[D Introduced diff]", FileAction::Diff),
                         ("[F Original file]", FileAction::OriginalFile),
                     ] {
@@ -293,24 +261,6 @@ impl Workspace {
                     );
                 }
                 match state.view {
-                    ProvenanceView::History => {
-                        let offset = state.history.as_ref().ok_or("History page missing")?.offset;
-                        let offset = if next {
-                            offset + HISTORY_PAGE
-                        } else {
-                            offset.saturating_sub(HISTORY_PAGE)
-                        };
-                        state.history = Some(
-                            repo.file_history_page(
-                                &state.revision,
-                                &state.path,
-                                offset,
-                                HISTORY_PAGE,
-                            )
-                            .map_err(|error| error.to_string())?,
-                        );
-                        self.render_history(repo, &state)?;
-                    }
                     ProvenanceView::Blame => {
                         let start = if next {
                             state.blame_start + BLAME_PAGE
@@ -321,33 +271,38 @@ impl Workspace {
                             self.render_blame(repo, &state)?;
                         }
                     }
-                    _ => return Err("Return to History or Blame before paging".into()),
+                    _ => return Err("Return to Blame before paging".into()),
                 }
             }
-            FileAction::HistoryEntry(id) => {
-                let entry = state
-                    .history
-                    .as_ref()
-                    .and_then(|page| page.entries.iter().find(|entry| entry.commit.id == id))
-                    .ok_or("History entry is no longer in the displayed immutable page")?;
-                state.selection = Some(FileSelection {
-                    commit: entry.commit.id.clone(),
-                    path: entry.path.clone(),
-                    original_line: None,
-                    final_line: None,
-                    boundary: false,
-                    exists: entry.exists,
-                });
-                state.return_view = ProvenanceView::History;
-                state.view = ProvenanceView::Detail;
-                self.render_selection(repo, &state)?;
-            }
             FileAction::BlameLine(line) => self.select_blame(repo, &mut state, line)?,
-            FileAction::Graph | FileAction::Diff | FileAction::OriginalFile => {
+            FileAction::Graph => {
+                // The responsible commit opens in History; global Back returns here.
+                let commit = state
+                    .selection
+                    .as_ref()
+                    .ok_or("Select an attributed line first")?
+                    .commit
+                    .clone();
+                let origin = self
+                    .actor_origin
+                    .clone()
+                    .ok_or("Original History source unavailable")?;
+                let deadline = repo
+                    .original_graph_deadline_v1()
+                    .ok_or("History lost its original whole-operation clock")?;
+                let graph =
+                    super::graph_v1::read_graph_through_v991(repo, &origin, &commit, deadline)?;
+                self.revision = commit;
+                self.history_filter_v993 = Default::default();
+                self.file_provenance = None;
+                self.install_graph_v1(graph, crate::repository_graph_v1::GraphViewV1::Timeline)?;
+                return Ok(());
+            }
+            FileAction::Diff | FileAction::OriginalFile => {
                 let selection = state
                     .selection
                     .as_ref()
-                    .ok_or("Select a current history entry or attributed line first")?;
+                    .ok_or("Select an attributed line first")?;
                 let mut next = if action == FileAction::OriginalFile {
                     if !selection.exists {
                         return Err("This history entry has no verified file at that saved version; open its graph or introduced diff".into());
@@ -366,21 +321,17 @@ impl Workspace {
                 } else {
                     Self::load_from_repository_v1(
                         repo,
-                        if action == FileAction::Graph {
-                            RepositoryMode::Graph
-                        } else {
-                            RepositoryMode::CommitChanges
-                        },
+                        RepositoryMode::CommitChanges,
                         &selection.commit,
                         None,
                         self.actor_origin.clone(),
                     )?
                     .ok_or("Selected responsible repository is unavailable")?
                 };
-                state.view = match action {
-                    FileAction::Graph => ProvenanceView::Graph,
-                    FileAction::Diff => ProvenanceView::Diff,
-                    _ => ProvenanceView::OriginalFile,
+                state.view = if action == FileAction::Diff {
+                    ProvenanceView::Diff
+                } else {
+                    ProvenanceView::OriginalFile
                 };
                 if action == FileAction::OriginalFile {
                     next.rows.insert(
@@ -404,14 +355,10 @@ impl Workspace {
             FileAction::Back => {
                 if matches!(
                     state.view,
-                    ProvenanceView::Detail
-                        | ProvenanceView::Graph
-                        | ProvenanceView::Diff
-                        | ProvenanceView::OriginalFile
+                    ProvenanceView::Detail | ProvenanceView::Diff | ProvenanceView::OriginalFile
                 ) {
                     state.view = state.return_view;
                     match state.view {
-                        ProvenanceView::History => self.render_history(repo, &state)?,
                         ProvenanceView::Blame => self.render_blame(repo, &state)?,
                         _ => self.return_origin_file_from_repository_v1(
                             repo,
@@ -465,72 +412,6 @@ impl Workspace {
             SemanticRole::Boundary,
             None,
         );
-        Ok(())
-    }
-    fn render_history(
-        &mut self,
-        repo: &GitRepository,
-        state: &FileProvenance,
-    ) -> Result<(), String> {
-        self.provenance_header(
-            repo,
-            state,
-            "File history — chosen saved version; read-only",
-        )?;
-        let page = state.history.as_ref().ok_or("No bounded history page")?;
-        self.push(
-            &format!(
-                "History entries {}–{} • page {}",
-                page.offset + usize::from(!page.entries.is_empty()),
-                page.offset + page.entries.len(),
-                page.offset / HISTORY_PAGE + 1
-            ),
-            SemanticRole::Reference,
-            None,
-        );
-        self.push(
-            "Limits: single-file rename follow; merge/copy/move history may be incomplete",
-            SemanticRole::Boundary,
-            None,
-        );
-        for entry in &page.entries {
-            let path = entry
-                .path
-                .as_ref()
-                .map_or_else(|| "historical path unavailable".into(), RawPath::display);
-            let label = format!(
-                "{} {} • {} • {} • {}",
-                &entry.commit.id[..8],
-                short(&entry.commit.subject, 100),
-                crate::git_actor_labels_v1::commit_summary(&entry.commit),
-                change_word_v1(&entry.change),
-                path
-            );
-            self.push(
-                &label,
-                change_role(entry),
-                Some(RowAction::FileProvenance(FileAction::HistoryEntry(
-                    entry.commit.id.clone(),
-                ))),
-            );
-            if let Some(previous) = &entry.previous_path {
-                self.push(
-                    &format!("  Rename: {} → {path}", previous.display()),
-                    SemanticRole::Reference,
-                    None,
-                );
-            }
-        }
-        if page.entries.is_empty() {
-            self.push("No file changes found in this loaded history; this is not proof of complete ancestry",SemanticRole::Boundary,None);
-        }
-        if page.walk_limited {
-            self.push(
-                "History walk cap reached: 10,000 changes; older entries remain unavailable",
-                SemanticRole::Boundary,
-                None,
-            );
-        }
         Ok(())
     }
     fn load_blame(
@@ -747,7 +628,7 @@ impl Workspace {
             );
         }
         self.push(
-            "[G Responsible graph]",
+            "[G Commit in History]",
             SemanticRole::Reference,
             Some(RowAction::FileProvenance(FileAction::Graph)),
         );
@@ -838,13 +719,5 @@ pub fn change_word_v1(change: &str) -> String {
         Some(b'C') => "copied".into(),
         Some(b'T') => "type changed".into(),
         _ => change.into(),
-    }
-}
-fn change_role(entry: &FileHistoryEntry) -> SemanticRole {
-    match entry.change.as_bytes().first() {
-        Some(b'A') => SemanticRole::Added,
-        Some(b'D') => SemanticRole::Removed,
-        Some(b'R') => SemanticRole::Reference,
-        _ => SemanticRole::Changed,
     }
 }

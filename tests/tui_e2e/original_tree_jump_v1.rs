@@ -9,7 +9,7 @@ mod viewport_v2;
 
 fn saved_root(native: &Native, session: &mut Session, mouse: bool, summary: &str) {
     session.wait_for_screen("Recent commits");
-    choose(session, mouse, "[g Graph]", b"g");
+    choose(session, mouse, "[g History]", b"g");
     session.wait_for_screen("loaded (limit 10000)");
     session.open_saved_graph_subject(mouse, summary, &native.chosen);
     session.wait_for_screen(&native.chosen);

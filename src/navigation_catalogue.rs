@@ -276,7 +276,12 @@ impl Builder {
                 } else {
                     format!("Show {label}")
                 },
-                &["git", "workspace"],
+                if mode == RepositoryMode::Graph {
+                    // History replaced the Graph and file History views (TASK-99).
+                    &["git", "workspace", "graph", "log", "commits", "history"]
+                } else {
+                    &["git", "workspace"]
+                },
                 if app.workspace.is_some() {
                     Action::RepositoryMode(mode)
                 } else {
@@ -728,7 +733,6 @@ fn bounded_row(action: &RowAction) -> bool {
             path.0.len() <= MAX_CONTROL_BYTES
         }
         Commit(commit) | ComparisonParent { commit, .. } => commit.len() <= 128,
-        FileProvenance(crate::workspace::FileAction::HistoryEntry(commit)) => commit.len() <= 128,
         DiffLine(anchor) => bounded_anchor(anchor),
         Tree(action) => {
             use crate::workspace::OriginalTreeNavigationActionV1;

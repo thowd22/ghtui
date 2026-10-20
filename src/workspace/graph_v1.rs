@@ -82,13 +82,7 @@ impl Workspace {
         self.selected_commit = Some(selected);
         self.mode = RepositoryMode::Graph;
         self.actor_profile = None;
-        if self
-            .file_provenance
-            .as_ref()
-            .is_none_or(|state| state.view != ProvenanceView::Graph)
-        {
-            self.file_provenance = None;
-        }
+        self.file_provenance = None;
         self.preview = None;
         self.tree = None;
         self.tree_navigation_v1 = None;
@@ -106,10 +100,7 @@ impl Workspace {
         };
         if self.actor_profile.is_some()
             || self.mode != RepositoryMode::Graph
-            || self
-                .file_provenance
-                .as_ref()
-                .is_some_and(|state| state.view != ProvenanceView::Graph)
+            || self.file_provenance.is_some()
         {
             return Ok(false);
         }
@@ -132,10 +123,7 @@ impl Workspace {
     pub fn graph_visible_v1(&self) -> bool {
         self.mode == RepositoryMode::Graph
             && self.actor_profile.is_none()
-            && self
-                .file_provenance
-                .as_ref()
-                .is_none_or(|state| state.view == ProvenanceView::Graph)
+            && self.file_provenance.is_none()
             && self.preview.is_none()
             && self.graph_state_v1.as_ref().is_some_and(|state| {
                 self.actor_origin
@@ -341,7 +329,7 @@ impl Workspace {
                         )?;
                     }
                     Act::FileHistory(path) => {
-                        self.history_file_v994(repository, commit, path, FileAction::History)?
+                        self.history_file_v994(repository, commit, path, FileAction::PathHistory)?
                     }
                     Act::Blame(path) => {
                         self.history_file_v994(repository, commit, path, FileAction::Blame)?

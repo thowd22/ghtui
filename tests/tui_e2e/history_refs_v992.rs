@@ -239,14 +239,14 @@ fn journey(mouse: bool) {
         &env,
     );
     s.wait_for_screen("Recent commits");
-    s.choose(mouse, "[g Graph]", b"g");
+    s.choose(mouse, "[g History]", b"g");
     s.wait_for_history_ready();
     s.wait_for_settled_footer();
     let opened = if detached { "release" } else { "tweak" };
     wait_selected_key(&mut s, &repo, opened);
     let text = s.screen();
     assert_eq!(history_loaded_count(&text), Some(17), "{text}");
-    assert!(text.contains("History › all branches"), "{text}");
+    assert!(text.contains("History › repo › all branches"), "{text}");
     // Every ref `git for-each-ref` lists is a chip of its commit (synced pairs share one);
     // a symbolic `origin/HEAD` only points at another remote branch.
     let keys = check_rows(&s, &repo, &chips, true);

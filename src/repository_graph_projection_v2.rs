@@ -202,7 +202,7 @@ impl GraphPresentationV1 {
     }
 }
 
-/// `Read-only · 230 commits loaded · showing 201–230 · < > page · scroll or L for more`, plus the
+/// `Read-only · 230 commits loaded · showing 201–230 · < > page · scroll for more`, plus the
 /// refs past the 4096-name cap when there are any: they are neither named nor walked.
 fn history_summary_v992(state: &OriginalGraphStateV1, start: usize, end: usize) -> String {
     let loaded = state.loaded();
@@ -214,7 +214,7 @@ fn history_summary_v992(state: &OriginalGraphStateV1, start: usize, end: usize) 
         text.push_str(&format!(" · showing {}–{end} · < > page", start + 1));
     }
     match state.coverage {
-        GraphCoverageV1::MoreAvailable => text.push_str(" · scroll or L for more"),
+        GraphCoverageV1::MoreAvailable => text.push_str(" · scroll for more"),
         GraphCoverageV1::Capped => text.push_str(" · 10000-commit limit"),
         _ => {}
     }

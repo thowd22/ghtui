@@ -505,7 +505,13 @@ pub(crate) fn draw_row(frame: &mut Frame, app: &mut App, area: Rect) {
         "B scope · Esc clears"
     };
     pieces.push(("  ".into(), base, None));
-    pieces.push((hint.into(), muted, None));
+    // While something matches, the hint is also the click target of `h`.
+    pieces.push((
+        hint.into(),
+        muted,
+        spec.matching()
+            .then_some(Action::HistoryFilterV993(A::ToggleHide)),
+    ));
     let mut x = area.x + 1;
     let right = area.right();
     let mut spans = Vec::new();

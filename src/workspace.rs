@@ -286,7 +286,7 @@ mod native_uncommitted_v3_tests;
 impl RepositoryMode {
     pub const ALL: [(Self, &'static str, char); 8] = [
         (Self::Overview, "Overview", 'o'),
-        (Self::Graph, "Graph", 'g'),
+        (Self::Graph, "History", 'g'),
         (Self::Tree, "Tree", 't'),
         (Self::Working, "Working diff", 'w'),
         (Self::Staged, "Staged diff", 'i'),
@@ -380,9 +380,10 @@ impl Workspace {
     /// Borrow only the currently admitted immutable projection. No model/body clone.
     pub fn display_rows_v1(&self) -> &[DisplayRow] {
         if self.actor_profile.is_some()
-            || self.file_provenance.as_ref().is_some_and(|state| {
-                !matches!(state.view, ProvenanceView::File | ProvenanceView::Graph)
-            })
+            || self
+                .file_provenance
+                .as_ref()
+                .is_some_and(|state| state.view != ProvenanceView::File)
             || self.preview.is_some()
         {
             return &self.rows;

@@ -104,7 +104,7 @@ fn journey(mouse: bool) {
     );
     assert!(!session.screen().contains("• committer Fixture Author"));
 
-    choose(&mut session, mouse, "[g Graph]", b"g");
+    choose(&mut session, mouse, "[g History]", b"g");
     session.wait_for_screen("Visible commits 1–3 of 3 loaded (limit 10000)");
     session.wait_for_screen(&format!(
         "▶ selected {} Second note (HEAD, main) • Fixture Author",
@@ -346,7 +346,7 @@ fn key_bar(mouse: bool) {
     }
     // At 140 the preview pane narrows the Repository pane (TASK-93): the tab strip uses its
     // compact spacing and All edits its compact label.
-    for tab in ["o Overview  ", " g Graph ", " t Tree ", " w Working "] {
+    for tab in ["o Overview  ", " g History ", " t Tree ", " w Working "] {
         assert!(screen.contains(tab), "{tab} tab missing\n{screen}");
     }
     assert!(

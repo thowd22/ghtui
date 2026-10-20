@@ -17,7 +17,7 @@ pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
     {
         vec![
             ("u", "File back", "Back", FileAction::Back, 5),
-            ("G", "Responsible graph", "Graph", FileAction::Graph, 20),
+            ("G", "Commit in History", "History", FileAction::Graph, 20),
             ("D", "Introduced diff", "Diff", FileAction::Diff, 21),
             ("F", "Original file", "File", FileAction::OriginalFile, 22),
         ]
@@ -52,13 +52,11 @@ pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
             } else {
                 workspace.provenance_available(&file_action).err()
             };
-            let selected = workspace.file_provenance.as_ref().is_some_and(|state| {
-                matches!(
-                    (&file_action, state.view),
-                    (FileAction::History, ProvenanceView::History)
-                        | (FileAction::Blame, ProvenanceView::Blame)
-                )
-            });
+            let selected = file_action == FileAction::Blame
+                && workspace
+                    .file_provenance
+                    .as_ref()
+                    .is_some_and(|state| state.view == ProvenanceView::Blame);
             let group = if file_action == FileAction::Back {
                 ControlGroup::Navigate
             } else {

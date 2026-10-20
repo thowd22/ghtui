@@ -927,7 +927,7 @@ fn box_bytes(title: &str, height: u16, width: u16) -> Vec<u8> {
 
 fn graph_bytes(height: u16, width: u16) -> Vec<u8> {
     let mut bytes = box_bytes("Repository • focused view", height, width);
-    bytes.extend_from_slice(format!("\x1b[5;3H\x1b[7m[g Graph]\x1b[0m\x1b[9;3HSaved: {SHA}\x1b[15;3H\x1b[7m{SUBJECT}\x1b[0m\x1b[{};1H{STATUS}", height - 1).as_bytes());
+    bytes.extend_from_slice(format!("\x1b[5;3H\x1b[7m[g History]\x1b[0m\x1b[9;3HSaved: {SHA}\x1b[15;3H\x1b[7m{SUBJECT}\x1b[0m\x1b[{};1H{STATUS}", height - 1).as_bytes());
     bytes
 }
 
@@ -1139,7 +1139,7 @@ fn navigation_local_palette_test_framework_new_completed_graph_not_partial_saved
         let repaint = graph_bytes(height, width);
         frames.process(&mut parser, &repaint, before);
         assert!(parser.screen().contents().contains(SHA));
-        assert!(parser.screen().contents().contains("[g Graph]"));
+        assert!(parser.screen().contents().contains("[g History]"));
         assert!(!parser.screen().contents().contains("Search • focused view"));
         assert!(navigation::saved_graph_position(&frames, before, SHA, SUBJECT, STATUS).is_none());
         assert!(frames
@@ -1165,7 +1165,7 @@ fn navigation_local_palette_test_framework_exact_full_source_inverse_and_owned_g
     for wrong in [
         format!("\x1b[9;3HSaved: {SHA}{}", "a".repeat(24)),
         format!("\x1b[10;3HSaved: {SHA}"),
-        "\x1b[5;3H[g Graph]".into(),
+        "\x1b[5;3H[g History]".into(),
         format!("\x1b[15;3H{SUBJECT}"),
         format!("\x1b[16;3H{SUBJECT}"),
         "\x1b[20;3H[Esc Cancel]".into(),

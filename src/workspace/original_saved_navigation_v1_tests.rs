@@ -164,19 +164,12 @@ fn original_saved_navigation_history_blame_responsible_roles_not_checkout_or_bla
     let mut workspace = fixture.workspace();
     fixture.file(&mut workspace);
     assert_eq!(
-        fixture.action(
-            &mut workspace,
-            RowAction::FileProvenance(FileAction::History)
-        ),
-        6
+        fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Blame)),
+        11
     );
     assert_eq!(
         workspace.file_provenance.as_ref().unwrap().revision,
         fixture.chosen
-    );
-    assert_eq!(
-        fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Blame)),
-        11
     );
     assert_eq!(
         fixture.action(
@@ -224,11 +217,22 @@ fn original_saved_navigation_provenance_graph_diff_file_and_back_keep_chosen_and
         &mut workspace,
         RowAction::FileProvenance(FileAction::BlameAt(2)),
     );
-    for action in [
-        FileAction::Graph,
-        FileAction::Diff,
-        FileAction::OriginalFile,
-    ] {
+    // The responsible commit opens in History (TASK-99), which carries no file source.
+    let count = fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Graph));
+    assert!(count > 0, "History is an actual Git read");
+    assert_eq!(
+        workspace.selected_commit.as_ref().unwrap().id,
+        fixture.responsible
+    );
+    assert_eq!(workspace.mode, RepositoryMode::Graph);
+    assert!(workspace.file_provenance.is_none());
+    workspace = fixture.workspace();
+    fixture.file(&mut workspace);
+    fixture.action(
+        &mut workspace,
+        RowAction::FileProvenance(FileAction::BlameAt(2)),
+    );
+    for action in [FileAction::Diff, FileAction::OriginalFile] {
         let count = fixture.action(&mut workspace, RowAction::FileProvenance(action));
         assert!(
             count > 0,

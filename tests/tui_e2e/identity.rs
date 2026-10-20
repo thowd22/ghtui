@@ -80,7 +80,7 @@ fn actor_journey(mouse: bool) {
     session.wait_for_screen("committer@example.invalid");
     session.resize(80, 24);
     if mouse {
-        session.click_visible_action("[g Graph]");
+        session.click_visible_action("[g History]");
     } else {
         session.send_key(b"g");
     }
@@ -131,7 +131,7 @@ fn semantic_fixture() -> Fixture {
 
 fn inspect_graph_and_changed_file(session: &mut Session, mouse: bool, fixture: &Fixture) {
     if mouse {
-        session.click_visible_action("[g Graph]");
+        session.click_visible_action("[g History]");
     } else {
         session.send_key(b"g");
     }
@@ -287,7 +287,7 @@ fn immutable_overrides_journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     session.wait_for_screen("Original snapshots • replacements: 2 • legacy grafts: present");
     if mouse {
-        session.click_visible_action("[g Graph]");
+        session.click_visible_action("[g History]");
     } else {
         session.send_key(b"g");
     }
@@ -415,7 +415,7 @@ fn raw_ref_override_journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     session.wait_for_screen("Original snapshots • replacements: 1 • legacy grafts: absent");
     if mouse {
-        session.click_visible_action("[g Graph]");
+        session.click_visible_action("[g History]");
     } else {
         session.send_key(b"g");
     }

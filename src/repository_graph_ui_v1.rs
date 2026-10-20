@@ -18,10 +18,7 @@ pub fn key(workspace: &Workspace, key: KeyCode) -> Option<GraphActionV1> {
     }
     if workspace.graph_state_v1.is_none()
         || workspace.actor_profile.is_some()
-        || workspace
-            .file_provenance
-            .as_ref()
-            .is_some_and(|state| state.view != crate::workspace::ProvenanceView::Graph)
+        || workspace.file_provenance.is_some()
         || (!workspace.graph_visible_v1() && workspace.graph_view_v1 != GraphViewV1::Comparison)
     {
         return None;
@@ -50,10 +47,7 @@ pub fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
     use crate::repository_graph_v1::GraphWindowActionV2 as W;
     if workspace.graph_state_v1.is_none()
         || workspace.actor_profile.is_some()
-        || workspace
-            .file_provenance
-            .as_ref()
-            .is_some_and(|state| state.view != crate::workspace::ProvenanceView::Graph)
+        || workspace.file_provenance.is_some()
         || (!workspace.graph_visible_v1() && workspace.graph_view_v1 != GraphViewV1::Comparison)
     {
         return Vec::new();
@@ -148,9 +142,11 @@ pub fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
     prepared
 }
 
-/// The muted graph pan position shown beside the tab strip, or on its own row when narrow.
-pub fn horizontal_status(workspace: &Workspace) -> String {
-    format!("Graph horizontal: {} cells", workspace.graph_horizontal_v1)
+/// The muted lane pan position shown beside the tab strip, or on its own row when narrow;
+/// nothing while the lanes are not panned.
+pub fn horizontal_status(workspace: &Workspace) -> Option<String> {
+    (workspace.graph_horizontal_v1 != 0)
+        .then(|| format!("History pan: {} cells", workspace.graph_horizontal_v1))
 }
 #[cfg(test)]
 #[path = "repository_graph_focus_v2_tests.rs"]

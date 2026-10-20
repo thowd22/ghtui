@@ -38,6 +38,8 @@ mod history_filter_v993;
 mod history_lanes_v991;
 #[path = "tui_e2e/history_refs_v992.rs"]
 mod history_refs_v992;
+#[path = "tui_e2e/history_view_v99.rs"]
+mod history_view_v99;
 #[path = "support/hydration.rs"]
 mod hydration_fixture;
 #[path = "tui_e2e/identity.rs"]
@@ -581,7 +583,7 @@ fn local_repository_journey(mouse: bool) {
     session.wait_for_screen("staged README content");
     if mouse {
         session.resize(80, 24);
-        session.click_visible_action("[g Graph]");
+        session.click_visible_action("[g History]");
     } else {
         session.send_key(b"g");
     }

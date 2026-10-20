@@ -252,7 +252,7 @@ fn journey(mouse: bool, mode: Mode) {
         &source.head,
         &["Recent commits"],
     );
-    choose(&mut session, mouse, "[g Graph]", b"g");
+    choose(&mut session, mouse, "[g History]", b"g");
     select_original(&mut session, mouse, &source.original);
     choose_key_bar(&mut session, mouse, "[a Author]");
     saved_ready(

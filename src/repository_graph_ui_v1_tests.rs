@@ -173,7 +173,7 @@ fn commit_graph_v1_original_history_actor_tree_do_not_get_stale_graph_hits_or_ke
         real.original.clone(),
         crate::git::RawPath(b"file".to_vec()),
     ));
-    loaded.file_provenance.as_mut().unwrap().view = crate::workspace::ProvenanceView::History;
+    loaded.file_provenance.as_mut().unwrap().view = crate::workspace::ProvenanceView::Blame;
     assert!(controls(&loaded, false).is_empty());
     assert_eq!(key(&loaded, KeyCode::Char('P')), None);
     assert!(line(&loaded, 0, Theme::from_settings(0, false), 40).is_none());

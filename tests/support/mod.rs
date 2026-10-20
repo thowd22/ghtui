@@ -466,121 +466,61 @@ pub struct Session {
 }
 
 impl Session {
-    /// Open a genuine loaded graph row, resolving focus from a completed frame
-    /// rather than old row numbers. A click/Enter is not read completion.
+    /// Select a loaded History commit, resolving the bar from a completed frame rather than
+    /// old row numbers. A click/arrow is not read completion.
     pub fn open_saved_graph_subject(&mut self, mouse: bool, subject: &str, revision: &str) {
+        // History (TASK-99): move the `▌` bar onto the commit by arrow keys or a click on its
+        // row, then wait for the completed frame that shows it selected and saved.
         let timeout = std::time::Duration::from_secs(8);
-        self.wait_for_cursorless_condition(
-            |frame| {
-                (locate_control(frame, "[Home First loaded]").is_some()
-                    || locate_control(frame, "[Home First]").is_some())
-                    && locate_control(frame, "[Esc Cancel]").is_none()
-            },
-            "completed original graph before selecting a loaded member",
-            timeout,
-        );
-        let before_home = self.completed_cursorless_end();
-        if mouse {
-            // Below 100 columns the key bar shows the compact `Home First`.
-            let label = if self
-                .completed_cursorless_screen()
-                .is_some_and(|frame| locate_control(frame, "[Home First loaded]").is_some())
-            {
-                "[Home First loaded]"
-            } else {
-                "[Home First]"
-            };
-            self.click_visible_action(label);
-        } else {
-            self.send_key(b"\x1b[H");
-        }
-        let home_deadline = std::time::Instant::now() + timeout;
-        loop {
-            self.poll_output(std::time::Duration::from_millis(1));
-            if self.completed_cursorless_end() > before_home
-                && self.completed_cursorless_screen().is_some_and(|frame| {
-                    let text = frame.contents();
-                    text.contains("First loaded graph projection ready")
-                        && locate_control(frame, "[Esc Cancel]").is_none()
-                })
-            {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < home_deadline,
-                "Original first loaded projection did not complete\n{}",
-                self.screen()
-            );
-        }
+        self.wait_for_history_ready();
+        let prefix = &revision[..7];
         let deadline = std::time::Instant::now() + timeout;
-        let opened_after = loop {
-            self.poll_output(std::time::Duration::from_millis(1));
-            let location = self
-                .completed_cursorless_screen()
-                .and_then(|frame| locate_screen(frame, subject));
-            if let Some((column, row)) = location {
-                if mouse {
-                    let previous = self.completed_cursorless_end();
-                    self.click(column, row);
-                    break previous;
+        loop {
+            self.poll_output(std::time::Duration::from_millis(20));
+            let rows = self.history_rows();
+            let selected = rows.iter().position(|row| row.selected);
+            let wanted = rows.iter().position(|row| row.sha.starts_with(prefix));
+            let previous = self.completed_cursorless_end();
+            match (selected, wanted) {
+                (Some(at), Some(wanted)) if at == wanted => break,
+                (_, Some(_)) if mouse => self.click_history_row(prefix),
+                (Some(at), Some(wanted)) if wanted < at => self.send_key(b"\x1b[A"),
+                (_, None) if mouse => {
+                    let height = self.completed_cursorless_screen().unwrap().size().0;
+                    self.wheel(20, height.saturating_sub(4), true);
                 }
-                if self
-                    .completed_cursorless_screen()
-                    .is_some_and(|frame| frame.cell(row, column).is_some_and(|cell| cell.inverse()))
-                {
-                    let previous = self.completed_cursorless_end();
-                    self.send_key(b"\r");
-                    break previous;
-                }
+                _ => self.send_key(b"\x1b[B"),
             }
             assert!(
                 std::time::Instant::now() < deadline,
-                "Original loaded subject never selected: {subject}\n{}",
+                "History commit never selected: {subject} {prefix}\n{}",
                 self.screen()
             );
-            let previous = self.completed_cursorless_end();
-            if mouse {
-                let height = self.completed_cursorless_screen().unwrap().size().0;
-                self.wheel(20, height.saturating_sub(4), true);
-            } else {
-                self.send_key(b"\x1b[B");
-            }
             let frame_deadline = std::time::Instant::now() + timeout;
             while self.completed_cursorless_end() <= previous {
                 self.poll_output(std::time::Duration::from_millis(10));
                 assert!(
                     std::time::Instant::now() < frame_deadline,
-                    "No completed frame after actual graph navigation"
+                    "No completed frame after History navigation"
                 );
             }
-        };
-        while self.completed_cursorless_end() <= opened_after {
-            self.poll_output(std::time::Duration::from_millis(5));
-            assert!(
-                std::time::Instant::now() < deadline,
-                "No new complete frame after opening the actual graph member"
-            );
         }
         let saved = format!("Saved: {revision}");
-        let selected = format!("▶ selected {}", &revision[..8]);
         self.wait_for_cursorless_condition(
             |frame| {
                 frame.contents().contains(&saved)
-                    && frame.contents().contains(&selected)
-                    && frame.contents().contains(subject)
-                    && frame
-                        .contents()
-                        .contains("Repository loaded • read-only exploration")
+                    && history_fixture::selected_history_row(frame)
+                        .is_some_and(|row| row.sha.starts_with(prefix))
                     && locate_control(frame, "[Esc Cancel]").is_none()
-                    // The Graph mode tab is the selected one: filled (bold) or reversed
+                    // The History mode tab is the selected one: filled (bold) or reversed
                     // without color, unlike the muted labels of the other tabs.
-                    && locate_screen(frame, " g Graph ").is_some_and(|(column, row)| {
+                    && locate_screen(frame, " g History ").is_some_and(|(column, row)| {
                         frame
                             .cell(row, column + 3)
                             .is_some_and(|cell| cell.inverse() || cell.bold())
                     })
             },
-            "exact graph member opened and original read completed",
+            "exact History commit selected and saved",
             timeout,
         );
     }

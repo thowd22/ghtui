@@ -275,6 +275,31 @@ fn row(parts: &Parts, width: Option<usize>, theme: Theme) -> TableRow<RowAction>
     .with_action(Some(RowAction::Commit(parts.id.clone())))
 }
 
+/// The repository's folder name for the `History › <repo> › <scope>` title.
+pub(crate) fn repository_name(workspace: &crate::workspace::Workspace) -> String {
+    crate::app::safe_text(&workspace.directory.file_name().map_or_else(
+        || workspace.directory.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    ))
+}
+
+/// The `History › <repo> › <last>` rule. The repository crumb gives way first on a narrow
+/// pane, so the title never runs under the match count on the right.
+pub(crate) fn title_block(
+    theme: crate::theme::Theme,
+    repository: &str,
+    last: &str,
+    width: u16,
+    focused: bool,
+) -> ratatui::widgets::Block<'static> {
+    let full = [TITLE, repository, last];
+    let fits = !repository.is_empty()
+        && crate::editor::display_width(&crate::ui_chrome::crumb_title(&full, focused)) + 28
+            <= usize::from(width);
+    let crumbs: &[&str] = if fits { &full } else { &[TITLE, last] };
+    crate::ui_chrome::pane_block(theme, crumbs, focused).borders(ratatui::widgets::Borders::TOP)
+}
+
 /// Draws the History rule, table and status line into `area` and registers one click target
 /// per painted row with the same action Enter takes.
 pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -288,8 +313,8 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
     let scope = super::history_filter::title_scope(workspace);
-    let block = crate::ui_chrome::pane_block(theme, &[TITLE, &scope], focused)
-        .borders(ratatui::widgets::Borders::TOP);
+    let repository = repository_name(workspace);
+    let block = title_block(theme, &repository, &scope, area.width, focused);
     let mut inner = block.inner(area);
     frame.render_widget(block, area);
     crate::repository_panels_v93::join_rule(frame, area);

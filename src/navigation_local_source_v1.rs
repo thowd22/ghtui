@@ -50,7 +50,6 @@ pub(crate) struct OriginalFileRouteV1 {
     pub path: RawPath,
     pub view: u8,
     pub return_view: u8,
-    pub history_offset: Option<usize>,
     pub blame_start: usize,
     pub selection: Option<OriginalFileSelectionV1>,
 }
@@ -140,13 +139,7 @@ impl OriginalSavedVisitV1 {
             sha(&state.revision)?;
             charge(&mut meter, state.revision.as_bytes(), 64)?;
             charge(&mut meter, &state.path.0, MAX_RAW_PATH)?;
-            if state
-                .history
-                .as_ref()
-                .is_some_and(|page| page.offset >= 10_000)
-                || state.blame_start == 0
-                || state.blame_start > 2_000_000
-            {
+            if state.blame_start == 0 || state.blame_start > 2_000_000 {
                 return Err("Original file page exceeds its source bounds".into());
             }
             if let Some(selection) = &state.selection {
@@ -200,11 +193,6 @@ impl OriginalSavedVisitV1 {
                 path: state.path.clone(),
                 view: view_number(state.view),
                 return_view: view_number(source),
-                history_offset: if source == ProvenanceView::History {
-                    state.history.as_ref().map(|page| page.offset)
-                } else {
-                    None
-                },
                 blame_start: if source == ProvenanceView::Blame {
                     state.blame_start
                 } else {
@@ -323,10 +311,8 @@ impl OriginalSavedVisitV1 {
         }
         if let Some(source) = &self.route.provenance {
             return match source.view {
-                1 => "Repository • File history",
                 2 => "Repository • Blame",
                 3 => "Repository • Line source",
-                4 => "Repository • Source graph",
                 5 => "Repository • Source diff",
                 6 => "Repository • Original file",
                 _ => "Repository • Saved file",
@@ -337,7 +323,7 @@ impl OriginalSavedVisitV1 {
         }
         match self.route.mode {
             0 => "Repository • Overview",
-            1 => "Repository • Graph",
+            1 => "Repository • History",
             2 => "Repository • Tree",
             3 => "Repository • Working diff",
             4 => "Repository • Staged diff",
@@ -394,11 +380,10 @@ impl OriginalSavedVisitsV1 {
 }
 pub(crate) fn view_number(view: ProvenanceView) -> u8 {
     match view {
+        // 1 (file History) and 4 (Graph) were retired when History became one view (TASK-99).
         ProvenanceView::File => 0,
-        ProvenanceView::History => 1,
         ProvenanceView::Blame => 2,
         ProvenanceView::Detail => 3,
-        ProvenanceView::Graph => 4,
         ProvenanceView::Diff => 5,
         ProvenanceView::OriginalFile => 6,
     }
@@ -449,25 +434,6 @@ fn validate_selected_member(
     selection: &FileSelection,
 ) -> Result<(), String> {
     match state.return_view {
-        ProvenanceView::History => {
-            let page = state
-                .history
-                .as_ref()
-                .ok_or("Original selected history page is unavailable")?;
-            if page.revision != state.revision
-                || page.path != state.path
-                || page.entries.len() > 200
-                || !page.entries.iter().any(|entry| {
-                    entry.commit.id == selection.commit
-                        && entry.path == selection.path
-                        && entry.exists == selection.exists
-                })
-                || selection.original_line.is_some()
-                || selection.final_line.is_some()
-            {
-                return Err("Selected history record is not an original page member".into());
-            }
-        }
         ProvenanceView::Blame => {
             if state.blame.len() > 1000
                 || !state.blame.iter().any(|record| {

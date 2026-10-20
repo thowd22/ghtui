@@ -90,15 +90,12 @@ fn original_tree_jump_history_back_fresh_file_retains_exact_breadcrumb_source_an
         let projection = workspace.tree_navigation_v1.as_ref().unwrap().clone();
         let before = fixture.real.snapshot();
         let dirty = std::fs::read(fixture.real.root.join("nested/renamed.txt")).unwrap();
-        fixture.action(
-            &mut workspace,
-            RowAction::FileProvenance(FileAction::History),
-        );
+        fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Blame));
         assert!(!projection.visible_for(&workspace));
         assert!(workspace
             .display_rows_v1()
             .iter()
-            .any(|row| row.label.contains("File history — chosen saved version")));
+            .any(|row| row.label.contains("Line blame — chosen saved text")));
         assert!(fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Back)) > 0);
         assert!(Arc::ptr_eq(
             workspace.tree_navigation_v1.as_ref().unwrap(),
@@ -159,10 +156,7 @@ fn original_tree_jump_history_back_does_not_revive_foreign_hidden_tree_projectio
         .unwrap()
         .clone();
     let before = fixture.real.snapshot();
-    fixture.action(
-        &mut workspace,
-        RowAction::FileProvenance(FileAction::History),
-    );
+    fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Blame));
     workspace.tree_navigation_v1 = Some(foreign_projection.clone());
     assert!(fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Back)) > 0);
     assert!(workspace.tree_navigation_v1.is_none());
@@ -298,7 +292,7 @@ fn original_tree_jump_projection_cannot_shadow_real_actor_history_graph_or_worki
     }
     workspace.mode = RepositoryMode::Tree;
     let mut provenance = FileProvenance::new(fixture.chosen.clone(), fixture.path.clone());
-    provenance.view = ProvenanceView::History;
+    provenance.view = ProvenanceView::Blame;
     workspace.file_provenance = Some(provenance);
     assert!(!prepared.visible_for(&workspace));
 }

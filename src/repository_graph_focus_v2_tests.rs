@@ -67,7 +67,7 @@ fn commit_graph_v2_responsible_file_subview_keeps_one_back_meaning_in_outer_tool
         .unwrap();
     for action in [
         RowAction::File(RawPath(b"tracked".to_vec())),
-        RowAction::FileProvenance(FileAction::History),
+        RowAction::FileProvenance(FileAction::Blame),
     ] {
         let operation = LocalGitNavigationReadV1::begin(
             workspace.actor_origin.as_ref().unwrap(),
@@ -79,27 +79,16 @@ fn commit_graph_v2_responsible_file_subview_keeps_one_back_meaning_in_outer_tool
             .unwrap();
         operation.seal().unwrap();
     }
-    let responsible = workspace
-        .file_provenance
-        .as_ref()
-        .unwrap()
-        .history
-        .as_ref()
-        .unwrap()
-        .entries
-        .first()
-        .unwrap()
-        .commit
-        .id
-        .clone();
+    // The responsible commit of a blamed line opens in History (TASK-99), which carries no
+    // file source: its one Back is the graph's.
     for action in [
-        RowAction::FileProvenance(FileAction::HistoryEntry(responsible)),
+        RowAction::FileProvenance(FileAction::BlameLine(1)),
         RowAction::FileProvenance(FileAction::Graph),
         RowAction::Graph(GraphActionV1::Details),
     ] {
         workspace.open(action).unwrap();
     }
-    assert!(workspace.file_provenance.is_some());
+    assert!(workspace.file_provenance.is_none());
     assert!(workspace.graph_retention_visible_v2());
     real.clear_trace();
     for width in [120, 80] {

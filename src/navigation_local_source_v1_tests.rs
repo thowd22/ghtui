@@ -29,13 +29,12 @@ fn original_saved_navigation_visit_history_actor_restores_exact_member_role_sha_
         let before = fixture.real.snapshot();
         let mut workspace = fixture.workspace();
         fixture.file(&mut workspace);
+        // File History is now the History view; the responsible member comes from Blame.
+        fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Blame));
+        fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Next));
         fixture.action(
             &mut workspace,
-            RowAction::FileProvenance(FileAction::History),
-        );
-        fixture.action(
-            &mut workspace,
-            RowAction::FileProvenance(FileAction::HistoryEntry(fixture.responsible.clone())),
+            RowAction::FileProvenance(FileAction::BlameLine(102)),
         );
         fixture.action(&mut workspace, RowAction::Actor(GitRole::Committer));
         let visit = OriginalSavedVisitV1::capture(&workspace).unwrap();
@@ -206,10 +205,6 @@ fn original_saved_navigation_visit_active_blame_actor_and_history_keys_ignore_in
     let before = fixture.real.snapshot();
     let mut workspace = fixture.workspace();
     fixture.file(&mut workspace);
-    fixture.action(
-        &mut workspace,
-        RowAction::FileProvenance(FileAction::History),
-    );
     fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Blame));
     fixture.action(&mut workspace, RowAction::FileProvenance(FileAction::Next));
     fixture.action(
@@ -217,15 +212,6 @@ fn original_saved_navigation_visit_active_blame_actor_and_history_keys_ignore_in
         RowAction::FileProvenance(FileAction::BlameLine(102)),
     );
     fixture.action(&mut workspace, RowAction::Actor(GitRole::Author));
-    assert!(
-        workspace
-            .file_provenance
-            .as_ref()
-            .unwrap()
-            .history
-            .is_some(),
-        "the fixture genuinely retains inactive History rows"
-    );
     let visit = OriginalSavedVisitV1::capture(&workspace).unwrap();
     let mut restored = restore(&fixture, &visit);
     let after = OriginalSavedVisitV1::capture(&restored).unwrap();
@@ -247,33 +233,14 @@ fn original_saved_navigation_visit_active_blame_actor_and_history_keys_ignore_in
         b"history.txt"
     );
     fixture.action(&mut restored, RowAction::FileProvenance(FileAction::Back));
-    fixture.action(
-        &mut restored,
-        RowAction::FileProvenance(FileAction::History),
-    );
     assert_eq!(
         restored.file_provenance.as_ref().unwrap().blame_start,
         101,
-        "inactive blame position genuinely differs from its default"
-    );
-    let history = OriginalSavedVisitV1::capture(&restored).unwrap();
-    let restored_history = restore(&fixture, &history);
-    assert_eq!(
-        OriginalSavedVisitV1::capture(&restored_history)
-            .unwrap()
-            .key(),
-        history.key()
+        "the blame position genuinely differs from its default"
     );
     assert_eq!(
-        restored_history
-            .file_provenance
-            .as_ref()
-            .unwrap()
-            .history
-            .as_ref()
-            .unwrap()
-            .offset,
-        0
+        restored.file_provenance.as_ref().unwrap().view,
+        ProvenanceView::Blame
     );
     assert_eq!(fixture.real.snapshot(), before);
 }

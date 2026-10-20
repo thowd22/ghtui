@@ -221,13 +221,38 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
             .with_priority(8),
         );
     }
-    // History's search, match, hide and scope keys lead its own (TASK-99.3).
-    context.extend(history_filter::controls(app));
-    context.extend(history_keys);
+    let compare = (diff_side.is_none() && !detail)
+        .then(|| KeyControl::new("C", "Compare", Action::Compare).with_priority(24));
+    // History's bar reads like the view (TASK-99): search and matches, then the commit's
+    // file history, diff, blame and compare, the SHA and details, then scope and hide.
+    let (search, scope): (Vec<_>, Vec<_>) = history_filter::controls(app)
+        .into_iter()
+        .partition(|control| matches!(control.key.as_str(), "/" | "Esc" | "n" | "N"));
+    let history = !history_keys.is_empty();
+    context.extend(search);
+    if history {
+        let order = ["f", "Enter", "Y"];
+        let mut keys = history_keys;
+        keys.sort_by_key(|control| {
+            order
+                .iter()
+                .position(|key| *key == control.key)
+                .unwrap_or(order.len())
+        });
+        let (lead, rest): (Vec<_>, Vec<_>) = keys
+            .into_iter()
+            .partition(|control| order.contains(&control.key.as_str()));
+        context.extend(lead);
+        // Compare reads with the commit's own actions in History, ahead of the window keys;
+        // with a filter's Esc and n/N on a narrow bar it gives way to `y Copy SHA`.
+        context.extend(compare.clone().map(|control| control.with_priority(11)));
+        context.extend(rest);
+    }
+    context.extend(scope);
     context.extend(graph);
     context.extend(files);
-    if diff_side.is_none() && !detail {
-        context.push(KeyControl::new("C", "Compare", Action::Compare).with_priority(24));
+    if !history {
+        context.extend(compare);
     }
     context.extend(panel_keys);
     let jump = if busy {
@@ -312,7 +337,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let busy = app.loading[crate::app::View::Repository.index()];
     let tabs = mode_controls(workspace.mode);
     let graph_status = (!crate::repository_graph_ui_v1::controls(workspace, busy).is_empty())
-        .then(|| crate::repository_graph_ui_v1::horizontal_status(workspace));
+        .then(|| crate::repository_graph_ui_v1::horizontal_status(workspace))
+        .flatten();
     // Row 0: the mode tabs. The graph pan position sits at its right edge when it fits.
     crate::ui_chrome::tab_strip(frame, app, Rect::new(area.x, area.y, area.width, 1), &tabs);
     let tabs_width = tabs

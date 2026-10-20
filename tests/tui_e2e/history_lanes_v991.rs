@@ -303,7 +303,7 @@ fn journey(mouse: bool) {
         &env,
     );
     s.wait_for_screen("Recent commits");
-    s.choose(mouse, "[g Graph]", b"g");
+    s.choose(mouse, "[g History]", b"g");
     s.wait_for_screen("8 commits loaded");
     s.wait_for_settled_footer();
     // Opened at the detached HEAD, every branch, the remote-only branch and the tag show.

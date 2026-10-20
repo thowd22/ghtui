@@ -13,12 +13,7 @@ use crate::{
 
 impl Workspace {
     pub(crate) fn graph_retention_visible_v2(&self) -> bool {
-        if self.actor_profile.is_some()
-            || self
-                .file_provenance
-                .as_ref()
-                .is_some_and(|source| source.view != ProvenanceView::Graph)
-        {
+        if self.actor_profile.is_some() || self.file_provenance.is_some() {
             return false;
         }
         let Some(state) = self.graph_state_v1.as_ref() else {
@@ -120,42 +115,10 @@ impl Workspace {
                     .selected_commit(&position.selected)
                     .cloned()
                     .ok_or("Original restored member unavailable")?;
-                let file_provenance = provenance
-                    .map(|source| {
-                        // Navigation metadata is intent only. Reuse the existing
-                        // fresh History/Blame member verifier, never reconstruct a
-                        // selected responsible member or cached page from labels.
-                        if source.selection.is_none() || !matches!(source.return_view, 1 | 2) {
-                            return Err("Original Graph responsible file source unavailable".into());
-                        }
-                        let mut fresh_source = source.clone();
-                        fresh_source.view = 3; // Selected detail, without a graph walk.
-                        let route = crate::navigation_local_source_v1::OriginalLocalRouteV1 {
-                            mode: 2, // Tree/file source; never current checkout HEAD.
-                            graph: None,
-                            revision: source.selection.as_ref().unwrap().commit.clone(),
-                            selected: None,
-                            role: None,
-                            preview: None,
-                            provenance: Some(fresh_source),
-                            comparison: None,
-                            mutable_source: None,
-                            expanded: Vec::new(),
-                        };
-                        let mut file = Self::restore_original_route_v1(
-                            repository,
-                            snapshot.origin().clone(),
-                            &route,
-                            operation.cancellation().clone(),
-                        )?;
-                        let mut intent = file
-                            .file_provenance
-                            .take()
-                            .ok_or("Original Graph fresh responsible file source unavailable")?;
-                        intent.view = ProvenanceView::Graph;
-                        Ok::<_, String>(intent)
-                    })
-                    .transpose()?;
+                // History never carries a file source (TASK-99); a route with one is stale.
+                if provenance.is_some() {
+                    return Err("Original History route carries a retired file source".into());
+                }
                 let mut workspace = Self {
                     directory: repository.root.clone(),
                     revision: position.selected.clone(),
@@ -164,7 +127,7 @@ impl Workspace {
                     tree: None,
                     comparison: None,
                     preview: None,
-                    file_provenance,
+                    file_provenance: None,
                     selected_commit: Some(selected),
                     actor_origin: Some(snapshot.origin().clone()),
                     actor_profile: None,

@@ -628,7 +628,7 @@ fn special(mouse: bool) {
     close_absence(&mut session, mouse, "New side is absent");
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close(TITLE);
-    choose(&mut session, mouse, "[g Graph]", b"g");
+    choose(&mut session, mouse, "[g History]", b"g");
     session.open_saved_graph_subject(mouse, "Common exact side version", &native.c);
     choose(&mut session, mouse, "[D Details]", b"D");
     session.wait_for_screen("root commit:");

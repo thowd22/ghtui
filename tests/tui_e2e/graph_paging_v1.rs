@@ -321,7 +321,7 @@ fn effects(n: &NativeGraph, s: &Session, original: Option<&Path>) {
 }
 fn graph(n: &NativeGraph, s: &mut Session, mouse: bool, count: usize) {
     s.wait_for_screen("Recent commits");
-    choose(s, mouse, "[g Graph]", b"g");
+    choose(s, mouse, "[g History]", b"g");
     s.wait_for_screen(&format!("of {count} loaded"));
     s.wait_for_control("[D Details]");
     s.wait_for_screen(&n.tip);
@@ -488,7 +488,7 @@ fn root_detached(mouse: bool) {
     .unwrap();
     let mut s = Session::launch(&empty, 120, 40);
     s.wait_for_screen("Recent commits");
-    choose(&mut s, mouse, "[g Graph]", b"g");
+    choose(&mut s, mouse, "[g History]", b"g");
     // The Overview's empty commits panel also reads "No saved versions yet"; wait for the
     // Graph's own empty state and its settled key bar before taking Quit's coordinates.
     s.wait_for_screen("No saved versions yet • Graph has no guessed HEAD/root");
@@ -520,9 +520,13 @@ fn prepared_views(mouse: bool) {
     s.wait_for_main_frame();
     s.wait_for_control("[P Parents]");
     choose_bar_or_palette(&mut s, mouse, "[→ Pan right]", b"\x1b[C");
-    s.wait_for_screen("Graph horizontal: 8 cells");
+    s.wait_for_screen("History pan: 8 cells");
     choose_bar_or_palette(&mut s, mouse, "[← Pan left]", b"\x1b[D");
-    s.wait_for_screen("Graph horizontal: 0 cells");
+    s.wait_for_cursorless_condition(
+        |frame| !frame.contents().contains("History pan:"),
+        "lanes back at their start",
+        std::time::Duration::from_secs(8),
+    );
     s.wait_for_screen("Actual four-parent octopus");
     s.resize(40, 24);
     s.wait_for_main_frame();

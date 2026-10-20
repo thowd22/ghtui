@@ -295,7 +295,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("+main-only line");
     assert!(!session.screen().contains("+feature-only line"));
     session.resize(80, 24);
-    mode(&mut session, mouse, b"g", "[g Graph]");
+    mode(&mut session, mouse, b"g", "[g History]");
     session.open_saved_graph_subject(mouse, "Root comparison fixture", &root);
     // At 80 columns the one-row header keeps Back only; the crumb shows when there is room.
     session.resize(120, 40);

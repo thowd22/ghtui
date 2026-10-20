@@ -157,10 +157,6 @@ pub(crate) fn row_key(action: &RowAction) -> Result<Vec<u8>, String> {
             hash.field(b"file-provenance")?;
             use crate::workspace::FileAction;
             match action {
-                FileAction::HistoryEntry(id) => {
-                    hash.field(b"history-entry")?;
-                    hash.field(id.as_bytes())?;
-                }
                 FileAction::BlameLine(line) | FileAction::BlameAt(line) => {
                     hash.field(if matches!(action, FileAction::BlameLine(_)) {
                         b"blame-line"
@@ -170,7 +166,6 @@ pub(crate) fn row_key(action: &RowAction) -> Result<Vec<u8>, String> {
                     hash.json(line)?;
                 }
                 _ => hash.field(match action {
-                    FileAction::History => b"history",
                     FileAction::PathHistory => b"path-history",
                     FileAction::Blame => b"blame",
                     FileAction::Previous => b"previous",
@@ -284,17 +279,12 @@ fn repository_bookmark(app: &App, workspace: &Workspace) -> Result<NavigationBoo
         detour.field(&state.path.0)?;
         detour.field(match state.view {
             crate::workspace::ProvenanceView::File => b"file",
-            crate::workspace::ProvenanceView::History => b"history",
             crate::workspace::ProvenanceView::Blame => b"blame",
             crate::workspace::ProvenanceView::Detail => b"detail",
-            crate::workspace::ProvenanceView::Graph => b"graph",
             crate::workspace::ProvenanceView::Diff => b"diff",
             crate::workspace::ProvenanceView::OriginalFile => b"original-file",
         })?;
-        detour.json(&(
-            state.blame_start,
-            state.history.as_ref().map(|page| page.offset),
-        ))?;
+        detour.json(&state.blame_start)?;
         if let Some(selection) = &state.selection {
             detour.field(selection.commit.as_bytes())?;
             detour.json(&(
@@ -496,6 +486,24 @@ impl App {
             self.dispatch(Action::Explain(
                 "Wait for the current read, or cancel it before navigating Back".into(),
             ));
+            return;
+        }
+        // History's diff and drill-down are views inside one History location: Back returns
+        // to the table with the bar on the same commit, as `u` does (TASK-99).
+        if action == NavigationAction::Back
+            && self.view == View::Repository
+            && self.overlay.is_none()
+            && self.workspace.as_ref().is_some_and(|workspace| {
+                workspace.graph_view_v1 != crate::repository_graph_v1::GraphViewV1::Timeline
+                    && crate::repository_graph_ui_v1::key(
+                        workspace,
+                        crossterm::event::KeyCode::Char('u'),
+                    ) == Some(crate::repository_graph_v1::GraphActionV1::Back)
+            })
+        {
+            self.dispatch(Action::RepositoryRow(crate::workspace::RowAction::Graph(
+                crate::repository_graph_v1::GraphActionV1::Back,
+            )));
             return;
         }
         if self.navigation_trail.current().is_some() {

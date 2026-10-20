@@ -17,12 +17,6 @@ impl OriginalSavedVisitV1 {
                     && route.path == actual.path
                     && route.view == view_number(actual.view)
                     && route.return_view == view_number(source)
-                    && route.history_offset
-                        == if source == ProvenanceView::History {
-                            actual.history.as_ref().map(|page| page.offset)
-                        } else {
-                            None
-                        }
                     && route.blame_start
                         == if source == ProvenanceView::Blame {
                             actual.blame_start

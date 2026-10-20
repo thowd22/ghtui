@@ -180,8 +180,11 @@ fn file_history_workspace_blame_graph_introduced_diff_original_file_and_back_pre
         workspace.display_rows_v1()[focus].action,
         Some(RowAction::Commit(responsible.clone()))
     );
-    action(&mut workspace, FileAction::Back);
-    assert_eq!(workspace.revision, chosen);
+    // History is its own view (TASK-99): it carries no file source, so global Back (not
+    // file Back) returns to the blame; reopen it here.
+    assert!(workspace.file_provenance.is_none());
+    workspace = open(&fixture, &chosen, &path);
+    action(&mut workspace, FileAction::Blame);
     assert!(workspace.rows[0].label.starts_with("Line blame"));
     action(&mut workspace, FileAction::BlameLine(2));
     action(&mut workspace, FileAction::Diff);
@@ -260,10 +263,21 @@ fn file_history_merge_parent_roles_and_default_copy_move_limits_are_explicit() {
     assert!(workspace.rows.iter().any(|row| row
         .label
         .contains("moved/copied line detection (-M/-C) is off")));
-    action(&mut workspace, FileAction::History);
-    assert!(workspace.rows.iter().any(|row| row
-        .label
-        .contains("merge/copy/move history may be incomplete")));
+    // File history is History with a path chip across both merge parents (TASK-99).
+    action(&mut workspace, FileAction::PathHistory);
+    assert_eq!(workspace.mode, RepositoryMode::Graph);
+    assert!(workspace.file_provenance.is_none());
+    assert_eq!(
+        workspace.history_filter_v993.spec.path,
+        Some(RawPath::new(b"readme.txt".to_vec()))
+    );
+    // The selection is the file's latest change: the feature commit (or the merge, when Git
+    // lists the merge itself for the path).
+    assert!(
+        workspace.revision == responsible || workspace.revision == merge,
+        "{}",
+        workspace.revision
+    );
     assert_eq!(fixture.head(), merge);
 }
 
@@ -407,7 +421,7 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
         &fixture.head(),
         &RawPath::new(b"readme.txt".to_vec()),
     );
-    action(&mut workspace, FileAction::History);
+    action(&mut workspace, FileAction::Blame);
     let make_app = |busy| {
         let mut app = App::new();
         app.view = View::Repository;
@@ -446,13 +460,13 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
         // Disabled controls leave the bar; the key still answers with the reason.
         let disabled = if busy {
             vec![
-                FileAction::History,
+                FileAction::PathHistory,
                 FileAction::Blame,
                 FileAction::Previous,
                 FileAction::Next,
             ]
         } else {
-            // Two commits fit one source page: neither an earlier nor a later page exists.
+            // Two lines fit one blame page: neither an earlier nor a later page exists.
             vec![FileAction::Previous, FileAction::Next]
         };
         for file_action in &disabled {
@@ -466,7 +480,7 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
             assert!(bar.contains("Esc Cancel"), "{bar}");
         } else {
             for (file_action, token) in [
-                (FileAction::History, "H History"),
+                (FileAction::PathHistory, "f History"),
                 (FileAction::Blame, "Y Blame"),
             ] {
                 let rect = bar_hit(file_action)
@@ -487,7 +501,7 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
                 "{next:?}"
             );
         }
-        let key = if busy { 'H' } else { 'P' };
+        let key = if busy { 'f' } else { 'P' };
         let event = KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE);
         let explanation = ghtui::footer::resolve_key(&ghtui::footer::main_controls(&mouse), event)
             .expect("A disabled key still resolves");
@@ -509,12 +523,12 @@ fn file_history_prepared_controls_narrow_hits_disabled_busy_input_parity_and_rol
                 "{}",
                 keyboard.notice
             );
-            // The current History mode is the selected token: bold primary text, not muted.
-            let rect = bar_hit(FileAction::History).unwrap();
+            // The current Blame mode is the selected token: bold primary text, not muted.
+            let rect = bar_hit(FileAction::Blame).unwrap();
             let label = &terminal.backend().buffer()[(rect.x + 2, 23)];
             assert!(label.modifier.contains(ratatui::style::Modifier::BOLD));
-            let blame = bar_hit(FileAction::Blame).unwrap();
-            assert!(!terminal.backend().buffer()[(blame.x + 2, 23)]
+            let history = bar_hit(FileAction::PathHistory).unwrap();
+            assert!(!terminal.backend().buffer()[(history.x + 2, 23)]
                 .modifier
                 .contains(ratatui::style::Modifier::BOLD));
             let text = terminal

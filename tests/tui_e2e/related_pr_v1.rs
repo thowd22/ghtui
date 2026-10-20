@@ -264,7 +264,7 @@ fn journey_related(mouse: bool, case: RelatedCase) {
         &source.head,
         &["Recent commits"],
     );
-    choose(&mut session, mouse, "[g Graph]", b"g");
+    choose(&mut session, mouse, "[g History]", b"g");
     select_original(&mut session, mouse, &source.original);
     choose_key_bar(&mut session, mouse, "[a Author]");
     saved_ready(
@@ -777,7 +777,7 @@ fn renamed_line_journey(mouse: bool) {
     drop(ghtui::actions_write_journal::ActionsWriteJournal::open(&database(&fixture)).unwrap());
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
-    choose(&mut session, mouse, "[g Graph]", b"g");
+    choose(&mut session, mouse, "[g History]", b"g");
     session.open_saved_graph_subject(mouse, "Chosen related rename", &chosen);
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");

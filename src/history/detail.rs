@@ -1293,12 +1293,18 @@ pub fn draw_full(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|commit| crate::ui_table::short_sha(&commit).to_owned())
         .unwrap_or_default();
     let title = format!("{TITLE} {short}");
-    let block = crate::ui_chrome::pane_block(
+    let repository = app
+        .workspace
+        .as_ref()
+        .map(crate::repository_ui::history_table::repository_name)
+        .unwrap_or_default();
+    let block = crate::repository_ui::history_table::title_block(
         theme,
-        &[crate::repository_ui::history_table::TITLE, &title],
+        &repository,
+        &title,
+        area.width,
         focused,
-    )
-    .borders(ratatui::widgets::Borders::TOP);
+    );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     crate::repository_panels_v93::join_rule(frame, area);

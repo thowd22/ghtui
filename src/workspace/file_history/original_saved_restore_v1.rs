@@ -40,23 +40,6 @@ impl Workspace {
                     provenance.view
                 };
                 match source {
-                    1 => {
-                        let offset = provenance
-                            .history_offset
-                            .ok_or("Original history page is unavailable")?;
-                        state.history = Some(
-                            repository
-                                .file_history_page(
-                                    &state.revision,
-                                    &state.path,
-                                    offset,
-                                    HISTORY_PAGE,
-                                )
-                                .map_err(|error| error.to_string())?,
-                        );
-                        state.view = ProvenanceView::History;
-                        workspace.render_history(repository, &state)?;
-                    }
                     2 => {
                         if !workspace.load_blame(repository, &mut state, provenance.blame_start)? {
                             return Err(
@@ -68,38 +51,13 @@ impl Workspace {
                     _ => return Err("Original nested provenance source is unavailable".into()),
                 }
                 if let Some(expected) = &provenance.selection {
-                    if source == 1 {
-                        let entry = state
-                            .history
-                            .as_ref()
-                            .and_then(|page| {
-                                page.entries
-                                    .iter()
-                                    .find(|entry| entry.commit.id == expected.commit)
-                            })
-                            .ok_or(
-                                "Original history member no longer belongs to exact loaded page",
-                            )?;
-                        state.selection = Some(FileSelection {
-                            commit: entry.commit.id.clone(),
-                            path: entry.path.clone(),
-                            original_line: None,
-                            final_line: None,
-                            boundary: false,
-                            exists: entry.exists,
-                        });
-                        state.return_view = ProvenanceView::History;
-                        state.view = ProvenanceView::Detail;
-                        workspace.render_selection(repository, &state)?;
-                    } else {
-                        workspace.select_blame(
-                            repository,
-                            &mut state,
-                            expected
-                                .final_line
-                                .ok_or("Original selected blame line unavailable")?,
-                        )?;
-                    }
+                    workspace.select_blame(
+                        repository,
+                        &mut state,
+                        expected
+                            .final_line
+                            .ok_or("Original selected blame line unavailable")?,
+                    )?;
                     if state
                         .selection
                         .as_ref()
@@ -113,12 +71,7 @@ impl Workspace {
                 }
                 workspace.file_provenance = Some(state);
                 match provenance.view {
-                    1..=3 => {}
-                    4 => workspace.provenance_action_from_repository_v1(
-                        repository,
-                        FileAction::Graph,
-                        cancellation.clone(),
-                    )?,
+                    2 | 3 => {}
                     5 => workspace.provenance_action_from_repository_v1(
                         repository,
                         FileAction::Diff,
@@ -249,18 +202,7 @@ impl Workspace {
                 .as_ref()
                 .is_none_or(|commit| commit.id != *selected)
             {
-                if route
-                    .provenance
-                    .as_ref()
-                    .is_some_and(|provenance| provenance.view != 4)
-                    || route.provenance.as_ref().is_some_and(|provenance| {
-                        provenance.view == 4
-                            && workspace
-                                .graph_state_v1
-                                .as_ref()
-                                .is_none_or(|state| state.selected_commit(selected).is_none())
-                    })
-                {
+                if route.provenance.is_some() {
                     return Err("Original responsible commit/graph member unavailable".into());
                 }
                 workspace.open_from_repository_v1(

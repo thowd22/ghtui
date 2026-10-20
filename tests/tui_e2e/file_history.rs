@@ -179,7 +179,7 @@ fn happy(mouse: bool) {
     let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
-    choose(&mut session, mouse, "[g Graph]", b"g");
+    choose(&mut session, mouse, "[g History]", b"g");
     session.wait_for_screen("loaded (limit 10000)");
     select_row(&mut session, mouse, "Chosen snapshot after rename");
     session.wait_for_screen(&chosen);

@@ -98,7 +98,9 @@ pub enum GraphCoverageV1 {
 impl GraphCoverageV1 {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::MoreAvailable => "More history available • original saved walk continues",
+            Self::MoreAvailable => {
+                "Loaded history ends here • scroll past it or press L to load older commits"
+            }
             Self::AvailableWalkExhausted => "All ancestors in this original saved walk are loaded",
             Self::ShallowBoundary => {
                 "Shallow history boundary • original parent IDs retained • no automatic fetch"
@@ -106,7 +108,7 @@ impl GraphCoverageV1 {
             Self::UnavailableParents => {
                 "Original walk stopped with unavailable parents • not a root or empty history"
             }
-            Self::Capped => "Graph viewer limit reached • remaining history unknown, not complete",
+            Self::Capped => "History limit reached • remaining history unknown, not complete",
         }
     }
 }
