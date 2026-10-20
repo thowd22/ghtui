@@ -488,7 +488,10 @@ fn root_detached(mouse: bool) {
     let mut s = Session::launch(&empty, 120, 40);
     s.wait_for_screen("Recent commits");
     choose(&mut s, mouse, "[g Graph]", b"g");
-    s.wait_for_screen("No saved versions yet");
+    // The Overview's empty commits panel also reads "No saved versions yet"; wait for the
+    // Graph's own empty state and its settled key bar before taking Quit's coordinates.
+    s.wait_for_screen("No saved versions yet • Graph has no guessed HEAD/root");
+    s.wait_for_settled_footer();
     assert!(!s.screen().contains("Root commit"));
     assert!(s.inspect_command_journal(&empty).is_empty());
     assert!(!empty.repo().join(".git/index").exists());

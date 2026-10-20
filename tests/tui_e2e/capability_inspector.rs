@@ -395,6 +395,8 @@ fn journey(scenario: Scenario, mouse: bool) {
     assert!(!trace(&fixture).is_empty(),"The child-only trace must witness actual local Git commands before it can prove no new ones");
     activate(&mut session, mouse, "1 Inbox", b"1");
     session.assert_focused_view("Inbox");
+    // A startup read still running moves the key bar; click the settled Refresh token.
+    session.wait_for_settled_footer();
     activate(&mut session, mouse, "[r Refresh]", b"r");
     match scenario {
         Scenario::MissingGh => session.wait_for_screen("GitHub CLI is missing"),

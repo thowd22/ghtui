@@ -2436,7 +2436,14 @@ impl Session {
                 assert_eq!(status.success(), success);
                 break;
             }
-            assert!(Instant::now() < deadline, "child failed to exit");
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "child failed to exit\n{}; artifacts: {}",
+                    self.screen(),
+                    self.artifact_dir.display()
+                );
+            }
             if let Ok(bytes) = self.observed_recv_timeout_v1(Duration::from_millis(20)) {
                 self.process(&bytes);
             }
