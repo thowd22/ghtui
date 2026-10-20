@@ -384,6 +384,31 @@ fn main_back(session: &mut Session, mouse: bool) {
         Duration::from_secs(8),
     );
 }
+/// The observed list row reads state, freshness, reason, resource, title and
+/// repository on ONE line at 80 columns.
+fn assert_readable_row(body: &str) {
+    let row = body
+        .lines()
+        .find(|line| line.contains(PRIVATE))
+        .unwrap_or_else(|| panic!("No notification row\n{body}"));
+    let state = row.find("Unread").expect(row);
+    let reason = row.find("Review requested • PR #7 • ").expect(row);
+    let title = row.find(PRIVATE).expect(row);
+    assert!(state < reason && reason < title, "{row}");
+    // Freshness sits between state and reason as a whole-unit age (`5d`).
+    let age = row[state + "Unread".len()..reason].trim();
+    assert!(
+        age.len() >= 2
+            && age[..age.len() - 1].bytes().all(|b| b.is_ascii_digit())
+            && "smhdy".contains(&age[age.len() - 1..])
+            || age.ends_with("mo"),
+        "{row}"
+    );
+    // The repository follows the title; the 80-column row may cut the tail,
+    // so require at least the repository owner's start (78 inner columns end
+    // exactly at `example` with this fixture).
+    assert!(row[title..].contains(" • example"), "{row}");
+}
 fn read_details(mouse: bool) {
     let mut steps = empty_inbox_steps("octocat");
     steps.extend(phase(false, false, false, false));
@@ -393,13 +418,26 @@ fn read_details(mouse: bool) {
     let mut session = start(&f);
     let before = witness(&f);
     let after = open(&mut session, mouse);
-    ready(&mut session, after, PRIVATE);
+    let body = ready(&mut session, after, PRIVATE);
+    assert_readable_row(&body);
     session.capture_completed_terminal_v1("notifications-observed-80");
     session.resize_owned_header(120, 40, TITLE, CONTROLS);
     ready(&mut session, 0, PRIVATE);
     let after = session.completed_cells_end();
     choose(&mut session, mouse, "[Enter Details]", b"\r");
-    ready(&mut session, after, "Acting user unavailable");
+    let detail = ready(&mut session, after, "Acting user unavailable");
+    // Readable reason beside the raw API value, and the exact UTC time
+    // beside its relative freshness.
+    assert!(
+        detail.contains("Reason: Review requested (review_requested)"),
+        "{detail}"
+    );
+    assert!(
+        detail
+            .lines()
+            .any(|line| line.contains("Updated: 2026-10-15T18:00:00Z • ") && line.contains(" ago")),
+        "{detail}"
+    );
     session.capture_completed_terminal_v1("notifications-detail-120");
     let narrow_after = session.completed_cursorless_end();
     session.resize_owned_header(40, 18, TITLE, &CONTROLS[..2]);

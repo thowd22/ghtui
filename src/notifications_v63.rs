@@ -332,6 +332,51 @@ impl PreparedNotificationResultV63 {
         self.result
     }
 }
+/// A readable label for GitHub's notification `reason`. Unknown reasons keep
+/// their observed (sanitized) text so nothing is silently re-labelled.
+pub(crate) fn reason_label_v63(reason: &str) -> String {
+    match reason {
+        "approval_requested" => "Approval requested".into(),
+        "assign" => "Assigned".into(),
+        "author" => "Author".into(),
+        "ci_activity" => "CI activity".into(),
+        "comment" => "Comment".into(),
+        "invitation" => "Invitation".into(),
+        "manual" => "Subscribed manually".into(),
+        "member_feature_requested" => "Feature requested".into(),
+        "mention" => "Mentioned".into(),
+        "review_requested" => "Review requested".into(),
+        "security_advisory_credit" => "Advisory credit".into(),
+        "security_alert" => "Security alert".into(),
+        "state_change" => "State changed".into(),
+        "subscribed" => "Watching".into(),
+        "team_mention" => "Team mentioned".into(),
+        other => sanitize_terminal(other).chars().take(40).collect(),
+    }
+}
+/// One list row: state, freshness, reason and resource (`PR #7`) first, so
+/// they survive an 80-column cut, then the title and repository. Freshness is relative to `now` (seconds) captured once per read;
+/// the exact UTC time stays in Details.
+pub(crate) fn row_label_v63(
+    unread: bool,
+    updated_at: &str,
+    now: u64,
+    reason: &str,
+    title: &str,
+    repository: &str,
+    subject: &str,
+) -> String {
+    let age = crate::ui_table::age_at(updated_at, now).unwrap_or_else(|| "—".into());
+    format!(
+        "{:<6} {:>4} {} • {} • {} • {}",
+        if unread { "Unread" } else { "Read" },
+        age,
+        reason_label_v63(reason),
+        subject,
+        title,
+        sanitize_terminal(repository),
+    )
+}
 fn alive(work: &NotificationWorkV63) -> Result<(), &'static str> {
     if work.expired() {
         Err("Original notification read canceled or expired; refresh explicitly")
@@ -477,6 +522,7 @@ pub(crate) fn execute(
             })?;
         let mut rows = Vec::with_capacity(access.rows().len());
         let mut retained = 0usize;
+        let now = crate::storage::now();
         for row in access.rows() {
             alive(&work)?;
             // This is bounded display preparation in the original worker, not
@@ -485,12 +531,14 @@ pub(crate) fn execute(
                 .chars()
                 .take(240)
                 .collect::<String>();
-            let label = format!(
-                "{} {} • {} • {}",
-                if row.unread() { "Unread" } else { "Read" },
-                sanitize_terminal(row.repository_label()),
-                row.subject_label(),
-                title
+            let label = row_label_v63(
+                row.unread(),
+                row.updated_at(),
+                now,
+                row.reason(),
+                &title,
+                row.repository_label(),
+                &row.subject_short_v63(),
             );
             retained = retained
                 .checked_add(
@@ -525,8 +573,17 @@ pub(crate) fn execute(
                 format!("Repository: {}", row.repository_label()),
                 format!("Subject: {}", row.subject_label()),
                 format!("Title: {}", row.title()),
-                format!("Reason: {}", row.reason()),
-                format!("Updated: {}", row.updated_at()),
+                format!(
+                    "Reason: {} ({})",
+                    reason_label_v63(row.reason()),
+                    sanitize_terminal(row.reason())
+                ),
+                format!(
+                    "Updated: {} • {} ago",
+                    row.updated_at(),
+                    crate::ui_table::age_at(row.updated_at(), now)
+                        .unwrap_or_else(|| "age unknown".into())
+                ),
                 format!("Last read: {}", row.last_read_at().unwrap_or("Unavailable")),
                 row.actor_label().into(),
                 format!(

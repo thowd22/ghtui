@@ -165,6 +165,20 @@ impl NotificationRowV63 {
             NotificationSubjectV63::Unresolved { .. } => "Observed subject • target unavailable",
         }
     }
+    /// The short resource for a list row: `PR #7`, `Issue #3`, `Commit 1a2b3c4`.
+    /// Unresolved or unknown kinds never claim a number they did not carry.
+    pub(crate) fn subject_short_v63(&self) -> String {
+        match &self.subject {
+            NotificationSubjectV63::PullRequest { number } => format!("PR #{number}"),
+            NotificationSubjectV63::Issue { number } => format!("Issue #{number}"),
+            NotificationSubjectV63::CheckSuite { .. } => "Check suite".into(),
+            NotificationSubjectV63::Commit { sha } => {
+                format!("Commit {}", sha.chars().take(7).collect::<String>())
+            }
+            NotificationSubjectV63::Other { .. } => "Other subject".into(),
+            NotificationSubjectV63::Unresolved { .. } => "Subject unavailable".into(),
+        }
+    }
     pub(crate) fn last_read_at(&self) -> Option<&str> {
         self.last_read_at.as_deref()
     }

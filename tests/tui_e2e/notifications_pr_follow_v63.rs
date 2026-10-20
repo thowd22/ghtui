@@ -428,7 +428,11 @@ fn unsupported(mouse: bool) {
     let mut session = start(&f);
     let before = witness(&f);
     let after = open(&mut session, mouse);
-    ready(&mut session, after, "Observed subject");
+    ready(
+        &mut session,
+        after,
+        "Review requested • Subject unavailable • ",
+    );
     let snapshot = session.wait_for_overlay_body(TITLE);
     let point = session.wait_for_owned_completed_action(TITLE, "[f Follow PR]", &[]);
     let after = session.completed_cells_end();

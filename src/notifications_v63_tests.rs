@@ -184,6 +184,22 @@ fn notifications_native_v63_actual_read_prepared_display_and_resize_do_zero_more
         .unwrap()
         .coverage
         .contains("1 raw, 0 duplicates, 0 unverified repo"));
+    let label = app
+        .notifications_v63
+        .as_ref()
+        .unwrap()
+        .prepared
+        .as_ref()
+        .unwrap()
+        .rows[0]
+        .label
+        .clone();
+    assert!(label.starts_with("Unread "), "{label}");
+    assert!(
+        label.contains(" Review requested • PR #7 • PRIVATE_NOTIFICATION_ACTUAL_SOURCE 界 • "),
+        "{label}"
+    );
+    assert!(label.ends_with(" • example/repo0000"), "{label}");
     let before = std::fs::read(f.root.join("gh-fixture/commands.jsonl")).unwrap();
     for (w, h) in [(80, 24), (120, 40), (40, 18), (120, 40)] {
         let frame = paint(&mut app, w, h);
@@ -583,4 +599,67 @@ fn notifications_native_v63_actual_background_genuine_result_mixed_poison_reject
     assert!(background.cancel_notifications_v63(&mut app));
     assert!(!app.loading[View::Inbox.index()]);
     support::exact(&f, &expected);
+}
+
+#[test]
+fn notifications_native_v63_row_label_reads_state_age_reason_title_and_resource() {
+    // 2026-10-15T18:00:00Z is 1_792_087_200; five days and one hour later.
+    let now = 1_792_087_200 + 5 * 86_400 + 3_600;
+    let label = row_label_v63(
+        true,
+        "2026-10-15T18:00:00Z",
+        now,
+        "review_requested",
+        "Fix the parser",
+        "example/repo",
+        "PR #7",
+    );
+    assert_eq!(
+        label,
+        "Unread   5d Review requested • PR #7 • Fix the parser • example/repo"
+    );
+    let read = row_label_v63(
+        false,
+        "2026-10-20T18:59:00Z",
+        now,
+        "mention",
+        "t",
+        "o/r",
+        "Issue #3",
+    );
+    assert_eq!(read, "Read     1m Mentioned • Issue #3 • t • o/r");
+    // An unparseable time never invents an age.
+    let unknown = row_label_v63(
+        false,
+        "yesterday",
+        now,
+        "comment",
+        "t",
+        "o/r",
+        "Commit abc1234",
+    );
+    assert_eq!(unknown, "Read      — Comment • Commit abc1234 • t • o/r");
+}
+
+#[test]
+fn notifications_native_v63_reason_labels_are_readable_and_unknown_reasons_stay_observed() {
+    for (raw, readable) in [
+        ("review_requested", "Review requested"),
+        ("mention", "Mentioned"),
+        ("team_mention", "Team mentioned"),
+        ("assign", "Assigned"),
+        ("ci_activity", "CI activity"),
+        ("state_change", "State changed"),
+        ("subscribed", "Watching"),
+        ("manual", "Subscribed manually"),
+        ("security_alert", "Security alert"),
+    ] {
+        assert_eq!(reason_label_v63(raw), readable);
+    }
+    assert_eq!(reason_label_v63("brand_new_reason"), "brand_new_reason");
+    // Control bytes in an unknown reason are sanitized and the label bounded.
+    let hostile = format!("x\u{1b}[31m{}", "y".repeat(100));
+    let label = reason_label_v63(&hostile);
+    assert!(!label.contains('\u{1b}'));
+    assert!(label.chars().count() <= 40);
 }
