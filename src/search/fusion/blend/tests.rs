@@ -1,6 +1,8 @@
 //! Staged provider-free contracts: real scoped cache generations, not transport stubs.
 #[path = "discovered_tests.rs"]
 mod discovered_tests;
+#[path = "relevance_quality_tests.rs"]
+mod relevance_quality_tests;
 
 use super::*;
 use crate::{

@@ -984,3 +984,93 @@ fn saved_searches_roundtrip_account_scope_filters_and_sort_without_expanding_acc
     bad.sort = "secret-random-mode".into();
     assert!(bad.validate(&scope).is_err());
 }
+
+#[test]
+fn saved_searches_pin_rename_delete_keep_intent_and_scope() {
+    use ghtui::search::workspace::SearchWorkspace;
+    let cache = Cache::memory().unwrap();
+    let alice = Scope::new("github.invalid", "alice").unwrap();
+    let mut workspace = SearchWorkspace::new(alice.clone(), vec![]);
+    workspace.set_mode(SearchMode::GitHub);
+    workspace.remote_repositories = vec!["org/app".into()];
+    workspace.input = "label:security \"auth boundary\"".into();
+    workspace.save(&cache, "b first", false).unwrap();
+    workspace.input = "other".into();
+    workspace.save(&cache, "a second", false).unwrap();
+    assert_eq!(workspace.saved[0].name, "a second");
+    let before = workspace.saved[1].clone();
+    // Pinning changes only the pin and moves the query first.
+    assert!(workspace.toggle_saved_pin(&cache, "b first").unwrap());
+    assert_eq!(workspace.saved[0].name, "b first");
+    assert!(workspace.saved[0].pinned);
+    assert_eq!(
+        SavedSearch {
+            pinned: false,
+            ..workspace.saved[0].clone()
+        },
+        before
+    );
+    // Renaming keeps query, mode, repositories and pin; the old name is gone.
+    workspace
+        .rename_saved(&cache, "b first", "Security")
+        .unwrap();
+    let renamed = workspace.saved[0].clone();
+    assert_eq!(renamed.name, "Security");
+    assert!(renamed.pinned);
+    assert_eq!(renamed.input, before.input);
+    assert_eq!(renamed.mode, before.mode);
+    assert_eq!(renamed.repositories, before.repositories);
+    let names = |cache: &Cache| {
+        cache
+            .saved_views(&alice)
+            .unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&cache), ["search:Security", "search:a second"]);
+    assert!(workspace
+        .rename_saved(&cache, "Security", "a second")
+        .is_err());
+    assert!(workspace.rename_saved(&cache, "Security", "  ").is_err());
+    assert_eq!(names(&cache), ["search:Security", "search:a second"]);
+    // Another account cannot see or change these saved queries.
+    let mut bob = SearchWorkspace::new(Scope::new("github.invalid", "bob").unwrap(), vec![]);
+    bob.load_saved(&cache).unwrap();
+    assert!(bob.toggle_saved_pin(&cache, "Security").is_err());
+    assert!(bob.delete_saved(&cache, "Security").is_err());
+    // Delete removes exactly one saved query.
+    workspace.delete_saved(&cache, "Security").unwrap();
+    assert_eq!(names(&cache), ["search:a second"]);
+    assert_eq!(workspace.saved.len(), 1);
+    assert!(workspace.toggle_saved_pin(&cache, "Security").is_err());
+}
+
+#[test]
+fn search_index_resource_limits_come_from_configuration() {
+    use ghtui::search::workspace::SearchWorkspace;
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = ghtui::config::Config {
+        index_max_documents: 3,
+        index_max_total_bytes: 2 * 1024 * 1024,
+        max_file_bytes: 4096,
+        ..Default::default()
+    };
+    config
+        .local_repositories
+        .insert("org/app".into(), directory.path().to_path_buf());
+    config.validate().unwrap();
+    let path = directory.path().join("config.toml");
+    config.save(&path).unwrap();
+    assert_eq!(ghtui::config::Config::load(&path).unwrap(), config);
+    let workspace = SearchWorkspace::from_config(
+        Scope::new("local", "workspace").unwrap(),
+        &config,
+        directory.path(),
+        &CancellationToken::default(),
+    )
+    .unwrap();
+    assert_eq!(workspace.ranked_limits.max_documents, 3);
+    assert_eq!(workspace.ranked_limits.max_total_bytes, 2 * 1024 * 1024);
+    assert_eq!(workspace.corpus_limits.max_file_bytes, 4096);
+}

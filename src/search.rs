@@ -19,6 +19,9 @@ pub mod sources;
 pub mod tokenizer;
 pub mod workspace;
 
+#[cfg(test)]
+mod relevance_quality_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {

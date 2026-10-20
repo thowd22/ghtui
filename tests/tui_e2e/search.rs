@@ -50,6 +50,13 @@ fn fixture() -> Fixture {
     .unwrap();
     fixture
 }
+fn today_utc() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    ghtui::git_actor_labels_v1::utc_date(now as i64)
+}
 fn open_search(session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "3 Search", b"3");
@@ -74,6 +81,8 @@ fn query_modes(mouse: bool) {
     session.wait_for_screen("1 results • Exact");
     session.wait_for_row(&["日本語.txt", " 1:8 "]);
     session.wait_for_screen("including uncommitted content");
+    // Each result's preview says when its content was read, in UTC.
+    session.wait_for_screen(&format!("scanned {}", today_utc()));
     choose(&mut session, mouse, "x Regex", b"x");
     enter_query(&mut session, mouse, "[");
     session.wait_for_screen("Invalid or excessive regex");
@@ -323,6 +332,7 @@ fn exact_search(mouse: bool) {
     enter_query(&mut session, mouse, "saved needle");
     session.wait_for_screen("1 results • Exact");
     session.wait_for_screen("saved needle α");
+    session.wait_for_screen(&format!("read {}", today_utc()));
     choose(&mut session, mouse, "[o Open result]", b"o");
     session.wait_for_screen("Opened exact search destination");
     session.wait_for_screen("saved version");
@@ -389,6 +399,37 @@ fn saved_searches(mouse: bool) {
     session.wait_for_screen("Restored query: Saved evidence");
     session.wait_for_screen("1 results • Regex");
     session.wait_for_screen("saved needle α");
+    // Pin, then rename through the Name field; both keep the saved intent.
+    choose(&mut session, mouse, "[P Pin]", b"P");
+    session.wait_for_screen("Pinned saved query: Saved evidence");
+    session.wait_for_screen("[u Saved evidence (pinned)]");
+    session.wait_for_screen("[P Unpin]");
+    choose(&mut session, mouse, "[z Name]", b"z");
+    session.send_key(b"\x01");
+    session.paste("Daily evidence");
+    if mouse {
+        session.click_visible_action("[R Rename]")
+    } else {
+        // Tab leaves the field (a bare Esc followed by R could read as Alt+R).
+        session.send_key(b"\t");
+        session.send_key(b"R");
+    }
+    session.wait_for_screen("Renamed saved query: Saved evidence → Daily evidence");
+    session.wait_for_screen("[u Daily evidence (pinned)]");
+    let scope = Scope::new("local", "workspace").unwrap();
+    let views = cache.saved_views(&scope).unwrap();
+    assert!(!views
+        .iter()
+        .any(|(name, _)| name == "search:Saved evidence"));
+    let renamed = &views
+        .iter()
+        .find(|(name, _)| name == "search:Daily evidence")
+        .unwrap()
+        .1;
+    assert_eq!(renamed["pinned"], true);
+    assert_eq!(renamed["input"], "saved.*α path:nested");
+    assert_eq!(renamed["mode"], "regex");
+    assert_eq!(renamed["revision"], "HEAD");
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert!(session.inspect_command_journal(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
@@ -401,11 +442,157 @@ fn saved_searches(mouse: bool) {
         .unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "[u Saved evidence]", b"u");
+    choose(&mut session, mouse, "[u Daily evidence (pinned)]", b"u");
     session.wait_for_screen("unavailable saved scope; no broader search");
     session.wait_for_screen("Saved repository local/current has no available local mapping");
     assert!(!session.screen().contains("1 results • Regex"));
+    // Delete removes exactly this saved query.
+    choose(&mut session, mouse, "[X Delete]", b"X");
+    session.wait_for_screen("Deleted saved query: Daily evidence");
+    assert!(!cache
+        .saved_views(&scope)
+        .unwrap()
+        .iter()
+        .any(|(name, _)| name.starts_with("search:")));
     assert!(session.inspect_command_journal(&fixture).is_empty());
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+/// A `git` on the fixture PATH that holds `ls-tree` (the saved-version scan) while armed, so a
+/// scan is still running when the journey cancels it. Released and killed on drop.
+struct SlowScan {
+    arm: std::path::PathBuf,
+    pid: std::path::PathBuf,
+    release: std::path::PathBuf,
+    finished: std::path::PathBuf,
+}
+impl SlowScan {
+    fn install(fixture: &Fixture) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let actual_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|directory| directory.join("git"))
+            .find(|path| path.is_file())
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let scan = Self {
+            arm: fixture.root.join("scan-arm"),
+            pid: fixture.root.join("scan-pid"),
+            release: fixture.root.join("scan-release"),
+            finished: fixture.root.join("scan-finished"),
+        };
+        let quote =
+            |path: &std::path::Path| format!("'{}'", path.to_str().unwrap().replace('\'', "'\\''"));
+        let script = format!(
+            "#!/bin/sh\nslow=\nfor argument in \"$@\"; do [ \"$argument\" = ls-tree ] && slow=1; done\nif [ -n \"$slow\" ] && [ -f {arm} ]; then\nprintf '%s' \"$$\" > {pid}.tmp && mv {pid}.tmp {pid}\nwhile [ ! -f {release} ]; do sleep 0.05; done\nprintf done > {finished}\nfi\nexec {git} \"$@\"\n",
+            arm = quote(&scan.arm),
+            pid = quote(&scan.pid),
+            release = quote(&scan.release),
+            finished = quote(&scan.finished),
+            git = quote(&actual_git),
+        );
+        let program = fixture.root.join("bin/git");
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        scan
+    }
+}
+impl Drop for SlowScan {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.release, b"fixture cleanup release");
+        if let Ok(pid) = std::fs::read_to_string(&self.pid) {
+            if let Ok(pid) = pid.parse::<i32>() {
+                // The PID was written by this owned helper; never leave it sleeping.
+                if pid > 0 && unsafe { libc::kill(pid, 0) } == 0 {
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_search_keyboard_cancels_a_slow_saved_version_scan_then_searches_again() {
+    cancel_scan(false, false)
+}
+#[test]
+fn exact_search_mouse_cancels_a_slow_saved_version_scan_then_searches_again() {
+    cancel_scan(true, false)
+}
+#[test]
+fn search_index_keyboard_cancels_a_slow_build_then_rebuilds() {
+    cancel_scan(false, true)
+}
+#[test]
+fn search_index_mouse_cancels_a_slow_build_then_rebuilds() {
+    cancel_scan(true, true)
+}
+/// Cancel a held saved-version scan (Exact) or ranked index build (Ranked), then search again.
+fn cancel_scan(mouse: bool, ranked: bool) {
+    let mode = if ranked { "Ranked" } else { "Exact" };
+    let fixture = fixture();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let index = std::fs::read(fixture.repo().join(".git/index")).unwrap();
+    let scan = SlowScan::install(&fixture);
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_search(&mut session, mouse);
+    if ranked {
+        choose(&mut session, mouse, "n Ranked", b"n");
+    }
+    choose(&mut session, mouse, "v Saved version", b"v");
+    std::fs::write(&scan.arm, b"hold the next saved-version scan").unwrap();
+    enter_query(&mut session, mouse, "saved needle");
+    session
+        .try_wait_for_condition(
+            |_| scan.pid.exists(),
+            "saved-version scan is running inside the slow git helper",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    let pid = std::fs::read_to_string(&scan.pid)
+        .unwrap()
+        .parse::<i32>()
+        .unwrap();
+    // `choose` waits for a settled key bar, which never comes while the scan is held.
+    if mouse {
+        session.click_visible_action("[Esc Cancel]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    session.wait_for_screen("Cancelled • r Refresh to retry");
+    session
+        .try_wait_for_condition(
+            |_| {
+                let alive = unsafe { libc::kill(pid, 0) };
+                alive == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            },
+            "cancelled scan child is killed and reaped",
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap();
+    assert!(
+        !scan.finished.exists(),
+        "A cancelled scan must not continue past its held read"
+    );
+    assert!(!session.screen().contains(&format!("1 results • {mode}")));
+    // Disarmed, the same query completes with the saved-version result.
+    std::fs::remove_file(&scan.arm).unwrap();
+    session.resize(80, 24);
+    enter_query(&mut session, mouse, "saved needle");
+    session.wait_for_screen(&format!("1 results • {mode}"));
+    session.wait_for_screen("saved needle α");
+    if ranked {
+        // Only the completed rebuild published an index generation.
+        assert!(ranked_derivative_generation(&fixture) > 0);
+    }
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        std::fs::read(fixture.repo().join(".git/index")).unwrap(),
+        index
+    );
+    assert!(session.inspect_command_journal(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
 }

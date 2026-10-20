@@ -120,6 +120,8 @@ pub struct SearchControls {
     pub preview_scroll: usize,
     pub corpus_index: usize,
     pub preview_rect: Rect,
+    /// The saved search last restored or saved here; Pin, Rename and Delete act on it.
+    pub saved_target: Option<String>,
 }
 impl Default for SearchControls {
     fn default() -> Self {
@@ -136,6 +138,7 @@ impl Default for SearchControls {
             preview_scroll: 0,
             corpus_index: 0,
             preview_rect: Rect::default(),
+            saved_target: None,
         }
     }
 }
@@ -452,7 +455,27 @@ pub fn dispatch(app: &mut App, action: SearchAction) {
         Open(_) if app.loading[crate::app::View::Search.index()] => {
             app.status = LOADING_OPEN.into();
         }
+        PinSaved(_) | RenameSaved(_) | DeleteSaved(_)
+            if app.loading[crate::app::View::Search.index()] =>
+        {
+            app.status = "Search is still loading • wait before changing saved queries".into();
+        }
+        PinSaved(_) | RenameSaved(_) | DeleteSaved(_) => {
+            app.search_controls.editing = None;
+            app.search_controls.saved_target = match &action {
+                RenameSaved(_) => Some(app.search_controls.name.text.trim().to_owned()),
+                DeleteSaved(_) => None,
+                _ => app.search_controls.saved_target.clone(),
+            };
+            app.search_action = Some(action);
+        }
         Submit | Saved(_) => {
+            if let Saved(name) = &action {
+                // The restored query becomes the target of Pin, Rename and Delete.
+                app.search_controls.saved_target = Some(name.clone());
+                app.search_controls.name =
+                    crate::editor::TextBuffer::new(name.as_str()).unwrap_or_default();
+            }
             // An old hit count is not the result of the newly entered query.
             if let Some(search) = &mut app.search {
                 search.page = None;
@@ -466,6 +489,9 @@ pub fn dispatch(app: &mut App, action: SearchAction) {
         }
         Open(_) | Save => {
             app.search_controls.editing = None;
+            if action == Save {
+                app.search_controls.saved_target = Some(app.search_controls.name.text.clone());
+            }
             app.search_action = Some(action);
         }
         PreviewScroll(delta) => {
@@ -659,6 +685,17 @@ pub fn handle_event(app: &mut App, event: &Event) -> bool {
             .and_then(|search| search.saved.first())
             .map(|saved| SearchAction::Saved(saved.name.clone())),
         KeyCode::Char('p') => Some(SearchAction::Preview(app.search_controls.selected)),
+        KeyCode::Char('P' | 'R' | 'X') => {
+            let Some(target) = saved_target(app) else {
+                app.dispatch(Action::Explain(NO_SAVED_TARGET.into()));
+                return true;
+            };
+            Some(match key.code {
+                KeyCode::Char('P') => SearchAction::PinSaved(target),
+                KeyCode::Char('R') => SearchAction::RenameSaved(target),
+                _ => SearchAction::DeleteSaved(target),
+            })
+        }
         KeyCode::Enter if app.search_controls.corpus => app
             .search
             .as_ref()
@@ -698,6 +735,19 @@ pub fn handle_event(app: &mut App, event: &Event) -> bool {
         false
     }
 }
+const NO_SAVED_TARGET: &str = "Choose a saved query first (u or click it under Saved), or save one with S • Pin, Rename and Delete act on it";
+
+/// The saved search Pin, Rename and Delete act on, when it still exists.
+fn saved_target(app: &App) -> Option<String> {
+    let target = app.search_controls.saved_target.as_ref()?;
+    app.search
+        .as_ref()?
+        .saved
+        .iter()
+        .any(|saved| &saved.name == target)
+        .then(|| target.clone())
+}
+
 fn move_selection(app: &mut App, delta: isize) {
     if app.search_controls.corpus {
         let count = app
@@ -827,9 +877,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         search
             .saved
             .iter()
-            .map(|saved| saved.name.clone())
+            .map(|saved| (saved.name.clone(), saved.pinned))
             .collect::<Vec<_>>()
     });
+    let target = saved_target(app);
     let saved_rows = u16::from(!saved.is_empty());
     if area.height < 4 + saved_rows {
         frame.render_widget(Paragraph::new("Resize terminal for search controls"), area);
@@ -900,11 +951,38 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             Rect::new(rows[3].x, rows[3].y, lead_width, 1),
         );
         let mut x = rows[3].x + lead_width;
-        for (index, name) in saved.into_iter().enumerate() {
+        // The chosen saved query's own actions come first, so they are never cut by a long list.
+        if let Some(target) = &target {
+            let pinned = saved.iter().any(|(name, pinned)| name == target && *pinned);
+            for (label, action) in [
+                (
+                    if pinned { "[P Unpin]" } else { "[P Pin]" },
+                    SearchAction::PinSaved(target.clone()),
+                ),
+                ("[R Rename]", SearchAction::RenameSaved(target.clone())),
+                ("[X Delete]", SearchAction::DeleteSaved(target.clone())),
+            ] {
+                let width = label.len() as u16;
+                if x.saturating_add(width) > rows[3].right() {
+                    break;
+                }
+                button(
+                    frame,
+                    app,
+                    Rect::new(x, rows[3].y, width, 1),
+                    label,
+                    action,
+                    false,
+                );
+                x += width + 1;
+            }
+        }
+        for (index, (name, pinned)) in saved.into_iter().enumerate() {
             let label = format!(
-                "[{} {}]",
+                "[{} {}{}]",
                 if index == 0 { "u" } else { "saved" },
-                safe_text(&name)
+                safe_text(&name),
+                if pinned { " (pinned)" } else { "" }
             );
             let width = crate::editor::display_width(&label).min(usize::from(u16::MAX)) as u16;
             // A saved query is shown whole or not at all, so its click target is never cut.
@@ -1161,6 +1239,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             source: preview.source,
             matched_fields: preview.matched_fields.clone(),
             destination: preview.destination.clone(),
+            freshness: preview.freshness.clone(),
             lines: preview
                 .lines
                 .iter()
@@ -1270,6 +1349,21 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             "[Ctrl↑ Back]",
             SearchAction::PreviewScroll(-3),
             false,
+        );
+        // When this result's content was read (UTC), beside the scroll buttons.
+        let fresh_x = 26.min(inner.width);
+        frame.render_widget(
+            Paragraph::new(crate::ui_chrome::fit(
+                &preview.freshness,
+                usize::from(inner.width - fresh_x),
+            ))
+            .style(app.theme().role(crate::theme::Role::TextMuted)),
+            Rect::new(
+                inner.x + fresh_x,
+                inner.y + 2 + actor_rows,
+                inner.width - fresh_x,
+                1.min(inner.height.saturating_sub(2 + actor_rows)),
+            ),
         );
         // A fused contribution is short, structured prepared metadata. Keep
         // each contributing rank visible rather than clipping the last source

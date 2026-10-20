@@ -143,7 +143,8 @@ fn local_commit(mouse: bool) {
     source_field(&mut session, mouse, "Max documents/commits", "1");
     source_field(&mut session, mouse, "Max bytes/category", "65536");
     choose(&mut session, mouse, "[l Load source]", b"l");
-    session.wait_for_screen("Loaded 1 original commit messages");
+    // A capped history load says it is partial; the full load says it is complete.
+    session.wait_for_screen("Loaded 1 original commit messages • partial selected history");
     let persisted = saved_sources(&fixture);
     assert_eq!(persisted["sources"]["commits"][0]["revision"], "HEAD");
     assert_eq!(persisted["sources"]["commits"][0]["max_commits"], 1);
@@ -159,7 +160,8 @@ fn local_commit(mouse: bool) {
     choose(&mut session, mouse, "[g Local commit messages]", b"g");
     source_field(&mut session, mouse, "Max documents/commits", "2");
     choose(&mut session, mouse, "[l Load source]", b"l");
-    session.wait_for_screen("Loaded 2 original commit messages");
+    session
+        .wait_for_screen("Loaded 2 original commit messages • available selected history complete");
     close_sources(&mut session, mouse);
     query(
         &mut session,
@@ -400,9 +402,9 @@ fn pr_sources(mouse: bool) {
         )],
         42,
     );
-    for _ in 0..6 {
+    for _ in 0..7 {
         steps.extend(gh_fixture::private_source_read(42));
-    } // Three exact queries + three native resource opens.
+    } // Four exact queries (comment, review, PR body, inline) + three native resource opens.
     steps.extend(gh_fixture::pr_load(
         &parent,
         vec![gh_fixture::comment(501, "FreshCommentOnlyNeedle", false)],
@@ -429,7 +431,7 @@ fn pr_sources(mouse: bool) {
     choose(&mut session, mouse, "[p PR]", b"p");
     source_field(&mut session, mouse, "[v PR/issue number]", "7");
     choose(&mut session, mouse, "[l Load source]", b"l");
-    session.wait_for_screen("Loaded 4 cached discussion records");
+    session.wait_for_screen("Loaded 4 cached discussion records • selected sources complete");
     let targets = private_sources(&fixture);
     assert_eq!(targets.discussions.len(), 4);
     for target in &targets.discussions {
@@ -476,6 +478,14 @@ fn pr_sources(mouse: bool) {
             "review-author",
             "cccccccccccccccccccccccccccccccccccccccc",
         ],
+    );
+    // The PR body is its own searchable record.
+    private_query(
+        &mut session,
+        &fixture,
+        mouse,
+        "PrBodyOnlyNeedle",
+        "1 results • Exact",
     );
     session.resize(80, 24);
     private_query(

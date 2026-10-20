@@ -681,6 +681,8 @@ fn mapping(mouse: bool) {
     session.resize(80, 24);
     preview(&mut session, mouse, "Map this existing checkout");
     confirm(&mut session, mouse, "Mapped existing repository");
+    // The mapped checkout's observed size and revision scope are visible.
+    session.wait_for_screen("B on disk");
     query(&mut session, mouse, "working corpus evidence");
     session.wait_for_screen("1 results • Exact");
     session.wait_for_screen("org/app");

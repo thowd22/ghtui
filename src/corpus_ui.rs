@@ -275,7 +275,17 @@ pub fn fields(intent: &CorpusIntent) -> Result<Vec<Field>, String> {
         match value {
             CorpusValue::Directory(path) => {
                 directory.choices.push(key.clone());
-                directory.choice_labels.push(path.display());
+                // A mapped repository shows its size on disk and saved revision beside its path.
+                directory.choice_labels.push(
+                    match intent
+                        .catalog
+                        .iter()
+                        .find(|mapping| &mapping.directory == path)
+                    {
+                        Some(mapping) => format!("{} • {}", path.display(), mapping.footprint()),
+                        None => path.display(),
+                    },
+                );
             }
             CorpusValue::Recovery { repository, id } => {
                 recovery.choices.push(key.clone());

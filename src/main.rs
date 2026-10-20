@@ -2768,10 +2768,24 @@ fn run() -> Result<()> {
                     Some(SearchAction::Save) => {
                         // Save exactly the visible query, not a previous successful search.
                         search.input = input;
+                        // Editing a saved query by saving it again keeps its pin.
+                        let pinned = search.saved.iter().any(|saved| saved.name == name && saved.pinned);
                         search
-                            .save(&cache, &name, false)
+                            .save(&cache, &name, pinned)
                             .map_err(|error| error.to_string())?;
                         format!("Saved query: {name} • {} scope retained",if search.mode == ghtui::search::SearchMode::GitHub {"verified account/repository"} else {"local"})
+                    }
+                    Some(SearchAction::PinSaved(target)) => {
+                        let pinned = search.toggle_saved_pin(&cache, &target).map_err(|error| error.to_string())?;
+                        if pinned { format!("Pinned saved query: {target} • listed first") } else { format!("Unpinned saved query: {target}") }
+                    }
+                    Some(SearchAction::RenameSaved(target)) => {
+                        search.rename_saved(&cache, &target, &name).map_err(|error| error.to_string())?;
+                        format!("Renamed saved query: {target} → {}", name.trim())
+                    }
+                    Some(SearchAction::DeleteSaved(target)) => {
+                        search.delete_saved(&cache, &target).map_err(|error| error.to_string())?;
+                        format!("Deleted saved query: {target} • S saves the current query again")
                     }
                     Some(SearchAction::Saved(name)) => {
                         search

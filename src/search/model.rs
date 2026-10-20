@@ -389,10 +389,16 @@ impl Document {
         })
     }
     pub fn matches(&self, query: &Query) -> bool {
+        let canonical = self.canonical_github_repository_filter();
         query.filters.iter().all(|(filter, values)| {
             values.iter().any(|value| match filter.as_str() {
-                "repo" => &self.key.repository == value,
-                "org" => self.key.repository.split('/').next() == Some(value.as_str()),
+                "repo" => {
+                    &self.key.repository == value
+                        || canonical && self.key.repository.eq_ignore_ascii_case(value)
+                }
+                "org" => self.key.repository.split('/').next().is_some_and(|owner| {
+                    owner == value || canonical && owner.eq_ignore_ascii_case(value)
+                }),
                 "set" => self.metadata.repository_sets.contains(value),
                 "type" => self.key.kind.label() == value,
                 "rev" => {
@@ -438,6 +444,80 @@ impl Document {
                 _ => false,
             })
         })
+    }
+
+    /// When this result's content was read, in UTC, plus the source's own update time when
+    /// the provider reported one. A zero read time says so instead of inventing one.
+    pub fn freshness(&self) -> String {
+        let verb = match self.source {
+            SourceKind::Worktree => "scanned",
+            SourceKind::SavedCommit => "read",
+            SourceKind::Collaboration => "hydrated",
+            SourceKind::GitHub => "fetched",
+        };
+        let mut label = if self.metadata.fetched_at == 0 {
+            format!("{verb} time unknown")
+        } else {
+            format!(
+                "{verb} {}",
+                crate::git_actor_labels_v1::utc_datetime(
+                    i64::try_from(self.metadata.fetched_at).unwrap_or(i64::MAX)
+                )
+            )
+        };
+        if let Some(updated) = &self.metadata.updated_at {
+            label.push_str(&format!(" • source updated {updated}"));
+        }
+        label
+    }
+
+    /// GitHub repository names are case-insensitive, but only already canonical,
+    /// positive-principal discussion records may use that alias. Local labels,
+    /// raw paths and unverified remote fragments stay exact.
+    fn canonical_github_repository_filter(&self) -> bool {
+        let positive_account = self
+            .key
+            .scope
+            .login
+            .strip_prefix("user-id:")
+            .filter(|id| !id.starts_with('0') && id.bytes().all(|byte| byte.is_ascii_digit()))
+            .and_then(|id| id.parse::<u64>().ok())
+            .is_some_and(|id| id > 0);
+        if !positive_account
+            || self.key.scope.host == "local"
+            || self.source != SourceKind::Collaboration
+        {
+            return false;
+        }
+        let Some(context) = &self.metadata.discussion else {
+            return false;
+        };
+        if context.repository_id == 0
+            || context.parent_number == 0
+            || context.parent_node.is_empty()
+            || context.resource_node.is_empty()
+        {
+            return false;
+        }
+        match &self.destination {
+            Destination::PullRequest {
+                host,
+                repository,
+                number,
+                ..
+            }
+            | Destination::Issue {
+                host,
+                repository,
+                number,
+                ..
+            } => {
+                host == &self.key.scope.host
+                    && repository == &self.key.repository
+                    && *number == context.parent_number
+            }
+            _ => false,
+        }
     }
 }
 

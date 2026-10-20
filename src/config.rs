@@ -106,6 +106,10 @@ pub struct Config {
     pub bindings: BTreeMap<String, String>,
     pub avatars: bool,
     pub max_file_bytes: u64,
+    /// Ranked search index budget: most documents one generation admits.
+    pub index_max_documents: usize,
+    /// Ranked search index budget: most source bytes one generation admits.
+    pub index_max_total_bytes: u64,
 }
 
 impl Default for Config {
@@ -123,6 +127,8 @@ impl Default for Config {
             bindings: BTreeMap::new(),
             avatars: true,
             max_file_bytes: 2 * 1024 * 1024,
+            index_max_documents: 100_000,
+            index_max_total_bytes: 128 * 1024 * 1024,
         }
     }
 }
@@ -160,6 +166,12 @@ impl Config {
         }
         if self.max_file_bytes == 0 || self.max_file_bytes > 128 * 1024 * 1024 {
             bail!("File limit must be between 1 byte and 128 MiB");
+        }
+        if !(1..=1_000_000).contains(&self.index_max_documents) {
+            bail!("Search index document limit must be between 1 and 1000000");
+        }
+        if !(1024 * 1024..=1024 * 1024 * 1024).contains(&self.index_max_total_bytes) {
+            bail!("Search index byte limit must be between 1 MiB and 1 GiB");
         }
         if let Some(set) = &self.active_set {
             if !self.repository_sets.contains_key(set) {
@@ -500,11 +512,15 @@ mod tests {
         let config = Config::default();
         config.save(&path).unwrap();
         let original = fs::read(&path).unwrap();
-        let invalid: [fn(&mut Config); 6] = [
+        let invalid: [fn(&mut Config); 10] = [
             |c| c.refresh_seconds = 4,
             |c| c.refresh_seconds = 86_401,
             |c| c.max_file_bytes = 0,
             |c| c.max_file_bytes = 128 * 1024 * 1024 + 1,
+            |c| c.index_max_documents = 0,
+            |c| c.index_max_documents = 1_000_001,
+            |c| c.index_max_total_bytes = 1024 * 1024 - 1,
+            |c| c.index_max_total_bytes = 1024 * 1024 * 1024 + 1,
             |c| c.version = 2,
             |c| c.host = "https://github.com".into(),
         ];

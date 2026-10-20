@@ -34,6 +34,12 @@ pub enum SearchAction {
     Open(usize),
     Save,
     Saved(String),
+    /// Toggle the pin of the named saved search; pinned searches are listed first.
+    PinSaved(String),
+    /// Rename the named saved search to the current Name field.
+    RenameSaved(String),
+    /// Remove the named saved search from this account's saved views.
+    DeleteSaved(String),
     Corpus,
     Name,
     SavedVersion,
@@ -85,6 +91,8 @@ pub struct SearchPreview {
     pub source: SourceKind,
     pub matched_fields: Vec<String>,
     pub destination: Destination,
+    /// When the previewed content was read (see [`Document::freshness`]).
+    pub freshness: String,
     pub lines: Vec<PreviewLine>,
 }
 #[derive(Debug, Clone)]
@@ -169,6 +177,9 @@ impl SearchWorkspace {
             .collect::<Vec<_>>();
         let mut workspace = Self::new(scope, selections);
         workspace.corpus_limits.max_file_bytes = config.max_file_bytes as usize;
+        workspace.ranked_limits.max_documents = config.index_max_documents;
+        workspace.ranked_limits.max_total_bytes =
+            usize::try_from(config.index_max_total_bytes).unwrap_or(usize::MAX);
         if workspace.selections.is_empty()
             && config.local_repositories.is_empty()
             && config.active_set.is_none()
@@ -685,6 +696,14 @@ impl SearchWorkspace {
             }]
         };
         self.preview = Some(SearchPreview {
+            freshness: format!(
+                "fetched {}",
+                crate::git_actor_labels_v1::utc_datetime(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |elapsed| elapsed.as_secs() as i64)
+                )
+            ),
             title: path.display(),
             context: format!(
                 "{} / saved {} / verified blob {} • immutable remote file{}",
@@ -925,6 +944,7 @@ impl SearchWorkspace {
         let first = hit.line.saturating_sub(9);
         let fragment_only = hit.document.source == SourceKind::GitHub;
         self.preview = Some(SearchPreview {
+            freshness: hit.document.freshness(),
             title: hit.document.title.clone(),
             context: if fragment_only {
                 format!(
@@ -1127,6 +1147,65 @@ impl SearchWorkspace {
                 &format!("search:{name}"),
                 &serde_json::to_value(&saved).map_err(|error| QueryError(error.to_string()))?,
             )
+            .map_err(|error| QueryError(error.to_string()))?;
+        self.load_saved(cache)
+    }
+    fn saved_named(&self, name: &str) -> Result<SavedSearch, QueryError> {
+        self.saved
+            .iter()
+            .find(|saved| saved.name == name)
+            .cloned()
+            .ok_or_else(|| {
+                QueryError("Saved search was removed or belongs to another account".into())
+            })
+    }
+    fn write_saved(&self, cache: &Cache, saved: &SavedSearch) -> Result<(), QueryError> {
+        saved.validate(&self.scope)?;
+        cache
+            .save_view(
+                &self.scope,
+                &format!("search:{}", saved.name),
+                &serde_json::to_value(saved).map_err(|error| QueryError(error.to_string()))?,
+            )
+            .map_err(|error| QueryError(error.to_string()))
+    }
+    /// Pin or unpin one saved search; returns the new pin state. Only `pinned` changes.
+    pub fn toggle_saved_pin(&mut self, cache: &Cache, name: &str) -> Result<bool, QueryError> {
+        let mut saved = self.saved_named(name)?;
+        saved.pinned = !saved.pinned;
+        self.write_saved(cache, &saved)?;
+        self.load_saved(cache)?;
+        Ok(saved.pinned)
+    }
+    /// Rename one saved search, keeping its query, mode, scope, sort and pin unchanged.
+    pub fn rename_saved(&mut self, cache: &Cache, from: &str, to: &str) -> Result<(), QueryError> {
+        let to = to.trim();
+        if to.is_empty() || to.len() > 128 {
+            return Err(QueryError("Saved search name needs 1–128 bytes".into()));
+        }
+        if to == from {
+            return Err(QueryError(format!(
+                "Saved query is already named {to} • edit the Name field first"
+            )));
+        }
+        if self.saved.iter().any(|saved| saved.name == to) {
+            return Err(QueryError(format!(
+                "A saved query named {to} already exists • nothing renamed"
+            )));
+        }
+        let mut saved = self.saved_named(from)?;
+        saved.name = to.into();
+        self.write_saved(cache, &saved)?;
+        cache
+            .remove_saved_view(&self.scope, &format!("search:{from}"))
+            .map_err(|error| QueryError(error.to_string()))?;
+        self.load_saved(cache)
+    }
+    /// Delete one saved search. Other saved views and caches are untouched.
+    pub fn delete_saved(&mut self, cache: &Cache, name: &str) -> Result<(), QueryError> {
+        self.saved_named(name)?;
+        cache
+            .remove_saved_view(&self.scope, &format!("search:{name}"))
             .map_err(|error| QueryError(error.to_string()))?;
         self.load_saved(cache)
     }

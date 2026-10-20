@@ -79,3 +79,4 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 
 - **Keep backlog notes short:** what changed, the gate command, and pass counts. Use the Backlog.md CLI. Don't mark work Done unless it has been verified.
 - **End with a concise report:** changes, files, each test command with pass/fail counts, remaining failures, commit SHAs, and any product issues you noticed but didn't fix.
+- **A test file no `mod` declares never compiles or runs.** TASK-49's relevance-quality tests sat unregistered for weeks. When you add `*_tests.rs` or `tests/tui_e2e/*.rs`, declare it (`#[cfg(test)] mod …;`, `#[path]`, or `tests/tui_e2e.rs`) and confirm its tests appear in the run output.

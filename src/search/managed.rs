@@ -65,6 +65,26 @@ pub struct CorpusRepository {
     pub clone_source: Option<CloneSource>,
 }
 impl CorpusRepository {
+    /// Observed size on disk and the resolved saved revision, e.g.
+    /// `1.2 MiB on disk • saved 0123456789ab`. A walk stopped by its entry budget says
+    /// "at least" rather than presenting a partial sum as the size.
+    pub fn footprint(&self) -> String {
+        format!(
+            "{}{} on disk • {}",
+            if self.disk_complete { "" } else { "at least " },
+            crate::actions_workspace::human_bytes(self.disk_bytes),
+            {
+                let commit = self
+                    .saved_commit
+                    .as_deref()
+                    .map_or("unresolved", |commit| &commit[..commit.len().min(12)]);
+                match &self.source {
+                    LocalSource::Worktree => format!("working files at HEAD {commit}"),
+                    LocalSource::Revision(revision) => format!("saved {revision} = {commit}"),
+                }
+            }
+        )
+    }
     pub fn path(&self) -> PathBuf {
         PathBuf::from(self.directory.as_os_str())
     }
@@ -594,9 +614,13 @@ impl CorpusManager {
                 };
                 self.put_mapping(cache, &mapping)?;
                 Ok(CorpusOutcome {
+                    // The message borrows the mapping before it moves into the outcome.
+                    message: format!(
+                        "Mapped existing repository • {} • no Git or working-file changes",
+                        mapping.footprint()
+                    ),
                     mapping: Some(mapping),
                     recovery: None,
-                    message: "Mapped existing repository • no Git or working-file changes".into(),
                 })
             }
             CorpusOperation::Clone {
@@ -628,11 +652,13 @@ impl CorpusManager {
                 mapping.disk_complete = complete;
                 self.put_mapping(cache, &mapping)?;
                 Ok(CorpusOutcome {
+                    // The message borrows the mapping before it moves into the outcome.
+                    message: format!(
+                        "Explicit fetch completed; selected source refreshed • {} • {message}",
+                        mapping.footprint()
+                    ),
                     mapping: Some(mapping),
                     recovery: None,
-                    message: format!(
-                        "Explicit fetch completed; selected source refreshed • {message}"
-                    ),
                 })
             }
             CorpusOperation::Unmap { repository } => {
@@ -1491,7 +1517,12 @@ impl CorpusManager {
                     state.saved_commit = mapping.saved_commit.clone();
                     state.elapsed_millis = started.elapsed().as_millis() as u64;
                 });
-                Ok(CorpusOutcome{mapping:Some(mapping),recovery:None,message:"Explicit managed clone ready • saved-object source, no checkout or parent fetch".into()})
+                let message=format!("Explicit managed clone ready • {} • saved-object source, no checkout or parent fetch",mapping.footprint());
+                Ok(CorpusOutcome {
+                    mapping: Some(mapping),
+                    recovery: None,
+                    message,
+                })
             }
             Err(failure) => {
                 RUNNER

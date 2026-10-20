@@ -263,6 +263,61 @@ fn selected_corpus_real_bare_clone_fetch_saved_scope_moves_without_checkout_or_l
         LocalSource::Revision("refs/remotes/origin/HEAD".into())
     );
     assert!(current.disk_complete);
+    // Size and revision scope are what the UI shows for this mapping.
+    let footprint = current.footprint();
+    assert!(footprint.contains(" on disk • saved refs/remotes/origin/HEAD = "));
+    assert!(footprint.ends_with(&updated[..12]));
+    // A force-rewritten upstream ref moves the saved scope; old-only content leaves it.
+    git(
+        &fixture.root,
+        [
+            OsStr::new("reset"),
+            OsStr::new("--hard"),
+            OsStr::new("HEAD~1"),
+        ],
+    );
+    fixture.write("readme.txt", b"rewritten source\n");
+    let rewritten = fixture.commit("Upstream rewritten");
+    assert_ne!(rewritten, updated);
+    git(
+        &fixture.root,
+        [
+            OsStr::new("push"),
+            OsStr::new("--force"),
+            remote.as_os_str(),
+            OsStr::new("HEAD:refs/heads/main"),
+        ],
+    );
+    let rewritten_mapping = apply(
+        &manager,
+        &cache,
+        CorpusOperation::Fetch {
+            repository: "org/app".into(),
+            remote: "origin".into(),
+        },
+    )
+    .mapping
+    .unwrap();
+    assert_eq!(
+        rewritten_mapping.saved_commit.as_deref(),
+        Some(rewritten.as_str())
+    );
+    assert_eq!(local.resolve_original("HEAD").unwrap(), head);
+    let corpus = ghtui::search::corpus::Corpus::collect(
+        scope(),
+        &[rewritten_mapping.selection().unwrap()],
+        &ghtui::search::corpus::CorpusLimits::default(),
+        &CancellationToken::default(),
+    )
+    .unwrap();
+    assert!(corpus
+        .documents
+        .iter()
+        .any(|document| document.body.contains("rewritten source")));
+    assert!(!corpus
+        .documents
+        .iter()
+        .any(|document| document.body.contains("new fetched source")));
 }
 
 #[test]
