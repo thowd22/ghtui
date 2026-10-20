@@ -2,6 +2,8 @@
 use super::*;
 mod inspect;
 pub use inspect::*;
+mod projects;
+pub use projects::*;
 #[path = "pr_metadata_capability_v25.rs"]
 mod metadata_capability_v25;
 #[cfg(test)]
@@ -2102,28 +2104,6 @@ impl GithubProvider {
             )),
             Err(failure) => self.after_pr_write(target, Err(failure)),
         }
-    }
-    pub fn add_project_item(
-        &self,
-        identity: &HostIdentity,
-        target: &PrSummary,
-        project_id: &str,
-        cancel: &CancellationToken,
-    ) -> GithubResult<Value> {
-        if project_id.is_empty() {
-            return Err(error(GithubErrorKind::InvalidTarget, "Select a project"));
-        }
-        self.gql_pr_write(
-            identity,
-            target,
-            (
-                "addProjectV2ItemById",
-                "AddProjectV2ItemByIdInput",
-                "item{id}",
-            ),
-            json!({"projectId":project_id,"contentId":target.pr.id}),
-            cancel,
-        )
     }
     /// Publication uses an already-pushed remote branch; this never changes a local checkout.
     pub fn create_pr(

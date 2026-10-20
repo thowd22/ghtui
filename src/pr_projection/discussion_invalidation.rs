@@ -484,6 +484,8 @@ fn possible_text_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKin
         | "metadata-remove-team"
         | "metadata-set-milestone"
         | "metadata-clear-milestone" => None,
+        // Project placement changes no PR, comment or review text.
+        "metadata-project-add" | "metadata-project-remove" => None,
         // Structured filter freshness is handled by the exact metadata hook.
         _ => {
             return Err("This unresolved PR command has no declared discussion-text impact".into())
@@ -554,6 +556,8 @@ fn impact_categories(marker: &PrWriteMarker) -> Result<Vec<SyncBindingKind>, Str
             | "metadata-remove-assignee" | "metadata-add-reviewer" | "metadata-remove-reviewer"
             | "metadata-add-team" | "metadata-remove-team" | "metadata-set-milestone"
             | "metadata-clear-milestone"=>{crate::pr_metadata_actions::validate_recorded_marker(marker)?;None},
+            // Project placement changes no PR, comment or review text.
+            "metadata-project-add" | "metadata-project-remove"=>None,
             _=>return Err("Metadata receipt needs an explicit changed-field text impact; no whole-repository invalidation is guessed".into()),
         },
         // A merge changes PR state, not comment/review/body text.

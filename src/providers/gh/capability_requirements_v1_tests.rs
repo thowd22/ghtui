@@ -164,7 +164,7 @@ fn gh_provider_inventory_contracts_effects_tasks_and_target_guards_do_not_confla
     assert!(capability_requirement_contract_v1("pr-metadata")
         .unwrap()
         .operations
-        .contains("milestone and linked issues with selected-field readback. Project placement is not offered."));
+        .contains("milestone and linked issues with selected-field readback; Projects (v2) placement add/remove with item readback."));
 }
 
 #[test]

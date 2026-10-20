@@ -42,6 +42,8 @@ mod pipe_lifetime;
 mod pr_checks_bridge;
 #[path = "provider_contracts/principal_freshness.rs"]
 mod principal_freshness;
+#[path = "provider_contracts/project_placement_v1.rs"]
+mod project_placement_v1;
 #[path = "provider_contracts/read_access.rs"]
 mod read_access;
 #[path = "provider_contracts/remote_bounded.rs"]

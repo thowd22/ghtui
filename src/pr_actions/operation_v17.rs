@@ -88,7 +88,9 @@ impl PrOperation {
             | PrCommand::Lock
             | PrCommand::Unlock
             | PrCommand::Revert
-            | PrCommand::DeleteHeadBranch => return Err("Not a Conversation operation".into()),
+            | PrCommand::DeleteHeadBranch
+            | PrCommand::AddToProject
+            | PrCommand::RemoveFromProject => return Err("Not a Conversation operation".into()),
         })
     }
     /// Restriction-only prequeue validation against the exact captured request.

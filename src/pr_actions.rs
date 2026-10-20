@@ -9,7 +9,8 @@ use crate::{
         gh::{
             CommentKind, CommentReaction, ConversationComment, CurrentPrSubscription, GithubError,
             GithubErrorKind, GithubProvider, HostIdentity, LockReason, MergeContext, MergeMethod,
-            MergeQueueEntry, PrLifecycle, PrSummary, Reaction, RepoMergeSettings, Subscription,
+            MergeQueueEntry, PrLifecycle, PrSummary, ProjectItem, ProjectPlacement, ProjectRef,
+            Reaction, RepoMergeSettings, Subscription,
         },
         runner::{sanitize_terminal, CancellationToken},
     },
@@ -42,17 +43,21 @@ pub enum PrCommand {
     Unlock,
     Revert,
     DeleteHeadBranch,
+    AddToProject,
+    RemoveFromProject,
 }
 impl PrCommand {
     /// Queue, lock, revert and branch deletion: each reads its own current
     /// GitHub state when opened and again before publication.
-    pub const GOVERNED: [Self; 6] = [
+    pub const GOVERNED: [Self; 8] = [
         Self::EnqueueMerge,
         Self::DequeueMerge,
         Self::Lock,
         Self::Unlock,
         Self::Revert,
         Self::DeleteHeadBranch,
+        Self::AddToProject,
+        Self::RemoveFromProject,
     ];
     /// PR state changes that use the shared lifecycle refusal/preview path.
     pub const LIFECYCLE: [Self; 7] = [
@@ -64,7 +69,7 @@ impl PrCommand {
         Self::Close,
         Self::Reopen,
     ];
-    pub const ALL: [(Self, &'static str); 22] = [
+    pub const ALL: [(Self, &'static str); 24] = [
         (Self::NewComment, "New conversation comment"),
         (Self::EditComment, "Edit selected comment"),
         (Self::DeleteComment, "Delete selected comment"),
@@ -87,6 +92,8 @@ impl PrCommand {
         (Self::Unlock, "Unlock conversation"),
         (Self::Revert, "Revert merged PR"),
         (Self::DeleteHeadBranch, "Delete head branch"),
+        (Self::AddToProject, "Add to project"),
+        (Self::RemoveFromProject, "Remove from project"),
     ];
     pub fn label(self) -> &'static str {
         Self::ALL
@@ -119,6 +126,8 @@ impl PrCommand {
             Self::Unlock => "lifecycle-unlock",
             Self::Revert => "lifecycle-revert",
             Self::DeleteHeadBranch => "lifecycle-delete-head-branch",
+            Self::AddToProject => "metadata-project-add",
+            Self::RemoveFromProject => "metadata-project-remove",
         }
     }
     pub fn disabled_reason(self, context: &PrActionContext) -> Option<String> {
@@ -231,6 +240,8 @@ pub struct PrGovernance {
     pub merge_settings: Option<RepoMergeSettings>,
     pub merge_context: Option<MergeContext>,
     pub issue_locked: Option<bool>,
+    /// Projects (v2) placement read when a project form opens.
+    pub projects: Option<ProjectPlacement>,
 }
 impl PrActionContext {
     /// Read the GitHub state this command's availability depends on.
@@ -264,6 +275,13 @@ impl PrActionContext {
                         .get("locked")
                         .and_then(serde_json::Value::as_bool)
                         .ok_or("GitHub did not report whether this conversation is locked; nothing was changed.")?,
+                );
+            }
+            PrCommand::AddToProject | PrCommand::RemoveFromProject => {
+                self.governance.projects = Some(
+                    provider
+                        .project_placement(&self.target, cancel)
+                        .map_err(private_read_error)?,
                 );
             }
             _ => {}
@@ -615,6 +633,21 @@ fn loaded_governed_reason(command: PrCommand, context: &PrActionContext) -> Opti
             .then(|| "This conversation is already locked.".into()),
         PrCommand::Unlock => (governance.issue_locked == Some(false))
             .then(|| "This conversation is not locked.".into()),
+        PrCommand::AddToProject => {
+            let placement = governance.projects.as_ref()?;
+            placement.addable().is_empty().then(|| {
+                if placement.projects.is_empty() {
+                    "No Projects (v2) board is visible for this repository or its owner.".into()
+                } else {
+                    "No open project you can update is left to add this PR to.".into()
+                }
+            })
+        }
+        PrCommand::RemoveFromProject => governance
+            .projects
+            .as_ref()
+            .filter(|placement| placement.items.is_empty())
+            .map(|_| "This PR is not in any project.".into()),
         PrCommand::DeleteHeadBranch => {
             let settings = governance.merge_settings.as_ref()?;
             if !settings.can_write() {
@@ -714,6 +747,42 @@ pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
                 choices: vec![],
             },
         ],
+        PrCommand::AddToProject => {
+            let choices: Vec<PrChoice> = context
+                .governance
+                .projects
+                .as_ref()
+                .map(|placement| {
+                    placement
+                        .addable()
+                        .into_iter()
+                        .map(|project| PrChoice {
+                            value: project.id.clone(),
+                            label: project.label(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            vec![project_field("project", choices)]
+        }
+        PrCommand::RemoveFromProject => {
+            let choices: Vec<PrChoice> = context
+                .governance
+                .projects
+                .as_ref()
+                .map(|placement| {
+                    placement
+                        .items
+                        .iter()
+                        .map(|item| PrChoice {
+                            value: item.id.clone(),
+                            label: item.project.label(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            vec![project_field("item", choices)]
+        }
         _ => fields_v17(
             command,
             context.comment.as_ref(),
@@ -721,6 +790,17 @@ pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
             context.identity.account_id,
             context.current_subscription.as_ref(),
         ),
+    }
+}
+fn project_field(key: &'static str, choices: Vec<PrChoice>) -> PrField {
+    PrField {
+        key,
+        label: "Project",
+        value: choices
+            .first()
+            .map_or(String::new(), |choice| choice.value.clone()),
+        multiline: false,
+        choices,
     }
 }
 /// Same actual form-field policy; no fabricated workspace/context is needed
@@ -757,7 +837,9 @@ pub(crate) fn fields_v17(
         | PrCommand::Lock
         | PrCommand::Unlock
         | PrCommand::Revert
-        | PrCommand::DeleteHeadBranch => vec![],
+        | PrCommand::DeleteHeadBranch
+        | PrCommand::AddToProject
+        | PrCommand::RemoveFromProject => vec![],
         PrCommand::UpdateBranch => vec![PrField {
             key: "method",
             label: "Update method",
@@ -884,6 +966,11 @@ pub(crate) enum GovernedOperation {
     DeleteHeadBranch {
         default_branch: String,
     },
+    AddToProject {
+        project: ProjectRef,
+        complete: bool,
+    },
+    RemoveFromProject(ProjectItem),
 }
 impl GovernedOperation {
     pub(crate) fn command(&self) -> PrCommand {
@@ -894,6 +981,8 @@ impl GovernedOperation {
             Self::Unlock => PrCommand::Unlock,
             Self::Revert { .. } => PrCommand::Revert,
             Self::DeleteHeadBranch { .. } => PrCommand::DeleteHeadBranch,
+            Self::AddToProject { .. } => PrCommand::AddToProject,
+            Self::RemoveFromProject(_) => PrCommand::RemoveFromProject,
         }
     }
     fn parse(
@@ -942,6 +1031,34 @@ impl GovernedOperation {
                     .default_branch
                     .clone(),
             },
+            PrCommand::AddToProject => {
+                let placement = governance
+                    .projects
+                    .as_ref()
+                    .ok_or("Read the PR's project placement first.")?;
+                let chosen = get("project");
+                let project = placement
+                    .addable()
+                    .into_iter()
+                    .find(|project| project.id == chosen)
+                    .ok_or("Choose one of the listed open projects you can update.")?;
+                Self::AddToProject {
+                    project: project.clone(),
+                    complete: placement.complete,
+                }
+            }
+            PrCommand::RemoveFromProject => {
+                let placement = governance
+                    .projects
+                    .as_ref()
+                    .ok_or("Read the PR's project placement first.")?;
+                Self::RemoveFromProject(
+                    placement
+                        .item(&get("item"))
+                        .ok_or("Choose one of the projects this PR is in.")?
+                        .clone(),
+                )
+            }
             _ => return Err("Not a governed PR action".into()),
         })
     }
@@ -1006,6 +1123,31 @@ impl GovernedOperation {
                 ),
                 "The merged commits stay reachable through this PR.".into(),
             ],
+            Self::AddToProject { project, complete } => {
+                let mut lines = vec![
+                    format!(
+                        "Adds this PR to project {} • project {}.",
+                        project.label(),
+                        project.id
+                    ),
+                    "Only project placement changes; other PR metadata and your checkout are untouched.".into(),
+                ];
+                if !complete {
+                    lines.push(
+                        "GitHub reported more projects than ghtui read (first 50 of each list)."
+                            .into(),
+                    );
+                }
+                lines
+            }
+            Self::RemoveFromProject(item) => vec![
+                format!(
+                    "Removes this PR's item {} from project {}.",
+                    item.id,
+                    item.project.label()
+                ),
+                "The item's project field values go with it; the PR itself is unchanged.".into(),
+            ],
         }
     }
     fn publish(
@@ -1036,6 +1178,17 @@ impl GovernedOperation {
             Self::DeleteHeadBranch { default_branch } => PrActionEffect::BranchDeleted(
                 provider.delete_head_branch(identity, target, default_branch, cancel)?,
             ),
+            Self::AddToProject { project, .. } => PrActionEffect::Project {
+                added: true,
+                item: Box::new(provider.add_project_item(identity, target, project, cancel)?),
+            },
+            Self::RemoveFromProject(item) => {
+                provider.remove_project_item(identity, target, item, cancel)?;
+                PrActionEffect::Project {
+                    added: false,
+                    item: Box::new(item.clone()),
+                }
+            }
         })
     }
     fn receipt(&self, effect: &PrActionEffect) -> Result<PrConfirmedEffect, String> {
@@ -1054,6 +1207,16 @@ impl GovernedOperation {
             (Self::DeleteHeadBranch { .. }, PrActionEffect::BranchDeleted(_)) => {
                 "head-branch-deleted".into()
             }
+            (Self::AddToProject { project, .. }, PrActionEffect::Project { added: true, item })
+                if item.project.id == project.id =>
+            {
+                format!("project-added-{}", item.project.id)
+            }
+            (Self::RemoveFromProject(wanted), PrActionEffect::Project { added: false, item })
+                if item.id == wanted.id =>
+            {
+                format!("project-removed-{}", item.project.id)
+            }
             _ => {
                 return Err(
                     "GitHub did not confirm the requested state. Inspect it before retrying."
@@ -1065,12 +1228,15 @@ impl GovernedOperation {
             // Queue entries are merge state; the rest are lifecycle state.
             kind: if matches!(self, Self::Enqueue | Self::Dequeue(_)) {
                 PrEffectKind::Merge
+            } else if matches!(self, Self::AddToProject { .. } | Self::RemoveFromProject(_)) {
+                PrEffectKind::Metadata
             } else {
                 PrEffectKind::Lifecycle
             },
             resource_id: state,
             node_id: match effect {
                 PrActionEffect::Reverted(created) => Some(created.pr.id.clone()),
+                PrActionEffect::Project { item, .. } => Some(item.id.clone()),
                 _ => None,
             },
         })
@@ -1994,6 +2160,11 @@ pub enum PrActionEffect {
     /// The new reverting PR.
     Reverted(Box<PrSummary>),
     BranchDeleted(String),
+    /// The PR's project item, read back after it was added or removed.
+    Project {
+        added: bool,
+        item: Box<ProjectItem>,
+    },
 }
 impl PrActionEffect {
     /// Distinct visible outcome beyond "Published", for results that are not
@@ -2016,6 +2187,12 @@ impl PrActionEffect {
             ),
             Self::BranchDeleted(branch) => {
                 format!("remote branch {} deleted", sanitize_terminal(branch))
+            }
+            Self::Project { added: true, item } => {
+                format!("added to project {}", item.project.label())
+            }
+            Self::Project { added: false, item } => {
+                format!("removed from project {}", item.project.label())
             }
             _ => return None,
         })
@@ -2388,6 +2565,104 @@ mod governed_tests {
                 .unwrap()
                 .resource_id,
             "locked"
+        );
+    }
+
+    fn project(id: &str, number: u64, closed: bool, can: Option<bool>) -> ProjectRef {
+        ProjectRef {
+            id: id.into(),
+            number,
+            title: format!("P{number}"),
+            owner: "example".into(),
+            closed,
+            viewer_can_update: can,
+        }
+    }
+
+    #[test]
+    fn pr_projects_choices_parse_and_receipts_follow_fresh_placement() {
+        let mut ctx = context(v1_pr_lifecycle_tests::target());
+        // Unread placement: no refusal from cached state, and no choices.
+        assert_eq!(PrCommand::AddToProject.disabled_reason(&ctx), None);
+        assert!(fields(PrCommand::AddToProject, &ctx)[0].choices.is_empty());
+        let placed = ProjectItem {
+            id: "PVTI_1".into(),
+            archived: false,
+            project: project("PVT_1", 1, false, Some(true)),
+        };
+        ctx.governance.projects = Some(ProjectPlacement {
+            items: vec![placed.clone()],
+            projects: vec![
+                project("PVT_1", 1, false, Some(true)),
+                project("PVT_2", 2, false, Some(true)),
+                project("PVT_3", 3, true, Some(true)),
+                project("PVT_4", 4, false, None),
+            ],
+            complete: true,
+        });
+        let field = &fields(PrCommand::AddToProject, &ctx)[0];
+        assert_eq!(field.value, "PVT_2");
+        assert_eq!(
+            field
+                .choices
+                .iter()
+                .map(|c| c.label.as_str())
+                .collect::<Vec<_>>(),
+            ["P2 #2 (example)"],
+            "placed, closed and unverified-permission projects are not offered"
+        );
+        let get = |value: &'static str| move |_: &str| value.to_string();
+        assert!(
+            GovernedOperation::parse(PrCommand::AddToProject, &ctx, &get("PVT_3")).is_err(),
+            "a closed project id cannot be submitted"
+        );
+        let add = GovernedOperation::parse(PrCommand::AddToProject, &ctx, &get("PVT_2")).unwrap();
+        assert!(add.preview(&ctx.target, &ctx)[0].contains("P2 #2 (example)"));
+        let remove =
+            GovernedOperation::parse(PrCommand::RemoveFromProject, &ctx, &get("PVTI_1")).unwrap();
+        assert!(
+            GovernedOperation::parse(PrCommand::RemoveFromProject, &ctx, &get("PVTI_x")).is_err()
+        );
+        // Receipts require the read-back item of the chosen project.
+        let wrong = PrActionEffect::Project {
+            added: true,
+            item: Box::new(placed.clone()),
+        };
+        assert!(add.receipt(&wrong).is_err());
+        let added = PrActionEffect::Project {
+            added: true,
+            item: Box::new(ProjectItem {
+                id: "PVTI_9".into(),
+                archived: false,
+                project: project("PVT_2", 2, false, Some(true)),
+            }),
+        };
+        let receipt = add.receipt(&added).unwrap();
+        assert_eq!(receipt.kind, PrEffectKind::Metadata);
+        assert_eq!(receipt.resource_id, "project-added-PVT_2");
+        assert_eq!(receipt.node_id.as_deref(), Some("PVTI_9"));
+        let removed = PrActionEffect::Project {
+            added: false,
+            item: Box::new(placed),
+        };
+        assert_eq!(
+            remove.receipt(&removed).unwrap().resource_id,
+            "project-removed-PVT_1"
+        );
+        // Nothing left to add, and nothing to remove, are explained.
+        ctx.governance.projects = Some(ProjectPlacement {
+            complete: true,
+            ..Default::default()
+        });
+        assert!(PrCommand::AddToProject
+            .disabled_reason(&ctx)
+            .unwrap()
+            .contains("No Projects (v2) board"));
+        assert_eq!(
+            PrCommand::RemoveFromProject
+                .disabled_reason(&ctx)
+                .as_deref(),
+            Some("This PR is not in any project.")
         );
     }
 }

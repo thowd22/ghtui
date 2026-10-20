@@ -106,6 +106,10 @@ fn writes(records: &[Value]) -> usize {
             .count()
 }
 fn run(flow: Flow, mouse: bool) {
+    run_checked(flow, mouse, |_| {})
+}
+/// `stored` checks the durable receipt after a confirmed write.
+fn run_checked(flow: Flow, mouse: bool, stored: impl FnOnce(&Fixture)) {
     let fixture = configured();
     let git = local_git_witness(&fixture);
     let mut steps = initial();
@@ -178,7 +182,39 @@ fn run(flow: Flow, mouse: bool) {
     let after = records(&mut session, &fixture, steps.len());
     assert_eq!(writes(&after), 1, "exactly one GitHub write");
     assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    stored(&fixture);
     session.quit_and_assert_restored_terminal(mouse);
+}
+/// Exactly one confirmed journal attempt for `command` whose receipt names
+/// the read-back project item.
+fn project_receipt(
+    command: &'static str,
+    resource: &'static str,
+    item: &'static str,
+) -> impl FnOnce(&Fixture) {
+    move |fixture| {
+        let db = rusqlite::Connection::open_with_flags(
+            fixture.root.join("config/ghtui/cache.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let rows: Vec<(String, String, String, String)> = db
+            .prepare("SELECT command,state,confirmed_json,observed_head FROM pr_write_attempts WHERE pr_number=7")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 1, "one durable attempt: {rows:?}");
+        let (stored, state, receipt, head) = &rows[0];
+        assert_eq!(stored, command);
+        assert_eq!(state, "confirmed");
+        assert_eq!(head, HEAD);
+        let receipt: Value = serde_json::from_str(receipt).unwrap();
+        assert_eq!(receipt["kind"], "metadata");
+        assert_eq!(receipt["resource_id"], resource);
+        assert_eq!(receipt["node_id"], item);
+    }
 }
 
 // ---- TASK-24: merge methods, permission, head race, queue ----
@@ -478,6 +514,137 @@ fn delete_branch_cancelled() -> Flow {
         cancel: true,
         ..delete_branch()
     }
+}
+
+// ---- TASK-18: Projects (v2) placement ----
+
+fn project_node(id: &str, number: u64, title: &str, closed: bool, can: bool) -> Value {
+    json!({"id":id,"number":number,"title":title,"closed":closed,"viewerCanUpdate":can})
+}
+fn project_item(id: &str, project: &str, number: u64, title: &str) -> Value {
+    json!({"id":id,"isArchived":false,"project":{"id":project,"number":number,"title":title,"closed":false}})
+}
+/// The placement read: the PR's items plus the owner's projects.
+fn projects(items: Vec<Value>) -> GhStep {
+    let owner = vec![
+        project_node("PVT_board", 1, "Board", false, true),
+        project_node("PVT_roadmap", 2, "Roadmap", false, true),
+        project_node("PVT_triage", 5, "Triage", false, true),
+        project_node("PVT_archive", 6, "Archive", true, true),
+    ];
+    graphql(
+        ghtui::providers::gh::PR_PROJECTS_QUERY,
+        json!({"id":NODE}),
+        json!({"data":{"node":{"id":NODE,"headRefOid":HEAD,
+            "projectItems":{"totalCount":items.len(),"nodes":items},
+            "repository":{"nameWithOwner":"example/repo",
+                "projectsV2":{"totalCount":0,"nodes":[]},
+                "owner":{"login":"example","projectsV2":{"totalCount":owner.len(),"nodes":owner}}}}}}),
+    )
+}
+fn board_item() -> Value {
+    project_item("PVTI_1", "PVT_board", 1, "Board")
+}
+fn add_to_project() -> Flow {
+    let mut confirm = guard();
+    confirm.extend(guard());
+    confirm.push(graphql(
+        ghtui::providers::gh::PR_PROJECT_ADD_MUTATION,
+        json!({"input":{"projectId":"PVT_triage","contentId":NODE}}),
+        json!({"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_9"}}}}),
+    ));
+    confirm.push(projects(vec![
+        board_item(),
+        project_item("PVTI_9", "PVT_triage", 5, "Triage"),
+    ]));
+    Flow {
+        before: pr(),
+        label: "Add to project",
+        opening: vec![projects(vec![board_item()])],
+        refused: None,
+        // Board already holds the PR and Archive is closed: Roadmap, Triage.
+        choice: Some((
+            "[Triage #5 (example)]",
+            b" ",
+            "Project • Triage #5 (example)",
+        )),
+        preview_pr: None,
+        preview: "Adds this PR to project Triage #5 (example) • project PVT_triage.",
+        confirm,
+        after: pr(),
+        done: "added to project Triage #5 (example)",
+        cancel: false,
+    }
+}
+fn add_to_project_none_left() -> Flow {
+    Flow {
+        opening: vec![projects(vec![
+            board_item(),
+            project_item("PVTI_2", "PVT_roadmap", 2, "Roadmap"),
+            project_item("PVTI_5", "PVT_triage", 5, "Triage"),
+        ])],
+        refused: Some("No open project you can update is left to add this PR to."),
+        ..add_to_project()
+    }
+}
+fn remove_from_project() -> Flow {
+    let mut confirm = guard();
+    confirm.extend(guard());
+    confirm.push(projects(vec![board_item()]));
+    confirm.push(graphql(
+        ghtui::providers::gh::PR_PROJECT_DELETE_MUTATION,
+        json!({"input":{"projectId":"PVT_board","itemId":"PVTI_1"}}),
+        json!({"data":{"deleteProjectV2Item":{"deletedItemId":"PVTI_1"}}}),
+    ));
+    confirm.push(projects(vec![]));
+    Flow {
+        before: pr(),
+        label: "Remove from project",
+        opening: vec![projects(vec![board_item()])],
+        refused: None,
+        choice: None,
+        preview_pr: None,
+        preview: "Removes this PR's item PVTI_1 from project Board #1 (example).",
+        confirm,
+        after: pr(),
+        done: "removed from project Board #1 (example)",
+        cancel: false,
+    }
+}
+
+fn added() -> impl FnOnce(&Fixture) {
+    project_receipt("metadata-project-add", "project-added-PVT_triage", "PVTI_9")
+}
+fn removed() -> impl FnOnce(&Fixture) {
+    project_receipt(
+        "metadata-project-remove",
+        "project-removed-PVT_board",
+        "PVTI_1",
+    )
+}
+#[test]
+fn pr_projects_keyboard_adds_pr_to_chosen_project_with_one_write() {
+    run_checked(add_to_project(), false, added())
+}
+#[test]
+fn pr_projects_mouse_adds_pr_to_chosen_project_with_one_write() {
+    run_checked(add_to_project(), true, added())
+}
+#[test]
+fn pr_projects_keyboard_without_addable_project_explains_and_sends_nothing() {
+    run(add_to_project_none_left(), false)
+}
+#[test]
+fn pr_projects_mouse_without_addable_project_explains_and_sends_nothing() {
+    run(add_to_project_none_left(), true)
+}
+#[test]
+fn pr_projects_keyboard_removes_pr_from_project_with_one_write() {
+    run_checked(remove_from_project(), false, removed())
+}
+#[test]
+fn pr_projects_mouse_removes_pr_from_project_with_one_write() {
+    run_checked(remove_from_project(), true, removed())
 }
 
 #[test]
