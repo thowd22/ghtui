@@ -89,11 +89,17 @@ fn design_table_v91_inbox_rows_are_aligned_table_rows_with_bar_ages_and_open_tar
         // At 80 columns the long title is cut with an ellipsis; at 140 it fits whole.
         assert_eq!(second.contains('…'), width < 140, "{second}");
         assert_eq!(second.contains("viewer path"), width >= 140, "{second}");
-        // The age is relative and right-aligned under AGE.
+        // The age is relative (days up to a month, then months and years) and right-aligned
+        // under AGE.
+        let age = crate::ui_table::relative_age("2026-01-01T00:00:00Z");
         let age_end = column(header, "AGE") + 3;
         for row in [first, second, third] {
             let cells = row.chars().collect::<Vec<_>>();
-            assert_eq!(cells[age_end - 1], 'd', "{row}");
+            let painted = cells[age_end - age.chars().count()..age_end]
+                .iter()
+                .collect::<String>();
+            assert_eq!(painted, age, "{row}");
+            assert_eq!(cells[age_end - age.chars().count() - 1], ' ', "{row}");
             assert!(cells.get(age_end).is_none_or(|cell| *cell == ' '), "{row}");
             assert!(!row.contains("old"), "{row}");
         }

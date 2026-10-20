@@ -134,7 +134,7 @@ fn journey(mouse: bool, size: (u16, u16), resized: (u16, u16)) {
             && frame
                 .contents()
                 .lines()
-                .any(|line| line.contains("Repository • focused view") && line.contains("Local "))
+                .any(|line| line.contains("Repository • focused view") && line.contains(" / main "))
     });
 
     // Tab moves focus into the header: the marker and the accent border leave the pane.
@@ -241,7 +241,8 @@ fn header_journey(mouse: bool, size: (u16, u16)) {
             chrome(frame, "Repository", PEACH, true)
                 && !header.contains("Source")
                 && source_closes(&top)
-                && top.contains("Local ")
+                // The scope keeps the branch; a long temporary path drops to `repo / main`.
+                && top.contains(" / main ")
         },
     );
     session.capture_completed_terminal_v1(if mouse {
