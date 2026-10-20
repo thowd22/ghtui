@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - review
   - e2e
@@ -44,11 +44,11 @@ Authors need to create PRs from the same tool and understand what will be propos
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Create flow chooses host/repo/fork/head/base, shows the proposed diff, and edits title/body/draft/reviewers.
+- [x] #1 Create flow chooses host/repo/fork/head/base, shows the proposed diff, and edits title/body/draft/reviewers.
 - [x] #2 Required checkout/branch/push operations use an explicit local mapping or isolated worktree and preview their effects.
-- [ ] #3 Cancelled or failed publication preserves draft; success returns the canonical PR and appears in authored queue.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #3 Cancelled or failed publication preserves draft; success returns the canonical PR and appears in authored queue.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 - [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
@@ -79,4 +79,6 @@ Actual verification checkpoint: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.g
 2026-10-20 audit at 74360e48 (1/6 ACs met): Creating a PR from the current checkout's origin branch works (preview, duplicate check, one POST, draft kept per branch). Tests: v1_pr_create, 6 lib and 4 PTY. Missing: fork or upstream target, reviewers, inbox refresh after create, and a test that a failed POST keeps the draft. Remaining: AC1: there is no host, repo or fork chooser (origin only), and no reviewers field. Title, body, base, draft and the diff summary are present. AC3: cancel keeps the draft and success reports the canonical PR, but the authored inbox queue is not refreshed after creation, and there is no test that a failed POST keeps the draft. AC2 has no isolated-worktree option, but its intent is met because nothing is pushed or checked out implicitly. AC4 and AC5: no fork or reviewer scenarios. AC6: not verified
 
 2026-10-20 final push (verified at 60167066, 6107/0): Fork parent chooser and Reviewers field (logins or org/team) in create PR; authored queue refreshed after create. See commit 0bebb7b2.
+
+2026-10-20 round: Added PTY journeys v1_pr_create_{keyboard,mouse}_new_pr_appears_in_authored_queue in tests/tui_e2e/pr_create_v1.rs. Each loads the Inbox, creates a PR from Repository and returns to the Inbox. The Inbox reloads once with no Refresh, and the new PR is listed under Created by me. The journey checks for exactly one POST and an unchanged checkout. Fixed a real race in src/main.rs: a late draft-save ack replaced a Local form's failure status ('Pull request not created • draft kept locally') with 'Draft saved locally'. This made the keyboard failed-POST journey fail under load. The existing fork, reviewers, failed-POST, unpushed and cancel-then-publish journeys cover AC1, AC3, AC4 and AC5. Gate: node scripts/test-task.mjs v1_pr_create: 8 lib + 10 PTY passed, 0 failed. AC6 (shared actor chips in the create preview) is not verified. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

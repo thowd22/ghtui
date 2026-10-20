@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - localgit
   - e2e
@@ -39,9 +39,9 @@ Git operations can pause midway and be confusing to new users. A coherent operat
 <!-- AC:BEGIN -->
 - [ ] #1 Merge/rebase/cherry-pick/revert preview affected commits and expose continue/skip/abort where valid.
 - [ ] #2 Conflict viewer shows base/ours/theirs and operation context, supports selective resolution/editing and stages verified results.
-- [ ] #3 Binary/directory/rename conflicts and dirty-state races are explicit; cancellation preserves recovery paths.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #3 Binary/directory/rename conflicts and dirty-state races are explicit; cancellation preserves recovery paths.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -67,4 +67,6 @@ Error defect fixed and reverified: failed Git operations retain bounded redacted
 2026-10-20 audit at 74360e48 (0/5 ACs met): Merge conflict flow (banner, base/ours/theirs view, choose version, stage, continue) is solid with keyboard+mouse PTY; rebase/cherry-pick/revert/abort journeys, affected-commit previews, selective hunk resolution and dir/rename conflicts remain. Remaining: AC1: merge/rebase/cherry-pick/revert previews only show the generic destructive header, not the affected commits. Only merge is exercised end to end. Rebase, cherry-pick and revert have no contract or PTY test, and Skip/Abort are tested only at the git_contracts plan level for merge. AC2: resolution is whole-file ours/theirs/base only, with no hunk-level selection or in-app editing. AC3: binary conflicts get a preview line, but directory and rename conflicts and dirty-state races have no explici
 
 2026-10-20 final push (verified at 60167066, 6107/0): AC1 closed: merge/rebase/cherry-pick/revert previews list affected commits by full SHA; contract+PTY for rebase, cherry-pick, revert. Remaining AC3: directory/rename conflicts and changes made while a preview is open.
+
+2026-10-20 round: AC3 (structural conflicts and dirty-state races): the conflict viewer now names delete conflicts, rename/delete, add/add, rename/rename and file/directory conflicts. For a file/directory conflict it detects the `<path>~<side>` file next to the directory that took its place. It lists the base/ours/theirs versions that are missing, and handles submodule (160000), symlink and directory working paths explicitly. A merge, rebase, cherry-pick or revert preview whose repository changes before confirm is refused with 'Repository changed since the preview': HEAD and the working files stay as they were, and no operation is started. A fresh preview then refuses the now-dirty tree explicitly. Tests: contract tests v1_local_recovery_rename_delete_and_file_directory_conflicts_are_named_and_resolved and v1_local_recovery_sequencer_preview_refuses_a_change_made_while_it_is_open; keyboard and mouse PTY journeys for rename/delete + file/directory resolve and continue (120x40), and for the preview race (80x24). Gates: cargo test --lib --test local_actions_contracts v1_local_recovery passed 5 lib + 4 contract tests, 0 failed. cargo test --test tui_e2e v1_local_recovery passed 12/12. AC2 (hunk-level selection or in-app editing) was not done; resolution is still whole-file ours/theirs/base, or editing outside ghtui. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

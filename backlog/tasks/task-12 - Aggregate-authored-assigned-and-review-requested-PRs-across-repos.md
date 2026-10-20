@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:44'
 labels:
   - inbox
   - e2e
@@ -41,7 +41,7 @@ Tracking PRs should not require opening each repository separately. Authored, as
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Default queues cover the current host across repos; selected repository sets are a visible optional filter.
-- [ ] #2 Rows show repo, title, age, review/check/draft state and stable identity; refresh preserves selection.
+- [x] #2 Rows show repo, title, age, review/check/draft state and stable identity; refresh preserves selection.
 - [x] #3 Pagination/query partitioning and partial failures expose coverage without silently dropping matches.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -111,4 +111,6 @@ READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/bu
 2026-10-20 audit at 74360e48 (5/6 ACs met): Cross-repo queues, overlap, partial-coverage warnings, actor chips and key+mouse PTY are done. Inbox rows still lack review/check state. Remaining: AC2: Inbox rows (src/github_ui.rs:634-666) show repo#N, title with [draft], author, age and queue. They have no review-decision or check/CI state column, and PullRequest (src/providers/gh.rs:211) carries no review or check rollup, so the queue read cannot show it. Selection is kept by PrKey across refresh (github_workspace.rs:981), and the measured_refresh journey covers this for scoped repos. Notes also say whole-host completeness of the default queues cannot be proven. The product reports this
 
 2026-10-20 final push (verified at 60167066, 6107/0): AC2 not done: Inbox REST search/issues lacks review decision and check rollup; adding a gh call needs a fixture migration across ~30 test files.
+
+2026-10-20 round: AC2: Inbox rows now show review state and check rollup in a new STATUS column (src/inbox_status_v1.rs; github_ui INBOX_COLUMNS). It is the last column and the first to leave at narrow widths, so titles are never cut for it; when it leaves, the Comfortable detail line carries the status instead. The state comes only from PR pages read in this session: the latest decisive review per reviewer and the head's check runs and statuses. It adds no gh call, so no fixture migration was needed. Rows never opened show 'review/checks not loaded'. A newer queue updated_at marks the state '(stale)'. A new head drops the old checks. The memo is private to the account that read it and is cleared on account change or hidden identity. Repo, title, age, [draft], identity and refresh-selection were already in place. Gates: cargo test --lib -- inbox_status_v1 design_table_v91 design_density_v96 design_footer_v90 list_preview: 59/0 (5 new inbox_status_v1 tests). cargo test --test tui_e2e -- pr_details_pr_diff_pr_checks design_table_v91_inbox design_density_v96 navigation_inbox personal_inbox: 16/0. pr_details keyboard and mouse now assert 'not loaded' before opening and 'Changes requested, checks pass' on org/alpha#7 after Back at 80x24, with the exact strict gh journal and SQL unchanged. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

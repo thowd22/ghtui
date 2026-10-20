@@ -1,11 +1,11 @@
 ---
 id: TASK-9
 title: Discover all accessible organization repositories and saved sets
-status: In Progress
+status: Done
 assignee:
   - '@root'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - foundation
   - e2e
@@ -213,6 +213,8 @@ First implemented focused gate task9-repo_catalog_local_mapping-2026-10-17T19-49
 2026-10-20 audit at 74360e48 (5/5 ACs met): Org, user and accessible inventories with full pagination, metadata, local mapping, filter/select/pin/save, partial/retry and avatars are all implemented. repo_catalog gate reports 250 code + 88 PTY passing. Ready to verify and mark Done. Remaining: None found. The AC checkboxes are unticked in the backlog, but the code and tests cover every criterion. Independent check: Mostly implemented, but the evidence does not support calling it fully done. The Organization path is strong. It is reachable through ': Commands > Discover repositories' and 's Source > o Organization'. tests/tui_e2e/repository_catalogue_native_v1.rs:656/660 runs as keyboard and mouse pairs over 11 pages and 1001 repos, covering filter, select, pin, save, restart and activate. It checks the saved
 
 2026-10-20 final push (verified at 60167066, 6107/0): Most gaps closed (user inventories covered). Remaining: archived/fork filters are dead code (src/repo_catalog.rs is not compiled); live filter is text only.
+
+2026-10-20 round: Archive/fork filters now live: CatalogueKindFilter (All/Not archived/Archived/Forks/Not forks) in repository_catalogue_workspace_v1.rs, key f (list/details focus) or click [f Kind: ...] on the filter row; unknown archived/fork never matches a narrowing; row tickets carry kind; header shows 'kind X (unknown excluded)'. Dead uncompiled src/repo_catalog.rs + src/repo_catalog/ removed. New unit test repo_catalog_workspace_kind_filter_* and PTY pair repo_catalog_native_{keyboard,mouse}_kind_filter_archived_fork_select_save_exact_intent (strict gh 7+4, no Git writes, saved intent exactly [10001], config unchanged). Gate: node scripts/test-task.mjs repo_catalog -> 252 code + 92 PTY passed, 0 failed, keyboard+mouse true. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->
 
 ## Comments

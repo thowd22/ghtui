@@ -1,11 +1,11 @@
 ---
 id: TASK-38
 title: Commit and amend local work with hooks and signing support
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - localgit
   - e2e
@@ -37,9 +37,9 @@ The TUI should complete the local edit-to-commit workflow while showing the exac
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Commit form previews staged content and supports message/body and explicit amend.
-- [ ] #2 Configured hooks/signing run correctly with deliberate prompt/editor handling and clear failures.
+- [x] #2 Configured hooks/signing run correctly with deliberate prompt/editor handling and clear failures.
 - [x] #3 Commit/amend verifies resulting object/ref and preserves work when cancelled or rejected.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -76,4 +76,6 @@ Canonical diff parser repair verified by shared checked staging gate: 14 code/pr
 2026-10-20 audit at 74360e48 (3/5 ACs met): Commit and amend with staged preview, hooks and a keyboard/mouse PTY all work; signing-failure and editor/prompt handling are untested. Remaining: AC2: hooks are covered (rejecting hook, and a successful hook with redacted output at git_contracts.rs:1585). Signing is only left enabled; no test configures a failing gpg/ssh signer to check the error shows. GIT_EDITOR and GIT_TERMINAL_PROMPT are set (git.rs:3088-3094), but no test checks editor or prompt handling. AC4: the Testing steps list signing failure; it is untested. A successful amend is tested only in contracts, not in a PTY.
 
 2026-10-20 final push (verified at 60167066, 6107/0): Signing failure explained and tested. Remaining: successful amend has no PTY journey.
+
+2026-10-20 round: Amend preview now lists the commit it replaces (kept in the reflog) and warns when that commit is already on the upstream (ahead==0). New contract v1_local_commit_amend_preview_names_replaced_published_commit_and_keeps_it_in_reflog. New PTY local_commit_{keyboard,mouse}_signing_failure_then_successful_amend: a failing gpg.program shows 'Commit signing failed' and keeps HEAD and the index, then a successful amend is checked (parent, message, tree, unstaged z.txt bytes, old commit in reflog, zero gh calls, 80x24 resize). Gates: local_actions_contracts v1_local_ 12/0; tui_e2e local_commit_ 5/1 (all 4 local:: journeys pass; the one failure is the unrelated collaboration mouse Search journey). Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

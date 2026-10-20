@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - localgit
   - e2e
@@ -38,7 +38,7 @@ Useful Git management includes synchronization, but users need to know which rem
 <!-- AC:BEGIN -->
 - [x] #1 Remote/url/ref/upstream and ahead/behind are visible before fetch/pull/push.
 - [ ] #2 Pull strategy and conflict/sequencer outcomes are explained; any force operation requires explicit guarded choice.
-- [ ] #3 Failures/prompts/cancellation preserve work and report partial remote/local effects accurately.
+- [x] #3 Failures/prompts/cancellation preserve work and report partial remote/local effects accurately.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -66,4 +66,6 @@ Actual checked node scripts/test-task.mjs remote_git passed 5 code/provider + 2 
 2026-10-20 audit at 74360e48 (3/5 ACs met): Explicit-remote fetch/pull(ff/merge/rebase)/push/lease all wired with divergence previews and keyboard+mouse PTY; remaining: force-lease PTY, pull-conflict PTY, auth/cancel/partial-effect failure coverage. Remaining: AC2: pull strategy explained (Rebase replays N local commits) and ForcePushLease is a guarded menu command (local_actions.rs:978 "Never uses unrestricted --force"), but force-with-lease has no PTY journey, and no PTY test runs a pull that hits a conflict to show the merge/rebase sequencer outcome. AC3: a rejected push is covered and preserves refs, and GIT_TERMINAL_PROMPT=0 (git.rs:3088) keeps credential prompts from blocking. No test covers an auth or network failure, an in-flight fetch/push ca
 
 2026-10-20 final push (verified at 60167066, 6107/0): Force-with-lease and pull-conflict journeys added; push refused by server explained. Remaining: cancelling a running fetch/push, partial push reporting.
+
+2026-10-20 round: A failed or cancelled fetch, pull or push now reports what actually happened. Changed refs are listed as 'Local effects: tracking origin/main moved a → b', with HEAD moves and any newly paused merge or rebase. The remote outcome is given as none or UNKNOWN (for a push stopped mid-run, with advice to Fetch and compare). New summaries cover Cancelled and Timed out. The read after the failure uses a fresh cancellation token, and symbolic origin/HEAD is left out. Code test: v40_remote_failures_report_partial_local_effects_and_unknown_cancelled_push, covering an ff-only pull whose fetch step moved the tracking ref and a push cancelled inside a blocking pre-push hook. The PTY journey cancels a running push with Esc and with a click on [Esc Cancel], then checks that the bare remote, the local refs and the clean tree are unchanged. Same gate as TASK-39. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

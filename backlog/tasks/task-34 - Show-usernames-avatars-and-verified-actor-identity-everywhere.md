@@ -4,7 +4,7 @@ title: Show usernames avatars and verified actor identity everywhere
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - foundation
   - e2e
@@ -223,4 +223,6 @@ Root-approved next SOURCE-ONLY Task20 native review avatar successor (after immu
 2026-10-20 audit at 74360e48 (4/5 ACs met): Shared identity, avatar cache and verified commit association are wired across views with strong contracts and PTYs; only local commit actors have a profile view; no PTY compares PR/comment/run actors. Remaining: AC5: the PTY journeys cover local author/committer profiles, avatar delay/fail/cancel, same-login/different-URL avatars and NO_COLOR. Testing step 2 asks to open actor profiles for PR, comment and run actors and compare identities across them. 'Actor profile' exists only for local Git roles (src/workspace.rs:1297), so there is no profile view for GitHub actors and no journey comparing identities across those surfaces.
 
 2026-10-20 final push (verified at 60167066, 6107/0): Not done: actor profiles exist only for local Git authors/committers; PR, comment and run actor profiles need a new view.
+
+2026-10-20 round: an actor-profile slice (@ / click on author rows) was merged then reverted: making author headings selectable broke 15 journeys (read-only Summary scrolling, avatar colours, exact row targets) and its own keyboard PTY never passed. Redo with a selection model that keeps Summary non-interactive by default.
 <!-- SECTION:NOTES:END -->

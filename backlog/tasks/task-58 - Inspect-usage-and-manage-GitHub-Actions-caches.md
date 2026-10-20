@@ -1,11 +1,11 @@
 ---
 id: TASK-58
 title: Inspect usage and manage GitHub Actions caches
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - actions
   - e2e
@@ -42,8 +42,8 @@ Large or stale caches can explain CI behavior. Cache management needs concrete s
 <!-- AC:BEGIN -->
 - [x] #1 Cache list/filter shows repo/ref/key/size/access times and available usage context.
 - [x] #2 Individual/selected deletion previews exact entries and preserves unrelated caches.
-- [ ] #3 Permissions, missing/stale entries and host limits are explicit and refresh after operations.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #3 Permissions, missing/stale entries and host limits are explicit and refresh after operations.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -80,4 +80,6 @@ Checked task-specific command passed: env CARGO_TARGET_DIR=/tmp/ghtui-provider-c
 2026-10-20 audit at 74360e48 (3/5 ACs met): Cache list, filter, usage and guarded single-cache delete work in the app, with keyboard and mouse PTY journeys. Remaining: tests for stale/missing/permission-denied deletes, and showing host cache limits in the UI. Remaining: AC3: the 'Selected cache changed or disappeared' (StaleHead) and 'still visible after deletion' guards exist in code, but no test exercises them. No test covers denied permissions. Host storage/retention limits (cache_limits, organization_cache_usage in operations.rs:651/707) are covered only by a provider test and are never called from the UI. Refresh after delete is done. AC4: the testing steps ask for paging, partial and stale outcomes, and no provider test covers stale, missing or partial de
 
 2026-10-20 final push (verified at 60167066, 6107/0): Cache delete outcomes explained. Remaining: host storage/retention limits not in the UI; denied-permission states untested.
+
+2026-10-20 round: Usage (u) now reads the host cache storage and retention limits (repos/{r}/actions/cache/storage-limit and retention-limit). A denied, missing or unsupported limit read shows an explanation instead of a default, and Refresh reads the limits again. Stale, missing and denied delete outcomes were already covered (provider contracts and cache_outcomes_v1 PTY). New: 1 unit test in src/actions_workspace/limitations.rs, the cache_management PTY now asserts the limits, and new keyboard and mouse PTY journeys cover a denied limit read followed by a Refresh (tests/tui_e2e/actions/limitations_v1.rs). Gates: cargo test --lib actions_workspace 49/0; cargo test --test tui_e2e -- actions_cache actions_settings actions_secrets_vars 20/0. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

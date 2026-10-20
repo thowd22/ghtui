@@ -1,11 +1,11 @@
 ---
 id: TASK-48
 title: Build an incremental rebuildable Tantivy index
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - search
   - e2e
@@ -39,9 +39,9 @@ Ranked search over large selected corpora needs a reusable index with trustworth
 <!-- AC:BEGIN -->
 - [x] #1 Code and collaboration documents share one ranked index keyed by host/account/repo/revision/resource.
 - [x] #2 Incremental generations handle changed/deleted/renamed files and rewritten refs with visible coverage.
-- [ ] #3 Corruption/schema changes rebuild from SQLite/Git while the TUI remains usable; resource limits are configurable.
+- [x] #3 Corruption/schema changes rebuild from SQLite/Git while the TUI remains usable; resource limits are configurable.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -97,4 +97,6 @@ Main current checked search_index now GREEN actual11code (9lib+2real corpus)/4co
 2026-10-20 audit at 74360e48 (3/5 ACs met): The shared Tantivy index with generations, deletion GC and corrupt rebuild is implemented and PTY-verified. Remaining: configurable index limits, and PTY journeys for an interrupted build and a rewritten ref. Remaining: AC3: rebuild-on-corruption is met, but resource limits are not configurable. RankedLimits only uses defaults (workspace.rs:124); only max_file_bytes comes from config.toml. AC5: the 4 PTY journeys exist, but none covers interrupting an index build or a rewritten ref visibly changing coverage (both are tested only in contracts).
 
 2026-10-20 final push (verified at 60167066, 6107/0): ranked index limits now configurable (index_max_documents, index_max_total_bytes); cancel-then-rebuild journeys added. Remaining AC5: prove a cancelled build publishes nothing, and a PTY journey where a rewritten ref changes coverage.
+
+2026-10-20 round: AC3 limits configurable already present (search_index_resource_limits_come_from_configuration passes). AC5: cancel journeys now assert a cancelled ranked build publishes no search-index checkpoint, no index documents and no committed derivative; new PTY pair search_index_{keyboard,mouse}_rewritten_saved_ref_replaces_visible_coverage_and_results (amended HEAD outside ghtui: old content 0 results, new tip SHA in coverage, newer derivative generation, 120x40 then 80x24, no Git/gh effects). Gate: node scripts/test-task.mjs search_index -> 12 code + 8 PTY passed, 0 failed. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

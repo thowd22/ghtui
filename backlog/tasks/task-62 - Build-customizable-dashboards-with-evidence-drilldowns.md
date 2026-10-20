@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@root'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - delivery
   - e2e
@@ -40,7 +40,7 @@ The user wants an easy overview across the repos they care about. Dashboard widg
 - [ ] #1 Saved dashboards contain review queues, stale PRs, unresolved threads, failing Actions and defined metric trends.
 - [x] #2 Scope/window/layout preferences persist and every displayed action/metric is clickable and keyboard reachable.
 - [x] #3 Actor widgets, colors and partial-data indicators agree with underlying records.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -77,4 +77,6 @@ Root postboot V3 checked dashboard gate is genuinely terminal0: hard-capped node
 2026-10-20 audit at 74360e48 (3/5 ACs met): Single default dashboard with saved layout/scope/window and exact drill-downs works, with keyboard/mouse PTY coverage. Missing: unresolved-thread and trend widgets (blocked on TASK-61 history). Remaining: AC1: the dashboard holds only the 8 metric cards (open PRs, needs my review, age, review wait, first review, merge latency, checks, workflows). There is no unresolved-threads widget (src/metrics/threads.rs exists but no card uses it) and no metric-trend widget, because historical metrics are not built (TASK-61 AC2). Only one default profile, not named dashboards. AC4: tests cover layout, profile, drill-down identity and empty/partial states, but not the missing widgets.
 
 2026-10-20 final push (verified at 60167066, 6107/0): AC1/AC4 skipped: trend widgets depend on TASK-61 AC2; named dashboards not built.
+
+2026-10-20 round: Every dashboard card now has a retained-history trend widget: `t Trend` on the key bar, also listed in Commands and Help. It shows a sparkline and one row per window day, and Enter or a click on a day opens that day's retained records and actor IDs. Back returns to the place you left. The worker attaches trends without extra gh calls (the PTY journal stays at 7 commands). AC4: code tests cover aggregation, sparkline scaling, the missing/partial/unavailable/unreadable states, upsert and pruning, account and scope isolation, footer key/click parity and the disabled reason in Layout. Gates are the same as TASK-61. AC1 is not complete: the unresolved-threads widget and named dashboards are still missing. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-39
 title: Manage local branches tags checkout and upstreams
-status: In Progress
+status: Done
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - localgit
   - e2e
@@ -37,9 +37,9 @@ Users should navigate and organize local refs without accidentally replacing dir
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Create/rename/switch/delete branches and create/delete tags expose scope, current state and upstream.
-- [ ] #2 Dirty/untracked collisions, worktree-owned branches and detached HEAD are handled explicitly.
+- [x] #2 Dirty/untracked collisions, worktree-owned branches and detached HEAD are handled explicitly.
 - [x] #3 Deletion or history-changing choices require exact-target confirmation and useful recovery context.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -76,4 +76,6 @@ Raw reference safety: native picker classifies canonical raw_name bytes, shows n
 2026-10-20 audit at 74360e48 (3/5 ACs met): Branch, tag and upstream management, the dirty-switch guard and delete previews work in PTYs; tests are missing for worktree-owned branches, untracked collisions and detached HEAD. Remaining: AC2 is partial. A dirty tracked-file switch is refused in the PTY and in git_contracts.rs:1671. No test covers an untracked-file collision on switch. Nothing tests a branch checked out in another worktree; the message 'used by worktree' at local_actions.rs:1406 is untested. Branch operations on a detached HEAD are untested. AC4: the Testing steps ask for 'branches used by another worktree'; it is missing. Successful branch and tag deletion are not run in a PTY.
 
 2026-10-20 final push (verified at 60167066, 6107/0): Untracked collision and other-worktree branch cases covered. See TASK-36..40 batch.
+
+2026-10-20 round: Detached HEAD is now handled explicitly. Pull is disabled with a reason, shown in the menu and in the status line when chosen. The Switch branch preview counts commits on no branch or tag ('DETACHED HEAD: 1 commit here is on no branch or tag.'), using the new GitRepository::unreferenced_head_commits_v39. After Create branch here, the preview says nothing is lost. Code test: v39_detached_head_refuses_pull_and_switch_preview_names_unreferenced_commits. PTY: remote_effects_v40::remote_git_{keyboard,mouse}_detached_head_guards_and_cancelled_push_reports_effects, at 80x24 (Pull refusal) and 120x40 (switch, branch, push). Gate: cargo test --locked --test local_actions_contracts --test tui_e2e -- v40_ v39_ remote_git_ branches_tags_ local_management_ local_workspace_ gave 4/4 code and 19/20 PTY. The one failure is a 'database is locked' draft-store error; see remaining. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

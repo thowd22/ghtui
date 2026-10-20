@@ -1,11 +1,11 @@
 ---
 id: TASK-37
 title: Stage and unstage files hunks and selected lines
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - localgit
   - e2e
@@ -37,7 +37,7 @@ Preparing a commit should be obvious and precise. Staging must show what belongs
 <!-- AC:BEGIN -->
 - [x] #1 Files/hunks/line ranges can be staged or unstaged with preview and clear working-versus-index panels.
 - [x] #2 Mouse range selection and keyboard selection produce identical index content.
-- [ ] #3 Stale file/index changes, binaries/renames and patch failures are handled without accidental discard.
+- [x] #3 Stale file/index changes, binaries/renames and patch failures are handled without accidental discard.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -107,4 +107,6 @@ Root integrated inline/normal/readonly candidate Stage regression actualGREEN21m
 2026-10-20 audit at 74360e48 (4/5 ACs met): File, hunk and line staging with keyboard/mouse parity is implemented and PTY-tested; tests are missing for the partial rename/binary refusal and for patch-apply failure. Remaining: AC3 is partial. Stale-selection guards and untracked binary/symlink previews are tested. The refusal to partially stage a rename, binary, add or delete ('Stage the entire file...', src/diff.rs:196) is not asserted by any test. No test covers a git apply failure surfacing without discard. No rename staging fixture exists.
 
 2026-10-20 final push (verified at 60167066, 6107/0): Partial-stage refusals now asserted. See TASK-36..40 batch.
+
+2026-10-20 round: Unstaging a staged rename now restores both paths (src/git.rs Operation::Unstage adds the rename's original path; no lone staged deletion). New contract v1_local_gaps_unstage_staged_rename_restores_both_paths_and_stale_stage_is_refused also covers a whole-file stage refused when the file changed after preview. Partial rename/binary refusal and failed git apply were already tested. Gate: cargo test --test local_actions_contracts v1_local_ -> 12/0. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

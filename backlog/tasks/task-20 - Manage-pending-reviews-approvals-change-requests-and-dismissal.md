@@ -1,11 +1,11 @@
 ---
 id: TASK-20
 title: Manage pending reviews approvals change requests and dismissal
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - review
   - e2e
@@ -43,7 +43,7 @@ A review commonly contains multiple comments and a final decision. Drafting, sub
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Pending inline comments and summary can be added/edited/removed without premature publication.
-- [ ] #2 Approve/request-changes/comment, submit/discard, reviewer re-request, and permitted dismissal map to verified capabilities.
+- [x] #2 Approve/request-changes/comment, submit/discard, reviewer re-request, and permitted dismissal map to verified capabilities.
 - [x] #3 Server pending-review state, local drafts, and changed heads reconcile with explicit outcomes.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -389,4 +389,6 @@ Root V74 restart fixture correction VERIFIED ACTUALLY: Personal queue Refresh no
 2026-10-20 audit at 74360e48 (5/6 ACs met): Pending reviews in F10 Reviews: create, edit, delete, resume, submit (approve, changes, comment), discard, dismiss and re-request, with paired keyboard and mouse PTY tests and stale-head and restart handling. Remaining: dismiss and re-request permission is shown as UNKNOWN, never checked against a verified capability. Remaining: AC2: approve, request changes, comment, submit, discard, re-request and dismissal are all wired and tested, including a denied 403 dismissal that is not retried (actual_denied_dismissal_unknown_no_retry). But the app never checks permission before dismissal or re-request. The UI labels both as 'eligibility UNKNOWN' (scoped_pr_review_operations_v3.rs:38, browser_v2.rs:557), so they are not tied to a verified capability. Also, pending-review management only lives under Files > F10. The Summary men
 
 2026-10-20 final push (verified at 60167066, 6107/0): Not done in this push: dismissal permission is not checked in advance.
+
+2026-10-20 round: AC2 gap closed: the app now checks dismissal and reviewer/team re-request against a verified capability before offering them. The review draft keeps the permission flags from its own source session's repos/{owner}/{repo} read, so there is no new gh call and no fixture shift. New file src/scoped_pr_review_capability_v20.rs. Dismiss: write, maintain or admin true shows '[I Dismiss: write verified]'; all of them false shows '[I Dismiss: needs write]', muted and refused. Re-request: F5 and F7 are refused below triage, unless the viewer is (or might be) the PR author. Any missing flag keeps the old UNKNOWN, server-enforced behaviour. New paired keyboard and mouse PTY journeys: verified_read_only_refuses_dismiss_and_rerequest (0 writes, no attempts; drafts, Git and config unchanged) and verified_write_dismissal (PUT dismissals, confirmed). Gates: cargo test --lib review_capability_v20 2/0; cargo test --test tui_e2e -- verified_read_only verified_write_dismissal dismiss_unknown_privilege actual_denied_dismissal 8/0; node scripts/test-task.mjs pending_reviews_v2 89 code + 96 PTY passed, 0 failed, 0 ignored. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

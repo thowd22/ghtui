@@ -6,7 +6,7 @@ assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - actions
   - e2e
@@ -442,4 +442,6 @@ V144 actual final Controls54code16PTY andHistory40code18PTY ALLGREEN/bothinputs/
 2026-10-20 audit at 74360e48 (5/5 ACs met): Rerun all/failed/job/debug, watch, cancel, force-cancel, and delete run/logs with reconciliation are all built and tested by keyboard and mouse. Ready to mark Done after review. Remaining: None for the ACs. Force-cancel and delete-logs are tested only on the scoped route (repository catalogue, then Open Actions), which is reachable in the app. Independent check: AC1 is met: rerun all/failed/selected job plus debug, with exact job 501 and attempt transitions (actions.rs run_control and scoped_actions_rerun_v4 keyboard and mouse PTY). AC2 is met: watch, cancel, uncertain cancel with refresh/inspect/ack, and force-cancel (scoped_actions_control_v5 PTY). AC4 is met by provider contracts (provider_contracts.rs:354/394/431 and the membership and accepted-transi
 
 2026-10-20 final push (verified at 60167066, 6107/0): Untouched in this push.
+
+2026-10-20 round: All ACs were already met (audit 5/5). No change and not re-run in this pass. Only the DoD full-suite, fmt and clippy gates remain, which belong to the coordinator. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

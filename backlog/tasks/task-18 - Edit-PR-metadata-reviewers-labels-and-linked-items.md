@@ -1,12 +1,12 @@
 ---
 id: TASK-18
 title: Edit PR metadata reviewers labels and linked items
-status: In Progress
+status: Done
 assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - review
   - e2e
@@ -45,7 +45,7 @@ Users should handle PR organization from the same view: title/body/base, ownersh
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Metadata pickers load eligible values and preserve unmodified fields.
-- [ ] #2 Reviewer/team, label, assignee, base, milestone, linked-issue and project operations map to verified host capabilities.
+- [x] #2 Reviewer/team, label, assignee, base, milestone, linked-issue and project operations map to verified host capabilities.
 - [x] #3 Per-field permission/failure results are visible and server read-back confirms the change.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -1047,4 +1047,6 @@ V306 TERMINAL staging refusal before Cargo/app tests, original44744 closed1 ands
 2026-10-20 audit at 74360e48 (5/6 ACs met): Title/body/base, labels, assignees, reviewers/teams, milestone, linked issues all wired and tested by key+mouse; Projects v2 placement exists only as an uncalled provider function. Remaining: AC2: project placement is not reachable. src/providers/gh/pr.rs:1965 add_project_item (addProjectV2ItemById) has no callers in src or tests. Capability text (capability_requirements_v1.rs:170) advertises 'project placement', but there is no UI action, picker, PTY journey or contract test for it.
 
 2026-10-20 final push (verified at 60167066, 6107/0): Advertised 'project placement' capability text removed (no UI). Project placement remains unimplemented.
+
+2026-10-20 round: AC2 project placement: the `p` PR actions menu now has two governed commands, Add to project and Remove from project. When the form opens it reads placement with the GraphQL PR_PROJECTS_QUERY (projectItems plus repo and owner projectsV2, deduplicated, with a completeness flag). Only open projects with viewerCanUpdate=true are offered. The form previews, then sends exactly one addProjectV2ItemById or deleteProjectV2Item. Removal re-reads the item first. Both writes read placement back before writing a Metadata receipt; a missing read-back is an AmbiguousWrite. A token without the project scope gets a `gh auth refresh -s project` hint. Discussion-invalidation declares that project commands change no text. Capability text updated. New code is in src/providers/gh/pr/projects.rs and src/pr_actions.rs. Gates: `cargo test --lib --test provider_contracts --test tui_e2e -- pr_projects gh_provider_inventory_contracts_effects_tasks` gave lib 2/0, provider 3/0, PTY 2/4 (fix below); `cargo test --lib --test tui_e2e -- pr_projects pr_projection::discussion_invalidation` gave lib 32/0, PTY 6/0; `cargo test --test tui_e2e -- pr_actions::pr_governed_v1` gave 30/0, covering 6 new key+mouse project journeys with command count, Git witness and SQLite receipt asserts. Full suite, fmt --check and clippy not run (coordinator). Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

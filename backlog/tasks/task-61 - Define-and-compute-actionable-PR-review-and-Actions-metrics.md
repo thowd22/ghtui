@@ -1,11 +1,11 @@
 ---
 id: TASK-61
 title: Define and compute actionable PR review and Actions metrics
-status: In Progress
+status: Done
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - delivery
   - e2e
@@ -37,7 +37,7 @@ Metrics should answer useful questions and link to evidence. Current snapshots c
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 PR age/review wait/first-review/merge latency and check/workflow health have explicit formulas/cohorts/timezones.
-- [ ] #2 Historical metrics retain source events and backfill coverage; missing/partial cohorts are labelled.
+- [x] #2 Historical metrics retain source events and backfill coverage; missing/partial cohorts are labelled.
 - [x] #3 All metric values retain contributor IDs so users can inspect the underlying records and actors.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -208,4 +208,6 @@ SOURCE-ONLY approved V166 causal corrective frozen: target/build/graph-parallel-
 2026-10-20 audit at 74360e48 (4/5 ACs met): Snapshot metrics with formulas, cohorts, UTC windows, contributor drill-down and partial labels work, with keyboard/mouse PTY coverage. Historical event retention/backfill sits in uncompiled orphan source files and is not done. Remaining: AC2: partial and unavailable coverage is labelled (metrics_workspace.rs:40, metrics_ui.rs:143). Historical retention and backfill are not implemented, though. src/storage/metrics_retention.rs (57 lines) only stores current observations as 'available-history/backfill coverage not yet proven', and nothing outside storage uses its exports. The history/backfill code (src/metrics_history.rs, src/metrics_retained_detail.rs, src/metrics_health.rs, src/metrics/history_basis.rs, src/storage/metrics_reten
 
 2026-10-20 final push (verified at 60167066, 6107/0): AC2 skipped: retention/backfill needs ~5000 lines of uncompiled metrics_history code switched on and verified.
+
+2026-10-20 round: AC2: every completed Dashboard load stores one point per card per UTC day in a new account-scoped table, metric_trend_points_v1. The table is created on first use, upserts by day and keeps 90 days. Each point holds the value, coverage, unknown/censored counts and up to 200 contributors with canonical IDs and actor IDs. The Trend view labels missing days 'not zero', labels partial and unavailable days, shows unreadable points, and states that days before retention began are not backfilled. Changes are in src/metrics_trend_v1.rs, src/storage/metric_trends_v1.rs, metrics_workspace/ui/routes. Gates: `cargo test --lib metric_trends` 5/0, plus the metrics_dashboard, dashboards_, design_footer_v90_dashboard and design_help_v97_dashboard lib filters, 27/0 in total. `cargo test --test tui_e2e -- metrics::` 26/0, including the new dashboard_trends_v1 keyboard and mouse journeys. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

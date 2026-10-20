@@ -1,11 +1,11 @@
 ---
 id: TASK-19
 title: Create multiline inline review comments with accurate anchors
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - review
   - e2e
@@ -45,7 +45,7 @@ Readable diffs must connect to correct GitHub lines, including deleted-side and 
 <!-- AC:BEGIN -->
 - [x] #1 Comment selection retains path, side, start/end line and observed head from the canonical diff model.
 - [x] #2 Single/multiline comments and replies show existing/outdated threads and verified server results.
-- [ ] #3 Changed heads or invalid anchors require an explained re-anchor path and preserve the draft.
+- [x] #3 Changed heads or invalid anchors require an explained re-anchor path and preserve the draft.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 - [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
@@ -180,4 +180,6 @@ V10 corrective gate ACTUAL GREEN: manifest root-form-preview-v10-inline-scroll-c
 2026-10-20 audit at 74360e48 (5/6 ACs met): Single/multiline left/right inline comments, replies and outdated threads are PTY-tested both inputs; head-change refusal keeps the draft but there is no tested explicit re-anchor flow. Remaining: AC3 is only partly met. A changed head or UID is refused, no wrong-line POST is made and the draft is kept (native_inline_comments_*_changed_uid_and_head_reject_without_wrong_anchor_or_post; message at src/scoped_pr_inline_native_v1.rs:691 'Inline preview refused • draft retained • explicitly re-anchor if needed'). But there is no re-anchor control or flow that rebinds the kept draft to a new selection on the new head. No test covers re-anchoring after a head change: the 'path' is only a text hi
 
 2026-10-20 final push (verified at 60167066, 6107/0): Not done in this push.
+
+2026-10-20 round: AC3: a Preview or Confirm refused for a moved head or anchor (StaleHead or a selection-changed refusal) now saves the body under a head-independent draft key 'inline/reanchor/<repoId>/<prId>/<sha256(path)>'. The status explains the next step: 'PR changed since this selection • draft text kept • reload Files, select the new lines and P Comment carries it'. When P Comment opens a new selection that has no draft of its own, the text moves into that anchor's draft once and the slot is emptied. The title, F2 details and status mark the draft as re-anchored. No anchor, approval or publication reference is copied, and nothing is written to GitHub. Tests: new lib test inline_comments_changed_head_preview_keeps_text_and_explicit_new_selection_carries_it_once (1/1). New PTY journeys inline_comments_{keyboard,mouse}_changed_head_keeps_text_and_new_selection_carries_it (2/2); they check the strict gh script, SQL draft slot and moved draft, zero pr_write_attempts, unchanged Git and config. Regressions: cargo test --lib inline_comments 188/188; cargo test --test tui_e2e -- inline_comments 25/26. The failure was in the mouse confirm journey; the confirm journeys (keyboard and mouse) passed 2/2 on a rerun at lower host load. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

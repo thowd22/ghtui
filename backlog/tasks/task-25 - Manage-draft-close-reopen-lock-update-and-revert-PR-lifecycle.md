@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - review
   - e2e
@@ -43,11 +43,11 @@ Routine lifecycle operations should be reachable from the PR and explain their e
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Draft/ready, close/reopen, lock/unlock, update branch and permitted branch deletion use explicit target and current state.
-- [ ] #2 Revert of a merged PR previews and creates a traceable reverting PR using supported capability.
+- [x] #1 Draft/ready, close/reopen, lock/unlock, update branch and permitted branch deletion use explicit target and current state.
+- [x] #2 Revert of a merged PR previews and creates a traceable reverting PR using supported capability.
 - [ ] #3 Restrictions, rules, unavailable operations, head changes and partial outcomes are visible and re-fetched.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 - [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
@@ -276,4 +276,6 @@ READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/bu
 2026-10-20 audit at 74360e48 (0/6 ACs met): Ready/draft, close/reopen and update branch (merge or rebase) are wired with paired PTY tests (v1_pr_lifecycle: 2 lib tests and 14 PTY tests). Lock/unlock, revert and branch deletion are not implemented. Remaining: AC1: there is no lock/unlock and no permitted branch deletion. pr_state_model.rs:485 notes that deleting the remote head is still an open design decision. AC2: revert of a merged PR is not implemented in the UI. Only provider and state-model stubs exist; no PTY or menu entry. AC3: refusals are shown and publication re-reads state, but rules, restrictions and partial-outcome reporting are incomplete. AC4 and AC5: there are no pr_lifecycle tests for lock, revert or branch deletion, and no tests th
 
 2026-10-20 final push (verified at 60167066, 6107/0): Lock/unlock, delete head branch after merge and revert a merged PR added with journeys. Remaining: AC6 not separately verified.
+
+2026-10-20 round: Audit: draft/ready, close, update branch (merge pinned to head and rebase), auto-merge, lock/unlock, already-locked refusal, revert to a traceable draft and merged head-branch deletion (with cancel) already had keyboard and mouse PTY journeys. The gaps were reopen and a cancelled destructive close. Added to tests/tui_e2e/pr_lifecycle_v1.rs: keyboard and mouse reopen of a closed, unmerged PR (exactly one `gh pr reopen` plus readback, heading goes to open, Git witness unchanged), and keyboard and mouse cancelled close (no gh pr command, no mutation, PR still open). No product code changed. Gates: `cargo test --test tui_e2e -- pr_actions::pr_lifecycle_v1 pr_actions::pr_governed_v1::pr_lifecycle` gave 26/30 (the 4 new tests failed on the first try, all 12 governed lifecycle journeys passed). After fixing the tests, `cargo test --test tui_e2e -- pr_actions::pr_lifecycle_v1` gave 18/18. `cargo test --lib pr_actions::` gave 5/5. AC3 (re-fetch and partial outcomes) and AC6 (actors and colours) were not newly verified in this run. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

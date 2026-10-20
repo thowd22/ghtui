@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - localgit
   - e2e
@@ -38,7 +38,7 @@ Users need help finding work after a mistaken branch move or amend. Recovery sho
 <!-- AC:BEGIN -->
 - [x] #1 Reflog explains local ref changes and links entries to commits/diffs and recovery choices.
 - [ ] #2 Recovery can create a rescue branch; reset/discard choices expose exact scope and affected work before confirmation.
-- [ ] #3 Expired/unreachable objects and reflog limitations are stated without claiming universal undo.
+- [x] #3 Expired/unreachable objects and reflog limitations are stated without claiming universal undo.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -68,4 +68,6 @@ Typed local inventory picker gate passed: CARGO_NET_OFFLINE=true CARGO_TARGET_DI
 2026-10-20 audit at 74360e48 (3/5 ACs met): Reflog left-behind discovery, open-commit and prefilled rescue branch are reachable and PTY-tested both inputs; remaining: reset preview enumerating affected work, missing/expired-object case tests. Remaining: AC2: a rescue branch works. Reset previews show only a generic 'can replace or remove existing history/files' warning (local_actions.rs:917); they do not list the exact commits or dirty files a hard or mixed reset would discard. AC3: the limitation text is present ('local reflog only, entries expire; not a universal undo', workspace.rs:717), but no test covers an expired, pruned or missing-object reflog entry, and only the HEAD reflog is used (branch reflogs are not).
 
 2026-10-20 final push (verified at 60167066, 6107/0): AC2 closed: reset previews list commits and dirty files a hard/mixed reset discards. Remaining AC3: expired/pruned/missing reflog entries; recovery reads only the HEAD reflog.
+
+2026-10-20 round: AC3: the Overview's recovery list now also reads local branch reflogs, which catch `branch -f` and finished rebases. Before showing an entry, one read-only `cat-file --batch-check` checks that its commit still exists; a pruned commit appears as '✗ … pruned: commit is gone, cannot recover' with no action. A separate row states 'Reflog entries expire (gc.reflogExpire, default 90 days); pruned commits are gone. Not a universal undo.' Expired entries are not offered or claimed. Tests: contract test v1_local_recovery_pruned_expired_and_branch_moved_reflog_entries_are_stated, a lib unit test for branch-reflog parsing and conflict kinds, and keyboard and mouse PTY journeys v1_local_recovery_*_pruned_and_branch_moved_reflog_rows (create a rescue branch from the branch-moved commit). Same gates and counts as TASK-42. AC2 was already closed by the earlier final-push note. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

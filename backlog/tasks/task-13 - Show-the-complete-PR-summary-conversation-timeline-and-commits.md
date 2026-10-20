@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - inbox
   - e2e
@@ -38,7 +38,7 @@ Reviewers need one coherent context for a PR before deciding what to do. Missing
 <!-- AC:BEGIN -->
 - [x] #1 Summary, metadata, event timeline, comments, reviews, and commits load all pages with source URLs.
 - [ ] #2 Permissions, requested reviewers, linked items, base/head SHA, fork origin, and loading/error states are visible.
-- [ ] #3 Detail tabs and timeline items connect to files/checks/repo while preserving selection and return context.
+- [x] #3 Detail tabs and timeline items connect to files/checks/repo while preserving selection and return context.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 - [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
@@ -143,4 +143,6 @@ Root frozen combined Timeline + saved-native-diff + long-local-identity checkpoi
 2026-10-20 audit at 74360e48 (4/6 ACs met): PR detail tabs with all-page loading, metadata, actors and key+mouse PTY are done. Still missing: linked issues in personal PR detail, and navigation from timeline items. Remaining: AC2 is partly met. Permissions, requested reviewers/teams, fork origin, base/head SHA and coverage/error reasons are shown (github_workspace.rs:333-334, 630-740). Linked items are not loaded in the personal PR detail: Metadata only shows a hint ('Linked issues: inspect closing keywords...', github_workspace.rs ~739). Issue links do exist in the scoped-catalogue PR flow (src/scoped_pr_issue_links_v87.rs). AC3 is partly met. Tabs connect to Files/Checks and Back returns to the selected Inbox row,
 
 2026-10-20 final push (verified at 60167066, 6107/0): Closing-keyword linked issues listed in Metadata. Remaining AC3: Timeline items do not navigate to files or checks.
+
+2026-10-20 round: AC3: Timeline items now open their own record in another tab. A commented or reviewed event opens its comment or review in Conversation (the comment row is selected). An older commit opens in Commits, scrolled to its row. The current head commit opens Checks (its two check reads). To select an item, use ↑/↓ or click its row. To open it, press Enter or click 'Enter Go to item'. 't' returns to the same Timeline row, and Back still returns to the selected Inbox row. Links exist only for records the PR details actually hold. Linked rows are interactive only on personal (unscoped) PR pages. New files: src/pr_timeline_links_v13.rs and its tests file; PrRow.link/PrRowLinkV13 added in github_workspace.rs; runtime after-install hook. Gates: `cargo test --lib timeline` passed 15/0. `cargo test --test tui_e2e -- pr_timeline_links_v13 timeline_actor pr_details_pr_diff` passed 14/0 (new keyboard and mouse journeys at 120x40 then 80x24, with exact gh journal 14 then 16, Git refs/index/diff, config and SQL drafts/records unchanged). `cargo test --lib github` passed 50/0. AC2: linked closing-keyword issues were already shown in Metadata (unit test v1_pr_metadata_lists_issues_linked_by_closing_keywords). I did not add a PTY check for that, so AC2 is not claimed here. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-63
 title: Add a readable activity and notification inbox
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:42'
+updated_date: '2026-10-20 23:45'
 labels:
   - delivery
   - e2e
@@ -37,8 +37,8 @@ Users need to know who changed a PR or workflow without repeatedly reopening eac
 - [ ] #1 Activity and GitHub notifications show actor/login/avatar, reason, repo/resource and freshness.
 - [ ] #2 Read/unread/subscription controls use verified gh/API capabilities and update related queues.
 - [ ] #3 Polling is bounded and deduplicates changes without claiming push realtime.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -206,4 +206,6 @@ V142 actual notification85code84PASS1FAIL,0nativeexecuted becausecodegateblocks;
 V145 ACTUALfullnotifications87code36realbinaryPTY ALLGREEN,0ignored/bothinputs/36unique/all44ownedsessioncleanup. CoveragetEGtcb SHAc26c25fabbe2eebfc8a59fad01cfc6966a0d5e2af9167597f71aabef50d03b8a. Actualsamecompleted-cellobservercorrectionverified, originalwholebodyequality302/GH/SQL/Git/PureBackoraclesunchanged;6genuineintegrationcodealsoPASS. Stillcurrentprivatecohortonly, formal62/17deps/fullproduct/currentMain/Mac remainOPEN, noAC/Done. RoototherfocusedgatesstillrunSAME79305.
 
 2026-10-18 a14: notifications reachable from the palette (same action as F8); F8 before Inbox load explains a refresh is needed. Gate: test-task v1_navigation 8 code + 2 PTY pass.
+
+2026-10-20 round: Made notification rows readable. Each row now reads state, relative age, readable reason and resource first, then title and repo (for example 'Unread   5d Review requested • PR #7 • <title> • <repo>'). Details show 'Reason: Review requested (review_requested)' and 'Updated: <UTC> • 5d ago'. New pure helpers are reason_label_v63 and row_label_v63, plus NotificationRowV63::subject_short_v63. Added 2 new unit tests and extended 1 existing one. The keyboard and mouse read_details PTY journeys now assert the row layout at 80x24 and the detail reason and freshness lines. Gate: node scripts/test-task.mjs notifications_v63 passed 36 code + 36 PTY tests, with keyboard and mouse. AC1 is only partly met: GitHub's notification schema has no acting-user field, so actor, login and avatar show as 'Acting user unavailable'. AC2 (read and ignore subscriptions) and AC3 (bounded watch and dedup) come from earlier work and pass in this gate. They were not extended here, and Mark unread is still disabled. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

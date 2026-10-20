@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - actions
   - e2e
@@ -45,7 +45,7 @@ Full Actions support needs access to relevant operational settings when the acco
 <!-- AC:BEGIN -->
 - [x] #1 Read/edit supported Actions allowlists/token permissions and environment protection settings with explicit scope/effect preview.
 - [ ] #2 Runner/group inventory shows labels/availability/associations and supports verified permitted label/association/removal operations.
-- [ ] #3 Unsupported host/plan/org-admin capabilities explain limitations; no runner service provisioning or broad hidden change.
+- [x] #3 Unsupported host/plan/org-admin capabilities explain limitations; no runner service provisioning or broad hidden change.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -95,4 +95,6 @@ Root native regression fixes and retained evidence: source_transition checked fi
 2026-10-20 audit at 74360e48 (2/5 ACs met): Policy (workflow token), environment protection and runner label edits work, with keyboard/mouse PTY journeys and exact-ID recovery. Runner groups/associations and capability/permission explanations still have no PTY coverage. Remaining: AC2: the Runner groups view and its Create/Edit/Replace runners/Replace repositories/Delete commands are reachable (actions_workspace.rs ~1985), but they have only a provider contract (provider_contracts.rs:1650). No PTY journey covers runner-group association or a confirmed runner removal. AC3: limits are explained only for a busy runner and for 'Runner groups require an explicitly selected organization scope'. No tests cover host/plan/org-admin limits or disabled unauthorized controls. AC5: th
 
 2026-10-20 final push (verified at 60167066, 6107/0): Untouched in this push.
+
+2026-10-20 round: Runner groups in a repository scope now show 'Runner groups belong to an organization…' and send no request. Before, this was a bare error. A 403, 404 or unsupported read of runners, runner groups, policies or environments shows the admin, plan or host requirement, and that page's mutation controls are disabled with the same reason (Action unavailable dialog, no request). Runner group rows now show repository visibility, whether public repositories are allowed, and workflow restrictions. New: 2 unit tests, plus keyboard and mouse PTY journeys (actions_settings_*_runner_groups_need_organization_and_denied_runners_disable_controls). Same gates. AC2 and AC5 are still open: there is no PTY journey for an org-scope runner-group association replace or a confirmed runner removal. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

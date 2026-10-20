@@ -1,11 +1,11 @@
 ---
 id: TASK-53
 title: View run attempts matrix jobs steps logs and annotations
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - actions
   - e2e
@@ -41,7 +41,7 @@ Troubleshooting requires finding the failed job or step immediately and seeing i
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Run view shows trigger/ref/SHA/actor/attempt, job/step states, durations and available dependency/matrix context.
-- [ ] #2 Logs and annotations have failed-step jump, exact/regex search, bounded loading/export and visible refresh limits.
+- [x] #2 Logs and annotations have failed-step jump, exact/regex search, bounded loading/export and visible refresh limits.
 - [x] #3 Mouse and keyboard navigate statuses/logs without blocking while a run updates.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -218,4 +218,6 @@ Actions W Cancel source-only follow-on in isolated DR2mCo: same existing Actions
 2026-10-20 audit at 74360e48 (4/5 ACs met): Run, attempt, job and step view, failure jumps, exact/regex log search, annotations and watch are built and tested by keyboard and mouse. Still missing: bounded log export. Remaining: AC2: the failed-step and ##[error] jump works (runs_focus_v1 '> Next failure'). Exact and regex log search works (scoped_actions_read_v2 *_shared_log_search_regex_matches_and_clear and *_invalid_regex...). Annotations work and refresh limits are visible ('refreshes every 5s', finite Watch). There is no log export: nothing in src/actions_* writes a log to a file. AC1 caveat: the run view itself shows no needs/dependency context; that context appears only on the workflow definition page.
 
 2026-10-20 final push (verified at 60167066, 6107/0): AC2 closed: x Export log writes the loaded job log to a new path after preview; never overwrites, no GitHub calls.
+
+2026-10-20 round: AC2 was already implemented in the final push (x Export log). Re-verified, no code change: the lib test log_export_creates_new_file_and_never_overwrites passed. PTY tests passed for actions::log_export_v1 keyboard and mouse, actions::runs_focus_v1 failed-step and error jump (4), and scoped_actions_read_v2 exact/regex search, invalid regex and watch (16). All in the 28/0 run. The AC checkbox can be ticked. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->

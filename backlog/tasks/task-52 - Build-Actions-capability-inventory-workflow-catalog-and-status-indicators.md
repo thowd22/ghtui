@@ -1,11 +1,11 @@
 ---
 id: TASK-52
 title: Build Actions capability inventory workflow catalog and status indicators
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-20 23:45'
 labels:
   - actions
   - e2e
@@ -46,7 +46,7 @@ Actions needs full native operational support, not just a CI badge on a PR. Esta
 <!-- AC:BEGIN -->
 - [x] #1 Every Actions coverage row maps to a gh/API operation, permission/host/version constraint and implementation task.
 - [x] #2 Workflow/run lists paginate/filter across selected repos with actor usernames/avatars and explicit freshness.
-- [ ] #3 PR/commit/repo indicators identify exact SHA/event/attempt and open the shared Actions view.
+- [x] #3 PR/commit/repo indicators identify exact SHA/event/attempt and open the shared Actions view.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -142,4 +142,6 @@ Root received SOURCE-ONLY coherent Cancel W3V2 39path handoff40eb2259889c0e54432
 2026-10-20 audit at 74360e48 (4/5 ACs met): Capability inventory, filtered paged runs catalog with actors/freshness, and PR and repo entry into Actions are built and tested by keyboard and mouse. Still missing: a commit (History) status indicator that opens Actions. Remaining: AC3: the PR checks indicator opens the exact run, attempt and job in Actions (tui_e2e/pr_checks_bridge.rs happy keyboard/mouse), and the repository catalogue has '[Open Actions]' (repository_catalogue_actions_v1.rs). There is no commit-level CI/Actions indicator: History (src/history/*) shows no run status and has no route into Actions. AC2 caveat: runs are listed one selected repository at a time, with a Repository(usize) switcher. They are not merged across the whole set; cross-repo activity i
 
 2026-10-20 final push (verified at 60167066, 6107/0): Untouched in this push.
+
+2026-10-20 round: AC3: added the missing commit indicator. History's commit detail has 'A Actions runs' as a key-bar control and a clickable 'A actions runs' token. It opens the shared Actions view through ActionsAction::CommitRuns, which reads runs?per_page=100&head_sha=<full SHA> once, shows 'Commit <full sha> • runs of this exact commit only', and keeps event and attempt in each row. Only a full 40- or 64-hex SHA is accepted. PR and repo indicators already existed. Gates: cargo test --lib -- history:: log_export_creates_new_file passed 33/0. cargo test --test tui_e2e -- actions::commit_runs_v1 (plus inventory/history_detail_v994) passed 28/0. History PTY regression passed 86/0. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 <!-- SECTION:NOTES:END -->
