@@ -620,7 +620,7 @@ fn table_row(
 /// Splits display text into rows of at most `width` visible cells, breaking
 /// after the last whitespace when a word would cross the edge. Overlong words
 /// still hard-wrap, and every character is kept (rows concatenate to `text`).
-fn wrap_cells(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap_cells(text: &str, width: usize) -> Vec<String> {
     use unicode_segmentation::UnicodeSegmentation;
     let mut rows = Vec::new();
     let mut current = String::new();

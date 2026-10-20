@@ -187,6 +187,27 @@ impl Workspace {
             GraphActionV1::More if !state.last_page().has_more() => {
                 Some(state.coverage().label().into())
             }
+            GraphActionV1::Detail { commit, act } => {
+                use crate::repository_graph_v1::HistoryDetailActV994 as Act;
+                let Some(selected) = state.selected_commit(commit) else {
+                    return Some("This commit is not loaded in History • no row guessed".into());
+                };
+                let index = match act {
+                    Act::OpenDiff => 0,
+                    Act::Parent(index) => *index,
+                    _ => return None,
+                };
+                if selected.parents.get(index).is_none() {
+                    Some(if selected.parents.is_empty() {
+                        "Root commit • it has no parent to compare; its files are listed in the detail"
+                            .into()
+                    } else {
+                        "No original parent at this index • root has no guessed parent".into()
+                    })
+                } else {
+                    state.parent_reason(commit, index).map(str::to_owned)
+                }
+            }
             GraphActionV1::ChooseParent(index) | GraphActionV1::CompareParent(index) => {
                 let selected = state.selected_commit(&self.revision)?;
                 if selected.parents.get(*index).is_none() {
@@ -288,6 +309,44 @@ impl Workspace {
                 repository
                     .validate_graph_epoch_v1(state.last_page(), deadline)
                     .map_err(|error| error.to_string())?;
+            }
+            GraphActionV1::Detail { commit, act } => {
+                use crate::repository_graph_v1::HistoryDetailActV994 as Act;
+                let selected = state
+                    .selected_commit(&commit)
+                    .ok_or("The detail's commit is not a loaded History member")?
+                    .clone();
+                let in_details = self.graph_view_v1 == GraphViewV1::Details;
+                self.revision = commit.clone();
+                match act {
+                    Act::Details => self.install_graph_v1(state, GraphViewV1::Details)?,
+                    Act::OpenDiff => {
+                        return self.graph_action_v1(GraphActionV1::CompareParent(0), repository)
+                    }
+                    Act::Parent(index) => {
+                        self.revision = selected
+                            .parents
+                            .get(index)
+                            .ok_or("No original parent index")?
+                            .clone();
+                        // The drill-down follows the parent; the timeline moves its bar there
+                        // and keeps the window it shows.
+                        self.install_graph_v1(
+                            state,
+                            if in_details {
+                                GraphViewV1::Details
+                            } else {
+                                GraphViewV1::Timeline
+                            },
+                        )?;
+                    }
+                    Act::FileHistory(path) => {
+                        self.history_file_v994(repository, commit, path, FileAction::History)?
+                    }
+                    Act::Blame(path) => {
+                        self.history_file_v994(repository, commit, path, FileAction::Blame)?
+                    }
+                }
             }
             GraphActionV1::Horizontal(delta) => {
                 self.graph_horizontal_v1 = self
@@ -421,6 +480,23 @@ impl Workspace {
         repository
             .validate_graph_epoch_v1(self.graph_state_v1.as_ref().unwrap().last_page(), deadline)
             .map_err(|error| error.to_string())
+    }
+    /// File history or blame of one changed file at a History commit (TASK-99.4): the same
+    /// provenance views a saved file opens, started from the commit and path directly.
+    fn history_file_v994(
+        &mut self,
+        repository: Option<&GitRepository>,
+        commit: String,
+        path: crate::git::RawPath,
+        action: FileAction,
+    ) -> Result<(), String> {
+        let repository = repository.ok_or("File history needs the actual original handle")?;
+        self.file_provenance = Some(FileProvenance::new(commit, path));
+        self.provenance_action_from_repository_v1(
+            repository,
+            action,
+            crate::providers::runner::CancellationToken::default(),
+        )
     }
     pub(crate) fn restore_graph_v1(
         &mut self,

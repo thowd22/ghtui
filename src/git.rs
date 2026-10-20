@@ -1,6 +1,10 @@
 //! Installed Git is the semantics authority. Object browsing never checks out a revision.
 
 mod file_history;
+mod history_detail_v994;
+pub use history_detail_v994::{
+    HistoryChangedFileV994, HistoryChangedFilesV994, HISTORY_DETAIL_FILES_V994,
+};
 mod history_query_v1;
 pub use history_query_v1::{
     history_next_match_v1, history_prev_match_v1, HistoryCommitV1, HistoryFilterModeV1,

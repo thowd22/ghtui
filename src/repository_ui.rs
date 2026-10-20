@@ -123,6 +123,13 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     } else {
         Vec::new()
     };
+    // History's commit detail (TASK-99.4) owns Enter, f, Y, y and D for the shown commit; `P`
+    // stays an alias of its drill-down.
+    let history_keys = crate::history::detail::footer_keys(app);
+    if !history_keys.is_empty() {
+        graph.retain(|control| !matches!(control.key.as_str(), "D" | "P"));
+        files.retain(|control| !history_keys.iter().any(|key| key.key == control.key));
+    }
     // One Back, in the order its key has always been answered: the graph comparison, the saved
     // tree a file came from, the comparison a diff side came from, then the file history.
     let take_back = |controls: &mut Vec<KeyControl>, tree: bool| {
@@ -216,6 +223,7 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     }
     // History's search, match, hide and scope keys lead its own (TASK-99.3).
     context.extend(history_filter::controls(app));
+    context.extend(history_keys);
     context.extend(graph);
     context.extend(files);
     if diff_side.is_none() && !detail {
@@ -541,6 +549,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         } else {
             draw_overview_v91(frame, app, body);
         }
+        return;
+    }
+    if crate::history::detail::drilldown(workspace) && app.remote_repository.is_none() {
+        let body = Rect::new(
+            area.x,
+            area.y + content_offset,
+            area.width,
+            area.height.saturating_sub(content_offset),
+        );
+        crate::history::detail::draw_full(frame, app, body);
         return;
     }
     if history_table::active(workspace) {

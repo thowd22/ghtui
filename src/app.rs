@@ -90,6 +90,8 @@ pub enum Action {
     LocalQuick(crate::local_actions::QuickLocal),
     /// Repository panels (TASK-93): the untracked toggle.
     RepositoryPanelsV93(crate::repository_panels_v93::PanelActionV93),
+    /// History commit detail (TASK-99.4): select or open an item, show the SHA to copy.
+    HistoryDetailV994(crate::history::detail::DetailUiActionV994),
     MenuScroll(i32),
     Search(crate::search::workspace::SearchAction),
     SearchBlend(crate::search::fusion::ui::BlendAction),
@@ -344,6 +346,8 @@ pub struct App {
     pub repository_visible_rows: usize,
     /// Repository panels (TASK-93): panel scroll offsets and the untracked toggle.
     pub repository_panels_v93: crate::repository_panels_v93::PanelsV93,
+    /// History commit detail (TASK-99.4): item cursor, scroll and changed-files cache.
+    pub history_detail_v994: crate::history::detail::HistoryDetailStateV994,
     pub github: Option<crate::github_workspace::GithubWorkspace>,
     pub github_action: Option<crate::github_workspace::GithubAction>,
     pub github_content_focused: bool,
@@ -596,6 +600,7 @@ impl Default for App {
             repository_content_focused: true,
             repository_visible_rows: 20,
             repository_panels_v93: Default::default(),
+            history_detail_v994: Default::default(),
             github: None,
             github_action: None,
             github_content_focused: true,
@@ -1784,7 +1789,13 @@ impl App {
                     return;
                 }
                 if let crate::workspace::RowAction::Graph(graph) = &action {
-                    let reason = if self.loading[View::Repository.index()] {
+                    // A History detail action is a new row-level intent, like choosing a row:
+                    // it replaces a running read instead of waiting for it (TASK-99.4).
+                    let row_level = matches!(
+                        graph,
+                        crate::repository_graph_v1::GraphActionV1::Detail { .. }
+                    );
+                    let reason = if self.loading[View::Repository.index()] && !row_level {
                         Some("Wait for the original graph read, or cancel it first".into())
                     } else {
                         self.workspace.as_ref().map_or_else(
@@ -1837,14 +1848,24 @@ impl App {
                     return;
                 }
                 self.repository_selection = None;
+                // Choosing a History row or a parent link keeps the table's window; the bar
+                // moves within it (TASK-99.4).
                 let keep_viewport = matches!(
                     &action,
                     crate::workspace::RowAction::Graph(
                         crate::repository_graph_v1::GraphActionV1::More
                             | crate::repository_graph_v1::GraphActionV1::Horizontal(_)
                             | crate::repository_graph_v1::GraphActionV1::Filter(_)
+                            | crate::repository_graph_v1::GraphActionV1::Detail {
+                                act: crate::repository_graph_v1::HistoryDetailActV994::Parent(_),
+                                ..
+                            }
                     )
-                );
+                ) || (matches!(&action, crate::workspace::RowAction::Commit(_))
+                    && self
+                        .workspace
+                        .as_ref()
+                        .is_some_and(crate::workspace::Workspace::graph_visible_v1));
                 if !matches!(
                     &action,
                     crate::workspace::RowAction::Graph(
@@ -2171,6 +2192,7 @@ impl App {
             Action::RepositoryPanelsV93(action) => {
                 crate::repository_panels_v93::dispatch(self, action)
             }
+            Action::HistoryDetailV994(action) => crate::history::detail::dispatch(self, action),
             Action::Actions(action) => {
                 if crate::scoped_actions_native_v1::intercept(self,&action){return;}
                 if crate::pr_checks_native::scoped::choices::continuations_v2::intercept(
@@ -2896,6 +2918,10 @@ impl App {
                         return;
                     }
                 }
+                // The History commit detail's cursor keys come before the generic preview's.
+                if crate::history::detail::key(self, key) {
+                    return;
+                }
                 // List plus preview split: Tab between the panes, keys of the focused preview.
                 if crate::list_preview_v92::key(self, key) {
                     return;
@@ -3341,6 +3367,9 @@ impl App {
                     mouse.kind == MouseEventKind::Down(MouseButton::Left),
                     wheel,
                 ) {
+                    return;
+                }
+                if crate::history::detail::mouse(self, mouse.column, mouse.row, wheel) {
                     return;
                 }
                 if crate::repository_panels_v93::mouse(self, mouse.column, mouse.row, wheel) {

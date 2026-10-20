@@ -12,6 +12,19 @@ use crossterm::event::{
 use ratatui::layout::Rect;
 use std::{sync::mpsc, time::Duration};
 
+/// The newer row-level intent: a click chooses the History row; Enter on it opens its diff
+/// (TASK-99.4). Both replace the running read.
+fn intent(mouse: bool, commit: &str) -> RowAction {
+    if mouse {
+        RowAction::Commit(commit.to_owned())
+    } else {
+        RowAction::Graph(GraphActionV1::Detail {
+            commit: commit.to_owned(),
+            act: crate::repository_graph_v1::HistoryDetailActV994::OpenDiff,
+        })
+    }
+}
+
 fn newer_intent(mode_change: bool) {
     for mouse in [false, true] {
         for outcome in 0..3 {
@@ -105,7 +118,7 @@ fn newer_intent(mode_change: bool) {
             );
             assert_eq!(
                 app.repository_action,
-                (!mode_change).then_some(RowAction::Commit(real.original.clone()))
+                (!mode_change).then(|| intent(mouse, &real.original))
             );
             let status = app.status.clone();
             let loading = app.loading;
@@ -141,7 +154,7 @@ fn newer_intent(mode_change: bool) {
             );
             assert_eq!(
                 app.repository_action,
-                (!mode_change).then_some(RowAction::Commit(real.original.clone()))
+                (!mode_change).then(|| intent(mouse, &real.original))
             );
             let current = app.workspace.as_ref().unwrap();
             assert_eq!(current.graph_horizontal_v1, 0);

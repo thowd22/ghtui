@@ -491,7 +491,7 @@ pub(crate) fn draw_header(frame: &mut Frame, app: &mut App, area: Rect) {
             && splits()
             && pane.width >= crate::list_preview_v92::min_width(app)
         {
-            split_list_preview(pane).list
+            crate::list_preview_v92::split(app, pane).list
         } else {
             pane
         };
@@ -703,6 +703,22 @@ pub fn split_list_preview(area: Rect) -> ListPreview {
             area.width - list,
             area.height,
         )),
+    }
+}
+
+/// [`split_list_preview`] for a wide table beside a narrow detail column (History and its
+/// commit detail, TASK-99.4): the detail keeps about a third of the width, 44 to 56 columns,
+/// so the table's columns and chips keep their room.
+pub fn split_list_detail(area: Rect) -> ListPreview {
+    let split = split_list_preview(area);
+    let Some(preview) = split.preview else {
+        return split;
+    };
+    let width = (area.width / 3).clamp(44, 56).min(preview.width);
+    let list = area.width - width;
+    ListPreview {
+        list: Rect::new(area.x, area.y, list, area.height),
+        preview: Some(Rect::new(area.x + list, area.y, width, area.height)),
     }
 }
 

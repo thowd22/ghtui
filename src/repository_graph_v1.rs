@@ -51,6 +51,41 @@ pub enum GraphActionV1 {
     DiscardBack,
     /// Apply the History filter row: text, author/path chips, branch scope, hide (TASK-99.3).
     Filter(crate::history::filter::HistoryFilterSpecV993),
+    /// TASK-99.4: an action of the History commit detail on one loaded commit (the cursor row
+    /// or the commit the detail shows). The commit becomes the selected revision first.
+    Detail {
+        commit: String,
+        act: HistoryDetailActV994,
+    },
+}
+/// What the History commit detail does with its commit.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum HistoryDetailActV994 {
+    /// The full-width detail (the drill-down below the split width).
+    Details,
+    /// The commit's changes against its first parent (Enter).
+    OpenDiff,
+    /// Select this ordered parent; the drill-down follows it, the timeline keeps its window.
+    Parent(usize),
+    /// History of one changed file, from this commit (`f`).
+    FileHistory(crate::git::RawPath),
+    /// Blame of one changed file at this commit (`Y`).
+    Blame(crate::git::RawPath),
+}
+impl GraphActionV1 {
+    /// Whether the action reads Git (the others only re-project the loaded graph).
+    pub fn reads_git_v994(&self) -> bool {
+        matches!(self, Self::More | Self::CompareParent(_) | Self::Filter(_))
+            || matches!(
+                self,
+                Self::Detail {
+                    act: HistoryDetailActV994::OpenDiff
+                        | HistoryDetailActV994::FileHistory(_)
+                        | HistoryDetailActV994::Blame(_),
+                    ..
+                }
+            )
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphCoverageV1 {

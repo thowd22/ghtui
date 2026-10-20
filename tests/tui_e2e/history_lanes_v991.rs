@@ -272,11 +272,11 @@ fn select(s: &mut Session, mouse: bool, subject: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(8);
     loop {
         s.poll_output(Duration::from_millis(20));
+        // The bar is the selection (the commit detail follows it); Enter would open the diff.
         if s.history_rows()
             .iter()
             .any(|row| row.selected && subject.starts_with(row.message.trim_end_matches('…')))
         {
-            s.send_key(b"\r");
             return;
         }
         assert!(

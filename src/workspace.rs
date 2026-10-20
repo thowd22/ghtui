@@ -962,7 +962,7 @@ impl Workspace {
         if matches!(action, RowAction::OriginalDiffReturn(_)) {
             return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into());
         }
-        let pure = matches!(&action, RowAction::Graph(action) if !matches!(action, crate::repository_graph_v1::GraphActionV1::More | crate::repository_graph_v1::GraphActionV1::CompareParent(_) | crate::repository_graph_v1::GraphActionV1::Filter(_)))
+        let pure = matches!(&action, RowAction::Graph(action) if !action.reads_git_v994())
             || matches!(
                 &action,
                 RowAction::Actor(_)

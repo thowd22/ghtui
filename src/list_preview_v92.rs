@@ -48,7 +48,9 @@ pub fn offered(app: &App) -> bool {
                     .as_ref()
                     .is_some_and(|actions| actions.view == ActionsView::Runs)
         }
-        View::Repository => crate::repository_panels_v93::active(app),
+        View::Repository => {
+            crate::repository_panels_v93::active(app) || crate::history::detail::offered(app)
+        }
         _ => false,
     }
 }
@@ -56,8 +58,21 @@ pub fn offered(app: &App) -> bool {
 /// The terminal width from which the current view's list and preview sit side by side.
 pub fn min_width(app: &App) -> u16 {
     match app.view {
+        // History's commit detail splits at the shared width (TASK-99.4).
+        View::Repository if crate::history::detail::offered(app) => {
+            crate::ui_chrome::SPLIT_MIN_WIDTH
+        }
         View::Repository => crate::repository_panels_v93::SPLIT_MIN_WIDTH,
         _ => crate::ui_chrome::SPLIT_MIN_WIDTH,
+    }
+}
+
+/// The current view's list and preview areas: History's commit detail is a narrower column.
+pub fn split(app: &App, area: Rect) -> crate::ui_chrome::ListPreview {
+    if app.view == View::Repository && crate::history::detail::offered(app) {
+        crate::ui_chrome::split_list_detail(area)
+    } else {
+        crate::ui_chrome::split_list_preview(area)
     }
 }
 
@@ -101,6 +116,9 @@ pub fn focus(app: &mut App, pane: Pane) {
     }
     app.status = match pane {
         Pane::List => format!("{} list focused", app.view.label()),
+        Pane::Preview if crate::history::detail::offered(app) => {
+            "Commit detail focused • ↑↓ select • Enter opens • Tab leaves".into()
+        }
         Pane::Preview => "Preview focused • ↑↓ scroll • Enter opens • Tab leaves".into(),
     };
 }
@@ -120,6 +138,9 @@ pub fn open_action(app: &App) -> Option<Action> {
                 .and_then(|row| row.action.clone())
                 .map(Action::Actions)
         }),
+        View::Repository if crate::history::detail::offered(app) => Some(
+            Action::HistoryDetailV994(crate::history::detail::DetailUiActionV994::Activate),
+        ),
         View::Repository => crate::repository_panels_v93::open_action(app),
         _ => None,
     }
@@ -479,6 +500,11 @@ pub fn run(actions: &ActionsWorkspace, theme: Theme) -> Preview {
 /// Paints the preview pane into `area` and registers its Open token (the same action Enter
 /// gives). The pane carries the focus marker while it owns the focus.
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    // History draws its commit detail with item links and its own changed-files read.
+    if app.view == View::Repository && crate::history::detail::offered(app) {
+        crate::history::detail::draw_pane(frame, app, area);
+        return;
+    }
     let theme = app.theme();
     let preview = match app.view {
         View::Inbox => app.github.as_ref().map(|github| inbox(github, theme)),

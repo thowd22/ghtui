@@ -80,11 +80,11 @@ fn check_rows(
         keys.push(key);
         assert_eq!(row.sha.len(), 7, "{key}: 7-character SHA{}", context());
         let expected = chips.get(key).cloned().unwrap_or_default();
-        // A narrow MESSAGE shows the leading chips and counts the rest as `+N`.
+        // A narrow MESSAGE (80 columns, or beside the commit detail from 120) shows the
+        // leading chips and counts the rest as `+N`.
         let counted = row.chips.split_last().and_then(|(last, shown)| {
             let hidden = last.strip_prefix('+')?.parse::<usize>().ok()?;
-            (!all
-                && shown.len() + hidden == expected.len()
+            (shown.len() + hidden == expected.len()
                 && shown.iter().zip(&expected).all(|(chip, want)| chip == want))
             .then_some(())
         });
@@ -202,8 +202,7 @@ fn select(s: &mut Session, repo: &HistoryRepo, mouse: bool, key: &str) {
             );
             s.poll_output(Duration::from_millis(60));
         }
-        // Enter opens the row's action: the walk re-centres on it without a Git write.
-        s.send_key(b"\r");
+        // The bar is the selection; Enter would open the commit's diff (TASK-99.4).
     }
     wait_selected_key(s, repo, key);
 }
@@ -259,10 +258,10 @@ fn journey(mouse: bool) {
         "refs/remotes",
         "refs/tags",
     ]);
-    let painted = s
-        .history_rows()
-        .into_iter()
-        .flat_map(|row| row.chips)
+    // `check_rows` matched every painted chip (and every `+N` count) to these expectations.
+    let painted = chips
+        .values()
+        .flatten()
         .map(|chip| chip.trim_end_matches(" ⇅").to_owned())
         .collect::<Vec<_>>();
     for name in refs.lines().filter(|name| !name.is_empty()) {

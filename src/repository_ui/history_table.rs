@@ -282,7 +282,8 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let theme = app.theme();
-    let focused = app.repository_content_focused;
+    // Beside the commit detail the list keeps its bar dim while the detail owns the focus.
+    let focused = app.repository_content_focused && crate::list_preview_v92::list_focused(app);
     if area.height < 3 || area.width < 8 {
         return;
     }

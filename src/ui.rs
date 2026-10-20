@@ -112,7 +112,7 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
         && crate::ui_chrome::splits()
         && content_full.width >= crate::list_preview_v92::min_width(app)
     {
-        crate::ui_chrome::split_list_preview(content_full)
+        crate::list_preview_v92::split(app, content_full)
     } else {
         crate::ui_chrome::ListPreview {
             list: content_full,

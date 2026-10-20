@@ -29,17 +29,11 @@ pub(super) fn paths(diff: &Diff, bytes: &[u8], cap: usize) -> GitResult<DiffPath
             .files
             .get(prepared.len())
             .ok_or_else(|| error("extra path record"))?;
-        let mut fields = record.splitn(3, |b| *b == b'\t');
-        let added = fields.next().ok_or_else(|| error("missing additions"))?;
-        let removed = fields.next().ok_or_else(|| error("missing deletions"))?;
-        let path = fields.next().ok_or_else(|| error("missing path field"))?;
-        let binary = added == b"-" && removed == b"-";
-        if binary != file.binary {
+        let parsed = numstat_record(record, &mut records)?;
+        if parsed.counts.is_none() != file.binary {
             return Err(error("binary metadata disagreement"));
         }
-        if !binary {
-            let added = count(added)?;
-            let removed = count(removed)?;
+        if let Some((added, removed)) = parsed.counts {
             let actual_added = file
                 .hunks
                 .iter()
@@ -56,15 +50,7 @@ pub(super) fn paths(diff: &Diff, bytes: &[u8], cap: usize) -> GitResult<DiffPath
                 return Err(error("canonical changed-line count disagreement"));
             }
         }
-        let paired = path.is_empty();
-        let (old, new) = if paired {
-            (
-                records.next().ok_or_else(|| error("missing old path"))?,
-                records.next().ok_or_else(|| error("missing new path"))?,
-            )
-        } else {
-            (path, path)
-        };
+        let (paired, old, new) = (parsed.paired, parsed.old, parsed.new);
         for path in [old, new] {
             if path.is_empty() || path.len() > MAX_PATH {
                 return Err(error("empty or oversized path"));
@@ -131,6 +117,47 @@ pub(super) fn paths(diff: &Diff, bytes: &[u8], cap: usize) -> GitResult<DiffPath
         .into_iter()
         .map(|(a, b)| (a.map(<[u8]>::to_vec), b.map(<[u8]>::to_vec)))
         .collect())
+}
+/// One `--numstat -z` record: the line counts (None for a binary file) and its paths. A
+/// rename or copy (`added\tremoved\t` with an empty path) takes its old and new paths from the
+/// next two NUL-separated fields.
+pub(super) struct NumstatRecordV1<'a> {
+    pub counts: Option<(usize, usize)>,
+    pub old: &'a [u8],
+    pub new: &'a [u8],
+    pub paired: bool,
+}
+
+/// Reads one numstat record from `record` and, for a rename or copy, the two path fields that
+/// follow it in `records`.
+pub(super) fn numstat_record<'a>(
+    record: &'a [u8],
+    records: &mut impl Iterator<Item = &'a [u8]>,
+) -> GitResult<NumstatRecordV1<'a>> {
+    let mut fields = record.splitn(3, |b| *b == b'\t');
+    let added = fields.next().ok_or_else(|| error("missing additions"))?;
+    let removed = fields.next().ok_or_else(|| error("missing deletions"))?;
+    let path = fields.next().ok_or_else(|| error("missing path field"))?;
+    let counts = if added == b"-" && removed == b"-" {
+        None
+    } else {
+        Some((count(added)?, count(removed)?))
+    };
+    let paired = path.is_empty();
+    let (old, new) = if paired {
+        (
+            records.next().ok_or_else(|| error("missing old path"))?,
+            records.next().ok_or_else(|| error("missing new path"))?,
+        )
+    } else {
+        (path, path)
+    };
+    Ok(NumstatRecordV1 {
+        counts,
+        old,
+        new,
+        paired,
+    })
 }
 fn count(bytes: &[u8]) -> GitResult<usize> {
     if bytes.is_empty() || bytes.len() > 20 || !bytes.iter().all(u8::is_ascii_digit) {
