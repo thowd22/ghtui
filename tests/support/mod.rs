@@ -1418,13 +1418,38 @@ impl Session {
         let deadline = Instant::now() + timeout;
         loop {
             self.poll_output(Duration::from_millis(10));
-            if let Some(position) = locate_control(self.parser.screen(), label) {
+            if let Some(position) = self.completed_control(label) {
                 return Some(position);
             }
             if Instant::now() >= deadline {
                 return None;
             }
         }
+    }
+
+    /// Where `label` is painted on the latest COMPLETED frame (see `locate_control`). A frame
+    /// arrives over several reads, top rows first, so the live screen can pair new upper rows
+    /// with the previous key bar, or lack a key bar at all: the first startup frame then
+    /// offered body prose such as `• ? help` for `[? Help]` and the click hit no control
+    /// (TASK-101). Clicks use only coordinates the app has finished painting, and only while no
+    /// newer frame is in flight: an older completed frame (an overlay that is closing) can
+    /// still show a bar token at a position the app no longer uses.
+    fn completed_control(&self, label: &str) -> Option<(u16, u16)> {
+        let tail = &self.transcript[self.cursorless_frames.cells_end.min(self.transcript.len())..];
+        // A frame that leaves the cursor shown ends with its final placement, `ESC [ row ; col H`.
+        let cursor_placement = tail.len() < 16
+            && tail.starts_with(b"\x1b[")
+            && tail.ends_with(b"H")
+            && tail[2..tail.len() - 1]
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || *byte == b';');
+        if !tail.is_empty() && !cursor_placement {
+            return None;
+        }
+        self.cursorless_frames
+            .last_cells
+            .as_ref()
+            .and_then(|screen| locate_control(screen, label))
     }
 
     /// Wait until `label` is a visible control (see `locate_control`).
@@ -1507,7 +1532,7 @@ impl Session {
             while let Ok(bytes) = self.observed_try_recv_v1() {
                 self.process(&bytes);
             }
-            if let Some(position) = locate_control(self.parser.screen(), label) {
+            if let Some(position) = self.completed_control(label) {
                 return position;
             }
             let remaining = deadline.checked_duration_since(Instant::now());
