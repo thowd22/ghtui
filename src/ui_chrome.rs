@@ -722,6 +722,53 @@ pub fn split_list_detail(area: Rect) -> ListPreview {
     }
 }
 
+/// The Repository scope for the pane border: `Local ~/CODE/ghtui / main / 538b3f6`, then
+/// shorter forms (`~/CODE/ghtui / main`, `ghtui / main`, `ghtui`) before any cut. The full
+/// object IDs stay in the Source identity rows and details; this is display only.
+pub fn local_scope(text: &str, width: u16) -> String {
+    let cells = usize::from(width);
+    let Some(rest) = text.strip_prefix("Local ") else {
+        return compact_scope(text, width);
+    };
+    let mut parts = rest.rsplitn(3, " / ");
+    let (Some(revision), Some(branch), Some(directory)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return compact_scope(text, width);
+    };
+    let home = std::env::var("HOME").unwrap_or_default();
+    let directory = match directory.strip_prefix(home.as_str()) {
+        Some(tail) if !home.is_empty() && (tail.is_empty() || tail.starts_with('/')) => {
+            format!("~{tail}")
+        }
+        _ => directory.to_owned(),
+    };
+    let revision = if matches!(revision.len(), 40 | 64)
+        && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        &revision[..7]
+    } else {
+        revision
+    };
+    let name = directory
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(directory.as_str())
+        .to_owned();
+    let candidates = [
+        format!("Local {directory} / {branch} / {revision}"),
+        format!("{directory} / {branch}"),
+        format!("{name} / {branch}"),
+        name.clone(),
+    ];
+    candidates
+        .iter()
+        .find(|candidate| crate::editor::display_width(candidate) <= cells)
+        .cloned()
+        .unwrap_or_else(|| fit(&name, cells))
+}
+
 /// Whether the main view content, rather than header or footer chrome, owns focus.
 pub fn content_focused(app: &App, chrome_hits: usize) -> bool {
     if app.overlay.is_some() {
@@ -746,14 +793,23 @@ pub fn main_pane(app: &App, theme: Theme, area: Rect, focused: bool) -> Block<'s
     let left = crate::editor::display_width(&crumb_title(&[&title], focused)) as u16 + 1;
     let block = pane_block(theme, &[&title], focused);
     let budget = area.width.saturating_sub(2).saturating_sub(left);
+    let context = if app.view == View::Repository {
+        local_scope(&safe_text(&app.context), budget.saturating_sub(4))
+    } else {
+        app.context.clone()
+    };
     let Some((rect, label)) = source_token(app, area) else {
-        return with_right_title(block, theme, focused, &app.context, budget);
+        return with_right_title(block, theme, focused, &context, budget);
     };
     let (border, _) = pane_styles(theme, focused);
     // The scope keeps the rest of the border: ` scope `, one border cell, then ` token ─`.
     let scope_width = budget.saturating_sub(rect.width + 4).saturating_sub(4);
-    let block = if scope_width >= 8 && !app.context.is_empty() {
-        let text = compact_scope(&safe_text(&app.context), scope_width);
+    let block = if scope_width >= 8 && !context.is_empty() {
+        let text = if app.view == View::Repository {
+            local_scope(&safe_text(&app.context), scope_width)
+        } else {
+            compact_scope(&safe_text(&context), scope_width)
+        };
         block.title(
             Line::from(Span::styled(
                 format!(" {text} "),

@@ -298,7 +298,7 @@ fn history_filter_v993_rows_dim_non_matches_and_underline_the_query() {
         }
         // Without a filter nothing changes.
         let plain = row(&parts(theme, Vec::new()), None, theme);
-        assert_eq!(plain.cells[1].role, Some(Role::Commit));
+        assert_eq!(plain.cells[1].role, Some(Role::TextMuted));
         assert!(plain.actor.is_some());
     }
     // Overlapping and repeated occurrences, and a subject whose lowercase changes length.

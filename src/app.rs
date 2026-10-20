@@ -358,6 +358,8 @@ pub struct App {
     pub content_pane: crate::list_preview_v92::Pane,
     /// The painted preview pane, when the current view shows one beside its list.
     pub preview_area_v92: Option<ratatui::layout::Rect>,
+    /// Cells of lanes the History GRAPH column has grown to; reset when History closes.
+    pub history_graph_width_v99: usize,
     /// Lines the preview pane is scrolled by, and the item it was scrolled on.
     pub preview_scroll_v92: usize,
     pub preview_item_v92: String,
@@ -610,6 +612,7 @@ impl Default for App {
             github_content_focused: true,
             content_pane: Default::default(),
             preview_area_v92: None,
+            history_graph_width_v99: 0,
             preview_scroll_v92: 0,
             preview_item_v92: String::new(),
             github_visible_rows: 10,

@@ -21,6 +21,7 @@ use crate::{
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
+    style::Style,
     text::Line,
     widgets::{Block, Clear, Paragraph},
     Frame,
@@ -322,6 +323,88 @@ fn control_is_graph(control: &KeyControl) -> bool {
     )
 }
 
+/// History's identity rows: `Saved: <full id>` and `HEAD: <full id>`, each followed by the
+/// selected commit's author or committer while no commit detail sits beside the table (the
+/// detail repeats both).
+fn draw_history_identity(frame: &mut Frame, app: &mut App, area: Rect) {
+    let Some(workspace) = app.workspace.as_ref() else {
+        return;
+    };
+    let theme = app.theme();
+    let mut rows: Vec<(String, Style)> = Vec::new();
+    if let Some(source) = &app.repository_source_identity {
+        // The compact rows are `HEAD:`, `Saved:`, `Content:`; Saved leads here.
+        let compact = source.compact();
+        for row in compact.iter().skip(1).take(1).chain(compact.iter().take(1)) {
+            rows.push((row.text.clone(), theme.style(row.role)));
+        }
+    } else if let Some(commit) = &workspace.selected_commit {
+        rows.push((
+            format!("Saved: {}", commit.id),
+            theme.style(SemanticToken::Reference),
+        ));
+    }
+    let actors = workspace
+        .selected_commit
+        .as_ref()
+        .filter(|_| app.preview_area_v92.is_none())
+        .map(|commit| {
+            [
+                crate::git_actor_labels_v1::display_identity(&commit.author, GitRole::Author),
+                crate::git_actor_labels_v1::display_identity(&commit.committer, GitRole::Committer),
+            ]
+        });
+    let report = app
+        .local_commit_actors
+        .report_for_workspace(workspace)
+        .map(std::sync::Arc::as_ref);
+    let mut hits = Vec::new();
+    for (index, (text, style)) in rows.into_iter().enumerate().take(usize::from(area.height)) {
+        let y = area.y + index as u16;
+        let cells = (crate::editor::display_width(&text) as u16).min(area.width);
+        frame.render_widget(
+            Paragraph::new(text).style(style),
+            Rect::new(area.x, y, cells, 1),
+        );
+        let (Some(actors), true) = (&actors, index < 2) else {
+            continue;
+        };
+        let x = area.x + cells + 3;
+        if x + 16 > area.right() {
+            continue;
+        }
+        let (role, identity) = if index == 0 {
+            (GitRole::Author, &actors[0])
+        } else {
+            (GitRole::Committer, &actors[1])
+        };
+        // `[TH] author name <email> [local Git]`, or up to the name when that is all that fits.
+        let label = identity.label();
+        let room = area.right() - x;
+        let width = if 5 + crate::editor::display_width(&label) as u16 <= room {
+            room
+        } else {
+            let name = label.split(" <").next().unwrap_or(&label);
+            (5 + crate::editor::display_width(name) as u16).min(room)
+        };
+        let rect = Rect::new(x, y, width, 1);
+        crate::repository_commit_actor_ui_v1::draw_role(
+            frame,
+            rect,
+            role,
+            identity,
+            report,
+            &app.avatar_states,
+            theme,
+        );
+        hits.push(HitRegion {
+            rect,
+            action: Action::RepositoryRow(RowAction::Actor(role)),
+        });
+    }
+    app.hits.extend(hits);
+}
+
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
         return;
@@ -361,7 +444,22 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
         return;
     };
-    if area.height >= 3 {
+    // History is the whole pane below the mode tabs: two identity rows (`Saved:` and `HEAD:`
+    // full IDs, with the author and committer while no commit detail sits beside the table).
+    let history = (history_table::active(workspace)
+        || crate::history::detail::drilldown(workspace))
+        && app.remote_repository.is_none();
+    if !history {
+        app.history_graph_width_v99 = 0;
+    }
+    if history && area.height >= 3 {
+        let rows = area.height.saturating_sub(2).min(2);
+        draw_history_identity(frame, app, Rect::new(area.x, area.y + 1, area.width, rows));
+    }
+    let Some(workspace) = app.workspace.as_ref() else {
+        return;
+    };
+    if !history && area.height >= 3 {
         if let Some(commit) = &workspace.selected_commit {
             let author =
                 crate::git_actor_labels_v1::display_identity(&commit.author, GitRole::Author);
@@ -417,7 +515,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
     }
-    if area.height >= 4 {
+    if !history && area.height >= 4 {
         if let Some(source) = &app.repository_source_identity {
             // Full 40/64 IDs remain readable independently of long directories.
             for (index, row) in source.compact().iter().take(2).enumerate() {
@@ -437,13 +535,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
     }
-    let source_rows = if app.repository_source_identity.is_some() {
+    let source_rows = if app.repository_source_identity.is_some() && !history {
         1u16
     } else {
         0
     };
+    // Rows above the notice: the tabs and the identity block (one row in History).
+    let identity_rows = if history { 3u16 } else { 4 };
     let history_notice = workspace.status.has_history_overrides();
-    if area.height >= 5 + source_rows && history_notice {
+    if area.height > identity_rows + source_rows && history_notice {
         frame.render_widget(
             Paragraph::new(format!(
                 "Original snapshots • replacements: {} • legacy grafts: {}",
@@ -455,11 +555,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             ))
             .style(theme.style(SemanticToken::Changed)),
-            Rect::new(area.x, area.y + 4 + source_rows, area.width, 1),
+            Rect::new(area.x, area.y + identity_rows + source_rows, area.width, 1),
         );
     }
     let mut content_offset =
-        ((if history_notice { 5u16 } else { 4u16 }) + source_rows).min(area.height);
+        (identity_rows + u16::from(history_notice) + source_rows).min(area.height);
     if workspace.actor_profile.is_some() {
         let control_rows = (if area.width < 100 { 2u16 } else { 1u16 })
             .min(area.height.saturating_sub(content_offset));

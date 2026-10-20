@@ -47,6 +47,8 @@ const LABEL: usize = 9;
 const MAX_CHIPS: usize = 64;
 /// Message rows shown before the rest are counted.
 const MAX_MESSAGE_ROWS: usize = 1024;
+/// Message rows beside the table before the rest are counted (the focused detail shows all).
+const MESSAGE_CAP: usize = 8;
 /// The pane title.
 pub const TITLE: &str = "Commit";
 
@@ -830,23 +832,6 @@ fn status_style(theme: Theme, status: char) -> Style {
     })
 }
 
-/// `+42 −1`, `+14`, `−3`, `±0` or `bin` as spans and their width.
-fn count_spans(theme: Theme, counts: Option<(usize, usize)>) -> Vec<Span<'static>> {
-    let added = theme.style(SemanticToken::Added);
-    let removed = theme.style(SemanticToken::Removed);
-    match counts {
-        None => vec![Span::styled("bin", theme.role(Role::TextMuted))],
-        Some((0, 0)) => vec![Span::styled("±0", theme.role(Role::TextMuted))],
-        Some((plus, 0)) => vec![Span::styled(format!("+{plus}"), added)],
-        Some((0, minus)) => vec![Span::styled(format!("−{minus}"), removed)],
-        Some((plus, minus)) => vec![
-            Span::styled(format!("+{plus}"), added),
-            Span::raw(" "),
-            Span::styled(format!("−{minus}"), removed),
-        ],
-    }
-}
-
 fn spans_width(spans: &[Span]) -> usize {
     spans
         .iter()
@@ -907,6 +892,7 @@ fn content(
     now: u64,
     item: usize,
     focused: bool,
+    cap: Option<usize>,
 ) -> Vec<Row> {
     let commit = observed.commit();
     let id = commit.id.as_str();
@@ -1094,29 +1080,48 @@ fn content(
     if end == 0 {
         rows.push(muted(theme, "No message body"));
     } else {
-        let mut shown = 0usize;
+        let mut parts: Vec<String> = Vec::new();
+        let mut limited = false;
         'message: for (lead, line) in reflow(&body[..end]) {
             let indent = " ".repeat(lead.min(width / 2));
             let wrapped = wrap(&safe_text(&line), width.saturating_sub(indent.len()).max(1));
             for (index, part) in wrapped.into_iter().enumerate() {
-                let part = if index == 0 {
+                if parts.len() == MAX_MESSAGE_ROWS {
+                    limited = true;
+                    break 'message;
+                }
+                parts.push(if index == 0 {
                     part
                 } else {
                     format!("{indent}{part}")
-                };
-                if shown == MAX_MESSAGE_ROWS {
-                    rows.push(muted(
-                        theme,
-                        "Message display limit · further rows not shown",
-                    ));
-                    break 'message;
-                }
-                rows.push(Row::new(Line::from(Span::styled(
-                    part,
-                    theme.role(Role::Text),
-                ))));
-                shown += 1;
+                });
             }
+        }
+        // Beside the table a long body stops after `cap` rows, so CHANGED FILES and the
+        // action hints stay in view; focusing the detail (Tab or a click) shows it all.
+        let hidden = cap
+            .filter(|cap| parts.len() > cap + 1)
+            .map_or(0, |cap| parts.len() - cap);
+        let shown = parts.len() - hidden;
+        for part in parts.into_iter().take(shown) {
+            rows.push(Row::new(Line::from(Span::styled(
+                part,
+                theme.role(Role::Text),
+            ))));
+        }
+        if hidden > 0 {
+            rows.push(muted(
+                theme,
+                format!(
+                    "… {hidden} more line{} · Tab reads all",
+                    if hidden == 1 { "" } else { "s" }
+                ),
+            ));
+        } else if limited {
+            rows.push(muted(
+                theme,
+                "Message display limit · further rows not shown",
+            ));
         }
     }
     if !observed.message_complete() {
@@ -1148,8 +1153,12 @@ fn content(
                 files.total,
                 if files.total == 1 { "" } else { "s" }
             );
-            if files.added > 0 || files.removed > 0 {
-                summary.push_str(&format!(" · +{} −{}", files.added, files.removed));
+            // `· +4 −1`, leaving out a zero side.
+            match (files.added, files.removed) {
+                (0, 0) => {}
+                (added, 0) => summary.push_str(&format!(" · +{added}")),
+                (0, removed) => summary.push_str(&format!(" · −{removed}")),
+                (added, removed) => summary.push_str(&format!(" · +{added} −{removed}")),
             }
             if parents > 1 {
                 summary.push_str(" · vs parent 1");
@@ -1158,17 +1167,42 @@ fn content(
             if files.files.is_empty() {
                 rows.push(muted(theme, "No file changes"));
             }
-            let counts: Vec<Vec<Span<'static>>> = files
+            // `+52  −6`: additions and deletions each right-aligned in their own column, a
+            // zero side left blank, so the counts line up down the list.
+            let added = theme.style(SemanticToken::Added);
+            let removed = theme.style(SemanticToken::Removed);
+            let cells: Vec<(String, String)> = files
                 .files
                 .iter()
-                .map(|file| count_spans(theme, file.counts))
+                .map(|file| match file.counts {
+                    None => ("bin".into(), String::new()),
+                    Some((0, 0)) => ("±0".into(), String::new()),
+                    Some((plus, minus)) => (
+                        if plus > 0 {
+                            format!("+{plus}")
+                        } else {
+                            String::new()
+                        },
+                        if minus > 0 {
+                            format!("−{minus}")
+                        } else {
+                            String::new()
+                        },
+                    ),
+                })
                 .collect();
-            let counts_width = counts
+            let plus_width = cells
                 .iter()
-                .map(|spans| spans_width(spans))
+                .map(|(plus, _)| crate::editor::display_width(plus))
                 .max()
                 .unwrap_or(0);
-            for (index, (file, counts)) in files.files.iter().zip(counts).enumerate() {
+            let minus_width = cells
+                .iter()
+                .map(|(_, minus)| crate::editor::display_width(minus))
+                .max()
+                .unwrap_or(0);
+            let counts_width = plus_width + usize::from(minus_width > 0) * (1 + minus_width);
+            for (index, (file, (plus, minus))) in files.files.iter().zip(cells).enumerate() {
                 let item_index = parents + index;
                 let path = match &file.from {
                     Some(from) => format!(
@@ -1178,19 +1212,27 @@ fn content(
                     ),
                     None => safe_text(&file.path.display()),
                 };
-                // `▌ M path…  +4 −1`: bar slot, status, path, right-aligned counts.
+                // `  M path…  +4  −1`: bar slot, status, path, then the two count columns.
                 let path_width = width.saturating_sub(4 + counts_width + 2);
                 let path = fit_path(&path, path_width);
                 let pad = path_width.saturating_sub(crate::editor::display_width(&path));
-                let count_pad = counts_width - spans_width(&counts);
+                let plus_style = if file.counts.is_some_and(|(plus, _)| plus > 0) {
+                    added
+                } else {
+                    theme.role(Role::TextMuted)
+                };
                 let mut spans = vec![
                     Span::raw("  "),
                     Span::styled(file.status.to_string(), status_style(theme, file.status)),
                     Span::raw(" "),
                     Span::styled(path, theme.role(Role::Text)),
-                    Span::raw(" ".repeat(pad + 2 + count_pad)),
+                    Span::raw(" ".repeat(pad + 2)),
+                    Span::styled(format!("{plus:>plus_width$}"), plus_style),
                 ];
-                spans.extend(counts);
+                if minus_width > 0 {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(format!("{minus:>minus_width$}"), removed));
+                }
                 let mut row = Row::new(Line::from(spans));
                 row.item = Some(item_index);
                 row.hits.push((
@@ -1271,7 +1313,14 @@ fn hints(app: &App, theme: Theme, width: usize) -> Vec<Row> {
 
 /// Paints the detail rows into `body` from `scroll` and registers their click targets.
 /// Returns the scroll after clamping and revealing the item.
-fn paint(frame: &mut Frame, app: &mut App, body: Rect, scroll: usize, focused: bool) -> usize {
+fn paint(
+    frame: &mut Frame,
+    app: &mut App,
+    body: Rect,
+    scroll: usize,
+    focused: bool,
+    pane: bool,
+) -> usize {
     let theme = app.theme();
     let Some(commit) = commit_id(app) else {
         return 0;
@@ -1317,6 +1366,7 @@ fn paint(frame: &mut Frame, app: &mut App, body: Rect, scroll: usize, focused: b
         crate::storage::now(),
         item,
         focused,
+        (pane && !focused).then_some(MESSAGE_CAP),
     );
     rows.extend(hints(app, theme, width));
     let height = usize::from(body.height);
@@ -1332,16 +1382,26 @@ fn paint(frame: &mut Frame, app: &mut App, body: Rect, scroll: usize, focused: b
     }
     scroll = scroll.min(rows.len().saturating_sub(height));
     let buffer_area = frame.area();
+    // Rows below the fold are announced on the bottom border: ` ↓ more `.
+    if scroll + height < rows.len() && body.bottom() < buffer_area.bottom() && body.width > 10 {
+        let mark = " ↓ more ";
+        let cells = crate::editor::display_width(mark) as u16;
+        frame.render_widget(
+            Paragraph::new(mark).style(theme.role(Role::TextMuted)),
+            Rect::new(body.right().saturating_sub(cells), body.bottom(), cells, 1),
+        );
+    }
     for (offset, row) in rows.iter().skip(scroll).take(height).enumerate() {
         let rect = Rect::new(body.x, body.y + offset as u16, body.width, 1);
         frame.render_widget(Paragraph::new(row.line.clone()).style(theme.base()), rect);
-        // The selected file wears the table's selection: the `▌` bar and the row fill.
-        if row.item == Some(item) && item >= parent_count {
+        // The selected file wears the table's selection, the `▌` bar and the row fill, only
+        // while the detail owns the keys; the table keeps the one bar otherwise.
+        if focused && row.item == Some(item) && item >= parent_count {
             frame
                 .buffer_mut()
                 .set_style(rect, crate::ui_table::selection_style(theme));
             let bar = theme
-                .role(if focused { Role::Accent } else { Role::TextDim })
+                .role(Role::Accent)
                 .patch(crate::ui_table::selection_style(theme));
             if let Some(cell) = frame.buffer_mut().cell_mut((rect.x, rect.y)) {
                 cell.set_symbol(crate::ui_table::SELECTION_BAR);
@@ -1389,7 +1449,7 @@ pub fn draw_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         app.preview_scroll_v92 = 0;
     }
     let scroll = app.preview_scroll_v92;
-    app.preview_scroll_v92 = paint(frame, app, body, scroll, focused);
+    app.preview_scroll_v92 = paint(frame, app, body, scroll, focused, true);
 }
 
 /// The full-width drill-down (`D Details`) in the Repository pane body.
@@ -1426,7 +1486,7 @@ pub fn draw_full(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     app.history_detail_v994.area = Some(body);
     let scroll = app.history_detail_v994.scroll;
-    app.history_detail_v994.scroll = paint(frame, app, body, scroll, focused);
+    app.history_detail_v994.scroll = paint(frame, app, body, scroll, focused, false);
     app.repository_visible_rows = usize::from(body.height);
 }
 

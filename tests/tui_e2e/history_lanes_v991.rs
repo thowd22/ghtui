@@ -195,7 +195,7 @@ fn check_graph(
     }
     if let Some(merge) = rows.iter().find(|row| row.subject == "Lane merge feature") {
         let tail = merge.line[merge.dot + 1..sha].iter().collect::<String>();
-        let link = tail.trim_start_matches(['─', '│']).chars().next();
+        let link = tail.trim_start_matches(['─', '│', '┿']).chars().next();
         if !tail.starts_with('─') || !matches!(link, Some('╮' | '┬' | '┤' | '┼')) {
             return Err(format!(
                 "merge row does not join on its row: {:?}",

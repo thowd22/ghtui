@@ -817,7 +817,8 @@ pub(crate) fn draw_navigation(
     }
     for (label, width, link) in selected.into_iter().rev() {
         let rect = Rect::new(x, area.y, width, 1);
-        let mut line = Line::styled(label, theme.role(Role::Text));
+        // Crumbs are Back targets, not the current place (the pane title names that): muted.
+        let mut line = Line::styled(label, theme.role(Role::TextMuted));
         if app.focus == app.hits.len() {
             line = line.patch_style(Style::default().add_modifier(Modifier::UNDERLINED));
         }

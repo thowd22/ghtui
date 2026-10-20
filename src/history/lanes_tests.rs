@@ -88,7 +88,7 @@ fn history_lanes_v991_crossings_holes_joins_and_octopus_connectors() {
     ]);
     assert_eq!(
         texts(&crossing),
-        ["●", "│ ●", "●─│─╮", "│ ● │", "●─╯ │", "│   ●", "●───╯"]
+        ["●", "│ ●", "●─┿─╮", "│ ● │", "●─╯ │", "│   ●", "●───╯"]
     );
     let join = lay(&[
         commit("a", &["m"]),
@@ -351,7 +351,7 @@ fn read_dag(root: &Path, order: &str) -> Vec<LaneCommit> {
 /// Children (and whether this is their first-parent edge) flowing down a lane, with its slot.
 type Carried = (Vec<(String, bool)>, Option<usize>);
 
-const RECEIVES: &[char] = &['│', '●', '╯', '╰', '┴', '┤', '├', '┼'];
+const RECEIVES: &[char] = &['│', '┿', '●', '╯', '╰', '┴', '┤', '├', '┼'];
 
 #[derive(Default, Debug, PartialEq, Eq)]
 struct Decoded {

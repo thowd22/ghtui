@@ -136,7 +136,8 @@ fn history_detail_v994_pane_shows_the_commit_beside_the_table_and_reads_files_on
     let screen = settle(&mut app, &mut terminal);
     assert_eq!(commit_id(&app).unwrap(), root(&real));
     assert_eq!(app.history_detail_v994.reads(), 1);
-    assert!(screen.contains("CHANGED FILES  1 file · +1 −0"), "{screen}");
+    assert!(screen.contains("CHANGED FILES  1 file · +1"), "{screen}");
+    assert!(!screen.contains("−0"), "a zero side is left out\n{screen}");
     assert!(screen.contains("A tracked"), "{screen}");
     assert!(screen.contains("none · root commit"), "{screen}");
     assert!(app

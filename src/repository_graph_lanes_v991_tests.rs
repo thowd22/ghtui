@@ -98,7 +98,7 @@ fn follow(rows: &[GraphRow], ids: &[String], lane: usize, from: usize) -> Option
         match glyph(row, lane) {
             '●' if row.column == lane => return Some(ids[index].clone()),
             '╯' | '╰' | '┴' => return Some(ids[index].clone()),
-            '│' | '┤' | '├' | '┼' => {}
+            '│' | '┿' | '┤' | '├' | '┼' => {}
             other => panic!(
                 "lane {lane} breaks at row {index} ({other:?}): {}",
                 row.text()
@@ -286,7 +286,7 @@ fn history_lanes_v991_branches_merge_tag_remote_and_detached_head_match_git_log_
     // The merge joins its second parent on its own row: `●─╮`, never a separate connector row.
     let merge_text = row_of(&state, &rows, &merge).text();
     let tail = merge_text.split_once('●').unwrap().1;
-    let link = tail.trim_start_matches(['─', '│']).chars().next();
+    let link = tail.trim_start_matches(['─', '│', '┿']).chars().next();
     assert!(
         tail.starts_with('─') && matches!(link, Some('╮' | '┬' | '┤' | '┼')),
         "merge row joins on the same row: {merge_text:?}"

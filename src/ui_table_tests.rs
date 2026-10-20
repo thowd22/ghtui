@@ -179,7 +179,10 @@ fn design_table_v91_truncates_with_ellipsis_and_right_aligns_numbers() {
     assert_eq!(age_from_seconds(42), "42s");
     assert_eq!(age_from_seconds(3599), "59m");
     assert_eq!(age_from_seconds(7 * 3600 + 5), "7h");
-    assert_eq!(age_from_seconds(35 * 86400), "35d");
+    assert_eq!(age_from_seconds(29 * 86400), "29d");
+    assert_eq!(age_from_seconds(35 * 86400), "1mo");
+    assert_eq!(age_from_seconds(340 * 86400), "11mo");
+    assert_eq!(age_from_seconds(1059 * 86400), "2y");
     let created = crate::github_workspace::timestamp_seconds("2026-10-13T12:00:00Z").unwrap();
     assert_eq!(
         age_at("2026-10-13T12:00:00Z", created + 7200).as_deref(),

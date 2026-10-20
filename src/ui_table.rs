@@ -823,7 +823,10 @@ pub fn age_from_seconds(age: u64) -> String {
         0..60 => format!("{age}s"),
         60..3600 => format!("{}m", age / 60),
         3600..86400 => format!("{}h", age / 3600),
-        _ => format!("{}d", age / 86400),
+        // Days up to a month, then months and years, so an old commit never widens AGE.
+        86400..2_592_000 => format!("{}d", age / 86400),
+        2_592_000..31_536_000 => format!("{}mo", age / 2_592_000),
+        _ => format!("{}y", age / 31_536_000),
     }
 }
 /// The age of a GitHub UTC timestamp at `now` (seconds since the epoch), `None` when the

@@ -276,26 +276,20 @@ fn row(parts: &Parts, width: Option<usize>, theme: Theme) -> TableRow<RowAction>
     // While History filters, a match keeps full ink with a bold SHA and its text underlined;
     // a commit that does not match stays for context, dimmed (TASK-99.3).
     let dimmed = parts.matched == Some(false);
+    // The SHA is subtext, never a lane or chip hue, so a yellow or teal lane and the tag or
+    // branch chips beside it never run together; the selected row reads in full ink.
+    let sha_role = if parts.focused {
+        Role::Text
+    } else {
+        Role::TextMuted
+    };
     let sha = match parts.matched {
         Some(true) => Cell::spans(vec![(
             sha.to_owned(),
-            theme
-                .role(if parts.focused {
-                    Role::Head
-                } else {
-                    Role::Commit
-                })
-                .add_modifier(Modifier::BOLD),
+            theme.role(sha_role).add_modifier(Modifier::BOLD),
         )]),
         Some(false) => Cell::styled(sha, Role::TextDim),
-        None => Cell::styled(
-            sha,
-            if parts.focused {
-                Role::Head
-            } else {
-                Role::Commit
-            },
-        ),
+        None => Cell::styled(sha, sha_role),
     };
     TableRow::cells(vec![
         Cell::spans(parts.graph.clone()),
@@ -372,22 +366,10 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     crate::repository_panels_v93::join_rule(frame, area);
     // The filter row (and, with room, a rule under it) sits above the table header.
     super::history_filter::draw_count(frame, app, Rect::new(area.x, area.y, area.width, 1));
+    // The filter row sits directly above the column titles at every size (no rule).
     if super::history_filter::shown(app) && inner.height >= 6 {
         super::history_filter::draw_row(frame, app, Rect::new(inner.x, inner.y, inner.width, 1));
-        let ruled = u16::from(inner.height >= 14);
-        if ruled == 1 {
-            frame.render_widget(
-                Paragraph::new("─".repeat(usize::from(inner.width.saturating_sub(2))))
-                    .style(theme.role(Role::TextDim)),
-                Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1),
-            );
-        }
-        inner = Rect::new(
-            inner.x,
-            inner.y + 1 + ruled,
-            inner.width,
-            inner.height - 1 - ruled,
-        );
+        inner = Rect::new(inner.x, inner.y + 1, inner.width, inner.height - 1);
     }
     let Some(workspace) = app.workspace.as_ref() else {
         return;
@@ -479,9 +461,11 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // taller terminal, or a shorter filtered window).
     top = top.min(parts.len().saturating_sub(visible));
     let mut natural = crate::ui_table::natural_widths(&HISTORY_COLUMNS, &full, theme.mode);
-    // GRAPH is as wide as the lanes on screen, not the widest row of the loaded window: a
-    // burst of parallel branches further down must not squeeze every message (TASK-99). It
-    // never takes more than a quarter of the table; wider rows end in `…` and pan with `<`/`>`.
+    // GRAPH grows to the widest lanes shown so far and never shrinks while History stays
+    // open, so COMMIT and MESSAGE do not jump sideways when scrolling back past a merge, and
+    // a burst of parallel branches further down does not squeeze every message up front
+    // (TASK-99). It never takes more than a quarter of the table; wider rows end in `…` and
+    // pan with `<`/`>`.
     let lanes = parts
         .iter()
         .skip(top)
@@ -494,7 +478,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 .sum::<usize>()
         })
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .max(app.history_graph_width_v99);
+    app.history_graph_width_v99 = lanes;
     let cap = usize::from(body.width / 4).max(usize::from(HISTORY_COLUMNS[0].min));
     natural[0] = u16::try_from(lanes.min(cap))
         .unwrap_or(u16::MAX)

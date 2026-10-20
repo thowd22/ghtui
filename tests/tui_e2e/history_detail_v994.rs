@@ -227,7 +227,7 @@ fn journey(mouse: bool) {
             repo.short("topic_b"),
             repo.short("topic_c"),
             "v0.2.0",
-            "3 files · +3 −0 · vs parent 1",
+            "3 files · +3 · vs parent 1",
             "A notes/a.md",
             "A notes/b.md",
             "A notes/c.md",

@@ -19,6 +19,8 @@ use std::collections::HashSet;
 pub const HISTORY_MAX_LANES: usize = 128;
 /// Default number of distinct lane color slots.
 pub const HISTORY_LANE_PALETTE: usize = 8;
+/// A connector crossing a lane that continues below.
+pub const CROSSING: char = '┿';
 
 /// One commit in display order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -374,11 +376,8 @@ impl LaneLayout {
                         glyph: kind.glyph(true, k < end),
                         slot: current,
                     };
-                } else if glyphs[k].glyph == ' ' {
-                    glyphs[k] = GraphCell {
-                        glyph: '─',
-                        slot: current,
-                    };
+                } else {
+                    glyphs[k] = crossing(glyphs[k], current);
                 }
                 gaps[k - 1] = GraphCell {
                     glyph: '─',
@@ -395,11 +394,8 @@ impl LaneLayout {
                         glyph: kind.glyph(false, k > start),
                         slot: current,
                     };
-                } else if glyphs[k].glyph == ' ' {
-                    glyphs[k] = GraphCell {
-                        glyph: '─',
-                        slot: current,
-                    };
+                } else {
+                    glyphs[k] = crossing(glyphs[k], current);
                 }
                 gaps[k] = GraphCell {
                     glyph: '─',
@@ -440,6 +436,16 @@ impl LaneLayout {
             boundary: false,
             label: None,
         }
+    }
+}
+
+/// A connector cell between the commit and its farthest link: `─` over a gap, and `┿` in the
+/// connector's colour where it crosses a lane that keeps going, so the join reads as one
+/// unbroken line while the crossed lane stays continuous (`┼` stays a real join).
+fn crossing(cell: GraphCell, slot: Option<usize>) -> GraphCell {
+    GraphCell {
+        glyph: if cell.glyph == '│' { CROSSING } else { '─' },
+        slot,
     }
 }
 

@@ -458,7 +458,8 @@ pub(crate) fn draw_row(frame: &mut Frame, app: &mut App, area: Rect) {
                 label: String,
                 click: A,
                 removable: Option<Chip>| {
-        pieces.push(("  ".into(), base, None));
+        // One blank before each chip; a removable chip carries its `✕` inside its fill.
+        pieces.push((" ".into(), base, None));
         pieces.push((
             format!(" {} ", crate::ui_chrome::fit(&label, 40)),
             chip_style,
@@ -466,8 +467,8 @@ pub(crate) fn draw_row(frame: &mut Frame, app: &mut App, area: Rect) {
         ));
         if let Some(chip) = removable {
             pieces.push((
-                "✕".into(),
-                remove,
+                "✕ ".into(),
+                chip_style.patch(remove),
                 Some(Action::HistoryFilterV993(A::Remove(chip))),
             ));
         }
@@ -515,7 +516,7 @@ pub(crate) fn draw_row(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "B scope · Esc clears"
     };
-    pieces.push(("  ".into(), base, None));
+    pieces.push((" ".into(), base, None));
     // While something matches, the hint is also the click target of `h`.
     pieces.push((
         hint.into(),
