@@ -6,6 +6,12 @@ pub(crate) const UNAVAILABLE: &str = "This catalogue-source Actions operation ne
 
 pub(crate) fn prepare_policy(workspace: &mut ActionsWorkspace, pending: bool) {
     workspace.drop_failure_jumps();
+    // Scoped routes own `x` (clear matches) and export nothing; the legacy log export
+    // control belongs to the repository Actions page only.
+    workspace.controls.retain(|control| {
+        control.action
+            != ActionsAction::Compose(crate::actions_workspace::ActionsCommand::ExportLogs)
+    });
     if workspace.run.is_some() {
         for (label, view) in [
             ("[t Run]", ActionsView::Run),

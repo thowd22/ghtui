@@ -37,8 +37,8 @@ impl ActionsCommand {
             GroupRepositories => ActionsWriteKind::GroupRepositories,
             CreateRunnerGroup => ActionsWriteKind::CreateRunnerGroup,
             DeleteRunnerGroup => ActionsWriteKind::DeleteRunnerGroup,
-            ChooseScope | WorkflowRevision | SearchLogs | FilterRuns | FilterCaches
-            | ExportArtifact | ExtractArtifact => return None,
+            ChooseScope | WorkflowRevision | SearchLogs | ExportLogs | FilterRuns
+            | FilterCaches | ExportArtifact | ExtractArtifact => return None,
         })
     }
 }
@@ -185,7 +185,8 @@ impl ActionsWorkspace {
                 })
             }
             SetSecret | SetVariable | CreateRunnerGroup | ChooseScope | WorkflowRevision
-            | SearchLogs | FilterRuns | FilterCaches | ExportArtifact | ExtractArtifact => None,
+            | SearchLogs | ExportLogs | FilterRuns | FilterCaches | ExportArtifact
+            | ExtractArtifact => None,
         }
     }
 }
@@ -248,6 +249,7 @@ mod tests {
             ActionsCommand::ChooseScope,
             ActionsCommand::WorkflowRevision,
             ActionsCommand::SearchLogs,
+            ActionsCommand::ExportLogs,
             ActionsCommand::FilterRuns,
             ActionsCommand::FilterCaches,
             ActionsCommand::ExportArtifact,

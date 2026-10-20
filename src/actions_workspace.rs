@@ -147,6 +147,7 @@ pub enum ActionsCommand {
     ChooseScope,
     WorkflowRevision,
     SearchLogs,
+    ExportLogs,
     FilterRuns,
     FilterCaches,
     RerunAll,
@@ -187,6 +188,7 @@ impl ActionsCommand {
             ChooseScope => "Choose Actions scope",
             WorkflowRevision => "Choose workflow revision",
             SearchLogs => "Search current logs",
+            ExportLogs => "Export loaded log to a new file",
             FilterRuns => "Filter runs",
             FilterCaches => "Filter caches",
             RerunAll => "Rerun all jobs",
@@ -393,6 +395,7 @@ impl ActionsControl {
             }
             Select(_) if self.label == NEXT_FAILURE => 26,
             Select(_) => 27,
+            Compose(ExportLogs) => 26,
             Compose(RerunAll | RerunJob | WorkflowRevision) | EditWorkflowLocalV9 => 28,
             View(_) | Artifacts => 30,
             PublicationList => 32,
@@ -415,6 +418,7 @@ impl ActionsControl {
                     ChooseScope => "Scope",
                     WorkflowRevision => "Revision",
                     SearchLogs => "Search",
+                    ExportLogs => "Export log",
                     FilterRuns | FilterCaches => "Filter",
                     RerunAll => "Rerun all",
                     RerunFailed => "Rerun failed",
@@ -1446,6 +1450,11 @@ impl ActionsWorkspace {
         }
         if self.view == Logs {
             self.controls.push(command(ActionsCommand::SearchLogs));
+            // TASK-53: the loaded (bounded) log text goes to a new file, never overwriting.
+            self.controls.push(add(
+                "[x Export log]",
+                ActionsAction::Compose(ActionsCommand::ExportLogs),
+            ));
         }
         if self.view == Workflow {
             self.controls.push(add(
@@ -2106,6 +2115,7 @@ impl ActionsWorkspace {
                 | ChooseScope
                 | WorkflowRevision
                 | SearchLogs
+                | ExportLogs
                 | ExportArtifact
                 | ExtractArtifact
         );
@@ -2127,6 +2137,11 @@ impl ActionsWorkspace {
             RerunAll | RerunFailed | RerunJob | Cancel | ForceCancel | DeleteRun | DeleteLogs
             | ApproveFork | ApproveDeployment | RejectDeployment => run.is_none(),
             EnableWorkflow | DisableWorkflow | DispatchWorkflow => self.definition.is_none(),
+            ExportLogs => self
+                .run
+                .as_ref()
+                .and_then(|page| page.logs.as_ref())
+                .is_none(),
             ExportArtifact | ExtractArtifact | DeleteArtifact => self.artifact.is_none(),
             DeleteCache => self.caches.get(self.selected).is_none(),
             DeleteSecret => self.secrets.is_empty(),

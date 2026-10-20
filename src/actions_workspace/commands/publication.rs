@@ -343,6 +343,7 @@ impl ActionsPlan {
             ActionsOperation::Scope(_) => Some(ActionsCommand::ChooseScope),
             ActionsOperation::Revision { .. } => Some(ActionsCommand::WorkflowRevision),
             ActionsOperation::LogSearch { .. } => Some(ActionsCommand::SearchLogs),
+            ActionsOperation::LogExport { .. } => Some(ActionsCommand::ExportLogs),
             ActionsOperation::Archive { extract, .. } => Some(if *extract {
                 ActionsCommand::ExtractArtifact
             } else {
@@ -640,6 +641,7 @@ impl ActionsPlan {
             | ActionsOperation::Scope(_)
             | ActionsOperation::Revision { .. }
             | ActionsOperation::LogSearch { .. }
+            | ActionsOperation::LogExport { .. }
             | ActionsOperation::Archive { .. } => {
                 return Err(plain_error(
                     "Local operation unexpectedly reached remote publication preparation",

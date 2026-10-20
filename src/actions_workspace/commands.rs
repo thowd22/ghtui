@@ -80,7 +80,7 @@ impl ActionsWorkspace {
         let repo = self.repository()?;
         let key = match command {
             RerunAll | RerunFailed | RerunJob | Cancel | ForceCancel | DeleteRun | DeleteLogs
-            | ApproveFork | SearchLogs => {
+            | ApproveFork | SearchLogs | ExportLogs => {
                 let page = self
                     .run
                     .as_ref()
@@ -314,7 +314,7 @@ impl ActionsWorkspace {
                 }
                 fields
             }
-            ExportArtifact | ExtractArtifact => vec![field(
+            ExportArtifact | ExtractArtifact | ExportLogs => vec![field(
                 "destination",
                 "New absolute destination (never overwrites)",
                 "",
@@ -680,6 +680,12 @@ enum ActionsOperation {
         query: String,
         regex: bool,
     },
+    /// TASK-53: the loaded, bounded log text written to a new local file.
+    LogExport {
+        text: String,
+        context: String,
+        destination: PathBuf,
+    },
     Run {
         run: WorkflowRun,
         action: RunMutation,
@@ -937,6 +943,31 @@ impl ActionsPlan {
                 ActionsOperation::LogSearch {
                     query: query.into(),
                     regex,
+                }
+            }
+            ExportLogs => {
+                let destination = PathBuf::from(value(values, "destination"));
+                if !destination.is_absolute() {
+                    return Err(plain_error("Enter an explicit absolute new destination"));
+                }
+                let page = workspace
+                    .run
+                    .as_ref()
+                    .ok_or_else(|| plain_error("Inspect an exact run attempt first"))?;
+                ActionsOperation::LogExport {
+                    text: page
+                        .logs
+                        .clone()
+                        .ok_or_else(|| plain_error("Load the logs first"))?,
+                    context: format!(
+                        "run {} attempt {}{}",
+                        page.attempt.run.id,
+                        page.attempt.run.attempt,
+                        page.selected_job
+                            .map(|job| format!(" job {job}"))
+                            .unwrap_or_default()
+                    ),
+                    destination,
                 }
             }
             RerunAll | RerunFailed | RerunJob | Cancel | ForceCancel | DeleteRun | DeleteLogs
@@ -1458,6 +1489,7 @@ impl ActionsPlan {
             ActionsOperation::Scope(_)
             | ActionsOperation::Filter(_)
             | ActionsOperation::LogSearch { .. }
+            | ActionsOperation::LogExport { .. }
             | ActionsOperation::Archive { .. } => String::new(),
             _ => workspace.repository()?.to_owned(),
         };
@@ -1573,6 +1605,18 @@ impl ActionsPlan {
                     );
                 }
                 outcome.explanation
+            }
+            ActionsOperation::LogExport {
+                text,
+                context,
+                destination,
+            } => {
+                export_log_new(text, destination)?;
+                format!(
+                    "Log for {context} ({} lines) written to {}; nothing was overwritten",
+                    text.lines().count(),
+                    destination.display()
+                )
             }
             ActionsOperation::Archive {
                 archive,
@@ -1914,5 +1958,49 @@ fn workflow_preview_lines(
             Some(lines)
         }
         _ => None,
+    }
+}
+
+/// Writes loaded log text to a new file: staged in the destination's directory, then
+/// persisted without clobbering an existing path.
+fn export_log_new(text: &str, destination: &std::path::Path) -> GithubResult<()> {
+    use std::io::Write;
+    let parent = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| plain_error("Choose a destination inside an existing directory"))?;
+    let mut staging = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| plain_error(format!("Log export failed: {error}")))?;
+    staging
+        .write_all(text.as_bytes())
+        .and_then(|_| staging.as_file().sync_all())
+        .map_err(|error| plain_error(format!("Log export failed: {error}")))?;
+    staging.persist_noclobber(destination).map_err(|_| {
+        plain_error("Log export destination already exists or cannot be created; choose a new explicit path")
+    })?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod log_export_tests {
+    use super::export_log_new;
+
+    #[test]
+    fn log_export_creates_new_file_and_never_overwrites() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("run-123.log");
+        export_log_new("first line\n##[error]boom\n", &destination).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "first line\n##[error]boom\n"
+        );
+        let refused = export_log_new("other text\n", &destination).unwrap_err();
+        assert!(refused.message.contains("already exists"));
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "first line\n##[error]boom\n"
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert!(export_log_new("x", std::path::Path::new("/")).is_err());
     }
 }

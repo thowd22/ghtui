@@ -4,6 +4,8 @@ mod actions_accepted_transitions;
 mod actions_approval_recovery;
 #[path = "provider_contracts/actions_attempt_optional_v1.rs"]
 mod actions_attempt_optional_v1;
+#[path = "provider_contracts/actions_cache_outcomes_v1.rs"]
+mod actions_cache_outcomes_v1;
 #[path = "provider_contracts/actions_journal_proofs.rs"]
 mod actions_journal_proofs;
 #[path = "provider_contracts/actions_settings.rs"]

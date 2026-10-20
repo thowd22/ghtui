@@ -610,7 +610,21 @@ impl GithubProvider {
             Some(resource.clone()),
             false,
             cancel,
-        )?;
+        )
+        .map_err(|failure| {
+            // An exited write stays unconfirmed (the runner already marked it), but a
+            // 403 names the likely cause instead of a bare transport message.
+            if matches!(failure.kind, GithubErrorKind::Permission)
+                || failure.message.contains("(HTTP 403)")
+            {
+                GithubError {
+                    kind: failure.kind,
+                    message: "Cache deletion denied by GitHub (HTTP 403): this account needs write access to this repository's Actions caches. The deletion is not confirmed and is never resent; refresh to see the current list.".into(),
+                }
+            } else {
+                failure
+            }
+        })?;
         let remaining =
             self.after_write(&resource, self.action_caches(repo, None, None, cancel))?;
         if remaining.iter().any(|c| c.id == target.id) {

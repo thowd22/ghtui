@@ -7,10 +7,14 @@ use std::collections::BTreeMap;
 mod approval_recovery;
 #[path = "actions/approvals.rs"]
 mod approvals;
+#[path = "actions/cache_outcomes_v1.rs"]
+mod cache_outcomes_v1;
 #[path = "actions/controls_v1.rs"]
 mod controls_v1;
 #[path = "actions/lease_selection.rs"]
 mod lease_selection;
+#[path = "actions/log_export_v1.rs"]
+mod log_export_v1;
 #[path = "actions/optional_attempt_v1.rs"]
 mod optional_attempt_v1;
 #[path = "actions/origin_default_v1.rs"]
@@ -27,6 +31,10 @@ mod runs_focus_v1;
 mod secret_cli_preflight;
 #[path = "actions/settings.rs"]
 mod settings;
+#[path = "actions/variables_scope_v1.rs"]
+mod variables_scope_v1;
+#[path = "actions/workflow_revision_v1.rs"]
+mod workflow_revision_v1;
 #[path = "actions/workflow_usability_v1.rs"]
 mod workflow_usability_v1;
 
