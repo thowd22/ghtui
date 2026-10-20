@@ -485,7 +485,7 @@ fn paging(mouse: bool) {
         .iter()
         .any(|a| a == "--stdin"));
     let before = trace(&n).len();
-    explain_disabled(&mut s, mouse, "[L Load more]", b"L", "All ancestors");
+    explain_disabled(&mut s, mouse, "[L Load more]", b"L", "End of history");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[Esc Close]", b"\x1b");
     s.wait_for_overlay_close("Action unavailable • explanation only");

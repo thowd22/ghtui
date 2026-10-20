@@ -348,6 +348,9 @@ pub struct App {
     pub repository_panels_v93: crate::repository_panels_v93::PanelsV93,
     /// History commit detail (TASK-99.4): item cursor, scroll and changed-files cache.
     pub history_detail_v994: crate::history::detail::HistoryDetailStateV994,
+    /// The commit an arrow key last chose in History while its read runs (TASK-99): a bar
+    /// moved further during that read stays where the person put it.
+    pub history_bar_choice_v99: Option<String>,
     pub github: Option<crate::github_workspace::GithubWorkspace>,
     pub github_action: Option<crate::github_workspace::GithubAction>,
     pub github_content_focused: bool,
@@ -601,6 +604,7 @@ impl Default for App {
             repository_visible_rows: 20,
             repository_panels_v93: Default::default(),
             history_detail_v994: Default::default(),
+            history_bar_choice_v99: None,
             github: None,
             github_action: None,
             github_content_focused: true,
@@ -3748,7 +3752,7 @@ impl App {
     /// Working and the Source identity) follows the bar. Read-only and in memory for a loaded
     /// commit; nothing changes when the bar stays on the saved commit, and a running read (a
     /// page of older commits) is not replaced by mere cursor movement.
-    fn choose_history_bar_commit(&mut self) {
+    pub(crate) fn choose_history_bar_commit(&mut self) {
         let Some(workspace) = &self.workspace else {
             return;
         };
@@ -3766,6 +3770,7 @@ impl App {
             return;
         };
         if id != workspace.revision {
+            self.history_bar_choice_v99 = Some(id.clone());
             self.dispatch(Action::RepositoryRow(crate::workspace::RowAction::Commit(
                 id,
             )));

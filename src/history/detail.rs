@@ -283,6 +283,25 @@ pub fn offered(app: &App) -> bool {
             .is_some_and(crate::repository_ui::history_table::active)
 }
 
+/// Starts (debounced, cached) the changed-files read of the commit under the History bar when
+/// no detail pane paints it, so `f File history` and `Y Blame` work below the split width too
+/// instead of waiting forever. Read-only; nothing starts while the bar moves.
+pub fn prefetch(app: &mut App) {
+    let Some(commit) = commit_id(app) else {
+        return;
+    };
+    let Some(workspace) = app.workspace.as_ref() else {
+        return;
+    };
+    let Some(observed) = observed(workspace, &commit) else {
+        return;
+    };
+    let parent = observed.commit().parents.first().cloned();
+    let _ = app
+        .history_detail_v994
+        .request(workspace, &commit, parent.as_deref(), Instant::now());
+}
+
 /// Whether the full-width detail (the drill-down) replaces the History table.
 pub fn drilldown(workspace: &Workspace) -> bool {
     workspace.graph_visible_v1() && workspace.graph_view_v1 == GraphViewV1::Details
@@ -697,6 +716,67 @@ fn utc_short(timestamp: i64, now: u64) -> String {
 }
 
 /// Word-wrapped rows of `text`, at most `width` cells each.
+/// The message body as logical lines with their hanging indent, so a hard-wrapped paragraph
+/// re-flows to the pane width instead of leaving ragged short rows. A blank line, a list item
+/// (`- `, `* `, `• `, `1. `), a trailer (`Signed-off-by: …`) or an indented block (4+ spaces
+/// or a tab) starts a new line; indented blocks and trailers are never joined.
+fn reflow(lines: &[&str]) -> Vec<(usize, String)> {
+    fn marker(text: &str) -> Option<usize> {
+        let bullet = ["- ", "* ", "• "]
+            .iter()
+            .find(|bullet| text.starts_with(**bullet))
+            .map(|bullet| bullet.len());
+        bullet.or_else(|| {
+            let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+            (digits > 0 && digits < 4 && matches!(&text[digits..].get(..2), Some(". " | ") ")))
+                .then_some(digits + 2)
+        })
+    }
+    fn trailer(text: &str) -> bool {
+        text.split_once(": ").is_some_and(|(key, _)| {
+            !key.is_empty()
+                && key.len() <= 40
+                && key.starts_with(|c: char| c.is_ascii_alphabetic())
+                && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                && key.contains('-')
+        })
+    }
+    let mut out: Vec<(usize, String)> = Vec::new();
+    // Whether the last logical line may take a following line.
+    let mut open = false;
+    for line in lines {
+        let lead = line.chars().take_while(|c| *c == ' ').count();
+        let text = line.trim_start();
+        if text.is_empty() {
+            out.push((0, String::new()));
+            open = false;
+            continue;
+        }
+        let verbatim = lead >= 4 || line.starts_with('\t');
+        if verbatim {
+            out.push((lead, line.trim_end().to_owned()));
+            open = false;
+        } else if let Some(width) = marker(text) {
+            out.push((
+                lead + width,
+                format!("{}{}", " ".repeat(lead), text.trim_end()),
+            ));
+            open = true;
+        } else if trailer(text) {
+            out.push((0, text.trim_end().to_owned()));
+            open = false;
+        } else if open {
+            let last = out.last_mut().expect("an open line");
+            last.1.push(' ');
+            last.1.push_str(text.trim_end());
+        } else {
+            out.push((lead, line.trim_end().to_owned()));
+            open = true;
+        }
+    }
+    out
+}
+
 fn wrap(text: &str, width: usize) -> Vec<String> {
     crate::github_ui::wrap_cells(text, width.max(1))
         .into_iter()
@@ -1015,8 +1095,15 @@ fn content(
         rows.push(muted(theme, "No message body"));
     } else {
         let mut shown = 0usize;
-        'message: for line in &body[..end] {
-            for part in wrap(&safe_text(line), width) {
+        'message: for (lead, line) in reflow(&body[..end]) {
+            let indent = " ".repeat(lead.min(width / 2));
+            let wrapped = wrap(&safe_text(&line), width.saturating_sub(indent.len()).max(1));
+            for (index, part) in wrapped.into_iter().enumerate() {
+                let part = if index == 0 {
+                    part
+                } else {
+                    format!("{indent}{part}")
+                };
                 if shown == MAX_MESSAGE_ROWS {
                     rows.push(muted(
                         theme,

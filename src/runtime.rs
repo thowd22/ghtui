@@ -1847,6 +1847,32 @@ impl Background {
                         app.search = Some(search);
                     }
                     if let Some(workspace) = prepared.workspace {
+                        // The History commit under the bar before this install: arrows that
+                        // kept moving while an arrow's choice was read keep their place.
+                        let held_bar = app
+                            .history_bar_choice_v99
+                            .take()
+                            .filter(|chosen| *chosen == workspace.revision)
+                            .and_then(|chosen| {
+                                let old = app.workspace.as_ref()?;
+                                if !old.graph_visible_v1() || !workspace.graph_visible_v1() {
+                                    return None;
+                                }
+                                match &old
+                                    .display_rows_v1()
+                                    .get(app.repository_list.selected)?
+                                    .action
+                                {
+                                    Some(crate::workspace::RowAction::Commit(id))
+                                        if *id != chosen =>
+                                    {
+                                        workspace.graph_action_index_v1(
+                                            &crate::workspace::RowAction::Commit(id.clone()),
+                                        )
+                                    }
+                                    _ => None,
+                                }
+                            });
                         if completion.local_navigation_owner.is_none()
                             && self
                                 .current_original_local_owner
@@ -1868,7 +1894,15 @@ impl Background {
                             app.repository_list.selected =
                                 index.min(workspace.display_rows_v1().len().saturating_sub(1));
                             let visible = app.repository_visible_rows.max(1);
-                            if app.repository_list.selected < app.repository_list.top {
+                            let off_screen = app.repository_list.selected < app.repository_list.top
+                                || app.repository_list.selected
+                                    >= app.repository_list.top + visible;
+                            if off_screen && workspace.graph_visible_v1() {
+                                // A History jump (a match, a file's latest change) lands
+                                // mid-view with context on both sides, not on an edge.
+                                app.repository_list.top =
+                                    app.repository_list.selected.saturating_sub(visible / 2);
+                            } else if app.repository_list.selected < app.repository_list.top {
                                 app.repository_list.top = app.repository_list.selected;
                             } else if app.repository_list.selected
                                 >= app.repository_list.top + visible
@@ -1885,9 +1919,16 @@ impl Background {
                             app.repository_list.top =
                                 app.repository_list.top.min(app.repository_list.selected);
                         }
+                        if let Some(row) = held_bar {
+                            app.repository_list.selected = row;
+                        }
                         let _ = app.local_commit_actors.install(&workspace);
                         app.local_actor_layout.clear();
                         app.workspace = Some(workspace);
+                        if held_bar.is_some() {
+                            // Choose the commit the bar rests on now, as its row click would.
+                            app.choose_history_bar_commit();
+                        }
                     }
                     if let Some(github) = prepared.github {
                         {

@@ -101,7 +101,7 @@ impl GraphCoverageV1 {
             Self::MoreAvailable => {
                 "Loaded history ends here • scroll past it or press L to load older commits"
             }
-            Self::AvailableWalkExhausted => "All ancestors in this original saved walk are loaded",
+            Self::AvailableWalkExhausted => "End of history • every commit is loaded",
             Self::ShallowBoundary => {
                 "Shallow history boundary • original parent IDs retained • no automatic fetch"
             }

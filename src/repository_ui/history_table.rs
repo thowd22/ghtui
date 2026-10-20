@@ -107,6 +107,47 @@ fn graph_spans(
     spans
 }
 
+/// The graph cut to `width` cells for a capped GRAPH column: the lanes that fit, then `…`.
+/// The commit's own `●` always stays visible, after the `…` when its lane is further right,
+/// so every row shows its dot in its lane color.
+fn clip_graph(spans: &[(String, Style)], width: usize, theme: Theme) -> Vec<(String, Style)> {
+    use unicode_segmentation::UnicodeSegmentation;
+    let cells: Vec<(&str, Style)> = spans
+        .iter()
+        .flat_map(|(text, style)| text.graphemes(true).map(move |glyph| (glyph, *style)))
+        .collect();
+    let total: usize = cells
+        .iter()
+        .map(|(glyph, _)| crate::editor::grapheme_width(glyph))
+        .sum();
+    if total <= width || width < 2 {
+        return spans.to_vec();
+    }
+    let dot = cells.iter().position(|(glyph, _)| *glyph == "●");
+    let ellipsis = ("…", theme.role(Role::TextDim));
+    let mut kept: Vec<(&str, Style)> = match dot {
+        Some(at) if at + 1 >= width => {
+            let mut kept = cells[..width - 2].to_vec();
+            kept.push(ellipsis);
+            kept.push(cells[at]);
+            kept
+        }
+        _ => {
+            let mut kept = cells[..width - 1].to_vec();
+            kept.push(ellipsis);
+            kept
+        }
+    };
+    let mut out: Vec<(String, Style)> = Vec::new();
+    for (glyph, style) in kept.drain(..) {
+        match out.last_mut() {
+            Some((text, last)) if *last == style => text.push_str(glyph),
+            _ => out.push((glyph.to_owned(), style)),
+        }
+    }
+    out
+}
+
 fn parts(workspace: &Workspace, index: usize, now: u64, theme: Theme) -> Option<Parts> {
     let Some(RowAction::Commit(id)) = &workspace.display_rows_v1().get(index)?.action else {
         return None;
@@ -182,17 +223,28 @@ fn message(parts: &Parts, width: Option<usize>, theme: Theme) -> Cell {
     let dimmed = parts.matched == Some(false);
     let base = theme.role(if dimmed { Role::TextDim } else { Role::Text });
     let subject_cells = crate::editor::display_width(&parts.subject).min(SUBJECT_KEEP);
-    let (shown, hidden) = match width {
-        Some(width) => refs::fit(&parts.chips, width.saturating_sub(subject_cells + 1)),
+    let budget = width.map(|width| width.saturating_sub(subject_cells + 1));
+    let (shown, hidden) = match budget {
+        Some(budget) => refs::fit(&parts.chips, budget),
         None => (parts.chips.len(), 0),
+    };
+    // A lone chip wider than its budget (a long branch name) is cut with `…` so the subject
+    // keeps its cells, never below a readable stub.
+    let overflow = if hidden > 0 {
+        crate::editor::display_width(&refs::overflow_label(hidden)) + 3
+    } else {
+        0
+    };
+    let label_cells = match budget {
+        Some(budget) if shown == 1 => budget
+            .saturating_sub(overflow + 2)
+            .clamp(6, refs::MAX_CHIP_CELLS),
+        _ => refs::MAX_CHIP_CELLS,
     };
     let mut spans = Vec::new();
     for chip in &parts.chips[..shown] {
         spans.push((
-            format!(
-                " {} ",
-                crate::ui_chrome::fit(&chip.label, refs::MAX_CHIP_CELLS)
-            ),
+            format!(" {} ", crate::ui_chrome::fit(&chip.label, label_cells)),
             if dimmed {
                 theme.role(Role::TextDim)
             } else {
@@ -352,11 +404,21 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let filter = &workspace.history_filter_v993;
         let mut summary = summary.to_owned();
         if filter.spec.matching() {
-            summary.push_str(if filter.spec.hide {
+            // The long wording only when it fits; the filter row already names the mode.
+            let room = usize::from(inner.width.saturating_sub(2));
+            let long = if filter.spec.hide {
                 " · non-matching commits hidden"
             } else {
                 " · non-matching commits stay visible for context"
-            });
+            };
+            let short = if filter.spec.hide {
+                " · non-matches hidden"
+            } else {
+                " · non-matches dimmed"
+            };
+            let fits =
+                crate::editor::display_width(&summary) + crate::editor::display_width(long) <= room;
+            summary.push_str(if fits { long } else { short });
             if filter.chip_capped() {
                 summary.push_str(" · matches stop at the 10,000-commit walk");
             }
@@ -377,7 +439,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let first = usize::from(summary.is_some());
     let now = crate::storage::now();
-    let parts: Vec<Option<Parts>> = (first..rows.len())
+    let mut parts: Vec<Option<Parts>> = (first..rows.len())
         .map(|index| parts(workspace, index, now, theme))
         .collect();
     let text_row = |index: usize| {
@@ -394,19 +456,6 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             None => text_row(first + offset),
         })
         .collect();
-    let natural = crate::ui_table::natural_widths(&HISTORY_COLUMNS, &full, theme.mode);
-    let lead = crate::ui_table::lead(false).min(body.width);
-    let message_width = crate::ui_table::layout(&HISTORY_COLUMNS, &natural, body.width - lead)
-        .into_iter()
-        .find(|placed| placed.column == MESSAGE)
-        .map(|placed| usize::from(placed.width));
-    let table = Table {
-        columns: &HISTORY_COLUMNS,
-        header: true,
-        focused,
-        glyphs: false,
-        empty: Some("No commits loaded"),
-    };
     let visible = usize::from(body.height.saturating_sub(1));
     let selected = app
         .repository_list
@@ -429,6 +478,42 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // Never leave blank rows below the last commit while earlier ones are scrolled away (a
     // taller terminal, or a shorter filtered window).
     top = top.min(parts.len().saturating_sub(visible));
+    let mut natural = crate::ui_table::natural_widths(&HISTORY_COLUMNS, &full, theme.mode);
+    // GRAPH is as wide as the lanes on screen, not the widest row of the loaded window: a
+    // burst of parallel branches further down must not squeeze every message (TASK-99). It
+    // never takes more than a quarter of the table; wider rows end in `…` and pan with `<`/`>`.
+    let lanes = parts
+        .iter()
+        .skip(top)
+        .take(visible.max(1))
+        .flatten()
+        .map(|part| {
+            part.graph
+                .iter()
+                .map(|(text, _)| crate::editor::display_width(text))
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0);
+    let cap = usize::from(body.width / 4).max(usize::from(HISTORY_COLUMNS[0].min));
+    natural[0] = u16::try_from(lanes.min(cap))
+        .unwrap_or(u16::MAX)
+        .max(crate::editor::display_width(HISTORY_COLUMNS[0].title) as u16);
+    for part in parts.iter_mut().flatten() {
+        part.graph = clip_graph(&part.graph, usize::from(natural[0]), theme);
+    }
+    let lead = crate::ui_table::lead(false).min(body.width);
+    let message_width = crate::ui_table::layout(&HISTORY_COLUMNS, &natural, body.width - lead)
+        .into_iter()
+        .find(|placed| placed.column == MESSAGE)
+        .map(|placed| usize::from(placed.width));
+    let table = Table {
+        columns: &HISTORY_COLUMNS,
+        header: true,
+        focused,
+        glyphs: false,
+        empty: Some("No commits loaded"),
+    };
     let rendered = crate::ui_table::draw_table_at(
         frame,
         body,
@@ -459,6 +544,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     app.repository_visible_rows = rendered.visible_rows;
     app.hits.extend(hits);
+    if app.preview_area_v92.is_none() {
+        crate::history::detail::prefetch(app);
+    }
 }
 
 #[cfg(test)]

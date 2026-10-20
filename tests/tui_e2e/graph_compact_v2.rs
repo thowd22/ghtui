@@ -74,11 +74,7 @@ fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
     ready_loaded(session, 10_000, 0);
     choose_bar_or_palette(session, mouse, "[End Last loaded]", b"\x1b[F");
     ready_loaded(session, 10_000, 9800);
-    body_to(
-        session,
-        mouse,
-        "All ancestors in this original saved walk are loaded",
-    );
+    body_to(session, mouse, "End of history • every commit is loaded");
     // Home is a real pure projection request even on this same first range;
     // it restores visible first-member position after inspecting the footer.
     choose_bar_or_palette(session, mouse, "[Home First loaded]", b"\x1b[H");

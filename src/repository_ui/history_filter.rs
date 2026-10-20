@@ -44,6 +44,8 @@ use HistoryFilterActionV993 as A;
 
 /// Placeholder of an empty, unfocused query.
 pub const PLACEHOLDER: &str = "search message · author · SHA · author: · path: · branch:";
+/// Placeholder of an empty, unfocused query beside chips.
+pub const SHORT_PLACEHOLDER: &str = "search";
 
 fn timeline(workspace: &Workspace) -> bool {
     workspace.graph_visible_v1()
@@ -276,10 +278,9 @@ fn step(app: &mut App, forward: bool) {
         Some(row) => {
             app.repository_list.selected = row;
             let visible = app.repository_visible_rows.max(1);
-            if row < app.repository_list.top {
-                app.repository_list.top = row;
-            } else if row >= app.repository_list.top + visible {
-                app.repository_list.top = row + 1 - visible;
+            // A match off screen lands mid-view with context on both sides, not on an edge.
+            if row < app.repository_list.top || row >= app.repository_list.top + visible {
+                app.repository_list.top = row.saturating_sub(visible / 2);
             }
             app.status = status;
         }
@@ -431,8 +432,18 @@ pub(crate) fn draw_row(frame: &mut Frame, app: &mut App, area: Rect) {
             )
         }),
     };
+    // An empty query keeps a muted prompt: the full hint alone, a short one beside chips (so
+    // `/` never floats before a gap).
     let query = query.or_else(|| {
-        (spec.order.is_empty() && spec.scope == Scope::All).then(|| (PLACEHOLDER.to_owned(), muted))
+        Some((
+            if spec.order.is_empty() && spec.scope == Scope::All {
+                PLACEHOLDER
+            } else {
+                SHORT_PLACEHOLDER
+            }
+            .to_owned(),
+            muted,
+        ))
     });
     if let Some((text, style)) = query {
         pieces.push((

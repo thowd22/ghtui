@@ -195,7 +195,7 @@ fn journey(mouse: bool) {
             "History › repo › all branches",
             "Read-only · 17 commits loaded",
             // The loaded-history boundary is a visible row under the last commit.
-            "All ancestors in this original saved walk are loaded",
+            "End of history • every commit is loaded",
             // The detail beside the table, with the full SHA and the UTC date.
             "CHANGED FILES",
             repo.sha("tweak"),
