@@ -110,6 +110,19 @@ fn run(flow: Flow, mouse: bool) {
 }
 /// `stored` checks the durable receipt after a confirmed write.
 fn run_checked(flow: Flow, mouse: bool, stored: impl FnOnce(&Fixture)) {
+    run_sized_checked(flow, mouse, (120, 40), stored)
+}
+/// The same journey at a given terminal size. At 80x24 the long receipt note
+/// can be cut from the status line, so it is read after widening again.
+fn run_sized(flow: Flow, mouse: bool, size: (u16, u16)) {
+    run_sized_checked(flow, mouse, size, |_| {})
+}
+fn run_sized_checked(
+    flow: Flow,
+    mouse: bool,
+    (cols, rows): (u16, u16),
+    stored: impl FnOnce(&Fixture),
+) {
     let fixture = configured();
     let git = local_git_witness(&fixture);
     let mut steps = initial();
@@ -128,7 +141,7 @@ fn run_checked(flow: Flow, mouse: bool, stored: impl FnOnce(&Fixture)) {
         steps.extend(as_pr(inspected(vec![starter()]), &flow.after));
     }
     fixture.scripted_gh(&steps);
-    let mut session = Session::launch(&fixture, 120, 40);
+    let mut session = Session::launch(&fixture, cols, rows);
     open_summary(&mut session, mouse);
     records(&mut session, &fixture, opened);
     menu(&mut session, mouse, flow.label);
@@ -178,6 +191,9 @@ fn run_checked(flow: Flow, mouse: bool, stored: impl FnOnce(&Fixture)) {
     }
     confirm(&mut session, mouse);
     session.wait_for_screen(&format!("Published • {}", flow.label));
+    if cols < 120 {
+        session.resize(120, 40);
+    }
     session.wait_for_screen(flow.done);
     let after = records(&mut session, &fixture, steps.len());
     assert_eq!(writes(&after), 1, "exactly one GitHub write");
@@ -339,6 +355,88 @@ fn dequeue() -> Flow {
     }
 }
 
+/// GitHub accepts the merge, but the read-back PR is neither merged nor in a
+/// queue: the outcome stays uncertain, nothing is reported as merged, the
+/// write journal records `uncertain` and confirming again sends nothing.
+fn accepted_not_merged(mouse: bool) {
+    let fixture = configured();
+    let git = local_git_witness(&fixture);
+    let mut steps = initial();
+    steps.extend(details(vec![starter()]));
+    let opened = steps.len();
+    steps.push(repo_settings_step(repo_settings()));
+    steps.extend(guard());
+    let previewed = steps.len();
+    steps.extend(guard());
+    steps.extend(guard());
+    steps.push(GhStep::read(
+        &[
+            "pr",
+            "merge",
+            "7",
+            "--repo",
+            "github.invalid/example/repo",
+            "--merge",
+            "--match-head-commit",
+            HEAD,
+        ],
+        "",
+    ));
+    steps.push(step("repos/example/repo/pulls/7", "GET", pr(), false));
+    steps.push(merge_context(Value::Null));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_summary(&mut session, mouse);
+    records(&mut session, &fixture, opened);
+    menu(&mut session, mouse, "Merge pull request");
+    session.wait_for_screen("Local PR intent ready");
+    preview(&mut session, mouse);
+    session.wait_for_screen("Method: merge commit • feature → main");
+    assert_eq!(writes(&records(&mut session, &fixture, previewed)), 0);
+    confirm(&mut session, mouse);
+    session.wait_for_screen("Uncertain publication");
+    assert!(!session.screen().contains("Published • Merge pull request"));
+    let after = records(&mut session, &fixture, steps.len());
+    assert_eq!(writes(&after), 1, "exactly one merge request");
+    let database = Connection::open(cache_path(&fixture)).unwrap();
+    let states: Vec<String> = database
+        .prepare("SELECT state FROM pr_write_attempts")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(states, ["uncertain"], "accepted merge is never confirmed");
+    // Confirming again (Ctrl-S; the invalidated plan hides the button) must
+    // not resend the merge.
+    session.send_key(b"\x13");
+    session.poll_output(Duration::from_millis(300));
+    assert_eq!(writes(&records(&mut session, &fixture, steps.len())), 1);
+    // The uncertain form stays open until closed; close it before quitting.
+    choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("READ-ONLY PREVIEW")
+                && text.contains("Native collaboration")
+                && crate::support::controls::main_footer_visible(frame)
+        },
+        "PR view restored after closing the uncertain merge form",
+        Duration::from_secs(8),
+    );
+    assert_eq!(writes(&records(&mut session, &fixture, steps.len())), 1);
+    assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    session.quit_and_assert_restored_terminal(false);
+}
+
+#[test]
+fn merge_workflows_keyboard_accepted_but_unmerged_stays_uncertain_without_resend() {
+    accepted_not_merged(false)
+}
+#[test]
+fn merge_workflows_mouse_accepted_but_unmerged_stays_uncertain_without_resend() {
+    accepted_not_merged(true)
+}
 #[test]
 fn merge_workflows_keyboard_offers_only_repository_allowed_methods() {
     run(squash_only(), false)
@@ -378,6 +476,22 @@ fn merge_workflows_keyboard_adds_to_merge_queue_with_one_write() {
 #[test]
 fn merge_workflows_mouse_adds_to_merge_queue_with_one_write() {
     run(enqueue(), true)
+}
+#[test]
+fn merge_workflows_keyboard_80x24_adds_to_merge_queue_with_one_write() {
+    run_sized(enqueue(), false, (80, 24))
+}
+#[test]
+fn merge_workflows_mouse_80x24_adds_to_merge_queue_with_one_write() {
+    run_sized(enqueue(), true, (80, 24))
+}
+#[test]
+fn merge_workflows_keyboard_80x24_changed_head_refuses_preview_without_write() {
+    run_sized(head_changed(), false, (80, 24))
+}
+#[test]
+fn merge_workflows_mouse_80x24_changed_head_refuses_preview_without_write() {
+    run_sized(head_changed(), true, (80, 24))
 }
 #[test]
 fn merge_workflows_keyboard_removes_from_merge_queue_with_one_write() {

@@ -96,6 +96,25 @@ pub struct MergeContext {
     pub auto_merge_request: Option<Value>,
     pub queue: Option<MergeQueueEntry>,
 }
+/// The pending auto-merge request as GitHub reported it: who enabled it,
+/// with which method and when. A missing enabler keeps the honest
+/// `unknown actor` fallback; nothing is guessed from the current account.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoMergeRequestInfo {
+    pub enabled_by: Actor,
+    pub method: String,
+    pub enabled_at: String,
+}
+impl MergeContext {
+    pub fn auto_merge_info(&self) -> Option<AutoMergeRequestInfo> {
+        let request = self.auto_merge_request.as_ref()?;
+        Some(AutoMergeRequestInfo {
+            enabled_by: Actor::from_json(&request["enabledBy"]),
+            method: text(request, "mergeMethod"),
+            enabled_at: text(request, "enabledAt"),
+        })
+    }
+}
 pub const PR_MERGE_CONTEXT_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequest{id headRefOid baseRefOid mergeStateStatus reviewDecision viewerCanMergeAsAdmin viewerCanEnableAutoMerge viewerCanDisableAutoMerge autoMergeRequest{mergeMethod enabledAt enabledBy{login avatarUrl}} mergeQueueEntry{id state position headCommit{oid} baseCommit{oid} enqueuer{login avatarUrl} enqueuedAt jump}}}}";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

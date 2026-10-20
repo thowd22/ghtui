@@ -182,12 +182,36 @@ fn disable_auto_merge_case() -> Case {
         before: enabled,
         label: "Disable auto-merge",
         choice: None,
-        preview: "Cancels the pending auto-merge request",
+        // Who enabled the request comes from the fresh merge-context read.
+        preview: "Auto-merge (squash) was enabled by @alice",
         write: cli(&["pr", "merge", "7", "--repo", REPO, "--disable-auto"]),
         after: pr(),
         done: "auto-merge disabled",
         tab: None,
-        opening: vec![],
+        opening: vec![write(
+            "graphql",
+            "POST",
+            Some(json!({
+                "query": ghtui::providers::gh::PR_MERGE_CONTEXT_QUERY,
+                "variables": {"id": "PR_example/repo_7"},
+            })),
+            json!({"data":{"node":{
+                "id":"PR_example/repo_7",
+                "headRefOid":HEAD,
+                "baseRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "mergeStateStatus":"BLOCKED",
+                "reviewDecision":"REVIEW_REQUIRED",
+                "viewerCanMergeAsAdmin":false,
+                "viewerCanEnableAutoMerge":true,
+                "viewerCanDisableAutoMerge":true,
+                "autoMergeRequest":{
+                    "mergeMethod":"SQUASH",
+                    "enabledAt":"2026-10-20T00:00:00Z",
+                    "enabledBy":{"login":"alice","avatarUrl":"https://avatars.invalid/u/7"}
+                },
+                "mergeQueueEntry":null
+            }}}),
+        )],
     }
 }
 fn update_rebase_case() -> Case {

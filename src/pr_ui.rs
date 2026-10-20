@@ -208,8 +208,10 @@ pub fn load(
             }
             // Merge methods, queue, lock and branch state come from a fresh
             // GitHub read, never from the cached PR alone.
-            let governed = matches!(command, PrCommand::Merge | PrCommand::EnableAutoMerge)
-                || PrCommand::GOVERNED.contains(&command);
+            let governed = matches!(
+                command,
+                PrCommand::Merge | PrCommand::EnableAutoMerge | PrCommand::DisableAutoMerge
+            ) || PrCommand::GOVERNED.contains(&command);
             if governed && command.disabled_reason(&context).is_none() {
                 match context.load_governance(command, provider, cancel) {
                     Ok(()) => {}

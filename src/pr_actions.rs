@@ -140,7 +140,8 @@ impl PrCommand {
         }
         if Self::LIFECYCLE.contains(&self) {
             return lifecycle_disabled_reason(self, &context.target)
-                .or_else(|| settings_disabled_reason(self, context));
+                .or_else(|| settings_disabled_reason(self, context))
+                .or_else(|| loaded_governed_reason(self, context));
         }
         if Self::GOVERNED.contains(&self) {
             return governed_disabled_reason(self, &context.target)
@@ -259,7 +260,7 @@ impl PrActionContext {
                         .map_err(private_read_error)?,
                 );
             }
-            PrCommand::EnqueueMerge | PrCommand::DequeueMerge => {
+            PrCommand::EnqueueMerge | PrCommand::DequeueMerge | PrCommand::DisableAutoMerge => {
                 self.governance.merge_context = Some(
                     provider
                         .merge_context(&self.target, cancel)
@@ -629,6 +630,19 @@ fn loaded_governed_reason(command: PrCommand, context: &PrActionContext) -> Opti
             .as_ref()
             .filter(|context| context.queue.is_none())
             .map(|_| "This PR is not in a merge queue.".into()),
+        PrCommand::DisableAutoMerge => {
+            let merge = governance.merge_context.as_ref()?;
+            if merge.auto_merge_request.is_none() {
+                Some("GitHub reports no pending auto-merge request on this PR.".into())
+            } else if !merge.viewer_can_disable_auto_merge {
+                Some(format!(
+                    "GitHub reports that @{} cannot disable this auto-merge request.",
+                    context.identity.login
+                ))
+            } else {
+                None
+            }
+        }
         PrCommand::Lock => (governance.issue_locked == Some(true))
             .then(|| "This conversation is already locked.".into()),
         PrCommand::Unlock => (governance.issue_locked == Some(false))
@@ -660,6 +674,28 @@ fn loaded_governed_reason(command: PrCommand, context: &PrActionContext) -> Opti
         }
         _ => None,
     }
+}
+/// Who enabled the pending auto-merge request, read when the form opened.
+fn auto_merge_enabler_line(context: &PrActionContext) -> Option<String> {
+    let info = context
+        .governance
+        .merge_context
+        .as_ref()?
+        .auto_merge_info()?;
+    let method = if info.method.is_empty() {
+        "unknown method".to_string()
+    } else {
+        info.method.to_ascii_lowercase()
+    };
+    let when = if info.enabled_at.is_empty() {
+        "an unreported time".to_string()
+    } else {
+        info.enabled_at
+    };
+    Some(sanitize_terminal(&format!(
+        "Auto-merge ({method}) was enabled by {} at {when}; disabling cancels it for everyone.",
+        info.enabled_by.label()
+    )))
 }
 fn allowed_merge_methods(settings: Option<&RepoMergeSettings>) -> Vec<&'static str> {
     [
@@ -1654,7 +1690,12 @@ impl PrPlan {
                     ));
                 }
             }
-            PrOperation::State(state) => preview.extend(state.preview(&target)),
+            PrOperation::State(state) => {
+                preview.extend(state.preview(&target));
+                if state.command() == PrCommand::DisableAutoMerge {
+                    preview.extend(auto_merge_enabler_line(context));
+                }
+            }
             PrOperation::Governed(governed) => preview.extend(governed.preview(&target, context)),
             PrOperation::ViewedFile(selected, viewed) => {
                 preview.push(format!(
@@ -2525,6 +2566,58 @@ mod governed_tests {
             .disabled_reason(&context)
             .unwrap()
             .contains("no write permission"));
+    }
+
+    fn merge_context(auto: Option<serde_json::Value>, can_disable: bool) -> MergeContext {
+        MergeContext {
+            merge_state_status: "BLOCKED".into(),
+            review_decision: "REVIEW_REQUIRED".into(),
+            viewer_can_merge_as_admin: true,
+            viewer_can_enable_auto_merge: true,
+            viewer_can_disable_auto_merge: can_disable,
+            auto_merge_request: auto,
+            queue: None,
+        }
+    }
+
+    #[test]
+    fn merge_workflows_disable_auto_merge_names_who_enabled_it_from_fresh_state() {
+        let mut target = v1_pr_lifecycle_tests::target();
+        target.auto_merge = true;
+        let mut ctx = context(target);
+        // Unread context: the loaded PR alone decides, and no enabler is guessed.
+        assert_eq!(PrCommand::DisableAutoMerge.disabled_reason(&ctx), None);
+        assert_eq!(auto_merge_enabler_line(&ctx), None);
+        let request = serde_json::json!({
+            "mergeMethod": "SQUASH",
+            "enabledAt": "2026-10-20T00:00:00Z",
+            "enabledBy": {"login": "alice", "avatarUrl": "https://avatars.invalid/u/7"}
+        });
+        ctx.governance.merge_context = Some(merge_context(Some(request.clone()), true));
+        assert_eq!(PrCommand::DisableAutoMerge.disabled_reason(&ctx), None);
+        assert_eq!(
+            auto_merge_enabler_line(&ctx).unwrap(),
+            "Auto-merge (squash) was enabled by @alice at 2026-10-20T00:00:00Z; disabling cancels it for everyone."
+        );
+        // A missing enabler keeps the honest fallback.
+        let anonymous =
+            serde_json::json!({"mergeMethod": "MERGE", "enabledAt": "", "enabledBy": null});
+        ctx.governance.merge_context = Some(merge_context(Some(anonymous), true));
+        assert!(auto_merge_enabler_line(&ctx)
+            .unwrap()
+            .contains("enabled by unknown actor at an unreported time"));
+        // Fresh state wins over the cached PR flag.
+        ctx.governance.merge_context = Some(merge_context(None, true));
+        assert!(PrCommand::DisableAutoMerge
+            .disabled_reason(&ctx)
+            .unwrap()
+            .contains("no pending auto-merge request"));
+        // Admin capability never implies permission to disable.
+        ctx.governance.merge_context = Some(merge_context(Some(request), false));
+        assert!(PrCommand::DisableAutoMerge
+            .disabled_reason(&ctx)
+            .unwrap()
+            .contains("@octocat cannot disable"));
     }
 
     #[test]
