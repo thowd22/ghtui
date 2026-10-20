@@ -71,7 +71,6 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
   - tables in `src/ui_table.rs`;
   - the footer key bar in `src/footer.rs`.
 - **Every ghtui Git child runs with `--literal-pathspecs`,** so Git's own internal magic pathspecs (`:/`) become literal. `stash push --include-untracked` saved the untracked files but left them in place until an explicit `-- .` was added. When a Git subcommand behaves differently under ghtui than in a shell, try it with `git --literal-pathspecs` first.
-
 - **`scripts/install.sh` refuses an existing destination that doesn't contain the bytes `ghtui`,** for both install and `--uninstall`. Stand-in binaries in installer tests must keep printing `ghtui X.Y.Z`. The release workflow runs the `v1_release` PTY journeys on the real archive through `GHTUI_E2E_RELEASE_DIST`, so keep that test's name and environment variable stable.
 
 ## 7. Real repositories and GitHub
