@@ -252,19 +252,41 @@ fn happy(mouse: bool) {
     session.wait_for_screen("new name.txt:1 / saved version");
     session.wait_for_screen(&chosen);
     // H (the mouse clicks `f File history`): History of every branch with the file's path
-    // chip. `new name.txt` changed in the rename and in the future version; the bar lands on
-    // the chosen revision's own change, not the newer one above it.
+    // chip. The chip follows the rename (`git log --follow`), so all 16 commits match: the
+    // 14 changes to `old name.txt`, the rename and the future version. The bar lands on the
+    // chosen revision's own change, not the newer one above it.
     session.wait_for_settled_footer();
     choose(&mut session, mouse, "[f File history]", b"H");
-    wait_path_history(&mut session, "new name.txt", 2, &chosen);
+    wait_path_history(&mut session, "new name.txt", 16, &chosen);
     let future = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let rows = session.history_rows();
+    let row = |sha: &str, what: &str| {
+        rows.iter()
+            .find(|row| sha.starts_with(&row.sha))
+            .cloned()
+            .unwrap_or_else(|| panic!("{what} row not visible\n{}", session.screen()))
+    };
+    let latest = row(&future, "newer");
+    assert!(!latest.message.contains("was "), "{latest:?}");
+    let rename = row(&chosen, "rename");
     assert!(
-        session
-            .history_rows()
-            .iter()
-            .any(|row| future.starts_with(&row.sha)),
-        "non-matching and newer commits stay visible\n{}",
-        session.screen()
+        rename.selected && rename.message.contains("renamed from"),
+        "the selected rename row says where the file came from: {rename:?}"
+    );
+    let before = row(&responsible, "pre-rename");
+    assert!(
+        before.message.starts_with("was old name.txt"),
+        "a pre-rename row leads with the old name: {before:?}"
+    );
+    session.wait_for_cursorless_condition(
+        |screen| {
+            screen
+                .contents()
+                .lines()
+                .any(|line| line.contains("Path") && line.contains("old name.txt"))
+        },
+        "the detail's Path row names the old path",
+        Duration::from_secs(8),
     );
     // The Esc filter clear is also offered while the chip is set.
     session.wait_for_control("[Esc Clear filter]");
