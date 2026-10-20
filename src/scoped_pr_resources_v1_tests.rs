@@ -722,6 +722,69 @@ fn v1_pr_threads_files_page_over_128kib_of_patches_still_lists_changed_files() {
     effects(&fixture, &before, &git, &steps);
 }
 #[test]
+fn v1_pr_files_binary_renamed_and_github_3000_file_cap_are_labelled_not_guessed() {
+    // GitHub omits `patch` for binary and too-large files and never lists more
+    // than 3000 files. Neither may read as an empty diff or a complete list.
+    let mut op = resource_steps(PrResourceKindV1::Files, REPO);
+    let mut parent = resource_parent(REPO);
+    parent["changed_files"] = json!(3500);
+    op[3] = get(&op[3].args[1], parent.clone());
+    op[6] = get(&op[6].args[1], parent);
+    let pages = (0..30).map(|page| {
+        let rows = (0..100)
+            .map(|i| match (page, i) {
+                (0, 0) => json!({"filename":"src/view.rs","status":"modified","additions":1,"deletions":1,"patch":"@@ -1,2 +1,2 @@\n context\n-old\n+new"}),
+                (0, 1) => json!({"filename":"logo.png","status":"modified","additions":0,"deletions":0}),
+                (0, 2) => json!({"filename":"src/new.rs","previous_filename":"src/old.rs","status":"renamed","additions":0,"deletions":0}),
+                _ => json!({"filename":format!("gen/f{page:02}_{i:02}.txt"),"status":"added","additions":1,"deletions":0,"patch":"@@ -0,0 +1 @@\n+x"}),
+            })
+            .collect::<Vec<_>>();
+        get(
+            &format!("repos/{REPO}/pulls/7/files?per_page=100&page={}", page + 1),
+            json!(rows),
+        )
+    });
+    let diff = op.remove(5);
+    op.splice(4..5, pages);
+    op.insert(34, diff);
+    let steps = script(&op);
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&steps);
+    let (source, scope, mut workspace) = opened(&fixture);
+    let before = sql_state(&fixture);
+    let git = git_state_resource(&fixture);
+    let limits = PrResourceReadLimitsV1 {
+        max_pages_per_source: 30,
+        ..Default::default()
+    };
+    let result = run_resource(
+        &fixture,
+        source,
+        scope,
+        &mut workspace,
+        PrResourceKindV1::Files,
+        &limits,
+    )
+    .unwrap();
+    let observed = result.view.as_ref().unwrap().observed();
+    assert_eq!(observed.files().len(), 3000);
+    assert!(!observed.file_coverage().complete_observed());
+    assert!(!observed.files()[1].patch_supplied);
+    let labels = result
+        .page
+        .rows
+        .iter()
+        .map(|row| row.label.as_str())
+        .collect::<Vec<_>>();
+    assert!(labels.contains(&"Files: 3000 of 3500 loaded • GitHub lists at most 3000 files"));
+    assert!(labels.contains(&"File src/view.rs • modified"));
+    assert!(labels.contains(&"File logo.png • modified • no API patch (binary or too large)"));
+    assert!(labels.contains(
+        &"File src/new.rs • renamed from src/old.rs • no API patch (binary or too large)"
+    ));
+    effects(&fixture, &before, &git, &steps);
+}
+#[test]
 fn scoped_pr_resource_fixed_page_cap_and_repeated_context_no_invented_complete_or_success() {
     let mut op = resource_steps(PrResourceKindV1::Checks, REPO);
     op[4] = get(

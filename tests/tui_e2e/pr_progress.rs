@@ -209,7 +209,9 @@ fn journey_with_preselected(mouse: bool, preselected: bool) {
     session.assert_focused_view("Inbox");
     open(&mut session, mouse);
     choose(&mut session, mouse, "[v Review progress]", b"v");
-    session.wait_for_screen("CHANGED SINCE VIEWED • src/α file.rs");
+    // The remembered file is resumed as the selection (the ▌ marker), while
+    // its viewed state is the fresh server state, not the saved one.
+    session.wait_for_screen(&format!("▌ CHANGED SINCE VIEWED • {FILE}"));
     assert_eq!(
         mutation_count(&records(&mut session, &fixture, resumed_count)),
         1

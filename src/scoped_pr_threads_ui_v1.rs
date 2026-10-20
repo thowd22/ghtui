@@ -96,6 +96,21 @@ fn publication_available(
             }
         })
 }
+/// The exact observed capability a disabled publication control lacks. Nothing
+/// is sent; an unknown capability is never treated as permission.
+fn publication_refusal(action: publication_v1::ThreadPublicationActionV1) -> &'static str {
+    match action {
+        publication_v1::ThreadPublicationActionV1::Reply => {
+            "Reply unavailable • observed viewerCanReply is not true • nothing sent"
+        }
+        publication_v1::ThreadPublicationActionV1::Resolve => {
+            "Resolve unavailable • viewerCanResolve not true or thread not open • nothing sent"
+        }
+        publication_v1::ThreadPublicationActionV1::Reopen => {
+            "Reopen unavailable • viewerCanUnresolve not true or thread not resolved • nothing sent"
+        }
+    }
+}
 pub fn retire_invalid(app: &mut App) -> bool {
     let Some(intent) = app
         .scoped_threads_v1
@@ -240,6 +255,9 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
         if admitted {
             native_v1::open_publication(app, action);
         } else {
+            if let Some(view) = &mut app.scoped_threads_v1 {
+                view.code_notice_v4 = Some(publication_refusal(action).into());
+            }
             app.status = "Observed thread action unavailable • current permission/state not inferred • refresh explicitly".into();
         }
         return;

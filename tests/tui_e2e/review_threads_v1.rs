@@ -183,6 +183,16 @@ fn happy(mouse: bool, partial: bool) {
         assert!(!session.screen().contains(THREAD_BODY));
         choose(&mut session, mouse, "[Enter Expand]", b"\r");
         owned(&mut session, &[THREAD_BODY]);
+        // viewerCanResolve/viewerCanReply are false: each control explains the
+        // exact missing capability and sends nothing (exact_threads below).
+        choose(&mut session, mouse, "[r Resolve]", b"r");
+        owned(&mut session, &["Resolve unavailable • viewerCanResolve"]);
+        choose(&mut session, mouse, "[p Reply]", b"p");
+        owned(
+            &mut session,
+            &["Reply unavailable • observed viewerCanReply"],
+        );
+        assert!(!session.screen().contains("Preview first"));
     }
     choose(&mut session, mouse, "[i Source]", b"i");
     owned(

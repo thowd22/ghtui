@@ -795,6 +795,8 @@ fn row(label: String, role: SemanticToken) -> PrRow {
         cells: None,
     }
 }
+/// The REST list-files endpoint never returns more than this many files.
+const GITHUB_FILE_LIST_CAP: u64 = 3000;
 fn coverage(label: &str, value: &crate::providers::gh::PrResourceCoverageV1) -> String {
     let loaded = value.admitted_rows;
     match value.reported_total {
@@ -951,8 +953,19 @@ impl ScopedPrResourceViewV1 {
             PrResourceKindV1::Files => {
                 rows.push(row(OLD_IMAGE_UNVERIFIED.into(), SemanticToken::Muted));
                 self.targets.push(PrResourceRowV1::Notice);
+                let files = self.observed.file_coverage();
                 rows.push(row(
-                    coverage("Files", self.observed.file_coverage()),
+                    if files
+                        .reported_total
+                        .is_some_and(|total| total > GITHUB_FILE_LIST_CAP)
+                    {
+                        format!(
+                            "{} • GitHub lists at most {GITHUB_FILE_LIST_CAP} files",
+                            coverage("Files", files)
+                        )
+                    } else {
+                        coverage("Files", files)
+                    },
                     SemanticToken::Muted,
                 ));
                 self.targets.push(PrResourceRowV1::Notice);
@@ -969,13 +982,19 @@ impl ScopedPrResourceViewV1 {
                 for (i, file) in self.observed.files().iter().enumerate() {
                     rows.push(row(
                         format!(
-                            "File {} • {}{}",
+                            "File {} • {}{}{}",
                             file.path,
                             file.status.as_deref().unwrap_or("state unknown"),
+                            file.previous_path
+                                .as_deref()
+                                .map(|old| format!(" from {old}"))
+                                .unwrap_or_default(),
+                            // GitHub omits `patch` for binary and too-large
+                            // diffs alike; the two are never told apart here.
                             if file.patch_supplied {
                                 ""
                             } else {
-                                " • API patch unavailable"
+                                " • no API patch (binary or too large)"
                             }
                         ),
                         SemanticToken::Reference,

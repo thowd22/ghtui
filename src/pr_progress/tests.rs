@@ -210,3 +210,42 @@ fn viewed_files_progress_restart_restores_only_account_bound_position_not_server
     assert!(stored.get("viewed").is_none());
     assert!(stored.get("state").is_none());
 }
+
+#[test]
+fn viewed_files_unsupported_host_state_disables_marking_and_never_counts_as_zero() {
+    // A host/account that omits viewerViewedState (or reports a state this
+    // client does not know) exposes no capability: both marks stay disabled.
+    let mut unsupported = files();
+    unsupported[1].state = String::new();
+    unsupported[2].state = "FUTURE_STATE".into();
+    let progress = ReviewProgress::prepare(&identity(42), &target(), &unsupported).unwrap();
+    assert!(!progress.complete());
+    let rows = progress.rows();
+    assert!(rows[0]
+        .0
+        .starts_with("PARTIAL / UNAVAILABLE review progress"));
+    assert!(rows[0].0.contains("missing states are not zero"));
+    assert_eq!(rows[0].1, SemanticToken::Pending);
+    let unknown = progress.selected(3).unwrap();
+    assert_eq!(unknown.state, ViewedState::Unavailable);
+    assert_eq!(rows[3].1, SemanticToken::Muted);
+    assert!(rows[3].0.starts_with("VIEWED STATE UNAVAILABLE • "));
+    assert_eq!(unknown.state.server_value(), None);
+    for viewed in [true, false] {
+        assert!(file_disabled_reason(&unknown, viewed)
+            .unwrap()
+            .contains("capability is unavailable"));
+    }
+    // Known states disable only the no-op direction.
+    let viewed = progress.selected(2).unwrap();
+    assert!(file_disabled_reason(&viewed, true)
+        .unwrap()
+        .contains("already VIEWED"));
+    assert_eq!(file_disabled_reason(&viewed, false), None);
+    let changed = FileProgress {
+        path: "changed.rs".into(),
+        state: ViewedState::Changed,
+    };
+    assert_eq!(file_disabled_reason(&changed, true), None);
+    assert_eq!(file_disabled_reason(&changed, false), None);
+}

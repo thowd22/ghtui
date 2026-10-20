@@ -366,6 +366,65 @@ fn loss(mouse: bool) {
         assert_eq!(git_state(&fixture), git);
     }
 }
+/// Binary/too-large files (no API `patch`), a rename and a PR beyond GitHub's
+/// 3000-file list are labelled honestly and stay selectable rows; nothing is
+/// fetched or stored by selecting them.
+fn files_edge(mouse: bool) {
+    let mut steps = initial();
+    let mut files = resource_operation(false);
+    let mut parent = parent_resource();
+    parent["changed_files"] = json!(3500);
+    files[3] = get(&files[3].args[1], parent.clone());
+    files[6] = get(&files[6].args[1], parent);
+    files[4] = get(
+        &files[4].args[1],
+        json!([
+            {"filename":"src/界.rs","status":"modified","additions":2,"deletions":1,"patch":"@@ -1,2 +1,3 @@\n context\n-old\n+new\n+next"},
+            {"filename":"logo.png","status":"modified","additions":0,"deletions":0},
+            {"filename":"src/new.rs","previous_filename":"src/old.rs","status":"renamed","additions":0,"deletions":0}
+        ]),
+    );
+    steps.extend(files);
+    let fixture = resource_configured(&steps);
+    let git = git_state(&fixture);
+    let mut session = launch(&fixture, mouse);
+    selected(&mut session, &fixture, mouse);
+    let before = sql_state(&fixture);
+    choose(&mut session, mouse, "[f Files]", b"f");
+    session.wait_for_command_count(&fixture, 41);
+    ready(
+        &mut session,
+        &[
+            "Files: 3 of 3500 loaded • GitHub lists at most 3000 files",
+            "File logo.png • modified • no API patch (binary or too large)",
+            "File src/new.rs • renamed from src/old.rs • no API patch",
+            "[b Back]",
+        ],
+    );
+    choose(&mut session, mouse, "[N Next file]", b"N");
+    ready(&mut session, &["▌ File src/界.rs"]);
+    if mouse {
+        let (column, row) = session
+            .locate("File logo.png")
+            .unwrap_or_else(|| panic!("Binary file row:\n{}", session.screen()));
+        session.click(column, row);
+    } else {
+        session.send_key(b"\x1b[B");
+    }
+    ready(&mut session, &["▌ File logo.png • modified • no API patch"]);
+    assert_eq!(commands(&session, &fixture).len(), 41);
+    unchanged(&session, &fixture, &before, &steps);
+    assert_eq!(git_state(&fixture), git);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+#[test]
+fn scoped_pr_resource_keyboard_files_binary_rename_and_3000_cap_labelled() {
+    files_edge(false);
+}
+#[test]
+fn scoped_pr_resource_mouse_files_binary_rename_and_3000_cap_labelled() {
+    files_edge(true);
+}
 #[test]
 fn scoped_pr_resource_keyboard_files_checks_current_head_patch_context_cached_back() {
     happy(false);
