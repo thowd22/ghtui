@@ -361,9 +361,21 @@ fn journey(mouse: bool) {
         row.matches == Some(guide.len())
     });
     s.send_key(b"\r");
+    // Enter applies the filter with a background read (`Esc Cancel` joins the bar and shifts
+    // `D Details` onto it). The bar may already sit on a match, so wait for that read to
+    // end: the typing status gives way to a settled one without `Esc Cancel`.
     s.wait_for_cursorless_condition(
-        |screen| selected_history_row(screen).is_some_and(|row| guide.contains(&row.sha)),
-        "the bar on a match at 80x24",
+        |screen| {
+            let text = screen.contents();
+            let mut rows = text.lines().rev().filter(|row| !row.trim().is_empty());
+            let bar = rows.next().unwrap_or_default();
+            let status = rows.next().unwrap_or_default();
+            selected_history_row(screen).is_some_and(|row| guide.contains(&row.sha))
+                && !bar.contains("Esc Cancel")
+                && !status.contains("Search History")
+                && !status.contains("Reading")
+        },
+        "the bar on a match after the applied filter's read at 80x24",
         Duration::from_secs(10),
     );
     let matched = selected_history_row(s.completed_cursorless_screen().unwrap())

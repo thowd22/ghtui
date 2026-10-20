@@ -364,6 +364,8 @@ fn effects_v2(native: &Native, gh_count: usize) {
                     | "for-each-ref"
                     | "config"
                     | "diff"
+                    // The History Commit detail's changed files (TASK-99.4).
+                    | "diff-tree"
                     | "log"
                     | "cat-file"
                     | "ls-tree"
@@ -392,6 +394,7 @@ fn effects_v2(native: &Native, gh_count: usize) {
                     b"for-each-ref",
                     b"config",
                     b"diff",
+                    b"diff-tree",
                     b"log",
                     b"cat-file",
                     b"ls-tree",

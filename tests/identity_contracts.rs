@@ -897,8 +897,10 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
         .draw(|frame| repository_ui::draw(frame, &mut app, frame.area()))
         .unwrap();
     let text = buffer_text(terminal.backend().buffer());
+    // History pairs the author with the `Saved:` row and the committer with the `HEAD:` row
+    // (TASK-99); this bare App has no source identity, so only the `Saved:` row and its
+    // author are painted.
     assert!(text.contains("author Fixture Author"));
-    assert!(text.contains("committer Fixture Author"));
     assert!(text.contains("[FA]"));
     let author = app
         .hits
@@ -1056,7 +1058,10 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                     "The long breadcrumb is bounded rather than painted in full"
                 );
                 if override_count != 0 {
-                    assert!(row(saved_row + 1)
+                    // The notice follows the identity block: directly below `Saved:`, or in
+                    // History below its two-row `Saved:`/`HEAD:` block (TASK-99).
+                    let below = if genuine { 2 } else { 1 };
+                    assert!(row(saved_row + below)
                         .contains("Original snapshots • replacements: 2 • legacy grafts: present"));
                 }
                 let content_start = rows.get(app.repository_list.top).map(|first| {

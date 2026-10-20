@@ -396,9 +396,10 @@ fn journey(mouse: bool, case: Case) {
         );
         choose(&mut session, mouse, "[g History]", b"g");
         select_original(&mut session, mouse, &source.original);
-        // At 80 columns the Graph keys fill the key bar; the author identity row above the
-        // graph is the same Author target for the mouse.
-        choose(&mut session, mouse, "author ", b"a");
+        // The `a Author` key; by mouse its key-bar token, or its Commands entry where the
+        // narrow bar leaves it out (a 64-character Saved ID leaves no room for the identity
+        // rows' author target at 80 columns).
+        super::choose_key_bar(&mut session, mouse, "[a Author]");
         saved_ready(
             &mut session,
             &source.original,

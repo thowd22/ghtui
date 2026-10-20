@@ -248,8 +248,28 @@ fn path_history_shown(session: &mut Session, chip: &str, sha: &str) {
             .any(|(label, _)| label.starts_with(chip))
     });
     session.wait_for_history_selected(sha);
-    // The detail's file keys join the bar once its changed files load; clicks wait for it.
+    // The detail's file keys join the bar once its changed files load and shift the tokens
+    // after them (`q Quit` moves onto `: Commands`); clicks wait for the bar with them.
     session.wait_for_settled_footer();
+    wait_file_keys(session);
+}
+/// `f File history` joins the key bar once the shown commit's changed files are read.
+fn wait_file_keys(session: &mut Session) {
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let (rows, columns) = frame.size();
+            frame
+                .rows(0, columns)
+                .nth(usize::from(rows - 1))
+                .is_some_and(|bar| {
+                    // The Commit detail (and with it the file keys) sits beside the table
+                    // from 120 columns; narrower History drills into it with `D Details`.
+                    (columns < 120 || bar.contains("f File history")) && !bar.contains("Esc Cancel")
+                })
+        },
+        "the History commit's file keys in the bar",
+        Duration::from_secs(10),
+    );
 }
 /// Global Back from the file's History returns to the exact saved file it was opened from.
 fn path_history_back(session: &mut Session, mouse: bool, line: &str) {
@@ -354,7 +374,12 @@ fn happy(mouse: bool) {
             "Repository • History",
             "commits loaded",
         );
-        path_history_shown(&mut session, "path: nested/renamed.txt", &native.chosen);
+        // The crumb restores History at the chosen commit; the path chip is not part of the
+        // restored History position (TASK-99.3 keeps filters out of Back/crumb restores).
+        session.wait_for_history_ready();
+        session.wait_for_history_selected(&native.chosen);
+        session.wait_for_settled_footer();
+        wait_file_keys(&mut session);
         // The detail beside the table lists the commit's file; Y blames it at that commit.
         session.wait_for_screen("CHANGED FILES  1 file");
         session.wait_for_screen(&native.chosen);
@@ -386,7 +411,7 @@ fn happy(mouse: bool) {
         exact_blame_back(&native, &mut session, mouse);
         session.wait_for_screen(&native.chosen);
         provenance_row(&mut session, mouse, "saved nested line 102");
-        choose(&mut session, mouse, "[G Responsible graph]", b"G");
+        choose(&mut session, mouse, "[G Commit in History]", b"G");
         session.wait_for_screen(&native.responsible);
         session.wait_for_screen("commits loaded");
         fresh_crumb_restore(
@@ -397,9 +422,18 @@ fn happy(mouse: bool) {
             "commits loaded",
         );
         session.wait_for_screen("commits loaded");
-        session.wait_for_screen(&native.responsible);
-        exact_blame_back(&native, &mut session, mouse);
+        session.wait_for_history_selected(&native.responsible);
+        session.wait_for_settled_footer();
+        wait_file_keys(&mut session);
+        // History carries no file source (TASK-99), so there is no File back from it: the
+        // responsible commit's own file (history.txt) is blamed from its Commit detail and
+        // the same line's original file opens from there.
+        choose(&mut session, mouse, "[Y Blame]", b"Y");
+        session.wait_for_screen("Blame lines 1–100 of 145");
+        choose(&mut session, mouse, "[N Next]", b"N");
+        session.wait_for_screen("Blame lines 101–145");
         provenance_row(&mut session, mouse, "saved nested line 102");
+        session.wait_for_screen(&native.responsible);
         choose(&mut session, mouse, "[F Original file]", b"F");
         session.wait_for_screen("Original immutable file");
         session.wait_for_screen("history.txt");

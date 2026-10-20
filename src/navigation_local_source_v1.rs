@@ -349,7 +349,15 @@ impl OriginalSavedVisitV1 {
                     operation.cancellation().clone(),
                 )?;
                 if let Some(tree) = &self.tree_v1 {
-                    tree.restore(operation)?.install(&mut workspace)?;
+                    // The folder strip goes with the restored tree, as when it was first
+                    // opened: a deep path stays one compact `[Folders · N]` row on return.
+                    let projection = tree.restore(operation)?;
+                    let strip = crate::repository_tree_viewport_v2::TreeBreadcrumbStripV2::prepare(
+                        projection.clone(),
+                        operation,
+                    )?;
+                    projection.install(&mut workspace)?;
+                    workspace.tree_breadcrumbs_v2 = Some(strip);
                 }
                 if let Some(diff) = &self.diff_v1 {
                     diff.restore(self.origin.clone(), operation, &mut workspace)?;

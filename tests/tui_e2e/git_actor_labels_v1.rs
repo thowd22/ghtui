@@ -185,6 +185,27 @@ fn ready(session: &mut Session, labels: &[&str]) {
         )
         .unwrap_or_else(|error| panic!("{error}"));
 }
+/// Waits until no new Git child has started for a second and no read shows `Esc Cancel`.
+fn settle_trace(session: &mut Session, fixture: &Fixture) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut count = trace(fixture).len();
+    let mut quiet = Instant::now();
+    loop {
+        session.poll_output(Duration::from_millis(50));
+        let now = trace(fixture).len();
+        if now != count || session.screen().contains("Esc Cancel") {
+            count = now;
+            quiet = Instant::now();
+        } else if quiet.elapsed() >= Duration::from_secs(1) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Git reads did not settle\n{}",
+            session.screen()
+        );
+    }
+}
 fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if mouse {
         session.click_visible_action(label);
@@ -358,15 +379,21 @@ fn journey(mouse: bool) {
         );
         choose(&mut session, mouse, "[g History]", b"g");
         select_original(&mut session, mouse, &source.original);
+        // History shows the saved commit's row with its empty-name author chip (`author u…`);
+        // the Commit detail (≥120 columns) or the identity rows (when a SHA-1 leaves room)
+        // carry both roles, and the profiles below check each role's complete text.
         saved_ready(
             &mut session,
             &source.original,
             &source.head,
-            &[
-                "author unknown name [email unavailable]",
-                "committer Exact Recorder",
-            ],
+            &[AUTHORLESS, "author u"],
         );
+        if format == "sha1" || !mouse {
+            ready(&mut session, &["author unknown name [e", "Exact Recorder"]);
+        }
+        // A clicked History row is saved by a background read that can still be starting
+        // when the frame already names it; the profile's no-Git check begins after it.
+        settle_trace(&mut session, fixture);
         profile(
             &mut session,
             &source,
