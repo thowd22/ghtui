@@ -1,10 +1,10 @@
 ---
 id: TASK-99.1
 title: 'History: lane layout and graph rendering'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 20:38'
-updated_date: '2026-10-20 02:06'
+updated_date: '2026-10-20 09:53'
 labels:
   - ui-design
   - history
@@ -32,5 +32,5 @@ Compute stable lanes for all refs with merge and fork connectors (●, │, ─�
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Graph pages walk every branch, remote, tag, HEAD (incl. detached) and the opened revision via log --topo-order --stdin from the ref snapshot; pages share a walk fingerprint (replaces walk_tip/first-row checks); opening pages until the revision is loaded. Timeline rows use src/history/lanes.rs (layout from row 0, so paging keeps columns/colors), same-row joins replace the ↳ parent rows, graph column padded so messages align, 24 visible lanes then …, >128 lanes is an error. Legacy CommitGraph deleted. Gate: node scripts/test-task.mjs history_lanes_v991 — 14 lib + 2 PTY passed. Also passed: lib commit_graph/v1_repo_views/git_actor_roles (87), git_contracts (8), graph_compact_selection_contracts (5), tui_e2e commit_graph_v2/v3 native (14) and graph_paging_v1 (20 incl.). Full suite not yet run.
+Multi-tip walk from one ref snapshot via src/history/lanes.rs; same-row joins, stable lane colors across pages; legacy CommitGraph removed. Focused: test-task history_lanes_v991. Gate: node scripts/test-all.mjs 5979 passed/0 failed, fmt and clippy clean (582be36f).
 <!-- SECTION:NOTES:END -->

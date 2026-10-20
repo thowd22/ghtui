@@ -4,7 +4,7 @@ title: 'History: search, path filter and branch scope'
 status: In Progress
 assignee: []
 created_date: '2026-10-18 20:38'
-updated_date: '2026-10-20 03:20'
+updated_date: '2026-10-20 09:53'
 labels:
   - ui-design
   - history
@@ -32,5 +32,5 @@ ordinal: 31069
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Filter row (/ query, path:/author:/branch: chips with ✕, scope chip), border match count, dimmed non-matches with bold SHA and underlined query, hide mode (h) with lanes joined through hidden commits, n/N match steps, B branch scope (one-branch walk via OriginalGraphReadV1::Only; clearing returns to the kept all-branches walk and selection), L/auto-load replaces N More, f/H on a saved file opens History with a path chip. Chips: git log --full-history -i -F --author + pathspec over the walk tips; text local (message/author/SHA prefix). Gate: node scripts/test-task.mjs history_filter_v993 — lib 16/16, PTY 2/2; lib history_/repository_graph/commit_graph_v1 242/242; PTY history_refs_v992 + history_lanes_v991 4/4. Open: f in Search (f is Save query there) and PR Files, rename following (--follow), filter kept across Back/Re-read; file_history/original_saved_navigation PTY journeys still press H for the old list.
+Done: / highlight with dimmed non-matches, n/N, author:/path:/branch: chips, scope, f in Tree, H alias. Remaining: f from Search results and PR Files; file history following renames. Gate: node scripts/test-all.mjs 5979 passed/0 failed, fmt and clippy clean (582be36f).
 <!-- SECTION:NOTES:END -->

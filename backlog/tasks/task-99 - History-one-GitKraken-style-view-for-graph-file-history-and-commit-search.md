@@ -4,7 +4,7 @@ title: 'History: one GitKraken-style view for graph, file history and commit sea
 status: In Progress
 assignee: []
 created_date: '2026-10-18 20:38'
-updated_date: '2026-10-20 04:01'
+updated_date: '2026-10-20 09:53'
 labels:
   - ui-design
   - history
@@ -36,5 +36,5 @@ Replace Repository's separate Graph (g), file History (H) and commit searching w
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Umbrella: mode named History (tab, palette Show History with graph/log tags, Help History section, pane title History › <repo> › <scope>, crumb Repository • History); ProvenanceView::History/Graph, FileAction::History/HistoryEntry and the old file-history page removed; blame G opens the commit in History; global Back from History's diff/drill-down returns to the table. Footer: / n N f Enter Y C y. Status 'Read-only · N commits loaded · scroll for more', boundary row kept. Helpers moved to the History layout. Gate: focused lib 402/402, contracts 59/59, PTY history_* 7/10 on run 3; history_view_v99 (2) and the detail mouse journey fixed after the last run, not re-run. Older file_history/original_saved_* PTY journeys still expect the retired views.
+History replaces Graph and file History (g/H aliases), paging verified on a 10k-commit fixture and a ~200-branch repo. Open: TASK-99.3 remainder and TASK-100 polish. Gate: node scripts/test-all.mjs 5979 passed/0 failed, fmt and clippy clean (582be36f).
 <!-- SECTION:NOTES:END -->
