@@ -656,10 +656,9 @@ fn commit_graph_shallow_leaf_retains_unloaded_parent_identity() {
     let commits = repository.log(20).unwrap();
     assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].parents, vec![expected_parent.clone()]);
-    let mut graph = ghtui::repository_view::CommitGraph::default();
-    graph.append(&commits);
-    assert_eq!(graph.boundaries(), &[expected_parent]);
-    assert!(!graph.rows[0].explanation.contains("root commit"));
+    let explanation = ghtui::repository_view::explain_commit(&commits[0]);
+    assert!(!explanation.contains("root commit"));
+    assert!(explanation.contains(&expected_parent[..8]));
 }
 
 #[test]

@@ -18,7 +18,7 @@ impl Workspace {
                     | RowAction::DiffLine(_)
                     | RowAction::Legend
             )
-            || matches!(&action, RowAction::Commit(sha) if self.graph_state_v1.as_ref().is_some_and(|state| state.selected_commit(sha).is_some()) || self.graph.rows.iter().any(|row| row.commit.id == *sha));
+            || matches!(&action, RowAction::Commit(sha) if self.graph_state_v1.as_ref().is_some_and(|state| state.selected_commit(sha).is_some()));
         if pure {
             self.open_from_repository_v1(action, operation.cancellation().clone(), None)?;
             return operation.check();

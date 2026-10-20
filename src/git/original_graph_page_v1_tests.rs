@@ -27,7 +27,15 @@ fn commit_graph_v1_raw_order_roles_and_message_are_from_actual_original_objects(
         assert_eq!(page.walk_tip(), real.original);
         assert_eq!(page.offset(), 0);
         assert!(!page.has_more());
-        let row = &page.commits()[0];
+        // The walk covers every branch and tag, so the opened revision is a
+        // member of the page rather than necessarily its first row.
+        assert!(page.walk_tips().contains(&real.original));
+        assert!(page.walk_tips().contains(&real.head));
+        let row = page
+            .commits()
+            .iter()
+            .find(|row| row.commit().id == real.original)
+            .unwrap();
         assert_eq!(row.commit().author.name, "Original Writer");
         assert_eq!(row.commit().committer.name, "Original Recorder");
         assert_eq!(row.commit().subject, "Original saved actors");
@@ -166,7 +174,12 @@ fn commit_graph_v1_actual_octopus_headers_keep_every_ordered_original_parent() {
         .to_owned();
     let baseline = real.snapshot();
     let page = observed(&real, &merge);
-    assert_eq!(page.commits()[0].commit().parents, parents);
-    assert_eq!(page.commits()[0].commit().subject, "Actual octopus");
+    let row = page
+        .commits()
+        .iter()
+        .find(|row| row.commit().id == merge)
+        .unwrap();
+    assert_eq!(row.commit().parents, parents);
+    assert_eq!(row.commit().subject, "Actual octopus");
     assert_eq!(real.snapshot(), baseline);
 }

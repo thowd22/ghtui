@@ -54,7 +54,10 @@ impl GraphPresentationV1 {
             None,
             Vec::new(),
         )?;
-        for node in &state.topology.rows()[start..end] {
+        let lanes = state.lane_rows_v991(start, end)?;
+        // One graph column for the window: every message starts at the same cell.
+        let graph_width = lanes.iter().map(|row| row.cells.len()).max().unwrap_or(0);
+        for (node, lane) in state.topology.rows()[start..end].iter().zip(&lanes) {
             let commit = state
                 .topology
                 .commit(&state.pages, node.member)
@@ -68,21 +71,33 @@ impl GraphPresentationV1 {
             } else {
                 SemanticRole::Normal
             };
-            let mut paint = state
-                .topology
-                .before(node)
-                .iter()
-                .enumerate()
-                .map(|(col, id)| GraphSpanV1 {
-                    text: if col == usize::from(node.column) {
-                        "● "
-                    } else {
-                        "│ "
-                    }
-                    .into(),
-                    color: state.topology.color(*id),
+            let edges = state.topology.edges(node);
+            if edges.len() != commit.parents.len() {
+                return Err("Original ordered compact edge missing".into());
+            }
+            for (order, parent) in commit.parents.iter().enumerate() {
+                let edge = &edges[order];
+                if usize::from(edge.order) != order
+                    || state.topology.id(&state.pages, edge.parent) != Some(parent.as_str())
+                {
+                    return Err("Original compact parent order/identity differs".into());
+                }
+            }
+            // Lane glyphs keep their lane's palette slot; blanks and the
+            // padding stay in the pannable graph column (slot 0 is invisible
+            // on a space).
+            let mut paint = lane
+                .spans()
+                .into_iter()
+                .map(|(text, slot)| GraphSpanV1 {
+                    text,
+                    color: Some(slot.unwrap_or(0)),
                 })
                 .collect::<Vec<_>>();
+            paint.push(GraphSpanV1 {
+                text: " ".repeat(graph_width.saturating_sub(lane.cells.len()) + 2),
+                color: Some(0),
+            });
             let label = format!(
                 "{}{} {}{} • {}",
                 if is_selected { "▶ selected " } else { "" },
@@ -104,74 +119,6 @@ impl GraphPresentationV1 {
             builder.commit_rows.insert(commit.id.clone(), row);
             if is_selected {
                 builder.focus = Some(row);
-            }
-            let edges = state.topology.edges(node);
-            if edges.len() != commit.parents.len() {
-                return Err("Original ordered compact edge missing".into());
-            }
-            for (order, parent) in commit.parents.iter().enumerate() {
-                let edge = &edges[order];
-                if usize::from(edge.order) != order
-                    || state.topology.id(&state.pages, edge.parent) != Some(parent.as_str())
-                {
-                    return Err("Original compact parent order/identity differs".into());
-                }
-                let from = usize::from(edge.from);
-                let to = usize::from(edge.to);
-                // A single loaded parent continuing straight down its own lane is
-                // already shown by the lane itself (as in `git log --graph`); a
-                // separate connector row would only halve the visible history.
-                if commit.parents.len() == 1
-                    && from == to
-                    && state.selected_commit(parent).is_some()
-                {
-                    continue;
-                }
-                let columns = state
-                    .topology
-                    .before(node)
-                    .len()
-                    .max(state.topology.after(node).len());
-                let mut paint = (0..columns)
-                    .map(|column| GraphSpanV1 {
-                        text: if column == from && from == to {
-                            "│ "
-                        } else if column == from && to > from {
-                            "╲─"
-                        } else if column == from {
-                            "╱─"
-                        } else if column == to {
-                            "└ "
-                        } else if column > from.min(to) && column < from.max(to) {
-                            "──"
-                        } else {
-                            "  "
-                        }
-                        .into(),
-                        color: Some(usize::from(edge.color)),
-                    })
-                    .collect::<Vec<_>>();
-                let loaded = state.selected_commit(parent).is_some();
-                let label = format!(
-                    "↳ parent {} → {}{}",
-                    order + 1,
-                    &parent[..8],
-                    if loaded {
-                        ""
-                    } else {
-                        " • outside loaded walk"
-                    }
-                );
-                paint.push(GraphSpanV1 {
-                    text: label.clone(),
-                    color: None,
-                });
-                builder.push(
-                    label,
-                    SemanticRole::Boundary,
-                    loaded.then(|| RowAction::Commit(parent.clone())),
-                    paint,
-                )?;
             }
         }
         builder.push(

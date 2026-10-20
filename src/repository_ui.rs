@@ -19,7 +19,7 @@ use crate::{
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
-    text::{Line, Span},
+    text::Line,
     widgets::{Block, Clear, Paragraph},
     Frame,
 };
@@ -581,41 +581,6 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             crate::repository_graph_ui_v1::line(workspace, index, theme, usize::from(area.width))
         {
             line
-        } else if workspace.mode == RepositoryMode::Graph {
-            if let Some(RowAction::Commit(id)) = &row.action {
-                if let Some(graph_row) =
-                    workspace.graph.rows.iter().find(|row| &row.commit.id == id)
-                {
-                    let mut spans = graph_row
-                        .colors_before
-                        .iter()
-                        .enumerate()
-                        .map(|(index, color)| {
-                            Span::styled(
-                                if index == graph_row.column {
-                                    "● "
-                                } else {
-                                    "│ "
-                                },
-                                theme.graph(*color),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    if graph_row.commit.parents.len() > 1 {
-                        spans.push(Span::styled("╲", theme.style(SemanticToken::Diverged)));
-                    }
-                    spans.push(Span::raw(safe_text(
-                        row.label
-                            .strip_prefix(&graph_row.glyphs)
-                            .unwrap_or(&row.label),
-                    )));
-                    Line::from(spans)
-                } else {
-                    Line::from(safe_text(&row.label))
-                }
-            } else {
-                Line::from(safe_text(&row.label))
-            }
         } else {
             Line::from(safe_text(&row.label))
         };

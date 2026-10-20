@@ -4,7 +4,7 @@ use crate::{
     local_actions::LocalInventory,
     local_picker::{LocalChoice, LocalPicker, LocalValue},
     providers::runner::{sanitize_terminal, CancellationToken},
-    repository_view::{diff_rows, CommitGraph, DiffLayout, SemanticRole},
+    repository_view::{diff_rows, DiffLayout, SemanticRole},
     workspace::{DisplayRow, RepositoryMode, RowAction, Workspace},
 };
 use std::path::PathBuf;
@@ -319,7 +319,6 @@ impl ComparisonPlan {
             revision: relationship.head.clone(),
             mode: RepositoryMode::CommitChanges,
             status,
-            graph: CommitGraph::default(),
             graph_state_v1: None,
             graph_display_v1: None,
             graph_view_v1: Default::default(),

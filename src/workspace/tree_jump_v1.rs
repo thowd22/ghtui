@@ -391,7 +391,6 @@ impl PreparedOriginalTreeNavigationV1 {
         workspace.original_diff_side_v1 = None;
         workspace.rows.clear();
         workspace.tree = None;
-        workspace.graph = CommitGraph::default();
         workspace.graph_state_v1 = None;
         workspace.graph_display_v1 = None;
         workspace.graph_view_v1 = Default::default();

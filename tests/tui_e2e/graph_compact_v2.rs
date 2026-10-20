@@ -32,6 +32,9 @@ fn ordinary10000() -> NativeGraph {
         &input,
     );
     native.tip = native.fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    // History walks every branch and tag (TASK-99.1): the setup tag still names the
+    // replaced root, which would make this an unrelated 10,001st commit.
+    native.fixture.git(&["tag", "-d", "actual-graph-name"]);
     assert_eq!(
         native.fixture.git(&["rev-list", "--count", "HEAD"]).trim(),
         "10000"

@@ -64,6 +64,8 @@ pub(crate) struct OriginalComparisonRouteV1 {
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct OriginalGraphRouteV1 {
     pub walk_tip: String,
+    /// Fingerprint of the walk tips (branches, tags, HEAD) at this visit.
+    pub walk: [u8; 32],
     pub selected: String,
     pub loaded: usize,
     pub epoch: [u8; 32],

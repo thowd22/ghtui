@@ -30,6 +30,8 @@ mod git_provider_sparse_v1;
 mod github;
 #[path = "tui_e2e/help_scrollbar.rs"]
 mod help_scrollbar;
+#[path = "tui_e2e/history_lanes_v991.rs"]
+mod history_lanes_v991;
 #[path = "support/hydration.rs"]
 mod hydration_fixture;
 #[path = "tui_e2e/identity.rs"]

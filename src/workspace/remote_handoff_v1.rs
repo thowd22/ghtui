@@ -69,7 +69,6 @@ impl Workspace {
             revision: commit.into(),
             mode: RepositoryMode::Tree,
             status,
-            graph: CommitGraph::default(),
             graph_state_v1: None,
             graph_display_v1: None,
             graph_view_v1: Default::default(),

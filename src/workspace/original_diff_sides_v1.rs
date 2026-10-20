@@ -158,7 +158,6 @@ impl PreparedOriginalDiffSideV1 {
             return Err("Original prepared side roles/version changed".into());
         }
         workspace.rows.clear();
-        workspace.graph = CommitGraph::default();
         workspace.tree = None;
         workspace.preview = None;
         workspace.comparison = None;
@@ -265,7 +264,6 @@ impl PreparedOriginalDiffBackV1 {
         workspace.actor_profile = None;
         workspace.file_provenance = None;
         workspace.rows.clear();
-        workspace.graph = CommitGraph::default();
         workspace.tree = None;
         workspace.preview = None;
         workspace.comparison = None;
@@ -295,7 +293,6 @@ impl OriginalComparisonSourceV1 {
         workspace.comparison = None;
         workspace.tree = None;
         workspace.preview = None;
-        workspace.graph = CommitGraph::default();
         workspace.tree_navigation_v1 = None;
         workspace.tree_breadcrumbs_v2 = None;
         workspace.graph_state_v1 = None;

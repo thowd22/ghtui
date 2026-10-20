@@ -1,12 +1,11 @@
 //! Prepared repository presentation models. These contain no subprocess or filesystem work.
-//! Native graph lanes are temporary tracing aids; refs label actual branch identities.
 
 mod tree_merge_v1;
 use crate::diff::{Diff, LineKind};
 use crate::git::{
     display_bytes, display_path_bytes, Commit, GitActor, RawPath, RepoStatus, TreeEntry,
 };
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemanticRole {
@@ -18,151 +17,6 @@ pub enum SemanticRole {
     Head,
     Reference,
     Boundary,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GraphEdge {
-    pub from_column: usize,
-    pub to_column: usize,
-    pub parent_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GraphRow {
-    pub commit: Commit,
-    pub column: usize,
-    pub lanes_before: Vec<String>,
-    pub lanes_after: Vec<String>,
-    /// Palette slots follow continuous parent paths; lane collapse does not recolor neighbors.
-    pub colors_before: Vec<usize>,
-    pub colors_after: Vec<usize>,
-    pub edges: Vec<GraphEdge>,
-    pub glyphs: String,
-    pub explanation: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct CommitGraph {
-    lanes: Vec<String>,
-    loaded: HashSet<String>,
-    colors: HashMap<String, usize>,
-    next_color: usize,
-    pub rows: Vec<GraphRow>,
-}
-
-impl CommitGraph {
-    /// Append a topologically ordered page. Pending lane identities survive pagination.
-    pub fn append(&mut self, commits: &[Commit]) {
-        for commit in commits {
-            if !self.loaded.insert(commit.id.clone()) {
-                continue;
-            }
-            let column = match self.lanes.iter().position(|id| id == &commit.id) {
-                Some(column) => column,
-                None => {
-                    self.colors.insert(commit.id.clone(), self.next_color % 8);
-                    self.next_color += 1;
-                    self.lanes.push(commit.id.clone());
-                    self.lanes.len() - 1
-                }
-            };
-            let lanes_before = self.lanes.clone();
-            let colors_before = self
-                .lanes
-                .iter()
-                .map(|id| self.colors[id])
-                .collect::<Vec<_>>();
-            let commit_color = self.colors.remove(&commit.id).unwrap_or_default();
-            self.lanes.remove(column);
-            for (index, parent) in commit.parents.iter().enumerate() {
-                if self.lanes.contains(parent) || self.loaded.contains(parent) {
-                    continue;
-                }
-                if index == 0 {
-                    self.colors.insert(parent.clone(), commit_color);
-                    self.lanes
-                        .insert(column.min(self.lanes.len()), parent.clone());
-                } else {
-                    self.colors.insert(parent.clone(), self.next_color % 8);
-                    self.next_color += 1;
-                    self.lanes.push(parent.clone());
-                }
-            }
-            let edges = commit
-                .parents
-                .iter()
-                .filter_map(|parent| {
-                    self.lanes
-                        .iter()
-                        .position(|id| id == parent)
-                        .map(|to_column| GraphEdge {
-                            from_column: column,
-                            to_column,
-                            parent_id: parent.clone(),
-                        })
-                })
-                .collect();
-            let mut glyphs = String::new();
-            for index in 0..lanes_before.len() {
-                glyphs.push(if index == column { '●' } else { '│' });
-                glyphs.push(' ');
-            }
-            if commit.parents.len() > 1 {
-                glyphs.push('╲');
-            }
-            self.rows.push(GraphRow {
-                commit: commit.clone(),
-                column,
-                lanes_before,
-                lanes_after: self.lanes.clone(),
-                colors_before,
-                colors_after: self.lanes.iter().map(|id| self.colors[id]).collect(),
-                edges,
-                glyphs,
-                explanation: explain_commit(commit),
-            });
-        }
-    }
-
-    /// Unloaded parent identities are boundaries, never silently presented as root commits.
-    pub fn boundaries(&self) -> &[String] {
-        &self.lanes
-    }
-
-    pub fn visible_ancestors(&self, selected: &str) -> HashSet<String> {
-        let commits = self
-            .rows
-            .iter()
-            .map(|row| (row.commit.id.as_str(), &row.commit))
-            .collect::<HashMap<_, _>>();
-        let mut stack = vec![selected.to_owned()];
-        let mut ancestors = HashSet::new();
-        while let Some(id) = stack.pop() {
-            if ancestors.insert(id.clone()) {
-                if let Some(commit) = commits.get(id.as_str()) {
-                    stack.extend(commit.parents.iter().cloned());
-                }
-            }
-        }
-        ancestors
-    }
-
-    pub fn row_label(row: &GraphRow) -> String {
-        let short = &row.commit.id[..row.commit.id.len().min(8)];
-        let refs = if row.commit.refs.is_empty() {
-            String::new()
-        } else {
-            format!(" [{}]", row.commit.refs.join(", "))
-        };
-        format!(
-            "{}{} {} — {}{}",
-            row.glyphs,
-            short,
-            row.commit.subject,
-            crate::git_actor_labels_v1::commit_summary(&row.commit),
-            refs
-        )
-    }
 }
 
 pub fn actor_label(actor: &GitActor) -> String {
@@ -1150,48 +1004,6 @@ pub fn selected_anchors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn commit(id: &str, parents: &[&str]) -> Commit {
-        Commit {
-            id: id.into(),
-            parents: parents.iter().map(|id| (*id).into()).collect(),
-            author: GitActor {
-                name: "Local Author".into(),
-                email: "author@example.test".into(),
-                timestamp: 0,
-            },
-            committer: GitActor {
-                name: "Other Committer".into(),
-                email: "committer@example.test".into(),
-                timestamp: 0,
-            },
-            subject: format!("Saved {id}"),
-            refs: Vec::new(),
-            raw_refs: Vec::new(),
-        }
-    }
-    #[test]
-    fn commit_graph_native_merge_edges_survive_page_boundaries() {
-        let commits = [
-            commit("merge", &["left", "right"]),
-            commit("left", &["root"]),
-            commit("right", &["root"]),
-            commit("root", &[]),
-        ];
-        let mut graph = CommitGraph::default();
-        graph.append(&commits[..2]);
-        assert_eq!(graph.boundaries(), &["root".to_owned(), "right".to_owned()]);
-        let first_rows = graph.rows.clone();
-        graph.append(&commits[2..]);
-        assert_eq!(&graph.rows[..2], first_rows);
-        assert!(graph.boundaries().is_empty());
-        assert_eq!(graph.rows[0].edges.len(), 2);
-        assert_eq!(graph.rows[2].edges[0].parent_id, "root");
-        assert_eq!(
-            graph.visible_ancestors("left"),
-            HashSet::from(["left".into(), "root".into()])
-        );
-        assert!(graph.rows[0].explanation.contains("joins 2 histories"));
-    }
     #[test]
     fn revision_tree_expand_collapse_keeps_raw_identity() {
         let entries = vec![

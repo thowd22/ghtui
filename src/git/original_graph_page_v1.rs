@@ -85,6 +85,8 @@ impl OriginalGraphCommitV1 {
 #[derive(Clone, Debug)]
 struct RefSnapshotV1 {
     by_oid: HashMap<String, Vec<(Vec<u8>, String)>>,
+    /// Commits named by local branches, remote branches and tags.
+    tips: Vec<String>,
     captured_bytes: Arc<[u8]>,
     head: Option<String>,
 }
@@ -95,6 +97,10 @@ pub enum OriginalGraphReadV1<'a> {
 pub struct OriginalGraphPageV1 {
     source: Arc<LocalCommitSourceIdentity>,
     walk_tip: String,
+    /// Commit ids the walk starts from: every local branch, remote branch and
+    /// tag of the ref snapshot, HEAD (attached or detached) and `walk_tip`.
+    walk: Arc<[String]>,
+    walk_key: [u8; 32],
     offset: usize,
     next_offset: usize,
     lookahead: Option<String>,
@@ -106,6 +112,7 @@ impl fmt::Debug for OriginalGraphPageV1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OriginalGraphPageV1")
             .field("walk_tip", &self.walk_tip)
+            .field("walk", &self.walk.len())
             .field("offset", &self.offset)
             .field("rows", &self.commits.len())
             .field("more", &self.lookahead.is_some())
@@ -113,8 +120,18 @@ impl fmt::Debug for OriginalGraphPageV1 {
     }
 }
 impl OriginalGraphPageV1 {
+    /// The revision this graph was opened for. It is one of the walk tips,
+    /// not necessarily the first row: the walk covers every branch and tag.
     pub fn walk_tip(&self) -> &str {
         &self.walk_tip
+    }
+    /// Sorted, distinct commit ids the walk starts from.
+    pub fn walk_tips(&self) -> &[String] {
+        &self.walk
+    }
+    /// Fingerprint of the walk tips; pages of one walk share it.
+    pub fn walk_fingerprint(&self) -> [u8; 32] {
+        self.walk_key
     }
     pub fn offset(&self) -> usize {
         self.offset
@@ -220,8 +237,17 @@ impl GitRepository {
         } else {
             Arc::new(ref_snapshot(self, deadline)?)
         };
+        let (walk, walk_key) = match previous {
+            Some(old) => (old.walk.clone(), old.walk_key),
+            None => walk_tips(&references, tip),
+        };
         let limit = format!("--max-count={}", (PAGE + 1).min(MAX_OFFSET + 1 - offset));
         let skip = format!("--skip={offset}");
+        let mut input = Vec::with_capacity(walk.len() * 65);
+        for id in walk.iter() {
+            input.extend_from_slice(id.as_bytes());
+            input.push(b'\n');
+        }
         let bytes = read(
             self,
             [
@@ -230,10 +256,10 @@ impl GitRepository {
                 &limit,
                 &skip,
                 "--format=%H",
-                tip,
+                "--stdin",
                 "--",
             ],
-            None,
+            Some(&input),
             (PAGE + 1) * 66,
             deadline,
         )?;
@@ -251,7 +277,7 @@ impl GitRepository {
             }
             ids.push(id.to_owned());
         }
-        if (offset == 0 && ids.first().is_none_or(|id| id != tip))
+        if (offset == 0 && ids.is_empty())
             || previous.is_some_and(|old| ids.first() != old.lookahead.as_ref())
         {
             return fail("Original graph cursor/lookahead changed; no skipped or rebased row");
@@ -297,6 +323,8 @@ impl GitRepository {
         Ok(Arc::new(OriginalGraphPageV1 {
             source,
             walk_tip: tip.into(),
+            walk,
+            walk_key,
             offset,
             next_offset: offset + commits.len(),
             lookahead,
@@ -509,6 +537,7 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
         .map_err(|_| GitError("Original HEAD is not a full saved SHA".into()))?;
     saved_oid(head)?;
     let mut names: HashMap<String, Vec<(Vec<u8>, String)>> = HashMap::new();
+    let mut tips = Vec::new();
     let mut count = 0usize;
     for row in bytes
         .split(|byte| *byte == b'\n')
@@ -532,6 +561,12 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
         let id = std::str::from_utf8(object)
             .map_err(|_| GitError("Original ref object is not ASCII".into()))?;
         saved_oid(id)?;
+        if [&b"refs/heads/"[..], b"refs/remotes/", b"refs/tags/"]
+            .iter()
+            .any(|prefix| parts[1].starts_with(prefix))
+        {
+            tips.push(id.to_owned());
+        }
         names
             .entry(id.into())
             .or_default()
@@ -539,9 +574,30 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
     }
     Ok(RefSnapshotV1 {
         by_oid: names,
+        tips,
         captured_bytes: Arc::from(bytes),
         head: Some(head.into()),
     })
+}
+/// Sorted distinct walk tips (branches, remotes, tags, HEAD and the opened
+/// revision) and their fingerprint. Stable for one ref snapshot.
+fn walk_tips(references: &RefSnapshotV1, tip: &str) -> (Arc<[String]>, [u8; 32]) {
+    let mut walk = references
+        .tips
+        .iter()
+        .chain(references.head.as_ref())
+        .map(String::as_str)
+        .chain([tip])
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    walk.sort_unstable();
+    walk.dedup();
+    let mut digest = Sha256::new();
+    for id in &walk {
+        digest.update(id.as_bytes());
+        digest.update([0]);
+    }
+    (Arc::from(walk), digest.finalize().into())
 }
 fn objects(repo: &GitRepository, ids: &[String], deadline: Instant) -> GitResult<Vec<Vec<u8>>> {
     if ids.is_empty() {

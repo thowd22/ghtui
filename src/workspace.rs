@@ -26,8 +26,8 @@ use crate::{
     identity::GitRole,
     providers::runner::CancellationToken,
     repository_view::{
-        diff_rows, file_preview, workspace_rows, CommitGraph, DiffAnchor, DiffLayout, FilePreview,
-        SemanticRole, TreeBrowser, TreeKind,
+        diff_rows, file_preview, workspace_rows, DiffAnchor, DiffLayout, FilePreview, SemanticRole,
+        TreeBrowser, TreeKind,
     },
 };
 pub use file_history::{change_word_v1, FileAction, FileProvenance, FileSelection, ProvenanceView};
@@ -353,7 +353,6 @@ pub struct Workspace {
     pub revision: String,
     pub mode: RepositoryMode,
     pub status: RepoStatus,
-    pub graph: CommitGraph,
     pub graph_state_v1: Option<Arc<crate::repository_graph_v1::OriginalGraphStateV1>>,
     pub graph_display_v1: Option<Arc<crate::repository_graph_v1::GraphPresentationV1>>,
     pub graph_view_v1: crate::repository_graph_v1::GraphViewV1,
@@ -597,7 +596,6 @@ impl Workspace {
             revision,
             mode,
             status,
-            graph: CommitGraph::default(),
             graph_state_v1: None,
             graph_display_v1: None,
             graph_view_v1: Default::default(),
@@ -969,7 +967,7 @@ impl Workspace {
                     | RowAction::DiffLine(_)
                     | RowAction::Legend
             )
-            || matches!(&action,RowAction::Commit(sha) if self.graph_state_v1.as_ref().is_some_and(|state| state.selected_commit(sha).is_some()) || self.graph.rows.iter().any(|row|row.commit.id==*sha));
+            || matches!(&action,RowAction::Commit(sha) if self.graph_state_v1.as_ref().is_some_and(|state| state.selected_commit(sha).is_some()));
         if pure {
             return self.open_from_repository_v1(action, cancellation, None);
         }
@@ -1051,20 +1049,19 @@ impl Workspace {
                 if self.graph_cached_commit_v1(&id)? {
                     return Ok(());
                 }
-                let row = self.graph.rows.iter().find(|row| row.commit.id == id);
-                let explanation=row.map(|row|row.explanation.clone()).unwrap_or_else(||format!("Commit {id} — a saved version. Select Tree to browse files at this version."));
-                self.selected_commit = if let Some(row) = row {
-                    Some(row.commit.clone())
-                } else {
-                    let repo = repository.ok_or("Original nested repository handle unavailable")?;
-                    if !crate::git::original_actor_saved_sha(&id) {
-                        return Err("Uncached commit needs its original full saved SHA".into());
-                    }
-                    repo.log_page(&id, 0, 1)
-                        .map_err(|error| error.to_string())?
-                        .into_iter()
-                        .next()
-                };
+                let repo = repository.ok_or("Original nested repository handle unavailable")?;
+                if !crate::git::original_actor_saved_sha(&id) {
+                    return Err("Uncached commit needs its original full saved SHA".into());
+                }
+                self.selected_commit = repo
+                    .log_page(&id, 0, 1)
+                    .map_err(|error| error.to_string())?
+                    .into_iter()
+                    .next();
+                let explanation = self.selected_commit.as_ref().map_or_else(
+                    || format!("Commit {id} — a saved version. Select Tree to browse files at this version."),
+                    crate::repository_view::explain_commit,
+                );
                 self.revision = id;
                 self.push(&explanation, SemanticRole::Reference, None);
             }

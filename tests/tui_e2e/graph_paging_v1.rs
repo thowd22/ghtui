@@ -382,11 +382,12 @@ fn paging(mouse: bool) {
         })
         .collect::<Vec<_>>();
     assert_eq!(walks.len(), 1);
+    // The continuation walks the same ref-snapshot tips, passed on stdin.
     assert!(walks[0]["argv"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|a| a == &n.tip));
+        .any(|a| a == "--stdin"));
     let before = trace(&n).len();
     explain_disabled(&mut s, mouse, "[N More history]", b"N", "All ancestors");
     unchanged_calls(&n, &mut s, before);
@@ -511,7 +512,7 @@ fn prepared_views(mouse: bool) {
     s.wait_for_screen("of 6 loaded");
     choose_bar_or_palette(&mut s, mouse, "[l Legend]", b"l");
     s.wait_for_screen("never permanent branch identities");
-    body_to(&mut s, mouse, "↳ rows: merge or branch parents");
+    body_to(&mut s, mouse, "●─╮ merge joins a parent lane");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[u Graph back]", b"u");
     s.wait_for_screen("of 6 loaded");

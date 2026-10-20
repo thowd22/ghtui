@@ -91,7 +91,7 @@ fn v1_repo_views_linear_graph_has_one_row_per_commit_with_names_and_dates() {
         .starts_with("Visible commits 1–30 of 30 loaded (limit 10000)"));
     let selected = &shown.rows()[shown.focus().unwrap()];
     assert!(selected.label.starts_with(&format!(
-        "▶ selected {} Ordinary graph version 00029 (graph-v2) • ",
+        "▶ selected {} Ordinary graph version 00029 (HEAD, graph-v2, main) • ",
         &tip[..8]
     )));
     assert!(selected

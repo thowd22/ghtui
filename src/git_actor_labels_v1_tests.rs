@@ -4,7 +4,6 @@ use crate::{
     config::ThemeName,
     git::GitRepository,
     identity::ActorWidget,
-    repository_view::{CommitGraph, GraphRow},
     theme::{ColorMode, Theme},
 };
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
@@ -140,18 +139,7 @@ fn git_actor_roles_commit_summary_and_graph_show_both_actual_roles_not_implicit_
         commit_summary(&source),
         "author Writer • committer Recorder • 2023-11-14"
     );
-    let row = GraphRow {
-        commit: source.clone(),
-        glyphs: "● ".into(),
-        column: 0,
-        lanes_before: vec![],
-        lanes_after: vec![],
-        colors_before: vec![],
-        colors_after: vec![],
-        edges: vec![],
-        explanation: String::new(),
-    };
-    let label = CommitGraph::row_label(&row);
+    let label = commit_summary(&source);
     assert!(label.contains("author Writer"));
     assert!(label.contains("committer Recorder"));
     assert_eq!(source.id, "a".repeat(40));

@@ -47,10 +47,6 @@ pub(crate) struct GraphNodeV2 {
     pub member: GraphMemberV2,
     pub oid: u32,
     pub column: u8,
-    before: u32,
-    before_len: u8,
-    after: u32,
-    after_len: u8,
     edges: u32,
     edges_len: u8,
 }
@@ -67,7 +63,6 @@ pub(crate) struct GraphTopologyV2 {
     identities: Box<[GraphOidInfoV2]>,
     nodes: Box<[GraphNodeV2]>,
     edges: Box<[GraphEdgeV2]>,
-    lanes: Box<[u32]>,
     frontier: Box<[u32]>,
     retained: usize,
 }
@@ -97,13 +92,12 @@ impl GraphTopologyV2 {
         let mut identities = Vec::<GraphOidInfoV2>::with_capacity(total.saturating_add(MAX_LANES));
         let mut nodes = Vec::with_capacity(total);
         let mut edges = Vec::new();
-        let mut lanes = Vec::new();
         let mut active = Vec::<u32>::new();
         let mut next_color = 0u8;
         let mut expected = 0usize;
         for (page_index, page) in pages.iter().enumerate() {
             if page.offset() != expected
-                || page.walk_tip() != pages[0].walk_tip()
+                || page.walk_fingerprint() != pages[0].walk_fingerprint()
                 || page.epoch() != pages[0].epoch()
                 || page_index > 0 && !pages[page_index - 1].has_more()
             {
@@ -141,9 +135,6 @@ impl GraphTopologyV2 {
                     active.push(oid);
                     active.len() - 1
                 };
-                let before = u32::try_from(lanes.len()).map_err(|_| "Graph lane index overflow")?;
-                let before_len = u8::try_from(active.len()).map_err(|_| "Graph lane bound")?;
-                lanes.extend_from_slice(&active);
                 let color = identities[oid as usize].color;
                 active.remove(column);
                 identities[oid as usize].member = Some(member);
@@ -194,17 +185,10 @@ impl GraphTopologyV2 {
                         color: identities[parent as usize].color,
                     });
                 }
-                let after = u32::try_from(lanes.len()).map_err(|_| "Graph lane index overflow")?;
-                let after_len = active.len() as u8;
-                lanes.extend_from_slice(&active);
                 nodes.push(GraphNodeV2 {
                     member,
                     oid,
                     column: column as u8,
-                    before,
-                    before_len,
-                    after,
-                    after_len,
                     edges: edge_start,
                     edges_len: commit.parents.len() as u8,
                 });
@@ -214,7 +198,6 @@ impl GraphTopologyV2 {
                     identities.len(),
                     nodes.len(),
                     edges.len(),
-                    lanes.len(),
                     active.len(),
                 )?;
                 if charged > byte_limit {
@@ -230,7 +213,6 @@ impl GraphTopologyV2 {
             identities.len(),
             nodes.len(),
             edges.len(),
-            lanes.len(),
             active.len(),
         )?;
         Ok(Self {
@@ -238,7 +220,6 @@ impl GraphTopologyV2 {
             identities: identities.into_boxed_slice(),
             nodes: nodes.into_boxed_slice(),
             edges: edges.into_boxed_slice(),
-            lanes: lanes.into_boxed_slice(),
             frontier: active.into_boxed_slice(),
             retained,
         })
@@ -290,19 +271,8 @@ impl GraphTopologyV2 {
             commit.parents.get(usize::from(parent)).map(String::as_str)
         })
     }
-    pub(crate) fn before(&self, node: &GraphNodeV2) -> &[u32] {
-        &self.lanes[node.before as usize..node.before as usize + usize::from(node.before_len)]
-    }
-    pub(crate) fn after(&self, node: &GraphNodeV2) -> &[u32] {
-        &self.lanes[node.after as usize..node.after as usize + usize::from(node.after_len)]
-    }
     pub(crate) fn edges(&self, node: &GraphNodeV2) -> &[GraphEdgeV2] {
         &self.edges[node.edges as usize..node.edges as usize + usize::from(node.edges_len)]
-    }
-    pub(crate) fn color(&self, oid: u32) -> Option<usize> {
-        self.identities
-            .get(oid as usize)
-            .map(|info| usize::from(info.color))
     }
     pub(crate) fn ancestors(&self, id: &str) -> Result<Vec<bool>, String> {
         let member = self
@@ -360,7 +330,6 @@ fn topology_charge(
     ids: usize,
     nodes: usize,
     edges: usize,
-    lanes: usize,
     frontier: usize,
 ) -> Result<usize, String> {
     // No object/string bodies here. Use current actual hash capacity plus
@@ -372,7 +341,6 @@ fn topology_charge(
         ids.checked_mul(size_of::<GraphOidInfoV2>()),
         nodes.checked_mul(size_of::<GraphNodeV2>()),
         edges.checked_mul(size_of::<GraphEdgeV2>()),
-        lanes.checked_mul(size_of::<u32>()),
         frontier.checked_mul(size_of::<u32>()),
         Some(512),
     ];

@@ -255,11 +255,10 @@ impl Workspace {
                     .is_some_and(|provenance| provenance.view != 4)
                     || route.provenance.as_ref().is_some_and(|provenance| {
                         provenance.view == 4
-                            && !workspace
-                                .graph
-                                .rows
-                                .iter()
-                                .any(|row| row.commit.id == *selected)
+                            && workspace
+                                .graph_state_v1
+                                .as_ref()
+                                .is_none_or(|state| state.selected_commit(selected).is_none())
                     })
                 {
                     return Err("Original responsible commit/graph member unavailable".into());

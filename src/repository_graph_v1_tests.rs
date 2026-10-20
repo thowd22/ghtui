@@ -100,7 +100,9 @@ fn commit_graph_v1_exact_cursor_prefix_palette_and_selected_ancestor_keep_immuta
     operation.seal().unwrap();
     let next = OriginalGraphStateV1::append(&first, page).unwrap();
     assert_eq!(&next.topology.rows()[..200], prefix);
-    assert_eq!(next.loaded(), 242);
+    // 240 chained versions, the original and its root, plus the checked-out
+    // main commit: the walk covers every branch, not only the opened tip.
+    assert_eq!(next.loaded(), 243);
     assert_eq!(next.walk_tip(), tip);
     assert_ne!(next.walk_tip(), selected);
     let shown = GraphPresentationV1::prepare(&next, &selected, GraphViewV1::Timeline).unwrap();
@@ -114,16 +116,22 @@ fn commit_graph_v1_real_octopus_has_all_ordered_connectors_and_parent_actions() 
     let real = Real::new("sha1");
     let (tip, parents) = octopus(&real);
     let state = state(&real, &tip);
-    assert_eq!(state.topology.edges(&state.topology.rows()[0]).len(), 4);
+    let node = state.topology.rows()[state.loaded_member_v2(&tip).unwrap().node as usize];
+    assert_eq!(state.topology.edges(&node).len(), 4);
     assert_eq!(state.selected_commit(&tip).unwrap().parents, parents);
     let timeline = GraphPresentationV1::prepare(&state, &tip, GraphViewV1::Timeline).unwrap();
-    for (index, parent) in parents.iter().enumerate() {
-        assert!(timeline
-            .rows()
-            .iter()
-            .any(|row| row
-                .label
-                .contains(&format!("parent {} → {}", index + 1, &parent[..8]))));
+    // Same-row joins replace the old `↳ parent` connector rows: the octopus
+    // row starts three new lanes (`●─┬─┬─╮`) and each parent keeps its own row.
+    assert!(timeline.rows().iter().all(|row| !row.label.contains('↳')));
+    let row = timeline.commit_row(&tip).unwrap();
+    let graph = timeline.paint(row).unwrap()[..]
+        .iter()
+        .filter(|span| span.color.is_some())
+        .map(|span| span.text.as_str())
+        .collect::<String>();
+    assert_eq!(graph.trim_end().matches(['┬', '╮']).count(), 3, "{graph:?}");
+    for parent in &parents {
+        assert!(timeline.commit_row(parent).is_some());
     }
     let choices = GraphPresentationV1::prepare(&state, &tip, GraphViewV1::Parents).unwrap();
     for index in 0..4 {
@@ -236,34 +244,28 @@ fn commit_graph_v1_projection_spans_keep_role_symbols_color_slots_and_current_in
         .unwrap()
         .iter()
         .any(|span| span.color.is_some() && span.text.contains('●')));
-    let selected_graph = &state.topology.rows()[0];
-    let mut connector_colors = std::collections::HashSet::new();
-    for (number, parent) in parents.iter().enumerate() {
-        let index = projected
-            .rows()
-            .iter()
-            .position(|row| row.label.starts_with(&format!("↳ parent {} →", number + 1)))
-            .unwrap();
-        let edge = state
-            .topology
-            .edges(selected_graph)
-            .iter()
-            .find(|edge| state.topology.id(&state.pages, edge.parent) == Some(parent.as_str()))
-            .unwrap();
-        let expected = usize::from(edge.color);
-        assert!(projected
-            .paint(index)
-            .unwrap()
-            .iter()
-            .filter_map(|span| span.color)
-            .all(|color| color == expected));
-        connector_colors.insert(expected);
-    }
+    // The octopus row draws its dot and three new parent lanes in four palette slots.
+    let lanes = state.lane_rows_v991(0, state.loaded()).unwrap();
+    let lane = &lanes[state.loaded_member_v2(&tip).unwrap().node as usize];
+    let slots = lane
+        .cells
+        .iter()
+        .filter(|cell| matches!(cell.glyph, '●' | '┬' | '╮'))
+        .filter_map(|cell| cell.slot)
+        .collect::<std::collections::HashSet<_>>();
     assert_eq!(
-        connector_colors.len(),
+        slots.len(),
         4,
         "Four ordered parent histories must retain four path palette slots"
     );
+    let painted = projected
+        .paint(focus)
+        .unwrap()
+        .iter()
+        .filter(|span| span.text.trim() != "")
+        .filter_map(|span| span.color)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(slots.is_subset(&painted), "{slots:?} ⊆ {painted:?}");
     for parent in &parents {
         assert!(projected
             .rows()
@@ -282,10 +284,10 @@ fn commit_graph_v1_projection_spans_keep_role_symbols_color_slots_and_current_in
         } else {
             assert_ne!(theme.graph(0), theme.graph(1));
         }
-        for row in state.topology.rows() {
-            for id in state.topology.before(row) {
-                let slot = state.topology.color(*id).unwrap();
-                assert_eq!(theme.graph(slot), theme.graph(slot % 8));
+        for row in &lanes {
+            for slot in row.cells.iter().filter_map(|cell| cell.slot) {
+                assert!(slot < 8, "lane slots stay inside the theme palette");
+                assert_eq!(theme.graph(slot), theme.graph(slot + 8));
             }
         }
     }

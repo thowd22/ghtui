@@ -24,6 +24,11 @@ pub(crate) fn ordinary(real: &Real, count: usize) -> String {
     }
     git(&real.root, &["fast-import", "--quiet"], Some(&input));
     let tip = text(&real.root, &["rev-parse", "refs/heads/graph-v2"]);
+    // History walks every branch, tag and HEAD (TASK-99.1). Make the ordinary
+    // chain the whole repository history: the checked-out main moves onto it
+    // and the setup tag goes, while those commit objects stay readable by SHA.
+    git(&real.root, &["update-ref", "refs/heads/main", &tip], None);
+    git(&real.root, &["tag", "-d", "original-source"], None);
     assert_eq!(
         text(&real.root, &["rev-list", "--count", &tip]),
         count.to_string()

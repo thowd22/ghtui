@@ -23,6 +23,10 @@ pub(crate) mod fixture_v2;
 
 const MAX_NODES: usize = 10_000;
 const MAX_LANES: usize = 128;
+/// Lane columns drawn before a row ends in `…`, so very wide histories keep
+/// their messages on screen. The full lane frontier is still bounded by
+/// `MAX_LANES` and overflowing it is an error, never a dropped path.
+pub(crate) const HISTORY_VISIBLE_LANES_V991: usize = 24;
 const MAX_RETAINED: usize = 8 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub enum GraphViewV1 {
@@ -330,7 +334,7 @@ impl GraphPresentationV1 {
                     builder.push(line, SemanticRole::Reference, None, Vec::new())?;
                 }
                 builder.push(
-                    "▶ selected • highlighted: ancestors of the selection • ↳ rows: merge or branch parents".into(),
+                    "▶ selected • highlighted: ancestors of the selection • ●─╮ merge joins a parent lane • ●─╯ a lane ends in its parent".into(),
                     SemanticRole::Reference,
                     None,
                     Vec::new(),
@@ -438,6 +442,9 @@ struct ProjectionBuilderV1 {
     navigation_rows: HashMap<Vec<u8>, usize>,
     limit: usize,
 }
+#[cfg(test)]
+#[path = "repository_graph_lanes_v991_tests.rs"]
+mod lanes_v991_tests;
 #[cfg(test)]
 #[path = "repository_graph_v1_tests.rs"]
 mod tests;

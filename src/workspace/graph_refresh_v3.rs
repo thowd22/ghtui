@@ -2,12 +2,11 @@
 //! no begin/HEAD/full-walk refresh, report restoration or pool extension here.
 use super::*;
 use crate::{
-    git::OriginalGraphReadV1,
     navigation_local_source_v1::OriginalSavedVisitV1,
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
     repository_graph_v1::{
         restore_v2::{GraphPositionV2, GraphSnapshotV2},
-        GraphPresentationV1, GraphViewV1, OriginalGraphStateV1,
+        GraphPresentationV1, GraphViewV1,
     },
 };
 
@@ -57,22 +56,27 @@ impl Workspace {
         snapshot
             .origin()
             .with_saved_navigation_read_v1(operation, |repository| {
-                let page = repository
-                    .original_graph_page_v1(
-                        OriginalGraphReadV1::Start(snapshot.walk_tip()),
-                        operation.deadline(),
-                    )
-                    .map_err(|error| error.to_string())?;
-                let state = OriginalGraphStateV1::start(snapshot.origin().clone(), page)?;
+                let state = super::graph_v1::read_graph_through_v991(
+                    repository,
+                    snapshot.origin(),
+                    snapshot.walk_tip(),
+                    operation.deadline(),
+                )?;
                 let selected = state
                     .selected_commit(snapshot.walk_tip())
-                    .ok_or("Fresh first page omitted the original walk tip")?
+                    .ok_or("Fresh walk omitted the original walk tip")?
                     .clone();
+                let start = state
+                    .loaded_member_v2(&selected.id)
+                    .ok_or("Fresh walk member missing")?
+                    .node as usize
+                    / 200
+                    * 200;
                 let display = GraphPresentationV1::prepare_window_v2(
                     &state,
                     snapshot.walk_tip(),
                     GraphViewV1::Timeline,
-                    0,
+                    start,
                 )?;
                 fresh.revision = snapshot.walk_tip().into();
                 fresh.selected_commit = Some(selected);
@@ -80,7 +84,7 @@ impl Workspace {
                 fresh.graph_state_v1 = Some(state);
                 fresh.graph_display_v1 = Some(display);
                 fresh.graph_view_v1 = GraphViewV1::Timeline;
-                fresh.graph_projection_start_v2 = 0;
+                fresh.graph_projection_start_v2 = start;
                 fresh.graph_horizontal_v1 = 0;
                 fresh.comparison = None;
                 // First-page reread is an explicit ORIGINAL WALK reset, not the

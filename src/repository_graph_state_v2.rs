@@ -19,6 +19,7 @@ impl OriginalGraphStateV1 {
         if !old.last_page().has_more()
             || page.offset() != old.loaded()
             || page.walk_tip() != old.walk_tip()
+            || page.walk_fingerprint() != old.last_page().walk_fingerprint()
             || page.epoch() != old.last_page().epoch()
             || !page.matches_source(&old.origin)
         {
@@ -83,6 +84,40 @@ impl OriginalGraphStateV1 {
     }
     pub(crate) fn loaded_member_v2(&self, id: &str) -> Option<compact_v2::GraphMemberV2> {
         self.topology.member(id)
+    }
+    /// Lane rows `start..end` of the loaded walk (TASK-99.1). The layout always
+    /// runs from the first loaded commit, so columns and colors of a row never
+    /// depend on the window or on how many pages are loaded.
+    pub(crate) fn lane_rows_v991(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<Vec<crate::history::lanes::GraphRow>, String> {
+        use crate::history::lanes::{LaneCommit, LaneLayout, LaneOptions, HISTORY_LANE_PALETTE};
+        let end = end.min(self.loaded());
+        let epoch = self.last_page().epoch();
+        let mut layout = LaneLayout::new(LaneOptions {
+            palette: HISTORY_LANE_PALETTE,
+            max_columns: HISTORY_VISIBLE_LANES_V991,
+            max_lanes: MAX_LANES,
+        });
+        let mut rows = Vec::with_capacity(end.saturating_sub(start));
+        for (index, node) in self.topology.rows()[..end].iter().enumerate() {
+            let commit = self
+                .topology
+                .commit(&self.pages, node.member)
+                .ok_or("Compact graph actual member lost")?;
+            let lane = LaneCommit::new(
+                commit.id.as_str(),
+                commit.parents.iter().map(String::as_str),
+            )
+            .with_boundary(epoch.is_shallow_commit(&commit.id));
+            let row = layout.push(&lane)?;
+            if index >= start {
+                rows.push(row);
+            }
+        }
+        Ok(rows)
     }
     pub(crate) fn member_at_v2(&self, index: usize) -> Option<&Commit> {
         let member = self.topology.rows().get(index)?.member;

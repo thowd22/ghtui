@@ -154,7 +154,6 @@ impl Workspace {
                     revision: position.selected.clone(),
                     mode: RepositoryMode::Graph,
                     status,
-                    graph: CommitGraph::default(),
                     tree: None,
                     comparison: None,
                     preview: None,

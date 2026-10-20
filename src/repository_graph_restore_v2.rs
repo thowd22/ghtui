@@ -92,6 +92,7 @@ impl GraphSnapshotV2 {
         hash.update((Arc::as_ptr(&state.origin) as usize).to_be_bytes());
         hash.update((state.pages.as_ptr() as usize).to_be_bytes());
         hash.update(state.walk_tip().as_bytes());
+        hash.update(state.last_page().walk_fingerprint());
         hash.update(state.loaded().to_be_bytes());
         hash.update(state.last_page().epoch().fingerprint());
         Self {

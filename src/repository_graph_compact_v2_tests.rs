@@ -95,7 +95,7 @@ fn commit_graph_v2_actual_ordered_octopus_edges_colors_ancestors_and_prefix_are_
         .trim()
         .to_owned();
     let state = all(&real, &tip);
-    let node = &state.topology.rows()[0];
+    let node = &state.topology.rows()[state.topology.member(&tip).unwrap().node as usize];
     let edges = state.topology.edges(node);
     assert_eq!(edges.len(), 4);
     assert_eq!(
@@ -117,7 +117,10 @@ fn commit_graph_v2_actual_ordered_octopus_edges_colors_ancestors_and_prefix_are_
         4
     );
     let ancestors = state.topology.ancestors(&tip).unwrap();
-    assert!(ancestors.iter().all(|v| *v));
+    // The walk also covers the checked-out branch, whose newer commit is not an ancestor.
+    for (index, related) in ancestors.iter().enumerate() {
+        assert_eq!(*related, state.member_at_v2(index).unwrap().id != real.head);
+    }
     let real2 = Real::new("sha1");
     let tip2 = ordinary(&real2, 230);
     let before = first(&real2, &tip2);

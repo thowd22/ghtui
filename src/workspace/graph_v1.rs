@@ -23,10 +23,8 @@ impl Workspace {
             .as_ref()
             .ok_or("Original local graph source unavailable")?
             .clone();
-        let page = if let Some(deadline) = repository.original_graph_deadline_v1() {
-            repository
-                .original_graph_page_v1(OriginalGraphReadV1::Start(&self.revision), deadline)
-                .map_err(|error| error.to_string())?
+        let graph = if let Some(deadline) = repository.original_graph_deadline_v1() {
+            read_graph_through_v991(repository, &origin, &self.revision, deadline)?
         } else {
             // Direct legacy library calls are not queued native authority. The
             // actual native route always forwards its already captured window.
@@ -34,18 +32,12 @@ impl Workspace {
                 &origin,
                 repository.original_graph_cancellation_v1(),
             )?;
-            let page = origin.with_saved_navigation_read_v1(&operation, |handle| {
-                handle
-                    .original_graph_page_v1(
-                        OriginalGraphReadV1::Start(&self.revision),
-                        operation.deadline(),
-                    )
-                    .map_err(|error| error.to_string())
+            let graph = origin.with_saved_navigation_read_v1(&operation, |handle| {
+                read_graph_through_v991(handle, &origin, &self.revision, operation.deadline())
             })?;
             operation.seal()?;
-            page
+            graph
         };
-        let graph = OriginalGraphStateV1::start(origin, page)?;
         self.install_graph_v1(graph, GraphViewV1::Timeline)
     }
     fn install_graph_v1(
@@ -93,7 +85,6 @@ impl Workspace {
         self.comparison = None;
         // Current Main clones Workspace metadata, never these old graph bodies.
         self.rows.clear();
-        self.graph = CommitGraph::default();
         Ok(())
     }
     pub(crate) fn graph_cached_commit_v1(&mut self, id: &str) -> Result<bool, String> {
@@ -317,6 +308,12 @@ impl Workspace {
         {
             return Err("Original Graph visit epoch/count changed; no later source adopted".into());
         }
+        if first.walk_fingerprint() != route.walk {
+            return Err(
+                "Branches or tags moved since this History visit • Re-read (R) shows the current walk"
+                    .into(),
+            );
+        }
         let mut state = OriginalGraphStateV1::start(origin, first)?;
         while state.loaded() < route.loaded {
             let next = repository
@@ -400,6 +397,7 @@ impl Workspace {
         Ok(Some(
             crate::navigation_local_source_v1::OriginalGraphRouteV1 {
                 walk_tip: state.walk_tip().into(),
+                walk: state.last_page().walk_fingerprint(),
                 selected: self.revision.clone(),
                 loaded: state.loaded(),
                 epoch: state.last_page().epoch().fingerprint(),
@@ -409,4 +407,32 @@ impl Workspace {
             },
         ))
     }
+}
+
+/// Starts the all-branches walk and reads further pages until `target` is a
+/// loaded member. The walk covers every branch, so the opened revision need
+/// not be on the first page; the 10,000-commit bound still applies.
+pub(crate) fn read_graph_through_v991(
+    repository: &GitRepository,
+    origin: &Arc<crate::git::OriginalLocalActorOriginV1>,
+    target: &str,
+    deadline: std::time::Instant,
+) -> Result<Arc<OriginalGraphStateV1>, String> {
+    let page = repository
+        .original_graph_page_v1(OriginalGraphReadV1::Start(target), deadline)
+        .map_err(|error| error.to_string())?;
+    let mut state = OriginalGraphStateV1::start(origin.clone(), page)?;
+    while state.selected_commit(target).is_none() {
+        if !state.last_page().has_more() {
+            return Err(
+                "The opened revision is beyond the 10,000-commit History walk; no row guessed"
+                    .into(),
+            );
+        }
+        let page = repository
+            .original_graph_page_v1(OriginalGraphReadV1::Continue(state.last_page()), deadline)
+            .map_err(|error| error.to_string())?;
+        state = OriginalGraphStateV1::append(&state, page)?;
+    }
+    Ok(state)
 }
