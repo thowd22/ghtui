@@ -125,8 +125,6 @@ pub enum GithubAction {
     ReviewOperationHistoryV3,
     ReviewThreadsV4,
     ActionsHistoryV5,
-    /// The selected row's GitHub actor profile (TASK-34); read-only.
-    ActorProfile,
     Filter(InboxFilter),
     Open(PrKey),
     Back,
@@ -1057,8 +1055,6 @@ impl GithubWorkspace {
         };
         row.comment.is_some()
             || page.timeline_link_at(index).is_some() && self.scoped_pr_navigation.is_none()
-            // A PR author or review author heading opens its actor profile (TASK-34).
-            || row.actor.is_some() && matches!(page.tab, PrTab::Summary | PrTab::Conversation)
             || page.progress_file_at(index).is_some()
             || page.check_at(index).is_some()
             || self

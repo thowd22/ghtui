@@ -67,8 +67,6 @@ pub fn notice_title(notice: &str) -> &'static str {
         " Loaded patch context • observed patch only "
     } else if notice.starts_with("Old image unavailable\n") {
         " Old image unavailable • immutable proof required "
-    } else if notice.starts_with(crate::pr_actor_profile_v1::HEADER) {
-        crate::pr_actor_profile_v1::TITLE
     } else if notice.starts_with("Commit SHA\n") {
         " Commit SHA • select it to copy "
     } else {

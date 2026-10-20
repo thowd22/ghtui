@@ -2001,15 +2001,6 @@ impl App {
                         );
                     } else if let Some(link) = page.timeline_link_at(self.inbox_list.selected) {
                         self.status = crate::pr_timeline_links_v13::selected_status(page, link);
-                    } else if let Some(subject) =
-                        crate::pr_actor_profile_v1::subject(page, self.inbox_list.selected)
-                            .filter(|_| page.rows[self.inbox_list.selected].actor.is_some())
-                    {
-                        self.status = format!(
-                            "Selected {} {} • @ Actor profile",
-                            subject.role,
-                            subject.actor.label()
-                        );
                     } else if let Some(file) = page.progress_file_at(self.inbox_list.selected) {
                         self.status = format!(
                             "Selected file {} • {} • p PR actions",
@@ -2074,10 +2065,6 @@ impl App {
                 if action == GithubAction::Back && self.github_origin == Some(View::Dashboard) {
                     self.github_origin = None;
                     self.dispatch(Action::View(View::Dashboard));
-                    return;
-                }
-                if action == GithubAction::ActorProfile {
-                    crate::pr_actor_profile_v1::open(self);
                     return;
                 }
                 if action == GithubAction::Actions {
