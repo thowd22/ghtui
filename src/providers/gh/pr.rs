@@ -60,6 +60,30 @@ pub struct MergeQueueEntry {
     pub enqueued_at: String,
     pub jump: bool,
 }
+/// Repository merge settings plus the caller's permission. `None` means the
+/// host did not report the setting; it is never guessed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepoMergeSettings {
+    pub allow_merge_commit: Option<bool>,
+    pub allow_squash_merge: Option<bool>,
+    pub allow_rebase_merge: Option<bool>,
+    pub allow_auto_merge: Option<bool>,
+    pub default_branch: String,
+    pub permissions: Permissions,
+}
+impl RepoMergeSettings {
+    pub fn can_write(&self) -> bool {
+        self.permissions.push || self.permissions.maintain || self.permissions.admin
+    }
+    pub fn allows(&self, method: MergeMethod) -> bool {
+        let setting = match method {
+            MergeMethod::Merge => self.allow_merge_commit,
+            MergeMethod::Squash => self.allow_squash_merge,
+            MergeMethod::Rebase => self.allow_rebase_merge,
+        };
+        setting != Some(false)
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MergeContext {
     pub merge_state_status: String,
@@ -1960,7 +1984,124 @@ impl GithubProvider {
                 "Revert did not return a new PR identity",
             ));
         }
-        self.after_pr_write(target, self.pr_summary(&target.pr.repository, n, cancel))
+        let url = text(
+            &value["data"]["revertPullRequest"]["revertPullRequest"],
+            "url",
+        );
+        let created =
+            self.after_pr_write(target, self.pr_summary(&target.pr.repository, n, cancel))?;
+        // Provenance: the read-back must be the PR the mutation named, aimed
+        // at the original base branch.
+        if n == target.pr.number || created.pr.url != url || created.base_ref != target.base_ref {
+            return Err(self.ambiguous_pr(
+                target,
+                "The reverting PR read back does not match the mutation result; reconcile",
+            ));
+        }
+        Ok(created)
+    }
+    /// Repository merge-method settings and the caller's permission. A setting
+    /// the host does not report stays unknown; GitHub still decides.
+    pub fn repository_merge_settings(
+        &self,
+        repository: &str,
+        cancel: &CancellationToken,
+    ) -> GithubResult<RepoMergeSettings> {
+        validate_repo(repository)?;
+        let raw = self.api(
+            &format!("repos/{repository}"),
+            "GET",
+            None,
+            None,
+            false,
+            cancel,
+        )?;
+        if !text(&raw, "full_name").eq_ignore_ascii_case(repository) {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Repository settings belong to another or renamed repository; refresh",
+            ));
+        }
+        let flag = |key: &str| raw.get(key).and_then(Value::as_bool);
+        let permissions = &raw["permissions"];
+        Ok(RepoMergeSettings {
+            allow_merge_commit: flag("allow_merge_commit"),
+            allow_squash_merge: flag("allow_squash_merge"),
+            allow_rebase_merge: flag("allow_rebase_merge"),
+            allow_auto_merge: flag("allow_auto_merge"),
+            default_branch: text(&raw, "default_branch"),
+            permissions: Permissions {
+                pull: boolean(permissions, "pull"),
+                push: boolean(permissions, "push"),
+                maintain: boolean(permissions, "maintain"),
+                admin: boolean(permissions, "admin"),
+            },
+        })
+    }
+    /// Delete a merged PR's same-repository head branch on GitHub. GitHub's
+    /// ref deletion has no expected-SHA guard, so the tip is re-read right
+    /// before deleting and a moved branch is refused. Local branches and the
+    /// working tree are never touched.
+    pub fn delete_head_branch(
+        &self,
+        identity: &HostIdentity,
+        target: &PrSummary,
+        default_branch: &str,
+        cancel: &CancellationToken,
+    ) -> GithubResult<String> {
+        let fresh = self.guard_target(identity, target, cancel)?;
+        if !fresh.merged {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Only a merged PR's head branch can be deleted here",
+            ));
+        }
+        let raw = self.api(&self.pr_endpoint(target), "GET", None, None, false, cancel)?;
+        let head_repo = raw["head"]["repo"]["full_name"].as_str().unwrap_or("");
+        if !head_repo.eq_ignore_ascii_case(&target.pr.repository) {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "The head branch lives in another repository (a fork); delete it there",
+            ));
+        }
+        let branch = text(&raw["head"], "ref");
+        if branch.is_empty() || branch == default_branch || branch == fresh.base_ref {
+            return Err(error(
+                GithubErrorKind::InvalidTarget,
+                "Refusing to delete the default or base branch",
+            ));
+        }
+        let read = format!(
+            "repos/{}/git/ref/heads/{}",
+            target.pr.repository,
+            url_component(&branch)
+        );
+        let tip = self.api(&read, "GET", None, None, false, cancel)?;
+        if text(&tip["object"], "sha") != target.head_sha {
+            return Err(error(
+                GithubErrorKind::StaleHead,
+                "The branch moved after the PR merged; it was not deleted",
+            ));
+        }
+        self.target_write(
+            target,
+            &format!(
+                "repos/{}/git/refs/heads/{}",
+                target.pr.repository,
+                url_component(&branch)
+            ),
+            "DELETE",
+            None,
+            cancel,
+        )?;
+        match self.api(&read, "GET", None, None, false, cancel) {
+            Err(failure) if matches!(failure.kind, GithubErrorKind::NotFound) => Ok(branch),
+            Ok(_) => Err(self.ambiguous_pr(
+                target,
+                "The branch is still visible after deletion; reconcile before retrying",
+            )),
+            Err(failure) => self.after_pr_write(target, Err(failure)),
+        }
     }
     pub fn add_project_item(
         &self,

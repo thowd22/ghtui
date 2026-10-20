@@ -206,12 +206,38 @@ pub fn load(
                     Err(error) => return Err(error),
                 }
             }
+            // Merge methods, queue, lock and branch state come from a fresh
+            // GitHub read, never from the cached PR alone.
+            let governed = matches!(command, PrCommand::Merge | PrCommand::EnableAutoMerge)
+                || PrCommand::GOVERNED.contains(&command);
+            if governed && command.disabled_reason(&context).is_none() {
+                match context.load_governance(command, provider, cancel) {
+                    Ok(()) => {}
+                    Err(error) if account_failure(&error) => {
+                        return Ok(PreparedView {
+                            clear_private: true,
+                            status: format!(
+                                "PR account verification failed • private pages hidden: {error}"
+                            ),
+                            ..Default::default()
+                        })
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
             let workspace = context.workspace.clone();
-            if command == PrCommand::Subscription {
+            if command == PrCommand::Subscription || governed {
                 if let Some(reason) = command.disabled_reason(&context) {
                     return Ok(PreparedView {
                         context: Some(workspace.context()),
-                        status: "Current subscription read • changing it is unavailable".into(),
+                        status: if governed {
+                            format!(
+                                "Current GitHub state read • {} is unavailable",
+                                command.label()
+                            )
+                        } else {
+                            "Current subscription read • changing it is unavailable".into()
+                        },
                         github: Some(workspace),
                         readonly_notice: Some(reason),
                         ..Default::default()
@@ -390,9 +416,12 @@ pub fn present(
         PrExecution::Confirmed {
             workspace: updated,
             publication,
-            ..
+            effect,
         } => {
             workspace = *updated;
+            let note = effect
+                .outcome_note()
+                .map_or(String::new(), |note| format!(" • {note}"));
             let cached = crate::pr_projection::persist_confirmed_snapshot(
                 database,
                 &workspace,
@@ -400,7 +429,7 @@ pub fn present(
             );
             form.publication = Some(publication);
             confirmed = true;
-            format!("Published • {label}{}",cached.err().map_or(String::new(),|error|format!(" • derived search/cache refresh failed: {error}; publication is confirmed, do not resend")))
+            format!("Published • {label}{note}{}",cached.err().map_or(String::new(),|error|format!(" • derived search/cache refresh failed: {error}; publication is confirmed, do not resend")))
         }
         PrExecution::ConfirmedButRefreshFailed {
             publication,

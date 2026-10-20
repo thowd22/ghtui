@@ -14,6 +14,8 @@ use std::{
 mod design_chips_pr_conversation_v95;
 #[path = "pr_checks_bridge.rs"]
 mod pr_checks_bridge;
+#[path = "pr_governed_v1.rs"]
+mod pr_governed_v1;
 #[path = "pr_lifecycle_v1.rs"]
 mod pr_lifecycle_v1;
 #[path = "pr_merge_v1.rs"]
@@ -114,6 +116,13 @@ fn initial() -> Vec<GhStep> {
         steps.push(read);
     }
     steps
+}
+/// Repository settings that allow every merge method, read by a writer.
+fn repo_settings() -> Value {
+    json!({"full_name":"example/repo","default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"allow_auto_merge":true,"permissions":{"admin":false,"maintain":false,"push":true,"pull":true}})
+}
+fn repo_settings_step(value: Value) -> GhStep {
+    step("repos/example/repo", "GET", value, false)
 }
 fn guard() -> Vec<GhStep> {
     let mut steps = identity();

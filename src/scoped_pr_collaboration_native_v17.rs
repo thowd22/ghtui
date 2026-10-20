@@ -1912,6 +1912,7 @@ pub fn capture_action(app: &mut App, action: &PrUiAction, database: &Path) -> bo
         command,
         PrCommand::MarkViewed | PrCommand::MarkUnviewed | PrCommand::Merge
     ) || PrCommand::LIFECYCLE.contains(command)
+        || PrCommand::GOVERNED.contains(command)
     {
         return false;
     }

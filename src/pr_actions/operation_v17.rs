@@ -82,7 +82,13 @@ impl PrOperation {
             | PrCommand::DisableAutoMerge
             | PrCommand::UpdateBranch
             | PrCommand::Close
-            | PrCommand::Reopen => return Err("Not a Conversation operation".into()),
+            | PrCommand::Reopen
+            | PrCommand::EnqueueMerge
+            | PrCommand::DequeueMerge
+            | PrCommand::Lock
+            | PrCommand::Unlock
+            | PrCommand::Revert
+            | PrCommand::DeleteHeadBranch => return Err("Not a Conversation operation".into()),
         })
     }
     /// Restriction-only prequeue validation against the exact captured request.
@@ -138,6 +144,7 @@ impl PrOperation {
             Self::ViewedFile(_, false) => PrCommand::MarkUnviewed,
             Self::Merge(_) => PrCommand::Merge,
             Self::State(state) => state.command(),
+            Self::Governed(governed) => governed.command(),
         }
     }
     pub(crate) fn selected_v17(&self) -> Option<&SelectedComment> {

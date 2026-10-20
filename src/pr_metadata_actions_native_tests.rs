@@ -180,6 +180,7 @@ fn pr_metadata_native_open_numeric_uid_change_checks_before_any_private_draft_or
         reactions_original_comment: None,
         current_subscription: None,
         selected_file: None,
+        governance: Default::default(),
     };
     let database = f.root.join("never-read-private.sqlite");
     let view = pr_metadata_native::open(

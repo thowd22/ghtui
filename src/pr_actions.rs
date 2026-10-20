@@ -8,8 +8,8 @@ use crate::{
     providers::{
         gh::{
             CommentKind, CommentReaction, ConversationComment, CurrentPrSubscription, GithubError,
-            GithubErrorKind, GithubProvider, HostIdentity, MergeMethod, PrLifecycle, PrSummary,
-            Reaction, Subscription,
+            GithubErrorKind, GithubProvider, HostIdentity, LockReason, MergeContext, MergeMethod,
+            MergeQueueEntry, PrLifecycle, PrSummary, Reaction, RepoMergeSettings, Subscription,
         },
         runner::{sanitize_terminal, CancellationToken},
     },
@@ -36,8 +36,24 @@ pub enum PrCommand {
     UpdateBranch,
     Close,
     Reopen,
+    EnqueueMerge,
+    DequeueMerge,
+    Lock,
+    Unlock,
+    Revert,
+    DeleteHeadBranch,
 }
 impl PrCommand {
+    /// Queue, lock, revert and branch deletion: each reads its own current
+    /// GitHub state when opened and again before publication.
+    pub const GOVERNED: [Self; 6] = [
+        Self::EnqueueMerge,
+        Self::DequeueMerge,
+        Self::Lock,
+        Self::Unlock,
+        Self::Revert,
+        Self::DeleteHeadBranch,
+    ];
     /// PR state changes that use the shared lifecycle refusal/preview path.
     pub const LIFECYCLE: [Self; 7] = [
         Self::Ready,
@@ -48,7 +64,7 @@ impl PrCommand {
         Self::Close,
         Self::Reopen,
     ];
-    pub const ALL: [(Self, &'static str); 16] = [
+    pub const ALL: [(Self, &'static str); 22] = [
         (Self::NewComment, "New conversation comment"),
         (Self::EditComment, "Edit selected comment"),
         (Self::DeleteComment, "Delete selected comment"),
@@ -65,6 +81,12 @@ impl PrCommand {
         (Self::UpdateBranch, "Update branch from base"),
         (Self::Close, "Close without merging"),
         (Self::Reopen, "Reopen unmerged PR"),
+        (Self::EnqueueMerge, "Add to merge queue"),
+        (Self::DequeueMerge, "Remove from merge queue"),
+        (Self::Lock, "Lock conversation"),
+        (Self::Unlock, "Unlock conversation"),
+        (Self::Revert, "Revert merged PR"),
+        (Self::DeleteHeadBranch, "Delete head branch"),
     ];
     pub fn label(self) -> &'static str {
         Self::ALL
@@ -91,6 +113,12 @@ impl PrCommand {
             Self::UpdateBranch => "lifecycle-update-branch",
             Self::Close => "lifecycle-close",
             Self::Reopen => "lifecycle-reopen",
+            Self::EnqueueMerge => "merge-queue-enqueue",
+            Self::DequeueMerge => "merge-queue-dequeue",
+            Self::Lock => "lifecycle-lock",
+            Self::Unlock => "lifecycle-unlock",
+            Self::Revert => "lifecycle-revert",
+            Self::DeleteHeadBranch => "lifecycle-delete-head-branch",
         }
     }
     pub fn disabled_reason(self, context: &PrActionContext) -> Option<String> {
@@ -98,10 +126,16 @@ impl PrCommand {
             return Some("Verify the current account with Refresh before changing GitHub.".into());
         }
         if self == Self::Merge {
-            return merge_disabled_reason(&context.target);
+            return merge_disabled_reason(&context.target)
+                .or_else(|| settings_disabled_reason(self, context));
         }
         if Self::LIFECYCLE.contains(&self) {
-            return lifecycle_disabled_reason(self, &context.target);
+            return lifecycle_disabled_reason(self, &context.target)
+                .or_else(|| settings_disabled_reason(self, context));
+        }
+        if Self::GOVERNED.contains(&self) {
+            return governed_disabled_reason(self, &context.target)
+                .or_else(|| loaded_governed_reason(self, context));
         }
         if matches!(self, Self::MarkViewed | Self::MarkUnviewed) {
             let Some(file) = &context.selected_file else {
@@ -188,8 +222,54 @@ pub struct PrActionContext {
     pub reactions_original_comment: Option<SelectedComment>,
     pub current_subscription: Option<CurrentPrSubscription>,
     pub selected_file: Option<crate::pr_progress::FileProgress>,
+    pub governance: PrGovernance,
+}
+/// Current GitHub state read when a merge, queue, lock or branch form opens.
+/// Unread values stay `None`; nothing is inferred from the cached PR.
+#[derive(Clone, Debug, Default)]
+pub struct PrGovernance {
+    pub merge_settings: Option<RepoMergeSettings>,
+    pub merge_context: Option<MergeContext>,
+    pub issue_locked: Option<bool>,
 }
 impl PrActionContext {
+    /// Read the GitHub state this command's availability depends on.
+    pub fn load_governance(
+        &mut self,
+        command: PrCommand,
+        provider: &GithubProvider,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        match command {
+            PrCommand::Merge | PrCommand::EnableAutoMerge | PrCommand::DeleteHeadBranch => {
+                self.governance.merge_settings = Some(
+                    provider
+                        .repository_merge_settings(&self.target.pr.repository, cancel)
+                        .map_err(private_read_error)?,
+                );
+            }
+            PrCommand::EnqueueMerge | PrCommand::DequeueMerge => {
+                self.governance.merge_context = Some(
+                    provider
+                        .merge_context(&self.target, cancel)
+                        .map_err(private_read_error)?,
+                );
+            }
+            PrCommand::Lock | PrCommand::Unlock => {
+                let issue = provider
+                    .issue_metadata(&self.target, cancel)
+                    .map_err(private_read_error)?;
+                self.governance.issue_locked = Some(
+                    issue
+                        .get("locked")
+                        .and_then(serde_json::Value::as_bool)
+                        .ok_or("GitHub did not report whether this conversation is locked; nothing was changed.")?,
+                );
+            }
+            _ => {}
+        }
+        Ok(())
+    }
     pub fn from_workspace(
         workspace: &GithubWorkspace,
         comment: Option<SelectedComment>,
@@ -225,6 +305,7 @@ impl PrActionContext {
             reactions_original_comment: None,
             current_subscription: None,
             selected_file: None,
+            governance: PrGovernance::default(),
         })
     }
     /// Populate a private, exact-comment catalogue outside the draw path.
@@ -470,6 +551,104 @@ pub fn lifecycle_disabled_reason(command: PrCommand, target: &PrSummary) -> Opti
     };
     Some(reason.into())
 }
+/// Loaded-state refusal for queue, lock, revert and branch deletion. The menu
+/// uses it before any read; the form also checks freshly read GitHub state.
+pub fn governed_disabled_reason(command: PrCommand, target: &PrSummary) -> Option<String> {
+    let open = target.pr.state == "open";
+    let reason = match command {
+        PrCommand::EnqueueMerge | PrCommand::DequeueMerge if target.merged => {
+            "This PR is already merged."
+        }
+        PrCommand::EnqueueMerge | PrCommand::DequeueMerge if !open => {
+            "Only an open PR can be in a merge queue."
+        }
+        PrCommand::EnqueueMerge if target.pr.draft => {
+            "Mark this draft PR ready for review before adding it to the merge queue."
+        }
+        PrCommand::Revert if !target.merged => "Only a merged PR can be reverted.",
+        PrCommand::DeleteHeadBranch if !target.merged => {
+            "Delete the head branch only after the PR has merged."
+        }
+        _ => return None,
+    };
+    Some(reason.into())
+}
+fn no_write_permission(context: &PrActionContext) -> String {
+    format!(
+        "GitHub reports that @{} has no write permission on {}.",
+        context.identity.login, context.target.pr.repository
+    )
+}
+/// Repository settings and caller permission read when the form opened.
+fn settings_disabled_reason(command: PrCommand, context: &PrActionContext) -> Option<String> {
+    if !matches!(command, PrCommand::Merge | PrCommand::EnableAutoMerge) {
+        return None;
+    }
+    let settings = context.governance.merge_settings.as_ref()?;
+    if !settings.can_write() {
+        return Some(no_write_permission(context));
+    }
+    if allowed_merge_methods(Some(settings)).is_empty() {
+        return Some("This repository's settings allow no merge method.".into());
+    }
+    if command == PrCommand::EnableAutoMerge && settings.allow_auto_merge == Some(false) {
+        return Some("Auto-merge is turned off in this repository's settings.".into());
+    }
+    None
+}
+fn loaded_governed_reason(command: PrCommand, context: &PrActionContext) -> Option<String> {
+    let governance = &context.governance;
+    match command {
+        PrCommand::EnqueueMerge => {
+            let queue = governance.merge_context.as_ref()?.queue.as_ref()?;
+            Some(format!(
+                "This PR is already in the merge queue at position {} ({}).",
+                queue.position, queue.state
+            ))
+        }
+        PrCommand::DequeueMerge => governance
+            .merge_context
+            .as_ref()
+            .filter(|context| context.queue.is_none())
+            .map(|_| "This PR is not in a merge queue.".into()),
+        PrCommand::Lock => (governance.issue_locked == Some(true))
+            .then(|| "This conversation is already locked.".into()),
+        PrCommand::Unlock => (governance.issue_locked == Some(false))
+            .then(|| "This conversation is not locked.".into()),
+        PrCommand::DeleteHeadBranch => {
+            let settings = governance.merge_settings.as_ref()?;
+            if !settings.can_write() {
+                Some(no_write_permission(context))
+            } else if context.target.head_ref == settings.default_branch {
+                Some("The head branch is the repository's default branch.".into())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+fn allowed_merge_methods(settings: Option<&RepoMergeSettings>) -> Vec<&'static str> {
+    [
+        ("merge", MergeMethod::Merge),
+        ("squash", MergeMethod::Squash),
+        ("rebase", MergeMethod::Rebase),
+    ]
+    .into_iter()
+    .filter(|(_, method)| settings.is_none_or(|settings| settings.allows(*method)))
+    .map(|(name, _)| name)
+    .collect()
+}
+fn lock_reason(value: &str) -> Result<Option<LockReason>, String> {
+    Ok(match value {
+        "none" => None,
+        "off-topic" => Some(LockReason::OffTopic),
+        "too heated" => Some(LockReason::TooHeated),
+        "resolved" => Some(LockReason::Resolved),
+        "spam" => Some(LockReason::Spam),
+        _ => return Err("Choose none, off-topic, too heated, resolved or spam.".into()),
+    })
+}
 fn update_method(value: &str) -> Result<bool, String> {
     match value {
         "merge" => Ok(false),
@@ -486,13 +665,63 @@ fn merge_method(value: &str) -> Result<MergeMethod, String> {
     }
 }
 pub fn fields(command: PrCommand, context: &PrActionContext) -> Vec<PrField> {
-    fields_v17(
-        command,
-        context.comment.as_ref(),
-        &context.reactions,
-        context.identity.account_id,
-        context.current_subscription.as_ref(),
-    )
+    let target = &context.target;
+    match command {
+        // Only the methods the repository allows are offered.
+        PrCommand::Merge | PrCommand::EnableAutoMerge => {
+            let allowed = allowed_merge_methods(context.governance.merge_settings.as_ref());
+            vec![PrField {
+                key: "method",
+                label: "Merge method",
+                value: allowed.first().copied().unwrap_or("merge").into(),
+                multiline: false,
+                choices: allowed.into_iter().map(PrChoice::plain).collect(),
+            }]
+        }
+        PrCommand::Lock => vec![PrField {
+            key: "reason",
+            label: "Lock reason",
+            value: "none".into(),
+            multiline: false,
+            choices: ["none", "off-topic", "too heated", "resolved", "spam"]
+                .into_iter()
+                .map(PrChoice::plain)
+                .collect(),
+        }],
+        PrCommand::Revert => vec![
+            PrField {
+                key: "draft",
+                label: "Open revert PR as",
+                value: "ready".into(),
+                multiline: false,
+                choices: ["ready", "draft"]
+                    .into_iter()
+                    .map(PrChoice::plain)
+                    .collect(),
+            },
+            PrField {
+                key: "title",
+                label: "Revert PR title",
+                value: sanitize_terminal(&format!("Revert \"{}\"", target.pr.title)),
+                multiline: false,
+                choices: vec![],
+            },
+            PrField {
+                key: "body",
+                label: "Revert PR body",
+                value: format!("Reverts {}#{}", target.pr.repository, target.pr.number),
+                multiline: false,
+                choices: vec![],
+            },
+        ],
+        _ => fields_v17(
+            command,
+            context.comment.as_ref(),
+            &context.reactions,
+            context.identity.account_id,
+            context.current_subscription.as_ref(),
+        ),
+    }
 }
 /// Same actual form-field policy; no fabricated workspace/context is needed
 /// by a closed original Conversation producer. Worker-only body/choice work.
@@ -522,7 +751,13 @@ pub(crate) fn fields_v17(
         | PrCommand::Draft
         | PrCommand::DisableAutoMerge
         | PrCommand::Close
-        | PrCommand::Reopen => vec![],
+        | PrCommand::Reopen
+        | PrCommand::EnqueueMerge
+        | PrCommand::DequeueMerge
+        | PrCommand::Lock
+        | PrCommand::Unlock
+        | PrCommand::Revert
+        | PrCommand::DeleteHeadBranch => vec![],
         PrCommand::UpdateBranch => vec![PrField {
             key: "method",
             label: "Update method",
@@ -631,6 +866,215 @@ pub(crate) enum PrOperation {
     ViewedFile(crate::pr_progress::FileProgress, bool),
     Merge(MergeMethod),
     State(StateOperation),
+    Governed(GovernedOperation),
+}
+/// Queue, lock, revert and branch deletion; each maps to one provider write
+/// whose result is read back before a receipt.
+#[derive(Clone, Debug)]
+pub(crate) enum GovernedOperation {
+    Enqueue,
+    Dequeue(Box<MergeQueueEntry>),
+    Lock(Option<LockReason>),
+    Unlock,
+    Revert {
+        title: String,
+        body: String,
+        draft: bool,
+    },
+    DeleteHeadBranch {
+        default_branch: String,
+    },
+}
+impl GovernedOperation {
+    pub(crate) fn command(&self) -> PrCommand {
+        match self {
+            Self::Enqueue => PrCommand::EnqueueMerge,
+            Self::Dequeue(_) => PrCommand::DequeueMerge,
+            Self::Lock(_) => PrCommand::Lock,
+            Self::Unlock => PrCommand::Unlock,
+            Self::Revert { .. } => PrCommand::Revert,
+            Self::DeleteHeadBranch { .. } => PrCommand::DeleteHeadBranch,
+        }
+    }
+    fn parse(
+        command: PrCommand,
+        context: &PrActionContext,
+        get: &dyn Fn(&str) -> String,
+    ) -> Result<Self, String> {
+        let governance = &context.governance;
+        Ok(match command {
+            PrCommand::EnqueueMerge => {
+                governance
+                    .merge_context
+                    .as_ref()
+                    .ok_or("Read the merge queue state first.")?;
+                Self::Enqueue
+            }
+            PrCommand::DequeueMerge => Self::Dequeue(Box::new(
+                governance
+                    .merge_context
+                    .as_ref()
+                    .and_then(|context| context.queue.clone())
+                    .ok_or("This PR is not in a merge queue.")?,
+            )),
+            PrCommand::Lock => Self::Lock(lock_reason(&get("reason"))?),
+            PrCommand::Unlock => Self::Unlock,
+            PrCommand::Revert => {
+                let title = get("title");
+                if title.trim().is_empty() {
+                    return Err("The revert PR needs a title.".into());
+                }
+                Self::Revert {
+                    title,
+                    body: get("body"),
+                    draft: match get("draft").as_str() {
+                        "ready" => false,
+                        "draft" => true,
+                        _ => return Err("Choose ready or draft.".into()),
+                    },
+                }
+            }
+            PrCommand::DeleteHeadBranch => Self::DeleteHeadBranch {
+                default_branch: governance
+                    .merge_settings
+                    .as_ref()
+                    .ok_or("Read the repository settings first.")?
+                    .default_branch
+                    .clone(),
+            },
+            _ => return Err("Not a governed PR action".into()),
+        })
+    }
+    fn preview(&self, target: &PrSummary, context: &PrActionContext) -> Vec<String> {
+        match self {
+            Self::Enqueue => vec![
+                format!(
+                    "Adds this PR to the {} merge queue; GitHub merges it after the queue's required checks pass.",
+                    target.base_ref
+                ),
+                format!(
+                    "Merge state: {} • GitHub queues it only while the head is still {}; nothing is merged now.",
+                    context
+                        .governance
+                        .merge_context
+                        .as_ref()
+                        .map_or("unknown", |context| context.merge_state_status.as_str()),
+                    target.head_sha
+                ),
+            ],
+            Self::Dequeue(entry) => vec![
+                format!(
+                    "Removes queue entry {} (position {}, {}) added by {} at {}.",
+                    entry.id,
+                    entry.position,
+                    entry.state,
+                    entry.enqueuer.label(),
+                    entry.enqueued_at
+                ),
+                "Nothing is merged; the PR stays open and can be queued again.".into(),
+            ],
+            Self::Lock(reason) => vec![format!(
+                "Locks the conversation (reason: {}); only collaborators can comment until it is unlocked.",
+                reason.map_or("none", |reason| match reason {
+                    LockReason::OffTopic => "off-topic",
+                    LockReason::TooHeated => "too heated",
+                    LockReason::Resolved => "resolved",
+                    LockReason::Spam => "spam",
+                })
+            )],
+            Self::Unlock => {
+                vec!["Unlocks the conversation; anyone with access can comment again.".into()]
+            }
+            Self::Revert { title, body, draft } => vec![
+                format!(
+                    "Creates a new {}PR into {} that reverts merge commit {}; this PR is unchanged.",
+                    if *draft { "draft " } else { "" },
+                    target.base_ref,
+                    target.merge_commit_sha.as_deref().unwrap_or("(not reported)")
+                ),
+                format!("Title: {title}"),
+                format!("Body: {body}"),
+            ],
+            Self::DeleteHeadBranch { .. } => vec![
+                format!(
+                    "Deletes the remote branch {} in {} on GitHub. Your local branches and checkout are untouched.",
+                    target.head_ref, target.pr.repository
+                ),
+                format!(
+                    "ghtui re-reads the branch and deletes it only while it is still {}. GitHub's delete has no expected-SHA guard, so a push in that moment could still race.",
+                    target.head_sha
+                ),
+                "The merged commits stay reachable through this PR.".into(),
+            ],
+        }
+    }
+    fn publish(
+        &self,
+        provider: &GithubProvider,
+        identity: &HostIdentity,
+        target: &PrSummary,
+        cancel: &CancellationToken,
+    ) -> crate::providers::gh::GithubResult<PrActionEffect> {
+        Ok(match self {
+            Self::Enqueue => PrActionEffect::Queue(Box::new(
+                provider.enqueue_pr(identity, target, false, cancel)?,
+            )),
+            Self::Dequeue(entry) => PrActionEffect::Queue(Box::new(
+                provider.dequeue_pr(identity, target, entry, cancel)?,
+            )),
+            Self::Lock(reason) => {
+                let value = provider.lock_pr(identity, target, *reason, true, cancel)?;
+                PrActionEffect::Locked(value["locked"].as_bool() == Some(true))
+            }
+            Self::Unlock => {
+                let value = provider.lock_pr(identity, target, None, false, cancel)?;
+                PrActionEffect::Locked(value["locked"].as_bool() == Some(true))
+            }
+            Self::Revert { title, body, draft } => PrActionEffect::Reverted(Box::new(
+                provider.revert_pr(identity, target, title, body, *draft, cancel)?,
+            )),
+            Self::DeleteHeadBranch { default_branch } => PrActionEffect::BranchDeleted(
+                provider.delete_head_branch(identity, target, default_branch, cancel)?,
+            ),
+        })
+    }
+    fn receipt(&self, effect: &PrActionEffect) -> Result<PrConfirmedEffect, String> {
+        let state = match (self, effect) {
+            (Self::Enqueue, PrActionEffect::Queue(context)) if context.queue.is_some() => {
+                "merge-queued".to_string()
+            }
+            (Self::Dequeue(_), PrActionEffect::Queue(context)) if context.queue.is_none() => {
+                "merge-dequeued".into()
+            }
+            (Self::Lock(_), PrActionEffect::Locked(true)) => "locked".into(),
+            (Self::Unlock, PrActionEffect::Locked(false)) => "unlocked".into(),
+            (Self::Revert { .. }, PrActionEffect::Reverted(created)) => {
+                format!("revert-pr-{}", created.pr.number)
+            }
+            (Self::DeleteHeadBranch { .. }, PrActionEffect::BranchDeleted(_)) => {
+                "head-branch-deleted".into()
+            }
+            _ => {
+                return Err(
+                    "GitHub did not confirm the requested state. Inspect it before retrying."
+                        .into(),
+                )
+            }
+        };
+        Ok(PrConfirmedEffect {
+            // Queue entries are merge state; the rest are lifecycle state.
+            kind: if matches!(self, Self::Enqueue | Self::Dequeue(_)) {
+                PrEffectKind::Merge
+            } else {
+                PrEffectKind::Lifecycle
+            },
+            resource_id: state,
+            node_id: match effect {
+                PrActionEffect::Reverted(created) => Some(created.pr.id.clone()),
+                _ => None,
+            },
+        })
+    }
 }
 /// Lifecycle operations; each maps to one existing provider write.
 #[derive(Clone, Copy, Debug)]
@@ -811,6 +1255,10 @@ impl PrPlan {
             PrOperation::Merge(merge_method(get("method"))?)
         } else if PrCommand::LIFECYCLE.contains(&command) {
             PrOperation::State(StateOperation::parse(command, get("method"))?)
+        } else if PrCommand::GOVERNED.contains(&command) {
+            PrOperation::Governed(GovernedOperation::parse(command, context, &|key| {
+                get(key).to_owned()
+            })?)
         } else {
             PrOperation::from_values_v17(
                 command,
@@ -864,6 +1312,24 @@ impl PrPlan {
         if let PrOperation::State(state) = operation {
             if let Some(reason) = lifecycle_disabled_reason(state.command(), &target) {
                 return Err(reason);
+            }
+        }
+        if let PrOperation::Governed(governed) = &operation {
+            if let Some(reason) = governed_disabled_reason(governed.command(), &target) {
+                return Err(reason);
+            }
+        }
+        // The chosen method must be one the repository allows.
+        if let PrOperation::Merge(method)
+        | PrOperation::State(StateOperation::EnableAutoMerge(method)) = operation
+        {
+            if let Some(settings) = &context.governance.merge_settings {
+                if !settings.allows(method) {
+                    return Err(format!(
+                        "This repository's settings do not allow {} merges; no GitHub request was sent.",
+                        merge_method_name(method)
+                    ));
+                }
             }
         }
         if let PrOperation::ViewedFile(selected, _) = &operation {
@@ -1015,8 +1481,15 @@ impl PrPlan {
                     "GitHub merges only if the head is still {}; branch protection still applies and no branch is deleted.",
                     target.head_sha
                 ));
+                if context.governance.merge_settings.is_some() {
+                    preview.push(format!(
+                        "Repository allows: {} • no admin bypass is requested. A required merge queue queues the PR instead of merging it.",
+                        allowed_merge_methods(context.governance.merge_settings.as_ref()).join(", ")
+                    ));
+                }
             }
             PrOperation::State(state) => preview.extend(state.preview(&target)),
+            PrOperation::Governed(governed) => preview.extend(governed.preview(&target, context)),
             PrOperation::ViewedFile(selected, viewed) => {
                 preview.push(format!(
                     "Exact canonical file: {}",
@@ -1285,9 +1758,18 @@ impl PrPlan {
                     node_id: Some(summary.pr.id.clone()),
                 }
             }
+            // A required merge queue accepts the merge request as a queue entry.
+            (PrOperation::Merge(_), PrActionEffect::Queue(context)) if context.queue.is_some() => {
+                PrConfirmedEffect {
+                    kind: PrEffectKind::Merge,
+                    resource_id: "merge-queued".into(),
+                    node_id: Some(self.context.target.pr.id.clone()),
+                }
+            }
             (PrOperation::State(state), PrActionEffect::State(summary)) => {
                 state.receipt(summary)?
             }
+            (PrOperation::Governed(governed), effect) => governed.receipt(effect)?,
             (
                 PrOperation::NewComment(_) | PrOperation::EditComment(_, _),
                 PrActionEffect::Comment(comment),
@@ -1397,12 +1879,26 @@ impl PrPlan {
             PrOperation::NewComment(body) => provider
                 .create_comment(identity, target, body, cancellation)
                 .map(PrActionEffect::Comment),
-            PrOperation::Merge(method) => provider
-                .merge(identity, target, *method, false, cancellation)
-                .map(|summary| PrActionEffect::Merged(Box::new(summary))),
+            PrOperation::Merge(method) => {
+                let summary = provider.merge(identity, target, *method, false, cancellation)?;
+                if summary.merged {
+                    return Ok(PrActionEffect::Merged(Box::new(summary)));
+                }
+                // Not merged yet: a required merge queue may have accepted it.
+                // A failed queue read leaves the outcome uncertain, never merged.
+                match provider.merge_context(&summary, cancellation) {
+                    Ok(context) if context.queue.is_some() => {
+                        Ok(PrActionEffect::Queue(Box::new(context)))
+                    }
+                    _ => Ok(PrActionEffect::Merged(Box::new(summary))),
+                }
+            }
             PrOperation::State(state) => state
                 .publish(provider, identity, target, cancellation)
                 .map(|summary| PrActionEffect::State(Box::new(summary))),
+            PrOperation::Governed(governed) => {
+                governed.publish(provider, identity, target, cancellation)
+            }
             PrOperation::EditComment(selected, body) => provider
                 .edit_comment(
                     identity,
@@ -1492,6 +1988,38 @@ pub enum PrActionEffect {
     },
     Merged(Box<PrSummary>),
     State(Box<PrSummary>),
+    /// Merge queue state read back after enqueue, dequeue or a queued merge.
+    Queue(Box<MergeContext>),
+    Locked(bool),
+    /// The new reverting PR.
+    Reverted(Box<PrSummary>),
+    BranchDeleted(String),
+}
+impl PrActionEffect {
+    /// Distinct visible outcome beyond "Published", for results that are not
+    /// a plain state change of this PR.
+    pub fn outcome_note(&self) -> Option<String> {
+        Some(match self {
+            Self::Queue(context) => match &context.queue {
+                Some(queue) => format!(
+                    "in merge queue at position {} ({}); not merged yet",
+                    queue.position, queue.state
+                ),
+                None => "removed from the merge queue; nothing merged".into(),
+            },
+            Self::Locked(true) => "conversation locked".into(),
+            Self::Locked(false) => "conversation unlocked".into(),
+            Self::Reverted(created) => format!(
+                "revert PR #{} opened: {}",
+                created.pr.number,
+                sanitize_terminal(&created.pr.url)
+            ),
+            Self::BranchDeleted(branch) => {
+                format!("remote branch {} deleted", sanitize_terminal(branch))
+            }
+            _ => return None,
+        })
+    }
 }
 fn merge_method_name(method: MergeMethod) -> &'static str {
     match method {
@@ -1608,7 +2136,7 @@ mod pr_merge_tests {
 mod v1_pr_lifecycle_tests {
     use super::*;
 
-    fn target() -> PrSummary {
+    pub(super) fn target() -> PrSummary {
         PrSummary {
             pr: crate::providers::gh::PullRequest {
                 host: "github.invalid".into(),
@@ -1746,5 +2274,120 @@ mod v1_pr_lifecycle_tests {
         let fields = fields_v17(PrCommand::UpdateBranch, None, &[], None, None);
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].choices.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod governed_tests {
+    use super::*;
+
+    fn context(target: PrSummary) -> PrActionContext {
+        let identity = HostIdentity {
+            host: "github.invalid".into(),
+            login: "octocat".into(),
+            account_id: Some(42),
+            gh_version: "2.101.0".into(),
+        };
+        PrActionContext {
+            workspace: GithubWorkspace::empty(identity.clone(), vec![], Default::default()),
+            identity,
+            target,
+            comment: None,
+            reactions: vec![],
+            reactions_fetched_at: 0,
+            reactions_complete: false,
+            reactions_original_comment: None,
+            current_subscription: None,
+            selected_file: None,
+            governance: PrGovernance::default(),
+        }
+    }
+    fn settings(merge: bool, squash: bool, rebase: bool, push: bool) -> RepoMergeSettings {
+        RepoMergeSettings {
+            allow_merge_commit: Some(merge),
+            allow_squash_merge: Some(squash),
+            allow_rebase_merge: Some(rebase),
+            allow_auto_merge: Some(false),
+            default_branch: "main".into(),
+            permissions: crate::providers::gh::Permissions {
+                pull: true,
+                push,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn merge_workflows_methods_and_permission_follow_repository_settings() {
+        let mut context = context(v1_pr_lifecycle_tests::target());
+        // Unread settings never hide a method; GitHub still decides.
+        assert_eq!(fields(PrCommand::Merge, &context)[0].choices.len(), 3);
+        context.governance.merge_settings = Some(settings(false, true, false, true));
+        let field = &fields(PrCommand::Merge, &context)[0];
+        assert_eq!(field.value, "squash");
+        assert_eq!(
+            field
+                .choices
+                .iter()
+                .map(|c| c.value.as_str())
+                .collect::<Vec<_>>(),
+            ["squash"]
+        );
+        assert_eq!(PrCommand::Merge.disabled_reason(&context), None);
+        assert!(PrCommand::EnableAutoMerge
+            .disabled_reason(&context)
+            .unwrap()
+            .contains("Auto-merge is turned off"));
+        context.governance.merge_settings = Some(settings(false, false, false, true));
+        assert!(PrCommand::Merge
+            .disabled_reason(&context)
+            .unwrap()
+            .contains("allow no merge method"));
+        context.governance.merge_settings = Some(settings(true, true, true, false));
+        assert!(PrCommand::Merge
+            .disabled_reason(&context)
+            .unwrap()
+            .contains("no write permission"));
+    }
+
+    #[test]
+    fn pr_lifecycle_governed_actions_follow_loaded_and_fresh_state() {
+        let mut open = v1_pr_lifecycle_tests::target();
+        open.pr.state = "open".into();
+        let mut ctx = context(open.clone());
+        assert!(governed_disabled_reason(PrCommand::Revert, &open).is_some());
+        assert!(governed_disabled_reason(PrCommand::DeleteHeadBranch, &open).is_some());
+        assert_eq!(
+            governed_disabled_reason(PrCommand::EnqueueMerge, &open),
+            None
+        );
+        ctx.governance.issue_locked = Some(true);
+        assert!(PrCommand::Lock.disabled_reason(&ctx).is_some());
+        assert_eq!(PrCommand::Unlock.disabled_reason(&ctx), None);
+        let mut merged = open;
+        merged.merged = true;
+        merged.pr.state = "closed".into();
+        assert!(governed_disabled_reason(PrCommand::EnqueueMerge, &merged).is_some());
+        assert_eq!(governed_disabled_reason(PrCommand::Revert, &merged), None);
+        let mut ctx = context(merged);
+        ctx.governance.merge_settings = Some(settings(true, true, true, false));
+        assert!(PrCommand::DeleteHeadBranch
+            .disabled_reason(&ctx)
+            .unwrap()
+            .contains("no write permission"));
+        assert!(lock_reason("nope").is_err());
+        assert!(matches!(
+            lock_reason("too heated"),
+            Ok(Some(LockReason::TooHeated))
+        ));
+        // Receipts require the read-back state, never the request alone.
+        let lock = GovernedOperation::Lock(None);
+        assert!(lock.receipt(&PrActionEffect::Locked(false)).is_err());
+        assert_eq!(
+            lock.receipt(&PrActionEffect::Locked(true))
+                .unwrap()
+                .resource_id,
+            "locked"
+        );
     }
 }

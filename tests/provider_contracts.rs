@@ -5191,6 +5191,137 @@ fn pr_lifecycle_revert_creates_a_new_canonical_pr_with_original_provenance() {
 }
 
 #[test]
+fn pr_lifecycle_revert_readback_must_match_the_mutation_result() {
+    let fixture = Fixture::new();
+    let mut original = target();
+    original.merged = true;
+    let mut merged = pr(7, "example/repo");
+    merged["merged"] = json!(true);
+    let mut steps = guard_steps();
+    steps[2] = step(api_args("repos/example/repo/pulls/7"), merged);
+    steps.extend([graphql_step("mutation($input:RevertPullRequestInput!){revertPullRequest(input:$input){revertPullRequest{id number url}}}",json!({"input":{"pullRequestId":original.pr.id,"title":"Revert PR 7","body":"","draft":false}}),json!({"data":{"revertPullRequest":{"revertPullRequest":{"id":"PR8","number":8,"url":"https://github.invalid/example/repo/pull/9"}}}})),step(api_args("repos/example/repo/pulls/8"),pr(8,"example/repo"))]);
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .revert_pr(
+            &identity(),
+            &original,
+            "Revert PR 7",
+            "",
+            false,
+            &CancellationToken::default(),
+        )
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::AmbiguousWrite));
+    assert_eq!(journal(&fixture).len(), 5);
+}
+
+#[test]
+fn merge_workflows_provider_reads_repository_methods_and_permission_without_guessing() {
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[
+        step(
+            api_args("repos/example/repo"),
+            json!({"full_name":"example/repo","default_branch":"main","allow_merge_commit":false,"allow_squash_merge":true,"permissions":{"pull":true,"push":true}}),
+        ),
+        step(
+            api_args("repos/example/repo"),
+            json!({"full_name":"other/repo","default_branch":"main"}),
+        ),
+    ]);
+    let gh = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let settings = gh
+        .repository_merge_settings("example/repo", &cancel)
+        .unwrap();
+    assert_eq!(settings.allow_merge_commit, Some(false));
+    assert_eq!(
+        settings.allow_rebase_merge, None,
+        "unreported stays unknown"
+    );
+    assert!(!settings.allows(ghtui::providers::gh::MergeMethod::Merge));
+    assert!(settings.allows(ghtui::providers::gh::MergeMethod::Squash));
+    assert!(settings.allows(ghtui::providers::gh::MergeMethod::Rebase));
+    assert!(settings.can_write());
+    let error = gh
+        .repository_merge_settings("example/repo", &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::InvalidTarget));
+    assert_eq!(journal(&fixture).len(), 2);
+}
+
+fn merged_head(head_repo: &str) -> (PrSummary, Vec<GhStep>) {
+    let mut original = target();
+    original.merged = true;
+    original.pr.state = "closed".into();
+    let mut merged = pr(7, "example/repo");
+    merged["merged"] = json!(true);
+    merged["state"] = json!("closed");
+    merged["head"]["repo"] = json!({ "full_name": head_repo });
+    let mut steps = guard_steps();
+    steps[2] = step(api_args("repos/example/repo/pulls/7"), merged.clone());
+    steps.push(step(api_args("repos/example/repo/pulls/7"), merged));
+    (original, steps)
+}
+
+#[test]
+fn pr_lifecycle_delete_head_branch_checks_tip_then_confirms_absence() {
+    let tip = "repos/example/repo/git/ref/heads/feature";
+    let cancel = CancellationToken::default();
+    // Fork head: refused before any branch read or write.
+    let fixture = Fixture::new();
+    let (original, steps) = merged_head("someone/fork");
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .delete_head_branch(&identity(), &original, "main", &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::InvalidTarget));
+    assert_eq!(journal(&fixture).len(), 4);
+    // Moved tip: refused, no DELETE.
+    let fixture = Fixture::new();
+    let (original, mut steps) = merged_head("example/repo");
+    steps.push(step(
+        api_args(tip),
+        json!({"object":{"sha":"cccccccccccccccccccccccccccccccccccccccc"}}),
+    ));
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .delete_head_branch(&identity(), &original, "main", &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::StaleHead));
+    assert_eq!(journal(&fixture).len(), 5);
+    // Tip still at the PR head: one DELETE, then a 404 read confirms it.
+    let fixture = Fixture::new();
+    let (original, mut steps) = merged_head("example/repo");
+    steps.push(step(
+        api_args(tip),
+        json!({"object":{"sha":original.head_sha}}),
+    ));
+    let mut delete = write_step(
+        "repos/example/repo/git/refs/heads/feature",
+        "DELETE",
+        None,
+        Value::Null,
+    );
+    delete.stdout = vec![];
+    steps.push(delete);
+    let mut gone = step(api_args(tip), Value::Null);
+    gone.stdout = vec![];
+    gone.stderr = b"gh: Not Found (HTTP 404)\n".to_vec();
+    gone.status = 1;
+    steps.push(gone);
+    fixture.scripted_gh(&steps);
+    assert_eq!(
+        provider(&fixture)
+            .delete_head_branch(&identity(), &original, "main", &cancel)
+            .unwrap(),
+        "feature"
+    );
+    let rows = journal(&fixture);
+    assert_eq!(rows.len(), 7);
+    assert!(rows.iter().all(|row| row["matched"] == true));
+}
+
+#[test]
 fn pending_reviews_outdated_draft_can_be_discarded_but_cannot_be_submitted() {
     let pending = json!({"id":81,"state":"PENDING","body":"draft","commit_id":"cccccccccccccccccccccccccccccccccccccccc","user":{"login":"octocat"}});
     let fixture = Fixture::new();

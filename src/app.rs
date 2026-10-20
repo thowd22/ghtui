@@ -1017,6 +1017,11 @@ impl App {
                 Some(reason.clone())
             } else if !self.pr_pending_message.is_empty() {
                 Some(self.pr_pending_message.clone())
+            } else if PrCommand::GOVERNED.contains(command) {
+                // The form reads current queue, lock and permission state.
+                page.and_then(|page| {
+                    crate::pr_actions::governed_disabled_reason(*command, &page.details.summary)
+                })
             } else if matches!(command, PrCommand::MarkViewed | PrCommand::MarkUnviewed) {
                 let file =
                     page.and_then(|page| page.selected_progress_file(self.inbox_list.selected));

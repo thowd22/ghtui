@@ -40,6 +40,8 @@ fn journey(mouse: bool) {
     let mut steps = initial();
     steps.extend(details(vec![starter()]));
     let opened = steps.len();
+    // Opening the form reads the repository's allowed merge methods.
+    steps.push(repo_settings_step(repo_settings()));
     // Preview: fresh account and PR; no write.
     steps.extend(guard());
     let previewed = steps.len();

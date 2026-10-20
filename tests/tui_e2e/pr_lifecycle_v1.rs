@@ -46,6 +46,7 @@ struct Case {
     done: &'static str,
     /// Open this PR tab (mouse label, key) before using the menu.
     tab: Option<(&'static str, &'static [u8], &'static str)>,
+    opening: Vec<GhStep>,
 }
 fn open_summary(session: &mut Session, mouse: bool) {
     session.wait_for_screen("ghtui");
@@ -62,6 +63,8 @@ fn journey(case: Case, mouse: bool) {
     let mut steps = with_pr(initial(), &case.before);
     steps.extend(with_pr(details(vec![starter()]), &case.before));
     let opened = steps.len();
+    // Reads the form makes when it opens (e.g. repository merge settings).
+    steps.extend(case.opening);
     // Preview: fresh account and PR; no write.
     steps.extend(with_pr(guard(), &case.before));
     let previewed = steps.len();
@@ -147,6 +150,7 @@ fn ready_case() -> Case {
         after: pr(),
         done: "Native collaboration • open",
         tab: None,
+        opening: vec![],
     }
 }
 fn auto_merge_case() -> Case {
@@ -169,6 +173,7 @@ fn auto_merge_case() -> Case {
         after: pr_with(|v| v["auto_merge"] = json!({"merge_method":"squash"})),
         done: "auto-merge enabled",
         tab: None,
+        opening: vec![repo_settings_step(repo_settings())],
     }
 }
 fn disable_auto_merge_case() -> Case {
@@ -182,6 +187,7 @@ fn disable_auto_merge_case() -> Case {
         after: pr(),
         done: "auto-merge disabled",
         tab: None,
+        opening: vec![],
     }
 }
 fn update_rebase_case() -> Case {
@@ -195,6 +201,7 @@ fn update_rebase_case() -> Case {
         after: behind,
         done: "Mergeable: yes • behind",
         tab: None,
+        opening: vec![],
     }
 }
 fn update_merge_case() -> Case {
@@ -214,6 +221,7 @@ fn update_merge_case() -> Case {
         after: behind,
         done: "Mergeable: yes • behind",
         tab: None,
+        opening: vec![],
     }
 }
 
@@ -229,6 +237,7 @@ fn draft_case() -> Case {
         after: pr_with(|v| v["draft"] = json!(true)),
         done: "Native collaboration • open [draft]",
         tab: COMMITS,
+        opening: vec![],
     }
 }
 fn close_case() -> Case {
@@ -241,6 +250,7 @@ fn close_case() -> Case {
         after: pr_with(|v| v["state"] = json!("closed")),
         done: "Native collaboration • closed",
         tab: COMMITS,
+        opening: vec![],
     }
 }
 
