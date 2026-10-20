@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 00:42'
+updated_date: '2026-10-20 14:09'
 labels:
   - inbox
   - e2e
@@ -36,12 +36,12 @@ Reviewers need one coherent context for a PR before deciding what to do. Missing
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Summary, metadata, event timeline, comments, reviews, and commits load all pages with source URLs.
+- [x] #1 Summary, metadata, event timeline, comments, reviews, and commits load all pages with source URLs.
 - [ ] #2 Permissions, requested reviewers, linked items, base/head SHA, fork origin, and loading/error states are visible.
 - [ ] #3 Detail tabs and timeline items connect to files/checks/repo while preserving selection and return context.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -139,4 +139,6 @@ Root admission review found and will preserve a newer owned dependency: frozen T
 Root current-Main admission 2026-10-15: independently read Timeline projection/rollback and all ten native journeys; verified frozen 13-file baseline and five gate-log hashes. Preserved existing SQLite real-PTY module registration while adding Timeline registration: older-copy export incorrectly subtracted it; this is a documented Root composition, not an exact output-hash match for github.rs. Twelve other exported outputs match frozen hashes exactly. Actual current-Main checked timeline_actor_v1 gate running; no completion/pass claim yet. Agent final broader gate negative with three inherited failures retained, not inferred fixed.
 
 Root frozen combined Timeline + saved-native-diff + long-local-identity checkpoint, 2026-10-15: actual cargo test --offline --locked --all-targets terminal 0; 1,957 code/provider contracts (306 strict GitHub) and 646 actual PTY test functions pass, zero failed/ignored, PTY 85.66 s. 33 test targets include the zero-test main target, which is not counted as coverage. Root whole log target/build/root-diff-timeline-longpath-whole-first.log; strict all-target Clippy exit 0, fmt exit 0, dependency audit exit 0 (86 sources, 10,300 files, 108 adaptations, 117 registry packages). All 43 frozen production/test hashes unchanged through gates. Root preserved current SQLite/PID/Related guards and catalogue-close prerequisites. This green integrated checkpoint does not prove the causes of retained older negative artifacts, complete broad product coverage, native macOS verification, or release readiness.
+
+2026-10-20 audit at 74360e48 (4/6 ACs met): PR detail tabs with all-page loading, metadata, actors and key+mouse PTY are done. Still missing: linked issues in personal PR detail, and navigation from timeline items. Remaining: AC2 is partly met. Permissions, requested reviewers/teams, fork origin, base/head SHA and coverage/error reasons are shown (github_workspace.rs:333-334, 630-740). Linked items are not loaded in the personal PR detail: Metadata only shows a hint ('Linked issues: inspect closing keywords...', github_workspace.rs ~739). Issue links do exist in the scoped-catalogue PR flow (src/scoped_pr_issue_links_v87.rs). AC3 is partly met. Tabs connect to Files/Checks and Back returns to the selected Inbox row,
 <!-- SECTION:NOTES:END -->

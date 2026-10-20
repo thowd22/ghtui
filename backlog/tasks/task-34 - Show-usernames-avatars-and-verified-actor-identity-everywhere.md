@@ -4,7 +4,7 @@ title: Show usernames avatars and verified actor identity everywhere
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-15 09:25'
+updated_date: '2026-10-20 14:09'
 labels:
   - foundation
   - e2e
@@ -38,10 +38,10 @@ Who did what must be visible across GitHub and local Git. Use one identity prese
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Actor displays include username/login, avatar or initials, and bot/deleted/unknown states in every relevant view.
-- [ ] #2 Local authors and committers remain distinct; GitHub links require verified associations.
-- [ ] #3 Bounded background avatar loading/cache and terminal image fallback never delay navigation or expose credentials.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #1 Actor displays include username/login, avatar or initials, and bot/deleted/unknown states in every relevant view.
+- [x] #2 Local authors and committers remain distinct; GitHub links require verified associations.
+- [x] #3 Bounded background avatar loading/cache and terminal image fallback never delay navigation or expose credentials.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -219,4 +219,6 @@ Root-approved next SOURCE-ONLY Task20 native review avatar successor (after immu
 2026-10-15 Avatar V7 source-only implementation refinement: use exact Weak original Review intent plus browser/Form presentation ticket and pure viewport markers; worker prepares bounded shared ActorIdentity and retained actual actor observations (never infer author from requester login). Main first-claims active Review before other dispatchers. Proposed tiny shared successful-projection allocation marker guards old cache cleanup even when a newer same-UID surface reuses the SAME AvatarCache allocation; cache pointer alone is explicitly insufficient. Add genuine newer same-allocation/source/navigation preservation declarations. Root alone runs verification; all new declarations UNRUN, V5/V6 freezes immutable.
 
 2026-10-15 Native review Avatar V7 is now explicitly composed against actual879 Main in immutable coherent V8 packet target/build/provider-parallel-pending-review-current-v8-source-20261015.json SHAc22f3d9f3a2d89f5f523366c170f7e7d64871e573ae67c7460a9e0e91ca06835. Shared actor actualauthorUID/requester separation, successful projection marker+sameallocation newer-surface preservation, original active-source avatar precedence;12code+12native avatar declarations remain ALL UNRUN. Full packet63taskcode/44PTY source only, not sum of old cumulative counts. No build/Main changes or AvatarDone claim; Root alone verifies.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): Shared identity, avatar cache and verified commit association are wired across views with strong contracts and PTYs; only local commit actors have a profile view; no PTY compares PR/comment/run actors. Remaining: AC5: the PTY journeys cover local author/committer profiles, avatar delay/fail/cancel, same-login/different-URL avatars and NO_COLOR. Testing step 2 asks to open actor profiles for PR, comment and run actors and compare identities across them. 'Actor profile' exists only for local Git roles (src/workspace.rs:1297), so there is no profile view for GitHub actors and no journey comparing identities across those surfaces.
 <!-- SECTION:NOTES:END -->

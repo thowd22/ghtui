@@ -1,11 +1,11 @@
 ---
 id: TASK-72
 title: Keep immutable Git views honest about replacement refs and grafts
-status: In Progress
+status: Done
 assignee:
   - '@local_git'
 created_date: '2026-10-13 00:56'
-updated_date: '2026-10-14 17:54'
+updated_date: '2026-10-20 14:09'
 labels:
   - git
   - e2e
@@ -66,4 +66,6 @@ Verified actual current source: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.g
 Superseding coordinated actual Linux checkpoint: cargo test --offline --locked --all-targets passed288 code/provider tests and114 real-binary PTY journeys, 0 failures/ignored, plus whole fmt and strict all-target Clippy. Actual immutable_overrides-named subset included5 code contracts (raw replacement prefix unit, three generated Git identity/graft/replacement contracts and original saved corpus coverage) and4 actual keyboard/mouse PTY journeys (original tree/graph guards plus raw-ref/non-UTF8 replacement-scope sibling safety). target/build/root-all-targets-checkpoint.log lines1360,1471/1475/1483,1683 and1756–1759 retain evidence. Non-UTF8 reference names are preserved raw, rendered aliases are never parsed as mutation argv, named picker operations are explicitly disabled while SHA browsing remains supported, and valid Unicode siblings are unchanged. var_os replacement-base bytes are honored rather than defaulted. Portable saved Git-object path fixtures always run on macOS/Linux; only physical filesystem fixtures differ according to APFS valid-UTF8 naming constraints. Native ref-write support for arbitrary bytes remains an explicitly guarded limitation, not a full Git parity claim. Status remains In Progress until full product task-finalization audit; no macOS execution claimed.
 
 Root Graph admission exposed genuine original-object small HEAD capture overflow from graft deprecation advice. Existing original reads deliberately set GIT_GRAFT_FILE=/dev/null; now add only command-local -c advice.graftFileDeprecated=false before actual original-object argv. All stderr/error handling, raw parent semantics,32MiB child/64MiB measured pool/128children/30s capture limits remain unchanged. Graph lib previously5/34 now32/34 after fix; failures elsewhere retained. This is not fresh full immutable_overrides/whole/platform acceptance. Impacted raw replacement/graft and full suites remain required before delivery.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Original-object reads, override notice and history-write guard are in place with 4 Git/search contracts and 4 keyboard/mouse PTYs. All ACs checked. Status could move to Done.
 <!-- SECTION:NOTES:END -->

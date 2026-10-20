@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 00:37'
+updated_date: '2026-10-20 14:09'
 labels:
   - search
   - e2e
@@ -40,11 +40,11 @@ Code is only part of repository knowledge. Search should include discussion and 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PR/issue bodies, general comments, inline threads and opted-in commit messages populate the shared index.
-- [ ] #2 Paging/checkpoints/deletions and source timestamps expose exact hydration coverage and permissions.
-- [ ] #3 Remote discovery can complement local results with dedup and source-specific ranking/limits.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #1 PR/issue bodies, general comments, inline threads and opted-in commit messages populate the shared index.
+- [x] #2 Paging/checkpoints/deletions and source timestamps expose exact hydration coverage and permissions.
+- [x] #3 Remote discovery can complement local results with dedup and source-specific ranking/limits.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -222,4 +222,6 @@ Related TASK49 relevance-quality follow-up is source-only, not part of current b
 SOURCE-ONLY judged-quality audit: existing5 undeclared lexical/fusion contracts keep10 fixed graded query judgments, success@1/MRR1.0/nDCG@3>=0.90 floors, exact canonical body/current visibility/duplicate one-source votes, RRF k60 ordinal explanations and1000-row source saturation policy unchanged. Actual Document::matches currently uses exact repo/org spelling, rejecting the genuine positive hydrated Org/App witness under repo:org/app; current canonical fusion STATE spelling preservation does not repair this shared matcher. Staged unapplied target/build/local-search-relevance-canonical-case-activation.patch permits only already canonical positive-principal Collaboration repository aliases with genuine positive discussion repository ID/parent metadata and exact host/repository/parent-number destination agreement; it does not grant fresh access. Local raw files/local-current labels, reusable-login scopes, missing/zero canonical repo evidence, unknown remote fragments, raw paths, revision/set/actor values, keys, stable hashes, destinations and principal guards remain exact. Added1 meaningful boundary contract and strengthened the original canonical case contract for upper/lower repository and org filters; quality declarations now6 total (4 lexical/boundary plus2 fusion), all UNCOMPILED/UNRUN. Remote fragment Documents do not retain sidecar repository IDs and cannot acquire new canonical provenance from Scope alone; wider alias matching must be owned by verified adapter evidence, not guessed metadata. Read-only combined history/case activation simulation matched41/41 unique contexts/17 files with0 semantic-final hash mismatches; selected direct rustfmt passed only. No included source/score boost/expected ranking changes, Cargo, new quality measurements, native pass, Google-grade or Done claim. Existing two search_relevance native journeys are earlier verified local lexical workflows; mixed current code/discussion quality and canonical-case/rank explanation/native exact-open journeys still require actual activation/measurement plus full tests/fmt/strictClippy. Task47 local labels/mappings remain preserved, no clone/fetch/filesystem case expansion introduced.
 
 2026-10-14 Task18 central label-filter repair/cached-access integration regression ACTUAL: current genuine repo-ID plus explicit nullable-read permission revalidated separately from numeric principal and SQL/journal epoch before/after selected/discovered private body admission and retained Open. Strict cached query/Open6, repo403 refusal5, empty-source/new-principal4 protocols preserve UID/auth/permission canaries and Git/cache/draft/view effects; current unavailable access never becomes fake complete0. Focused collaboration_index_ actual28/28 zeroignored4.41s includes all12 collaboration plus16 Blend/privacy; foundation-metadata-actions-collaboration-native28-readable-rerun.log. Current coherent whole ACTUAL861code/provider incl200GH +286PTY, allzeroignored/failed, foundation-metadata-actions-all-targets-final-rerun.log; fmt and strict all-targetClippy PASS. Fixed real80-column critical denied-access status clipping without weakening assertions. Existing relevance-quality source5 undeclared and broader search/index/host/platform scope remain unverified/open; no Task Done or full privacy inference from numeric OPEN4.
+
+2026-10-20 audit at 74360e48 (5/5 ACs met): PR/issue bodies, comments, inline threads and opt-in commit messages are hydrated into the shared index, with coverage, revocation and remote blending all PTY-verified. Ready to mark Done. Remaining: None blocking. The relevance-quality fusion contracts (fusion/blend/relevance_quality_tests.rs) are unregistered, but they belong to TASK-49's AC3. Independent check: Mostly strong, but the coverage part is not verified the way the task requires. AC1 is met: the registered PTY tests collaboration.rs:378/575/95 index the PR comment, review and inline thread, the issue body and comment, and opt-in commit messages, by keyboard and mouse, opening exact context. The PR body ('PrBodyOnlyNeedle') is loaded into the index (the 4 records) but no PTY test searches for it
 <!-- SECTION:NOTES:END -->

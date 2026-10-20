@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 14:54'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -132,4 +132,6 @@ Root integration follow-up under Task21 exposed shared Form read-only paste defe
 REQUIRED local requested-value Conversation validation follow-up approved by Root: NEW exact V3 private source-only cohort uses one borrowed pure payload parser for prequeue restrictions and existing worker-owned payload construction; no new permission/source/runner/queue. Invalid empty/whitespace or over65536-byte body, unsupported reaction/subscription, missing exact positive-owned loaded reaction and selected comment remain same actual current Form/error before work/fence/slot/GH/SQL; real provider identity/auth privacy is unchanged. Genuine all-six factories +actual Background corrected Preview and paired Catalogue/Personal real-binary invalid-input→explicit-correction→freshPreview declarations are being frozen, all UNRUN. Native uses actually supported Ctrl-U/typed choice values, not forged selection actions. Oversized paste must remain unadopted; exact Unicode bytes retained. Tree pureClose accepted-autosave cutoff and Graph repeated Personal Refresh V20 remain separate required dependencies, not waived.
 
 Root post-UID review found existing publication cleanup API limitation to retain for final workflow audit: after a Remove is accepted into the real ordered queue, DraftPublicationError::AcknowledgementUnknown does not prove body retention; completion may still own/delete exact body. Current Outcome draft_retained=true for cleanup-unconfirmed is protected/no-page semantics, not an independent SQL-retention observation. V229 delay until same typed finalUID+minI corrects a distinct real early-delete bug but does NOT resolve this late-ACK presentation uncertainty. Before Done, expose truthful cleanup-unconfirmed versus actually retained/deleted state and test accepted late ACK/timeout/restart via explicit fresh inspection; no expired-phase reload/resend/autoACK/false retained claim.
+
+2026-10-20 audit at 74360e48 (6/6 ACs met): Composer complete per ACs with lib + both-input PTY coverage; only the non-AC cleanup-unconfirmed presentation follow-up remains. Remaining: None against the ACs. Open follow-up from the notes (not an AC): after a late or unknown publication ACK, show 'cleanup unconfirmed' separately from 'draft actually retained or deleted'. Independent check: Going by the AC text, all six ACs are met, and I checked the cited tests. tests/tui_e2e/github.rs:985-1218 has keyboard and mouse PTY pairs. They cover Unicode paste, selection by mouse drag and by Shift+arrow, Preview with zero POST/PATCH/DELETE/PUT in the journal, Keep draft/Close, the SQLite draft row at the exact host/account/PR resource, a restart at 80x24 that restores the draft, an external
 <!-- SECTION:NOTES:END -->

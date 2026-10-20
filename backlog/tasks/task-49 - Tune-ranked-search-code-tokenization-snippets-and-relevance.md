@@ -4,7 +4,7 @@ title: Tune ranked search code tokenization snippets and relevance
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 22:16'
+updated_date: '2026-10-20 14:09'
 labels:
   - search
   - e2e
@@ -33,11 +33,11 @@ Google-like usefulness depends on finding the right answer quickly, not merely r
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Identifier-aware and natural-language tokenization preserve exact terms, snake/camel parts, paths and phrases.
-- [ ] #2 Ranking boosts and typed result fusion use deterministic tie-breaks and explain matched fields.
+- [x] #1 Identifier-aware and natural-language tokenization preserve exact terms, snake/camel parts, paths and phrases.
+- [x] #2 Ranking boosts and typed result fusion use deterministic tie-breaks and explain matched fields.
 - [ ] #3 A labeled corpus defines agreed top-k success and rank metrics; relevance regressions fail verification.
 - [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -69,4 +69,6 @@ Fresh coordinated Linux checkpoint passed all 258 code/provider tests and 102 re
 Source-only relevance-quality evaluation prepared after the actual privacy checked1-code/10-PTY gate. Undeclared src/search/relevance_quality_tests.rs stages3 contracts over10 fixed mixed code/discussion documents and10 independent primary/graded query judgments: exact/snake/acronym identifiers, quoted phrase versus disconnected-word decoy, path/repository/set/type/author constraints, explicit success@1/MRR1.0 and nDCG@3>=0.90 floors, Unicode byte/column highlights, lexical field evidence and exact typed comment destination/checksum. A separate same-UID/same-repository canonical Org/App to repo:org/app judgment exposes a possible current case-sensitive Document::matches gap; it has not been registered/run, and labels are not accepted-to-current-output. Undeclared src/search/fusion/blend/relevance_quality_tests.rs stages2 real-cache/prevalidated-rank contracts: judged canonical answer supported at local3/provider2,100 provider duplicates yielding one answer/source vote while retaining separate comment context/current body, exact displayed RRF math/evidence, and1000-row source saturation unable to remove the local rank1 answer from top2. Both source files are formatted but uncompiled/unrun; no relevance measurements or performance claims. Audit also notes that current matched_fields means any overlapping lexical token, not necessarily a full phrase/conjunctive scoring-field contribution; explanatory wording/policy needs explicit review before treating it as exact scoring provenance. Future registration requires nonzero focused code gates, same fixed corpus actual keyboard/mouse PTY identifier/phrase/path/why/exact destination with independent Git/storage/gh effects at120x40 and80x24, then full tests/fmt/Clippy. Performance measurements belong to the release/hardware-controlled TASK66 gate; no Task49 completion or agreed-quality claim yet.
 
 Source-only quality continuity audit under Root-authorized TASK50 work: five earlier unregistered contracts now six declarations (4 lexical/canonical-boundary plus2 fusion) after one new negative fixture. Ten fixed graded judgments, MRR/success-at1/nDCG floors, score boosts and rank-ordinal explanations were not tuned or measured. Canonical mixed-case repository witness is currently filtered out by exact Document::matches; separate unapplied local-search-relevance-canonical-case-activation.patch stages narrow positive-principal canonical discussion repo/org aliases plus registrations. Negative cases preserve local/raw files and paths, sets, unknown remote fragments, missing/zero canonical context, reused-login scopes, exact destination agreement and user42/43 boundary; full original mixed-case keys/destinations stay untouched. Direct staged rustfmt check passed only; zero new Cargo/native/quality measurements. Later measured focused and actual both-input mixed source/why/exact-open plus full gates remain required, no Google-grade or Done claim.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Tokenizer, boosts, Why explanations and the judged PTY work. Remaining: register the labelled-corpus MRR/nDCG tests (and fix any they expose, such as the repo-filter case gap). Remaining: AC3: the labelled-corpus metrics tests (success@1, MRR, nDCG@3 floors) in src/search/relevance_quality_tests.rs and src/search/fusion/blend/relevance_quality_tests.rs are NOT declared as modules, so they never compile or run. Only a small inline judged top-1 test runs, so relevance regressions are not gated by rank metrics. The task notes also record a known gap: case-sensitive Document::matches rejects canonical mixed-case repo:org/app, with an unapplied patch. AC4: partly met, because the task
 <!-- SECTION:NOTES:END -->

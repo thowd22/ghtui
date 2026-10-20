@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:26'
+updated_date: '2026-10-20 14:09'
 labels:
   - localgit
   - e2e
@@ -35,11 +35,11 @@ Preparing a commit should be obvious and precise. Staging must show what belongs
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Files/hunks/line ranges can be staged or unstaged with preview and clear working-versus-index panels.
-- [ ] #2 Mouse range selection and keyboard selection produce identical index content.
+- [x] #1 Files/hunks/line ranges can be staged or unstaged with preview and clear working-versus-index panels.
+- [x] #2 Mouse range selection and keyboard selection produce identical index content.
 - [ ] #3 Stale file/index changes, binaries/renames and patch failures are handled without accidental discard.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -103,4 +103,6 @@ Root integrated inline/normal/readonly candidate Stage regression actualGREEN21m
 2026-10-15 Root verified combined Main checkpoint: cargo test --offline --locked --all-targets terminal0 with2141code/provider (318strictGH)+690realbinaryPTY0failed/ignored, native98.71s; cargo fmt--all--check0, cargo clippy --offline --locked --all-targets -- -D warnings0(58.59s). Frozen76-path root-inline-normal-readonly-selection-freeze-v1-20261015.json source hashes held unchanged across gates; subsequent README-only documentation updates actual counts. Checked inline59/8, selectedplan21/6, readonly23/6, normal8/2, stash15/12, completedframe19/8, corrective18/8 and18continuationPTY all independently passed. Full/quality/focused exact logs and SHA are recorded in root-inline-normal-readonly-selection-final-gates-v1-20261015.json. Dependency audit86roots/10300files/108adaptations/117registry0, current backlog78valid0 after CLI correction. Cache-journal candidate and full-side WIP are NOT admitted. Earlier Main8negative and isolated candidate negatives remain explicit; TASK78 owns controlled generic focus/scroll/overlay diagnosis. This verified Linux feature checkpoint is not full task/dependency/native-macOS/release completion.
 
 2026-10-18 a11: direct + Stage / - Unstage keys and controls (hunk under cursor, selected line/range, or file) open with the read-only preview ready, Ctrl-S confirms; staging reloads the same Working/Staged diff, cursor clamped (fixed index panic), completion names target, new-file preview drops phantom last line. Gate: node scripts/test-task.mjs v1_local_staging -> 4 code + 2 PTY (keyboard+mouse) pass; related tui_e2e staging/local_/untracked/identity/workflow_edit_v9 236 pass.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): File, hunk and line staging with keyboard/mouse parity is implemented and PTY-tested; tests are missing for the partial rename/binary refusal and for patch-apply failure. Remaining: AC3 is partial. Stale-selection guards and untracked binary/symlink previews are tested. The refusal to partially stage a rename, binary, add or delete ('Stage the entire file...', src/diff.rs:196) is not asserted by any test. No test covers a git apply failure surfacing without discard. No rename staging fixture exists.
 <!-- SECTION:NOTES:END -->

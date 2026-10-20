@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:19'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -47,7 +47,7 @@ Merging is a major PR action and its outcome is not always an immediate merge. T
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Available merge/squash/rebase methods reflect repository settings and caller permissions.
-- [ ] #2 Preview uses fresh head/check state and supported expected-head protection; branch deletion is a separate explicit choice.
+- [x] #2 Preview uses fresh head/check state and supported expected-head protection; branch deletion is a separate explicit choice.
 - [ ] #3 Merge, queue, enable/disable auto-merge, and queue cancellation have verified distinct outcomes; admin bypass is never implicit.
 - [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -104,4 +104,6 @@ V68 read-only current-source proposal frozen: manifest target/build/provider-pr-
 
 2026-10-17 (Claude, commit c18c3e47): Basic merge is reachable. PR actions menu → 'Merge pull request' (merge/squash/rebase) → preview → confirm/Ctrl-S. It runs through the PrPlan durable journal with one 'gh pr merge --match-head-commit'; the Merge receipt is written only when GitHub reports the PR merged. Draft, closed, merged and conflicting PRs show the reason instead. Gates: pr_merge 1 code/4 PTY; pr_actions/conversation/navigation_palette 284 PTY; pr contracts pass. Not yet done: auto-merge, merge queue, branch-update and revert UI (the state model exists for these).
 2026-10-18 a06: PR actions menu gains Enable/Disable auto-merge (gh pr merge --auto --match-head-commit / --disable-auto, receipt only on read-back). Gate: node scripts/test-task.mjs v1_pr_lifecycle -> lib 2 passed, tui_e2e 14 passed; provider_contracts v1_pr_lifecycle 1 passed.
+
+2026-10-20 audit at 74360e48 (1/6 ACs met): Basic pinned merge (merge, squash or rebase) and enabling or disabling auto-merge work from the PR menu, with keyboard and mouse PTY tests. Missing: repository-allowed methods and permissions, merge queue enqueue and cancel UI, and tests for head-race, denied-method and queue journeys. Remaining: AC1: the merge, squash and rebase choices are hard-coded (pr_actions.rs:541). Repository allow_*_merge settings and caller permission are never read. AC3: merge and auto-merge are distinct outcomes, and no --admin flag is used. But merge queue enqueue/dequeue (and merge-async) has no UI; it exists only in the provider and pr_state_model. A queued or accepted-but-not-merged result only produces an error message (pr_actions.rs:1280). AC4: no provider tests for denied methods or queue timeout recon
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 19:07'
+updated_date: '2026-10-20 14:09'
 labels:
   - inbox
   - e2e
@@ -39,12 +39,12 @@ PR review needs a usable diff immediately without cloning. Inline reviews later 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Changed-file navigation and basic unified/split diffs work through gh with exact base/head/path/line identities.
+- [x] #1 Changed-file navigation and basic unified/split diffs work through gh with exact base/head/path/line identities.
 - [ ] #2 Large/truncated/binary/renamed files and missing patches have explicit states and a bounded fallback.
-- [ ] #3 File/hunk navigation, scroll, context, and line/range selection work by mouse and keyboard.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #3 File/hunk navigation, scroll, context, and line/range selection work by mouse and keyboard.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -112,4 +112,6 @@ Current impacted checked regressions passed scoped_pr_resource12-code/4-PTY arti
 2026-10-14 NEW READ-ONLY proposal for Root review only: target/build/provider-scoped-annotation-history-failed-step-proposal-v3-20261014.txt. Actual code audit: annotation paths/lines are candidates; existing immutable M/H+exact patch factory can issue a canonical RIGHT range, but its Files-page owner cannot be weakened to accept arbitrary Actions path DTOs. Proposed same-session Files+images21 happy child destination (explicit unknown/outside-hunk H-context12 separate, no automatic fallback), original repo/PR IDs/nodes/H/B/refs/lifecycle/source/owner/measured prequeue30s and final original SQL AFTER closing repo BEFORE finalprincipal, no postproofSQL. Distinct historical-A read19/max28 retains actual originalA2 and separate latestA3/suite, closes both exactA/latest, frozen same_run/current readers unchanged; older-head current-parent purpose and broader attempt enumeration remain explicitly required followups. Genuine raw-step sidecar preserves actual reported positive number versus documented zero-based transport position; current step source17 and fresh selective capture18/max27 (historical19), nullable/duplicate/unknown cannot become failed/zero. Official current workflow-jobs Docs/OpenAPI exposes selective step-log endpoint302/Actions(read) but displayed sparse steps[].number differs from zero-based position; mapping/live-host evidence explicitly outstanding, no guessed n/n-1 or ZIP/name/UNKNOWN STEP authority. Preserve raw-spec safe unknown-flag compatibility extra request/full failed cap, no HTTP-error retry. Planned at least24 meaningful genuine Source/Git/strict-gh/SQLite/runtime groups and eight keyboard+mouse families16PTY with independent exact journal/SQL/Git/config/TTY/PID/owner/cap/UID effects; counts21/12/19/17/18 and totals100/91/113/94/112 are source-derived PREDICTIONS only. NO declarations/implementation/includes/Cargo/tests/pass/AC/Done; frozen continuation13 files/15-parent patch unchanged. Need Root thin API/schema/transport/owner review BEFORE implementation, then nonzero focused/checked/native/whole/fmt/strictClippy.
 
 V73 Personal Native Source test now selects exact actual completed owned Source box and compares complete labelled original H/M across hard wrapping (whitespace only), never covered Files rows or shortened digests. V72actualframe revealed M was split across2lines; no production identity/parser/permission changes and all Git/SQL/config/GH/TTY preservation assertions retained. Real both-input rerun pending, not passes.
+
+2026-10-20 audit at 74360e48 (5/6 ACs met): PR Files/diff with unified/split, ranges, native diff and canonical coordinates is implemented and PTY-tested; explicit binary/truncated/large-patch states in the PR Files view still lack coverage. Remaining: AC2 is only partly met. A missing patch shows ' • API patch unavailable' (src/scoped_pr_resources_v1.rs:978), and the >128 KiB Files page now loads (v1_pr_threads_files_page_over_128kib_*). No PR-Files PTY test covers a binary file, a truncated or too-large patch, or the GitHub 3000-file list cap. Binary, rename and absent states are tested only for the local native diff (original_diff_sides_v1.rs *_absent_rename_binary_symlink_lfs_submodule_root), not for the gh-sourced PR Files view.
 <!-- SECTION:NOTES:END -->

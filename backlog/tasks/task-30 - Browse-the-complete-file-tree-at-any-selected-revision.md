@@ -1,10 +1,10 @@
 ---
 id: TASK-30
 title: Browse the complete file tree at any selected revision
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:50'
+updated_date: '2026-10-20 14:09'
 labels:
   - repository
   - e2e
@@ -37,12 +37,12 @@ Full repository visibility means seeing files as they were at a saved version wi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tree browsing has lazy expansion, fuzzy path jump, breadcrumbs and revision-aware content previews.
-- [ ] #2 Added/deleted/renamed files can open either comparison side; binary, symlink, submodule and LFS entries have clear labels.
-- [ ] #3 Unusual paths and large trees preserve raw identity and responsive keyboard/mouse navigation.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #1 Tree browsing has lazy expansion, fuzzy path jump, breadcrumbs and revision-aware content previews.
+- [x] #2 Added/deleted/renamed files can open either comparison side; binary, symlink, submodule and LFS entries have clear labels.
+- [x] #3 Unusual paths and large trees preserve raw identity and responsive keyboard/mouse navigation.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -156,4 +156,6 @@ Corrected resulting Main counted gate terminal50211exit0 is genuinelyGREEN: node
 New coherent resulting MAIN whole checkpoint independentlyGREEN: taskenv cargo test --offline --locked --all-targets38948exit0 PASS1794 meaningful code/provider=1247lib+295strictGH+252others,566realbinaryPTY0failed/ignored96.22s, root-tree-fixture-shell-whole-first.log. Wholefmt46157exit0; strictalltargetClippy13252exit0(29.31s). Current counted Tree31code/10native wDbamK, original_saved38code/36native12.18s YD2hS2, test_framework19code/9native1.36s HG9tbP, actor_identity12code/8native0.73s pTq730 and fixture-shell4code/2native1CcTx1 allPASS actualcompletedbothinputs0ignored. Audit73tasksvalid0errors/doctor0cycles/dependency86sources10300files108patches117registrypackagesPASS, remotesEMPTY, firstparty gitdiffcheck0. Native Close proof is actual live-child close/reap then new read; deterministic code covers exact completed-before-poll/newClose boundary. No borrowed older-copy full green and no historical failure attribution. README advanced only after wholeterminal; fullTask30/31/relatedPR/macOS/performance/release/AC/DoD completion remainsOPEN.
 
 2026-10-18 a12: Esc/u/[u Back to tree] from a saved-tree file (also after History/Blame) returns to the tree with that file selected; folders listed first with children under their folder. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Saved-tree browsing at any revision is implemented and tested: fuzzy jump, breadcrumbs, comparison sides, special-object labels, raw-byte paths, large inventory. The notes' open items are macOS and performance only.
 <!-- SECTION:NOTES:END -->

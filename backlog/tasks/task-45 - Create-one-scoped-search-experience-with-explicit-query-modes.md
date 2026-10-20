@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:10'
+updated_date: '2026-10-20 14:09'
 labels:
   - search
   - e2e
@@ -41,11 +41,11 @@ The user needs rapid discovery across repositories, code and discussions. Fuzzy 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Search supports Ranked/Exact/Regex/GitHub modes and applicable repo/org/set/type/path/language/actor/state/date/revision filters.
-- [ ] #2 Query validation never silently weakens unsupported remote regex/revision/comment semantics.
+- [x] #1 Search supports Ranked/Exact/Regex/GitHub modes and applicable repo/org/set/type/path/language/actor/state/date/revision filters.
+- [x] #2 Query validation never silently weakens unsupported remote regex/revision/comment semantics.
 - [ ] #3 Results have type/source/scope/freshness, highlighted preview and correct destination context.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -105,4 +105,6 @@ Latest checked query_modes passed13 meaningful code/provider contracts and6 actu
 Fresh full Linux checkpoint passed after actual fixes: CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test --offline --locked --all-targets: 327 meaningful code/provider contracts, including provider100, journal9, PR-controller6, managed-corpus9, and 116 compiled-binary PTY journeys; zero failed/ignored. cargo fmt --check passed; cargo clippy --offline --locked --all-targets -- -D warnings passed9.02s. Logs target/build/root-all-targets-checkpoint.log, root-fmt-checkpoint.log, root-clippy-checkpoint.log. New query_modes discovered-PR2 actual journeys and13-code/6-PTY checked gate are included. Ordered synchronous publication-draft helper and canonical value/separate label mouse/key code contract are verified, but native PR mutations/inspection/ack and managed-corpus UI are not yet wired; no Task17/47 product-completion inference from backend tests. Whole checkpoint first caught a test-source rename race and a wide-emoji continuation-cell assertion, both corrected and fully rerun rather than excluding tests. README records this actual green checkpoint; remaining full-scope/native-platform/release/CI work stays open.
 
 2026-10-18 a13: GitHub mode keeps checkout-origin default scope; typed repo:/org: qualifiers scope one query; issue/repository Open shows number/state/URL/full description in preview; rows show #N. Gate: node scripts/test-task.mjs v1_search (3 code + 2 PTY keyboard/mouse pass); filtered lib search 115, tui_e2e search 34, search_remote_contracts 8, search_contracts 15 pass.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): Four explicit modes, full filter grammar with explicit (never silent) remote rejection, highlighted results and exact open destinations are PTY-tested both inputs; only per-result freshness display is missing. Remaining: AC3: result rows show a type/path/line/repository table with highlighted snippets (search_ui.rs:27) and exact destinations, and the source and scope are labelled ('including uncommitted content', corpus). Per-result freshness (indexed/fetched time) is not visibly rendered in Search results, and no PTY assertion checks freshness.
 <!-- SECTION:NOTES:END -->

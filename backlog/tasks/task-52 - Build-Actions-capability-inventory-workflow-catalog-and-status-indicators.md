@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-15 17:06'
+updated_date: '2026-10-20 14:09'
 labels:
   - actions
   - e2e
@@ -44,11 +44,11 @@ Actions needs full native operational support, not just a CI badge on a PR. Esta
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every Actions coverage row maps to a gh/API operation, permission/host/version constraint and implementation task.
-- [ ] #2 Workflow/run lists paginate/filter across selected repos with actor usernames/avatars and explicit freshness.
+- [x] #1 Every Actions coverage row maps to a gh/API operation, permission/host/version constraint and implementation task.
+- [x] #2 Workflow/run lists paginate/filter across selected repos with actor usernames/avatars and explicit freshness.
 - [ ] #3 PR/commit/repo indicators identify exact SHA/event/attempt and open the shared Actions view.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -138,4 +138,6 @@ Root admitted exact48-path A2-R1+Corecompat+R2V1/V2/editorV3 using authenticated
 2026-10-15 Root V44 CURRENT LINUX WHOLE GATE GREEN (not full product/task completion): actual node scripts/test-all.mjs -> unfiltered cargo test --locked --all-targets:3695PASS =2757code/provider (2069library,346strictGH contracts)+938real-binaryPTY,0failed/ignored. cargo fmt --check0; cargo clippy --locked --all-targets -- -D warnings0; dependency/backlog audits0; git diff --check0. Terminal0,15:34:57Z–15:57:36Z. Report target/build/root-actions-a2-v44-whole-gates-20261015.json SHAd24a8638b56918624499e95ab5b944fdc4ad7e6bd2515633a0c654f5830b5f12; all-targets log SHAa0a18cebb64a89c27afe9c850810a3784f6dfe7f280c473fc48702bb64036f99. Exact source992 freeze251079c01bcc837d7881763efe335e4ea329074d45e9d4308be07d0d51b06157. Independent journal root-actions-a2-v44-whole-gates-terminal-coverage.jsonl SHAc98e4d7054b32a54da253658b6ed63a205a669e0e22b0861b5a5a3ebdbe59600:1170records/1168positive exited/nonpanicking cleanup-complete/938unique;1056keyboard589mouse(overlap);2deliberatepanics excluded and1startup-validation intentionally noninteractive. Peak420216832B/tasks66; all memory high/max/OOM/pids events0 under fixed4/6GiB+512MiBswap/200%CPU/256tasks. This includes actual all36new A2 task-native journeys and all5 new observer contracts, no borrowed broad-selector inference. README-only successor root-actions-a2-v44-docs-only-source-freeze-20261015.json SHAb7feac2f3fae952acad0095902de31c785faf269cb0db5e81269d663174c93d6 keeps other991source bytes exact; three actual V43 PNGs visually inspected, manifest root-real-terminal-screenshots-v43-rendered-20261015.json SHA1ea0bd9626857a04c0d0a9175250d4f67a4fb32aa107a2dcb71aec5f50f99a8d. Task67 records real density/sticky-notice follow-up without faking UI. New Task21+V11/V12 combined106-path candidate remains UNADMITTED/UNRUN until next sole Root gate. Full Actions writes/Personal/commonThreads/nativeMac/performance/live-remote/installer/CI/formal dependency/AC/Done gates remainOPEN.
 
 Root received SOURCE-ONLY coherent Cancel W3V2 39path handoff40eb2259889c0e5443260b794ec7c7d9933e3005f353bc283f60874c10090577, fullpatcha740e1709a8ebfffa275bde842813d8d78b21c4e98b884bffce1b98c36fa4f24. Independently authenticated actual39output SHA/bytes +both patch hashes +RootV38 baseline manifest. Read-only currentMain git apply --check NEGATIVE1 only forms.rs/main.rs hunks; current differentbase paths4 (App/Forms/Main/Gh), other35baselineexact including18new. No Main/source edits or admission occurred. Report target/build/root-actions-cancel-w3-v57-readonly-preflight-20261015.json SHA2b5a5a388c908f9be1b254fd5c8bee20eddde801f3af1aac15905ca1d865e10c records actual check, not compilation/evidence. Root still reviewing same-owner/samefence/sameCore/opaqueClaim/explicit numeric history recovery before current-relative composition. Declared44meaningfulcode+16pairedPTY/22sessions are entirelyUNCOMPILED/UNRUN. Broader8Actions slices/task/nativeMac/hostedCI/release remainOPEN; agents continue nextrequiredslice planning while soleRoot PR/recoveryV56verificationruns.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): Capability inventory, filtered paged runs catalog with actors/freshness, and PR and repo entry into Actions are built and tested by keyboard and mouse. Still missing: a commit (History) status indicator that opens Actions. Remaining: AC3: the PR checks indicator opens the exact run, attempt and job in Actions (tui_e2e/pr_checks_bridge.rs happy keyboard/mouse), and the repository catalogue has '[Open Actions]' (repository_catalogue_actions_v1.rs). There is no commit-level CI/Actions indicator: History (src/history/*) shows no run status and has no route into Actions. AC2 caveat: runs are listed one selected repository at a time, with a Repository(usize) switcher. They are not merged across the whole set; cross-repo activity i
 <!-- SECTION:NOTES:END -->

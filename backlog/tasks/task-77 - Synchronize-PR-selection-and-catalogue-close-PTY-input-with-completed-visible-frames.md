@@ -3,11 +3,11 @@ id: TASK-77
 title: >-
   Synchronize PR-selection and catalogue-close PTY input with completed visible
   frames
-status: In Progress
+status: Done
 assignee:
   - '@root'
 created_date: '2026-10-15 02:10'
-updated_date: '2026-10-15 03:47'
+updated_date: '2026-10-20 14:09'
 labels: []
 milestone: m-0
 dependencies:
@@ -74,4 +74,6 @@ Final Main verification2026-10-15: immutable36 code/test paths on9012 baseline, 
 Root Main selection10 actualcheckedcompleted_frame_actions GREEN19meaningfulcode+8realPTY0failed/ignored, with original400ms first-one-Down and exact59GH/effect protocol retained. Log target/build/root-inline-normal-readonly-selection-checked-first.log; journal target/test-tmp/ghtui-test-coverage-Z1OlO9/journeys.jsonl. Frozen current source hashes target/build/root-inline-normal-readonly-selection-freeze-v1-20261015.json. Combined all-target ongoing, current fmt0; newstrict/corrective/continuations gates started. Original8negative stillretained; noTaskDone/AC4recheck or whole green inference. Graph agent preserved isolatedwhole2094code+673of674native approvalcontrols failure and starts controlled original3+approval observer diagnosis in separate copy.
 
 Root actual composed Main terminal0: cargo test --offline --locked --all-targets passed2141code/provider including318strictGH plus690realbinaryPTY,0failed/ignored, native98.71s. Same frozen76-path source cohort (root-inline-normal-readonly-selection-freeze-v1-20261015.json) checkedcompleted_frame_actions19/8, corrective18/8 and18actualcontinuations allGREEN; cargo fmt--all--check0 and strictalltargetClippy--Dwarnings0(58.59s). Dependency86/10300/108/117 audit0 and backlog77valid0 before subsequent task creation. Logs root-inline-normal-readonly-selection-{whole,checked,corrective,continuations,fmt,clippy,dependencies,backlog}-first.log. This proves current AC4/5 but does not erase original8negative or isolated approval-controls negative; controlled generic form/catalogue/overlay audit tracked separately as authorized follow-up. Task77 remains In Progress while formal2/4 platform dependencies and wider framework verification remain open.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Test-harness synchronisation fix: completed-frame observer plus keyboard/mouse PTY regressions, all ACs checked and verified. Status can move to Done.
 <!-- SECTION:NOTES:END -->

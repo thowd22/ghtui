@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 18:00'
+updated_date: '2026-10-20 14:09'
 labels:
   - foundation
   - e2e
@@ -424,4 +424,6 @@ V215 staging-only diagnostic TERMINAL1 at13:43:24.212Z/original76479closed1/scop
 User coordination question audit 2026-10-16: Root confirms semantic integration misses between independently prepared changes are a contributor to regressions, not evidence of literal concurrent file overwrites. Concrete source-backed examples are accepted one-take Preview incorrectly treated stale by running owner, and moving protected-draft cleanup after finalUID requiring old native/code fixtures to retain actual finalUID. Independent review now also rejects Delete-before-final-Source-CAS as unsafe, even after identity closure; no fullSQL oracle waiver. Current agents own isolated source copies; shared seam changes require explicit reviewed composition and Root alone launches bounded locked Cargo/PTY verification. V234 actual81Members code green and66/74native green is partial evidence only; olderText failures caught by regression gates remain open. Root owns integration and will not mark tasks Done on focused-only success. This audit does not claim every failure is caused by parallelism or literal file corruption.
 
 Root V261 private source-only corrective d2201a34 authenticates exactV2591363; shared old native pr_actions::open waits for NEW completed idle actual Conversation after one c event instead of matching starter text also present on prior Summary. Nine old metadata failed artifacts stopped at14 fully matched children, supporting prior pending-input synchronization diagnosis. No replay/retry/time-limit increase, production unchanged. All5140 literalnames retained, direct owned-file rustfmt0; native/code/full execution pending soleV257 current run terminal. Prepared V262 diagnostic driver preflight0 reauthenticates all1363legacy+1374Issue early inputs, Main1148 unchanged, requires actual old scope/report terminal before any staging/Cargo and exact resource/env/lock; no test execution from preflight.
+
+2026-10-20 audit at 74360e48 (5/6 ACs met): The shared PTY/fake-gh framework is complete and in heavy use on Linux. Only macOS runner verification is left (deferred). Remaining: AC3: on Linux, failure artifacts are written to target/tui-artifacts, and scripts/test-task.mjs:16-20 fails on zero selected code/PTY tests and on missing keyboard or mouse journey coverage. The runner has not been verified on macOS, which is deferred.
 <!-- SECTION:NOTES:END -->

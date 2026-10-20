@@ -6,7 +6,7 @@ assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-17 23:56'
+updated_date: '2026-10-20 14:09'
 labels:
   - actions
   - e2e
@@ -42,11 +42,11 @@ Full run management includes targeted reruns and cancellation as well as observa
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Rerun all/failed/specific jobs and debug mode target verified identifiers.
-- [ ] #2 Watch/cancel and supported force-cancel report actual state with reconciliation after stale/timeout writes.
-- [ ] #3 Delete run/log actions require exact-target confirmation and handle permission/retention restrictions.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #1 Rerun all/failed/specific jobs and debug mode target verified identifiers.
+- [x] #2 Watch/cancel and supported force-cancel report actual state with reconciliation after stale/timeout writes.
+- [x] #3 Delete run/log actions require exact-target confirmation and handle permission/retention restrictions.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -438,4 +438,6 @@ V144 actual final Controls54code16PTY andHistory40code18PTY ALLGREEN/bothinputs/
 2026-10-16 actual V170 checked node scripts/test-task.mjs scoped_actions_publication_v3 PASS53code+16real-binaryPTY/0ignored/key+mouse/exact16positiveunique/allcleanup, plus direct3 existing complete-prose code tests PASS. Wrapped cancellation acknowledgement verifies WHOLE original message in SAME completed owned history body with exact controls; original78 reads/ONE POST/SQL ACK/raw receipt/noresend/Git/config/TTY retained. Report25f8e028/log06b1eed8/coverage3ff544ab; fmt/strictClippy/deps0. No production action or full task acceptance claim; full current suite still required.
 
 2026-10-17 a03 (7435360a): legacy Actions Watch now available on Runs list and open run, follows newest attempt, plain progress text, auto-stops when the run completes, keeps selected run on list refresh, explains itself outside watchable views. Gate: node scripts/test-task.mjs v1_actions_controls -> 5 code + 6 PTY passed (keyboard+mouse); filtered actions_contracts 19, tui_e2e actions:: 164, scoped_actions_read_v2 16, pr_checks_bridge 6 passed; clippy clean.
+
+2026-10-20 audit at 74360e48 (5/5 ACs met): Rerun all/failed/job/debug, watch, cancel, force-cancel, and delete run/logs with reconciliation are all built and tested by keyboard and mouse. Ready to mark Done after review. Remaining: None for the ACs. Force-cancel and delete-logs are tested only on the scoped route (repository catalogue, then Open Actions), which is reachable in the app. Independent check: AC1 is met: rerun all/failed/selected job plus debug, with exact job 501 and attempt transitions (actions.rs run_control and scoped_actions_rerun_v4 keyboard and mouse PTY). AC2 is met: watch, cancel, uncertain cancel with refresh/inspect/ack, and force-cancel (scoped_actions_control_v5 PTY). AC4 is met by provider contracts (provider_contracts.rs:354/394/431 and the membership and accepted-transi
 <!-- SECTION:NOTES:END -->

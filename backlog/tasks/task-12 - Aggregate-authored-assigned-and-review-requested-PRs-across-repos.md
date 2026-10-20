@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:42'
+updated_date: '2026-10-20 14:09'
 labels:
   - inbox
   - e2e
@@ -40,12 +40,12 @@ Tracking PRs should not require opening each repository separately. Authored, as
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Default queues cover the current host across repos; selected repository sets are a visible optional filter.
+- [x] #1 Default queues cover the current host across repos; selected repository sets are a visible optional filter.
 - [ ] #2 Rows show repo, title, age, review/check/draft state and stable identity; refresh preserves selection.
-- [ ] #3 Pagination/query partitioning and partial failures expose coverage without silently dropping matches.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #3 Pagination/query partitioning and partial failures expose coverage without silently dropping matches.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -107,4 +107,6 @@ READ-ONLY V116 fast-org policy alternative /home/admin2/CODE/ghtui/target/build/
 READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/build/provider-org-tracking-v121-material-plan-20261016.json SHA7e15edd69e4613eaf97773c4994cdf5daace63cca1461f2678bbb329b104af47. Explicit DELIVERY HOLD after user fix/retest concern: NO Org product code/newarchitecture until coherent current candidate full/strict stable. Exact64KiB savedintent/shortstablekey/existing persistent reservation-ClearCAS/new observation-only records (completeFALSE)/genuine lazy sameCore/noDTOcast/callmap/preGrowth/oldmapVecsort+SQL overlaps/testmatrix recorded. Tracking9..36/752..3992KiB arithmetic and proposed lazy16/4936KiB not heap or runtime proof. Fullorg/defaultHost/finite4096/StateD4 remainOPEN; D4 UNAPPROVED. Existing V120 oneTESTmodel correction separate; Root owns all builds. ZERO sourcecopies/edits/Cargo/rustc/PTY/tests/API mutations.
 
 2026-10-18 a14: Inbox shows refresh prompt, per-queue counts on the Queue line and an empty-queue hint pointing at a populated queue. Gate: test-task v1_navigation 8 code + 2 PTY pass.
+
+2026-10-20 audit at 74360e48 (5/6 ACs met): Cross-repo queues, overlap, partial-coverage warnings, actor chips and key+mouse PTY are done. Inbox rows still lack review/check state. Remaining: AC2: Inbox rows (src/github_ui.rs:634-666) show repo#N, title with [draft], author, age and queue. They have no review-decision or check/CI state column, and PullRequest (src/providers/gh.rs:211) carries no review or check rollup, so the queue read cannot show it. Selection is kept by PrKey across refresh (github_workspace.rs:981), and the measured_refresh journey covers this for scoped repos. Notes also say whole-host completeness of the default queues cannot be proven. The product reports this
 <!-- SECTION:NOTES:END -->

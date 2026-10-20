@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:54'
+updated_date: '2026-10-20 14:09'
 labels:
   - localgit
   - e2e
@@ -63,4 +63,6 @@ Native merge/rebase/cherry-pick/revert/continue/skip/abort/conflict-version inte
 Error defect fixed and reverified: failed Git operations retain bounded redacted stdout/stderr (actual CONFLICT), shared form error viewer has wrapped multi-line content plus F7/F8/mouse controls. Actual checked node scripts/test-task.mjs git_sequencers passed 4 code/provider + 2 real-binary PTY, zero ignored, shared offline target/jobs2/incremental0. Coverage /tmp/ghtui-test-coverage-pLDgmq. Both native journeys inspect CONFLICT, scroll to reconciliation instruction, explicitly refresh, select exact conflict bytes/stage, resolve ours, stage and continue; independent Git verifies two ordered parents and clean files. Batch log target/build/native-management-checked.log. Native rebase/cherry-pick/revert/skip/abort richer journeys/global gates remain open.
 
 2026-10-18 a10: Overview shows paused merge/rebase/cherry-pick/revert banner with conflict count, next step and clickable Continue/Skip/Abort rows; menu guards conflicting actions while paused; conflict view shows working file markers; ours/theirs/base names; stage warns on leftover markers. Gate node scripts/test-task.mjs v1_local_recovery: 5 code + 6 PTY pass (keyboard+mouse); local_management:: 12/12, local:: 12/12.
+
+2026-10-20 audit at 74360e48 (0/5 ACs met): Merge conflict flow (banner, base/ours/theirs view, choose version, stage, continue) is solid with keyboard+mouse PTY; rebase/cherry-pick/revert/abort journeys, affected-commit previews, selective hunk resolution and dir/rename conflicts remain. Remaining: AC1: merge/rebase/cherry-pick/revert previews only show the generic destructive header, not the affected commits. Only merge is exercised end to end. Rebase, cherry-pick and revert have no contract or PTY test, and Skip/Abort are tested only at the git_contracts plan level for merge. AC2: resolution is whole-file ours/theirs/base only, with no hunk-level selection or in-app editing. AC3: binary conflicts get a preview line, but directory and rename conflicts and dirty-state races have no explici
 <!-- SECTION:NOTES:END -->

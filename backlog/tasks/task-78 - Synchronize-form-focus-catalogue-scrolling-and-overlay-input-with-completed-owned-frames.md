@@ -3,11 +3,11 @@ id: TASK-78
 title: >-
   Synchronize form focus catalogue scrolling and overlay input with completed
   owned frames
-status: In Progress
+status: Done
 assignee:
   - '@graph_parallel'
 created_date: '2026-10-15 03:47'
-updated_date: '2026-10-15 05:45'
+updated_date: '2026-10-20 14:09'
 labels:
   - e2e
   - foundation
@@ -38,11 +38,11 @@ Retained whole-suite failures show keyboard form confirmation closing a composer
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A controlled real-binary causal regression distinguishes completed owned input transitions from partial/stale frames for each reproduced failure; original negative evidence is retained.
-- [ ] #2 Form confirmation and catalogue focus/scroll/Close use one acknowledged current target per input; keyboard and mouse retain equivalent original effects without queued extra actions.
-- [ ] #3 Dismissing an Actions overlay cannot invoke or page an underlying control when its own complete current geometry has not been observed.
-- [ ] #4 Meaningful code and task-specific both-input PTY tests pass with unchanged independent provider/storage/Git/config/TTY assertions and original time budgets.
-- [ ] #5 Affected focused and full all-target/fmt/strict-Clippy/audit gates pass on a frozen source cohort, with actual counts/artifacts and platform limits recorded.
+- [x] #1 A controlled real-binary causal regression distinguishes completed owned input transitions from partial/stale frames for each reproduced failure; original negative evidence is retained.
+- [x] #2 Form confirmation and catalogue focus/scroll/Close use one acknowledged current target per input; keyboard and mouse retain equivalent original effects without queued extra actions.
+- [x] #3 Dismissing an Actions overlay cannot invoke or page an underlying control when its own complete current geometry has not been observed.
+- [x] #4 Meaningful code and task-specific both-input PTY tests pass with unchanged independent provider/storage/Git/config/TTY assertions and original time budgets.
+- [x] #5 Affected focused and full all-target/fmt/strict-Clippy/audit gates pass on a frozen source cohort, with actual counts/artifacts and platform limits recorded.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -74,4 +74,6 @@ Creation audit caught missing explicit Testing-steps/code-provider/real-binary h
 Root postboot independent Main admission and checked gate genuinely terminal0: all7 successor baseline/output hashes exact after full patch review/application; hard-capped node scripts/test-task.mjs owned_input_frames_v1 PASS18code (12completed-navigation+6actualreceivercontracts)/8realbinaryPTY0failed0ignored, native5.14s. Log target/build/root-owned-input-v3-postboot-limited-first.log; target/test-tmp/ghtui-test-coverage-TdZ4cA/journeys.jsonl records actual keyboard+mouse and cleanup. Original GH publication/repository targets, storage/Git/config/avatar/TTY assertions retained; no product hook/parser/timeout budget increase. Broader legacy-callsite audit, current combined whole/fmt/strict, foundation/formal dependencies and nativeMac remain open. No AC/DoD/Done claim.
 
 2026-10-15 Root independent composed Main gate GREEN: node scripts/test-all.mjs executed unfiltered cargo test --locked --all-targets under offline/locked fixed CPU200%,MemoryHigh4GiB/Max6GiB/Swap512MiB/Tasks256 scope, shared verification.lock, jobs1/testthreads2/Rayon2/disk target+TMP. ALL2233code/provider including318strictGH +720real-binaryPTY,0failed/ignored; native601.31s. Logs root-fullside-cache-dashboard-maintenance-{whole,fmt,clippy}-v3-first.log. fmt--check0 and strict alltargetClippy -Dwarnings0(59.99s); no lint waiver or vendor source edits. All66 source/config/docs hashes stayed frozen through these gates; all57 original earlier-negative source paths unchanged. Independent whole journal868records/866nonpanicking exited+cleanup-complete positive sessions759keyboard438mouse;2deliberatepanics excluded,0failedcleanup. Dependency audit86/10300/108/117 and backlog78valid0errors, diff--check0. Host hardcaps unchanged; recorded pidspeak48/max256 and no max/OOM events in live observations. Earlier2232code/165of718PTY negative and causal detached-maintenance control remain preserved; this pass is not proof every old failure had identical cause, nor proof of previous host-reboot cause. README refreshed only actual verified checkpoint/fullside/default-profile features and remaining PR/Mac/release scope. Current full does not complete broader task/dependencies/nativeMac acceptance; no AC/DoD/Done checked.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Owned-frame input acknowledgement for forms, catalogue Close, avatar scroll and Actions overlay, with 18 contracts and 8 keyboard/mouse PTYs, green in the full suite. Check the ACs and mark Done.
 <!-- SECTION:NOTES:END -->

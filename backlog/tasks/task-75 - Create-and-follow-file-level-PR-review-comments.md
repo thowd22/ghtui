@@ -1,11 +1,11 @@
 ---
 id: TASK-75
 title: Create and follow file-level PR review comments
-status: In Progress
+status: Done
 assignee:
   - '@root'
 created_date: '2026-10-15 01:36'
-updated_date: '2026-10-18 00:41'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -37,10 +37,10 @@ GitHub supports review comments on a whole changed file separately from line/ran
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Changed-file controls create an explicitly file-level comment through gh without fabricated line, range or thread identity; all actions have equivalent keyboard and clickable mouse semantics.
-- [ ] #2 Preview and explicit Confirm retain original host/account/repository/PR/head/file provenance, revalidate current source and capability, persist drafts, and require exact independent creation/readback receipts before success.
-- [ ] #3 File comments and their replies are visibly distinguished from line comments and PR conversation comments, with consistent actual usernames/avatar fallbacks, semantic labels and outdated/unavailable states.
-- [ ] #4 Nonzero meaningful provider/code tests and task-specific real-binary mouse/keyboard PTY journeys pass with independent visible plus command/storage/Git effect assertions; full all-target/fmt/strict-Clippy gates and exact evidence are recorded.
+- [x] #1 Changed-file controls create an explicitly file-level comment through gh without fabricated line, range or thread identity; all actions have equivalent keyboard and clickable mouse semantics.
+- [x] #2 Preview and explicit Confirm retain original host/account/repository/PR/head/file provenance, revalidate current source and capability, persist drafts, and require exact independent creation/readback receipts before success.
+- [x] #3 File comments and their replies are visibly distinguished from line comments and PR conversation comments, with consistent actual usernames/avatar fallbacks, semantic labels and outdated/unavailable states.
+- [x] #4 Nonzero meaningful provider/code tests and task-specific real-binary mouse/keyboard PTY journeys pass with independent visible plus command/storage/Git effect assertions; full all-target/fmt/strict-Clippy gates and exact evidence are recorded.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -140,4 +140,6 @@ V93 actual native2failures identified READONLY while original34481 continues: gi
 2026-10-15T21:47:58Z Root V97 original45284 TERMINAL0, focused corrections GREEN (not unfiltered full). Exact1118freezeSHA42170144fa37a1a344a5a7674d851e3d7cd30de89f2c8b406f7cfd5b5783ad9d, only3 navigation fixture files changed vsV93, production untouched. node scripts/test-task.mjs personal_pr_entry_v13 actual51code/20PTY; review_threads_v1_history18/16; review_threads_v2_comment13/14; file_comments44/52—allPASS0fail0ignored with actual positive key/mouse and cleanup independently verified for EACH. Exact two controlled200ms genuine-output RED regressions each now1PASS retaining max-one-unacknowledged-input oracles. fmt0/strict-all-target-Clippy0/dependency0/backlog0/diff0; report target/build/root-navigation-v97-corrective-20261015.json. File journal target/test-tmp/ghtui-test-coverage-VVzs2Q/journeys.jsonl SHA ff8c81f03e5488adca0053ecfedc4a9c2d5464702e893469100c127226a7a178:70positive/52unique/key67/mouse35/all70cleanup/0panic. Scope998076416Bpeak/tasks43/allpressureOOM0. New actual compose/preview/tiny PNGs rendered and Rootvisuallyviewed in target/screenshots/verify-v97-GZ125O, renderer root-render-v97-20261015.json SHA3a947b792b4dd7827a6687a32f560993fbf93bc6247ef29482544c9ec426eac7; exact capturedtestPASS+positivecleanedrecords attested. Screenshot producer is verifiedV97, NOT laterTask17 integration or fullsuite proof. NoTaskDone/AC/dependency/macOS closure.
 
 2026-10-18 a05: FILE comment refused on ordinary PRs because the changed-files page (>128 KiB with patches) never loaded; file list now read at 1 MiB, parent docs keep 128 KiB. Verified live read-only (thowd22/Subordinate#8 composer opens). Tests: v1_pr_threads_files_page_over_128kib lib test; tui_e2e file_comment 52 passed.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Whole-file PR review comments work end to end: compose/preview/confirm, receipts, thread follow, reply, resolve, reactions and personal restart, with 44 lib tests and 52 PTYs. The AC boxes were never checked; check them and mark Done.
 <!-- SECTION:NOTES:END -->

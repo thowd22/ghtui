@@ -1,10 +1,10 @@
 ---
 id: TASK-73
 title: Refresh bundled SQLite to include the upstream WAL-reset integrity fix
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-14 21:02'
-updated_date: '2026-10-15 00:01'
+updated_date: '2026-10-20 14:09'
 labels: []
 dependencies:
   - TASK-70
@@ -34,11 +34,11 @@ The current bundled SQLite is 3.50.2 in vendor/upstream/rusqlite/libsqlite3-sys/
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The actual bundled runtime includes the official WAL-reset fix (compatible 3.50.7 or a verified newer fixed upstream), with explicit origin/pin/license/checksum provenance and no guessed patch or falsely changed version label.
-- [ ] #2 Existing database schema, committed private drafts/records, numeric-account isolation, owned-file permissions and symlink/hardlink/device refusals remain correct across real WAL checkpoint/restart journeys.
-- [ ] #3 Nonzero meaningful code/provider and real-binary keyboard/mouse PTY tests execute and pass; all visible actions preserve shared semantics and independent command/storage/Git/TTY effects.
-- [ ] #4 Offline locked all-target tests, formatting, strict Clippy, dependency integrity audit and clean-copy dependency build pass on supported targets; native macOS evidence is explicit rather than silently skipped.
-- [ ] #5 Release gating depends on this correction and documentation clearly distinguishes upstream WAL-reset risk from TASK-8 sidecar lifecycle repairs.
+- [x] #1 The actual bundled runtime includes the official WAL-reset fix (compatible 3.50.7 or a verified newer fixed upstream), with explicit origin/pin/license/checksum provenance and no guessed patch or falsely changed version label.
+- [x] #2 Existing database schema, committed private drafts/records, numeric-account isolation, owned-file permissions and symlink/hardlink/device refusals remain correct across real WAL checkpoint/restart journeys.
+- [x] #3 Nonzero meaningful code/provider and real-binary keyboard/mouse PTY tests execute and pass; all visible actions preserve shared semantics and independent command/storage/Git/TTY effects.
+- [x] #4 Offline locked all-target tests, formatting, strict Clippy, dependency integrity audit and clean-copy dependency build pass on supported targets; native macOS evidence is explicit rather than silently skipped.
+- [x] #5 Release gating depends on this correction and documentation clearly distinguishes upstream WAL-reset risk from TASK-8 sidecar lifecycle repairs.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -75,4 +75,6 @@ Root review progress before Main dependency mutation: independently verified fro
 Root independently admitted exact official adapted103-file rusqlite0.39.0/sys0.37.0 archive after all105baseline union hashes and102official Git blobs/only1Cargo manifest adaptation checks. Source moved mechanically with recoverable full old package at target/build/root-task73-original-backup.lAxE2E/rusqlite; two obsolete3.14bindings are removed only from active vendor tree, intact inbackup. Exact9 project outputs +mandatory8-entry checksum addendum23d6bc1f... verified; ALL non-rusqlite inventory entries unchanged,117registry package checksums stillpass. Explicitly staged only two pre-existing ignored nucleo/zopfli Cargo.lock bytes matching immutable frozenchecksums; no source change inthose files. Main code/provider1884 +624actualPTY currentfull exit0 root-sqlite-dependency-whole-first.log,0failed/ignored90.54s;31targets include zero-test mainbinary NOTcoverage. Main focusSQLite4code/2PTY jV6amU (6actualpositive sessions3purekeyboard3mouse), catalogue2/2 azPRhy, cache35/8 ChiXhD(18positive), composer6/10 1esb7m(16positive), selectedcorpus27/8 hynkdo(12positive); allactual both-input/exited/cleanup/nonpanic oracles inspected. Mainfmt0, strictalltargetClippy0(1m51s), sourceaudit86/10300/108/117. Fresh temporary index read-tree a0 +explicitsource/vendoradd +force2lockfiles produced immutableGitTREE548b8be33d1df5495f8dd7e395c5ababb9fb60fe; checkout-index physicalcopy preserves export-ignored6metadata andnow2trackedlocks, no Main index overwrite. Source diffagainsttemporaryindex0 through allgates before documentation update. Clean source target/build/root-sqlite-clean-checkpoint.C5WEZZ/source audit0; verified EMPTY CargoHome/EMPTY target (no seed/symlinks), offline/locked alltarget no-run exit0 in2m54s. Independently linked clean SQLite4/2 MuD3on (6positive) and framework26/15 UCPh8C (19records17positive,2deliberatepaniccleanupnegative excluded),0failed/ignored actual3key3mouse/8purekey9mouse; short /var/tmp/ghtui-root-sqlite.RWCWdb. No fresh-API/rare-WALrace/nativeMac/taskDone inference; product schema/defaultjournal/storage policy unchanged. README advances truthful1884/624 and74task count. Everynewsource/read-only native workflow remains required, goalactive.
 
 Pre-commit first-party staged whitespace check0 over Cargo/README/tests/vendor metadata/tasks. The separately frozen standard unified provenance patch has one single-space blank CONTEXT line17; git diff --cached --check flags that representation as whitespace, not a Rust/C source edit. Preserve exact documented patchbytes2ba76a79... so it remains a valid upstream-difference record; do not remove mandatory context prefix or mutate official runtime source for style. Explicit staged-path scope check confirms94paths only declaredproject/package/catalogue/2locks/README/Task2,73,74,68,69; unrelated agent plans remain unstaged. Earlier gitadd attempt with stale Task68 filename exited128 before anystage change; actual CLI-owned oldfilename resolved withrg, correctedstage0. All required cargo test/fmt/strictClippy/dependency/coldinput gates alreadyterminal0.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. SQLite 3.51.3 (rusqlite 0.39.0) is vendored with provenance, 4 contracts and 2 PTYs. The AC boxes were never checked. Check them and mark Done, with macOS noted as deferred.
 <!-- SECTION:NOTES:END -->

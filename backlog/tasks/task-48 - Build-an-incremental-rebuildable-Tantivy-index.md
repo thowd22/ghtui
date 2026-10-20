@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 19:45'
+updated_date: '2026-10-20 14:09'
 labels:
   - search
   - e2e
@@ -37,10 +37,10 @@ Ranked search over large selected corpora needs a reusable index with trustworth
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Code and collaboration documents share one ranked index keyed by host/account/repo/revision/resource.
-- [ ] #2 Incremental generations handle changed/deleted/renamed files and rewritten refs with visible coverage.
+- [x] #1 Code and collaboration documents share one ranked index keyed by host/account/repo/revision/resource.
+- [x] #2 Incremental generations handle changed/deleted/renamed files and rewritten refs with visible coverage.
 - [ ] #3 Corruption/schema changes rebuild from SQLite/Git while the TUI remains usable; resource limits are configurable.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -93,4 +93,6 @@ First targeted green actual1/1,0failed/ignored0.12s afterbuild27.79s, terminal47
 Checked current first gate actually11code passed (9lib+2real corpus),0ignored, but four native ran2pass2fail0ignored0.83s. New same-corpus third-query assertion incorrectly required canonical source generation2; explicit query correctly reserves source3 even though derivative remains unchanged. Preserve failed log/artifacts target/build/root-parallel-tree-index-checked-first.log; correct expectation to exact source2+1 and independently assert actual Tantivy on-disk opstamp unchanged. This is not weakening lock/source/result assertions. Raw/staging keys were not reached after failure; own current gates rerun next.
 
 Main current checked search_index now GREEN actual11code (9lib+2real corpus)/4compiled-binaryPTY,0failed/ignored,1.21s native, terminal79441exit0; target/build/root-parallel-tree-index-checked-second.log, completed key/mouse journals target/test-tmp/ghtui-test-coverage-cac6K7/journeys.jsonl. Real writer inheritance, real nonblocking writer contention and owned direct regular lock/symlink/hardlink/path rejection pass; no vendor rewrite/hidden retry. Native working-body replacement then explicit unchanged query proves exact source generation increments while independent on-disk Tantivy opstamp stays unchanged; actual deletion across restart and exact immutable saved destination still independently verified with unchangedGit/index/dirty and gh0/TTY. Main admitted raw42code/8PTY+staging15code/6PTY also GREEN Q1qKyK/wclluL. Whole/fmt/strictClippy subsequent integration gate remains required; full TASK48/deps/perf/Mac not Done.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): The shared Tantivy index with generations, deletion GC and corrupt rebuild is implemented and PTY-verified. Remaining: configurable index limits, and PTY journeys for an interrupted build and a rewritten ref. Remaining: AC3: rebuild-on-corruption is met, but resource limits are not configurable. RankedLimits only uses defaults (workspace.rs:124); only max_file_bytes comes from config.toml. AC5: the 4 PTY journeys exist, but none covers interrupting an index build or a rewritten ref visibly changing coverage (both are tested only in contracts).
 <!-- SECTION:NOTES:END -->

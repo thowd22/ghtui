@@ -1,11 +1,11 @@
 ---
 id: TASK-33
 title: Browse remote repository trees and files without cloning
-status: In Progress
+status: Done
 assignee:
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-17 03:14'
+updated_date: '2026-10-20 14:09'
 labels:
   - repository
   - e2e
@@ -38,12 +38,12 @@ Users must inspect unfamiliar organization repositories before deciding to clone
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remote branch/tag/tree/content views work through gh with explicit revision, pagination and size limits.
-- [ ] #2 Truncated trees, unavailable history and oversized/binary/LFS content have a visible fallback.
-- [ ] #3 Switching to a mapped/managed local repository preserves selected revision and path.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #1 Remote branch/tag/tree/content views work through gh with explicit revision, pagination and size limits.
+- [x] #2 Truncated trees, unavailable history and oversized/binary/LFS content have a visible fallback.
+- [x] #3 Switching to a mapped/managed local repository preserves selected revision and path.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -93,4 +93,6 @@ Root MAIN counted current remote immutable-content followup gate genuinely GREEN
 Current coherent MAIN whole checkpoint is independentlyGREEN: taskenv cargo test --offline --locked --all-targets33198exit0 PASS1779meaningfulcode/provider=1236lib+295strictGH+248other,564realbinaryPTY0failed/ignored84.54s (root-metadata-cache-tree-remote-actions-whole-first.log). Wholefmt21407exit0; strictalltargetClippy48634exit0(1m40s), correspondinglogs. FocusedMeta3/2MjiRau,cache26/8sSGrYU,Tree29/10zT2keB,remote9/18ODquvI,failedstep5/6PN0hA7 allcountedPASSactualbothinputs. Backlogaudit73valid0errors/doctor0cycles/dependency86sources10300files108patches117registrypackagesPASS/remotesEMPTY. README advanced afterterminalgreen. No task/dep/AC/DoD completion: macOS cache lock-neutral replacement, SQLiteupstreamTASK73, Task2fixturepublicationrace, performance/UX/live/release/CI and actual unadmittedDiff/RelatedPR work remainOPEN; no liveGitHubwrite or remotecreated.
 
 TASK-79 stabilization found a real remote-browser regression in the first integrated full gate: the newer distinct GithubErrorKind::OutputLimit was absent from the original no-proof immediate-stop match. After over-cap raw stdout/stderr, reader attempted an extra closing repository request (29 actual vs28 expected) before failing. Root added that kind to the original stop branch and strengthened the existing strict provider test to require exact OutputLimit. No caps/deadlines/permissions changed. Existing paired raw_capture_exhaustion_no_hidden_probe journeys retain exact35calls, hidden old body, saved/SQL/Git/config/TTY proof. Checked remote_tree_v1 is running under Task79; all TASK33 acceptance/dependencies remain open, no complete/platform claim.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Remote tree and file browsing through gh (refs, exact commit, partial-tree reload, binary/LFS/symlink/oversize, 403, local handoff) is implemented, with 15 contracts and about 14 keyboard/mouse PTY pairs. Ready to close.
 <!-- SECTION:NOTES:END -->

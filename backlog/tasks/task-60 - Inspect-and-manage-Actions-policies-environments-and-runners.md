@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 11:43'
+updated_date: '2026-10-20 14:09'
 labels:
   - actions
   - e2e
@@ -43,10 +43,10 @@ Full Actions support needs access to relevant operational settings when the acco
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Read/edit supported Actions allowlists/token permissions and environment protection settings with explicit scope/effect preview.
+- [x] #1 Read/edit supported Actions allowlists/token permissions and environment protection settings with explicit scope/effect preview.
 - [ ] #2 Runner/group inventory shows labels/availability/associations and supports verified permitted label/association/removal operations.
 - [ ] #3 Unsupported host/plan/org-admin capabilities explain limitations; no runner service provisioning or broad hidden change.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -91,4 +91,6 @@ Fresh Linux whole-project checkpoint GREEN: env CARGO_TARGET_DIR=/tmp/ghtui-prov
 Durable native changed-environment-ID keyboard/mouse journeys are migrated and included in the fresh green Actions46 gate (provider-native-durable-actions46-rerun.log,46/46 zeroignored32.48s). Each verifies34 exact matched read/write commands, original requested environment ID9 remains distinct from current same-name owner99, one exact PUT only, normal Refresh retains uncertainty, explicit original inspection reports current_by_name99/original_by_id null/requested_environment_id9, and fresh explicit ACK records acknowledged with null receipt/original target9 rather than retargeting/retrying. New unavailable SQL-view keyboard/mouse journeys prove selecting other resources cannot remove fail-closed remote disabled reasons while cancelled local filtering remains accessible. Whole current all-target/provider/lint/platform coverage and broader org-only/runner/settings/dependency gaps remain open; no task Done inferred.
 
 Root native regression fixes and retained evidence: source_transition checked first10code/9of10native failed because shared filter allowed old visible ID/name while actual async query frame was absent. Actual query+unique match/current row and subsequent list-focus barriers now pass10/10 and broad catalogue86/86 without changing target authority. Whole repeat401of402 failed only Actions keyboard environment9→name99 recovery close: Original Attempt lacks ACTIONS INTENT, so old fixture returned before the retained composer/footer was closed. Shared close now requires Preview/Intent/Original Attempt and Keep draft footer absent. Separate Actions46 initially45/46 failed mouse acknowledged-original F9: genuine artifact target/tui-artifacts/2814309-1791977685995376396 records44 matched reads, original acknowledged Cancel123/attempt2 and late F9 footer. Generic fixture attempted hidden control paging before that footer was painted. Added known F9 New intent to existing owned composer button handling, awaiting genuine visible click instead of paging behind overlay. New gates Actions46/46, settings9code+4PTY, runcontrol52code+6PTY and whole1383code+402PTY all green. One original uncertain write, explicit original inspection/acknowledgement and precisely one new confirmed write remain independently asserted; original environment ID9/current-by-name99, exact one PUT/no resend and durable recovery invariants retained. No weakened snapshots/effects or product guard relaxation.
+
+2026-10-20 audit at 74360e48 (2/5 ACs met): Policy (workflow token), environment protection and runner label edits work, with keyboard/mouse PTY journeys and exact-ID recovery. Runner groups/associations and capability/permission explanations still have no PTY coverage. Remaining: AC2: the Runner groups view and its Create/Edit/Replace runners/Replace repositories/Delete commands are reachable (actions_workspace.rs ~1985), but they have only a provider contract (provider_contracts.rs:1650). No PTY journey covers runner-group association or a confirmed runner removal. AC3: limits are explained only for a busy runner and for 'Runner groups require an explicitly selected organization scope'. No tests cover host/plan/org-admin limits or disabled unauthorized controls. AC5: th
 <!-- SECTION:NOTES:END -->

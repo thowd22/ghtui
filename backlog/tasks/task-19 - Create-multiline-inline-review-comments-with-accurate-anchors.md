@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:41'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -43,12 +43,12 @@ Readable diffs must connect to correct GitHub lines, including deleted-side and 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comment selection retains path, side, start/end line and observed head from the canonical diff model.
-- [ ] #2 Single/multiline comments and replies show existing/outdated threads and verified server results.
+- [x] #1 Comment selection retains path, side, start/end line and observed head from the canonical diff model.
+- [x] #2 Single/multiline comments and replies show existing/outdated threads and verified server results.
 - [ ] #3 Changed heads or invalid anchors require an explained re-anchor path and preserve the draft.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -176,4 +176,6 @@ Root actual Native canonical entry13code now PASS0failed/ignored10.04s, source87
 V10 corrective gate ACTUAL GREEN: manifest root-form-preview-v10-inline-scroll-checked-20261015.json SHAd450f32c1c64f74c6a2676d4e301d1fd1764a9d03183efb07b27c090347e4592. One fixture path changed: initial owned Preview header first, real mouse wheel/PageDown only when original body below viewport, NEW completed owned phase/body/fullcontrols required, all pending-paste/child/SQL/exact83reads0writes/Git/config/TTY assertions retained. Checked inline_comments135code22PTY and form_preview_visible23code8PTY allPASS0failed0ignored,40positiveactualsessions/20mouse allcleanup; strict Clippy0, actual3422registration. Scope peak905601024bytes/tasks42,0OOM0tasklimit. Source929freeze a23afa425adca98eacda3328bf8016793f0976e7a54a4d51844f28bfc3eaeeda. Original failed full V9 remains FAILED; no new whole-green/Done claim. Next integration uses focused gates then aggregate full checkpoint.
 
 2026-10-18 a05: Files diff gets [i Comment line] (selected diff line opens images at that side/line with range verified; Shift+arrows/drag extends; P auto-verifies range). Files list now loads for PRs whose 100-file page exceeds 128 KiB (cap 1 MiB). Gate: agent-run.sh a05 node scripts/test-task.mjs v1_pr_threads -> 5 code + 2 PTY (keyboard+mouse) passed; filtered inline_comments 24, file_comment 52, immutable_images lib 239 passed.
+
+2026-10-20 audit at 74360e48 (5/6 ACs met): Single/multiline left/right inline comments, replies and outdated threads are PTY-tested both inputs; head-change refusal keeps the draft but there is no tested explicit re-anchor flow. Remaining: AC3 is only partly met. A changed head or UID is refused, no wrong-line POST is made and the draft is kept (native_inline_comments_*_changed_uid_and_head_reject_without_wrong_anchor_or_post; message at src/scoped_pr_inline_native_v1.rs:691 'Inline preview refused • draft retained • explicitly re-anchor if needed'). But there is no re-anchor control or flow that rebinds the kept draft to a new selection on the new head. No test covers re-anchoring after a head change: the 'path' is only a text hi
 <!-- SECTION:NOTES:END -->

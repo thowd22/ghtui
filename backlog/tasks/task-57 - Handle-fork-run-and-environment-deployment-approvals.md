@@ -1,12 +1,12 @@
 ---
 id: TASK-57
 title: Handle fork run and environment deployment approvals
-status: In Progress
+status: Done
 assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-14 16:20'
+updated_date: '2026-10-20 14:09'
 labels:
   - actions
   - e2e
@@ -42,11 +42,11 @@ Workflows can wait on a human decision. The TUI should show what approval is nee
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Pending fork and environment approval/rejection actions expose reason, exact scope and allowed reviewer state.
-- [ ] #2 Environment protection gates and approval actor/history appear in run detail with clear unavailable capabilities.
-- [ ] #3 Approve/reject refreshes the intended run and distinguishes waiting, approved, rejected and stale states.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #1 Pending fork and environment approval/rejection actions expose reason, exact scope and allowed reviewer state.
+- [x] #2 Environment protection gates and approval actor/history appear in run detail with clear unavailable capabilities.
+- [x] #3 Approve/reject refreshes the intended run and distinguishes waiting, approved, rejected and stale states.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -116,4 +116,6 @@ Failure evidence retained: firstcodecompile&StringParagraph;22/24code beforeactu
 Backlog auditor72valid0errors/doctor0duplicate/self/cycles,git diff --check0,git remote empty; Node negative runner3/3 previouslypassed72.30ms. README/Docs9/10 currentwholeevidence updated throughcorrectworkflow. ThreeactiveNEWsourceonly agentlanes: fullcompactGraph+200projection+16MiBactualArcvisitrestore, immutableTree/freshcomparisonOldCvsrequestedA sides, andscopedannotations/actualcapturedlogsearch/finiteWatch. TheirfrozenGraph24code/12PTY andTree33/8 sources remainUNADMITTED/UNCOMPILED/UNRUN, asdoesremote followup4/14. Initialpendingopen/Back parity isRootrequiredNEXT, historicalattempt/head/export/scopedpublication/completePR/search/dashboard/actor/macOS/latency/packaging/TASK69CI remainopen; no AC/Done/dependency/completion inference.
 
 Final exact targeted retained metadata context-denial mouse case passed1/1,0ignored, log target/build/root-scoped-choices-contextDenial-current.log. All eight failures from additional overbroad simultaneous actions::132 test run now also passed focused exact targeted cases (plus full458); retained simultaneous-run reliability failures are still documented, not erased or called a passed132gate. No source changes after current1552/458 fullgreen/fmt/strictClippy checkpoint. AllRootprocesshandles terminal/consumed; verified liveagents Root+foundation_resume+local_git_resume+provider_resume are allrunning. Initialpendingopen/Back retention nextsafeRoottask; allgoal/fullfeature/platform/release gates remainopen.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Fork and environment approve/reject show gates, reviewers and history, with stale and uncertain recovery, tested by keyboard and mouse. Ready to mark Done after review.
 <!-- SECTION:NOTES:END -->

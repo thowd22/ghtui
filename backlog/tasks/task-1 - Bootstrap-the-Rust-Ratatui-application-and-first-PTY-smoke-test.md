@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 23:33'
+updated_date: '2026-10-20 14:09'
 labels:
   - foundation
   - e2e
@@ -77,4 +77,6 @@ Root V211 unfiltered actual gate stopped at project_contracts: discover CARGO_MA
 Root V218 ACTUAL project_git_init checked gate PASS: 1 code contract and 2 real-binary native names, 8 nonpanicking exited cleanup-complete sessions with actual keyboard/mouse. Owned actual Cargo/src Git fixtures cover unborn and committed dirty index/worktree, root and src launch, entire prepared long path identity, exact source/index/HEAD/refs/status/config/no-remote preservation and no GH. Code additionally exercises unborn-staged/clean committed states. Current source V21779e92a55 includes cumulative V74 fixtures; report target/build/root-members-v218-private-20261016.json SHA3151e0d19e9f99d47e4df75f319ac000263ffd56fd0bf47fd2a55a9735ad0d3e; journal /var/tmp/ghtui-verification-20261016-kRLcXc/ghtui-test-coverage-ubv6dj/journeys.jsonl SHA5db0050241bc103dea57c63e02c19fe7b07ba18df2e67fcd5579f26c191826ba. Entire candidate remains NEGATIVE on separate Members code/native/Clippy; full unfiltered gate not run for V217, no TaskDone/Mac claim.
 
 2026-10-16 USER SEQUENTIAL RESET: all three active sub-agents interrupted; exact owned ghtui-verify-coherent-feedback-v307-20261016.scope stopped with SIGTERM, original exec 1330 exit143 and scope inactive/dead. V307 stopped during test-inventory compilation: no completed application tests or PTY result; unfinished report/log/source preserved. Autonomous goal paused. See backlog doc-13 (Sequential delivery reset and current-state audit) for actual backlog counts, V304 failing evidence, private-source preservation inventory and one-worker/one-feature/testing-after-implementation policy. No task criteria/status changed and no product completion claimed; do not restart agents or discard target private source. First sequential workstream is consolidation/stabilization of one existing baseline, not another new feature/design branch.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): Linux shell, CLI and terminal restore are done with key+mouse PTY bootstrap journeys. Only macOS build verification is missing (deferred by the user). Remaining: AC1: builds on Linux and exposes version/help plus the 5-view shell, but there is no macOS build or native evidence. The user deferred macOS on 2026-10-17, so this does not block v1, but the AC is still open as written.
 <!-- SECTION:NOTES:END -->

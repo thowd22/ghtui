@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 01:24'
+updated_date: '2026-10-20 14:09'
 labels:
   - search
   - e2e
@@ -37,10 +37,10 @@ Exact matches and regex should work locally with predictable semantics and no ad
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Ripgrep crates provide bounded cancellable scans with line/column previews and exclusion controls.
-- [ ] #2 Worktree and selected-commit searches are explicitly labelled and include correct uncommitted or committed content.
-- [ ] #3 Invalid/expensive regex, unusual paths and binary files show understandable bounded behavior.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #1 Ripgrep crates provide bounded cancellable scans with line/column previews and exclusion controls.
+- [x] #2 Worktree and selected-commit searches are explicitly labelled and include correct uncommitted or committed content.
+- [x] #3 Invalid/expensive regex, unusual paths and binary files show understandable bounded behavior.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -69,4 +69,6 @@ Prepared explicit read-only Corpus collector for working files versus immutable 
 Manifest owner resolved embedded official ignore/grep crates; corpus+scan modules are exported and real generated-Git search contracts pass. Snapshot collection verifies actual immutable blob sizes before bounded batch reads, worktree retains uncommitted content and exact Unicode line/columns, unusual raw paths survive, .gitignore/.rgignore/hidden controls and binary/LFS/symlink/large limits are explicit. Added GIT_NO_LAZY_FETCH plus read-only empty GIT_ALLOW_PROTOCOL fallback for older Git so missing promisor objects never trigger silent transport; explicit fetch/write and lease ls-remote remain authorized. New negative-control promisor helper test is pending because current test archive hit hardquota, not counted as passed. Previous search9 tests passed; actual exact_search PTY remains required.
 
 Checked exact_search gate passed10 code/provider and2 real-binary PTY tests, zero failures/ignored, actual keyboard and mouse input coverage. Artifact /tmp/ghtui-test-coverage-lYxJFT. Verifies explicit working/saved contents and line/column destinations at120x40/80x24, immutable original SHA file opening without checkout/index changes, traversal/symlink rejection, unavailable/promisor objects never silently fetching, regex/multiline/Unicode/exclusion/cancellation bounds, and one shared Arc source body for many matches rather than per-hit megabyte duplication. Full regression and broader Task45 Ranked/GitHub integration gates remain open.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): Exact/regex local search is implemented and covered by PTY for both inputs. The only gap is a PTY journey that cancels a slow scan. Remaining: AC5: the PTY journeys cover phrase, regex, invalid regex, worktree/saved scope, exclusions and exact open, with keyboard and mouse at 120x40 and 80x24. No PTY journey cancels a slow scan. Cancellation is reachable (Action::Cancel and query edits set cancel_requested, src/search_ui.rs:490/558) but only the contracts test it.
 <!-- SECTION:NOTES:END -->

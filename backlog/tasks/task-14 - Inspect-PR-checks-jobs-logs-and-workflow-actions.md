@@ -6,7 +6,7 @@ assignee:
   - '@root'
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 20:19'
+updated_date: '2026-10-20 14:09'
 labels:
   - inbox
   - e2e
@@ -43,12 +43,12 @@ A PR may look ready while checks are pending, stale, or failed. Reviewers need c
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Required/pending/failing checks correlate with the observed SHA and distinguish unavailable results.
-- [ ] #2 Jobs/steps/logs load progressively with search and an understandable failing-step path.
-- [ ] #3 Permitted rerun/cancel actions preview the exact run, report outcome, and refresh status.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
-- [ ] #7 The PR checks viewer shares run identity and navigation with the dedicated Actions view as that view is delivered.
+- [x] #2 Jobs/steps/logs load progressively with search and an understandable failing-step path.
+- [x] #3 Permitted rerun/cancel actions preview the exact run, report outcome, and refresh status.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #7 The PR checks viewer shares run identity and navigation with the dedicated Actions view as that view is delivered.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -282,4 +282,6 @@ V81 now terminal/consumed: faee24d9e95037b0d7021faed558889de569ce3ed05496f26ba09
 V83 ACTUAL focused test results now GREEN (strictClippy still running in original41400): node scripts/test-task.mjs pr_details1meaningful provider+2real-binary keyboard/mouse PTY PASS0failed/ignored,native0.69s,dd7kmh independent2positive/2unique cleanup2 keyboard1mouse1. node scripts/test-task.mjs personal_pr_entry_v13 47code+12PTY PASS0failed/ignored,native13.83s,hFKsFh independent22positive/12unique cleanup22 keyboard16mouse11. Actual corrected tests open genuine10-child Personal Files; reject directChecks honestly; pure Back restores original Commits then oldChecks/Timeline/Inbox work; allSQL/Git/config/exact30-command effects preserved. fmt0; current strictClippy pending, NO freshwhole4085PASS inference or complete tab-parity claim. V81 full4083PASS2FAIL retained faee24..., last historical wholeGREEN3865 unchanged.
 
 V83 checked gate now TERMINAL0, original41400 consumed: target/build/root-personal-tabs-v83-checked-20261015.json actual pr_details1code/2PTY and personal_pr_entry_v1347code/12PTY allPASS0failed/ignored; actual14unique positive native tests collectively,24cleanup-complete sessions. fmt0 strictClippy0 diffcheck0. Main1088frozen source hashes held unchanged across focused+quality gates; fresh WHOLE remains REQUIRED before any whole-current-green claim. V81failedfull4083PASS2FAIL kept; historicalV57whole3865PASS stilllastunfilteredgreen. No Task14/13/fulltabparity/goalcompletion.
+
+2026-10-20 audit at 74360e48 (6/7 ACs met): Checks->shared Actions bridge, logs, search, failed-step, annotations, watch, rerun/cancel all have both-input PTY and provider coverage; only required-check correlation is missing (shown as 'Required rules unavailable'). Remaining: AC1: pending and failing checks are bound to the exact head (exact-head check-runs, attempt-advance and head-change tests), but required checks are never identified. src/providers/gh/pr_resources_v1/model.rs:297 always shows 'Required rules unavailable; observed results are not certified merge blockers'. Branch protection and ruleset required checks are not loaded, so 'required' is only honestly labelled as unavailable, not correlated. Minor: after a rerun, the PR journey stops at 'accepted, com
 <!-- SECTION:NOTES:END -->

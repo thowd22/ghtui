@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@local_git'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-16 08:34'
+updated_date: '2026-10-20 14:09'
 labels:
   - delivery
   - e2e
@@ -36,11 +36,11 @@ Metrics should answer useful questions and link to evidence. Current snapshots c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PR age/review wait/first-review/merge latency and check/workflow health have explicit formulas/cohorts/timezones.
+- [x] #1 PR age/review wait/first-review/merge latency and check/workflow health have explicit formulas/cohorts/timezones.
 - [ ] #2 Historical metrics retain source events and backfill coverage; missing/partial cohorts are labelled.
-- [ ] #3 All metric values retain contributor IDs so users can inspect the underlying records and actors.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #3 All metric values retain contributor IDs so users can inspect the underlying records and actors.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -204,4 +204,6 @@ Root FULL-read13557B V43SMALL2 patch and actual computation/fixture UTC helpers.
 SOURCE-ONLY approved V166 causal corrective frozen: target/build/graph-parallel-metrics-v43-current-corrective-sourceonly-v1-20261016.json SHA8b6e87e8760f875c15eaff527136a319db25335080d2d6cabf509c76e5c65dd6, exact1294 baseline/output,2 owned. One test UTC anchor carries alpha-3days/bot-15days/null Draft through all failing-pair inventory/refresh/canonical Open responses; actual UI as-of independently drives expected ages/windows. Original76 strict reads/all old native names/effects retained. Two new production-computation declarations cover2035 future/day/year and2036 leap transitions plus exact interval start/end. Root original V166 negative sessions preserved in causal proposal4d0bdeec. Only Rustfmt syntax/forward+reverse apply/hash checks performed; NO Cargo/rustc/code/PTY execution by agent. Root sole verifier; no AC/Done/dependency/platform readiness claim.
 
 2026-10-16 actual V170 checked node scripts/test-task.mjs metrics PASS107code+20real-binaryPTY/0ignored/bothinputs/exact20positiveunique/allcleanup. New real-computation future day/year/leap and half-open boundary2code pass; relative cohort fixtures retain exact76 GH reads/records/unknowns/formulas. Report25f8e028/log6b9e94f1/coverage9e8bdc5f. fmt/strictalltargetClippy/dependencies0. No taskDone/dependency or wholeproduct acceptance; current full suite required after Metadata/blended repair.
+
+2026-10-20 audit at 74360e48 (4/5 ACs met): Snapshot metrics with formulas, cohorts, UTC windows, contributor drill-down and partial labels work, with keyboard/mouse PTY coverage. Historical event retention/backfill sits in uncompiled orphan source files and is not done. Remaining: AC2: partial and unavailable coverage is labelled (metrics_workspace.rs:40, metrics_ui.rs:143). Historical retention and backfill are not implemented, though. src/storage/metrics_retention.rs (57 lines) only stores current observations as 'available-history/backfill coverage not yet proven', and nothing outside storage uses its exports. The history/backfill code (src/metrics_history.rs, src/metrics_retained_detail.rs, src/metrics_health.rs, src/metrics/history_basis.rs, src/storage/metrics_reten
 <!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: Build polished native split and unified diff exploration
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:50'
+updated_date: '2026-10-20 14:09'
 labels:
   - repository
   - e2e
@@ -40,11 +40,11 @@ Readable diffs need more than colored text: reviewers must move quickly through 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Unified/split rendering has syntax/within-line highlighting, line numbers, hunk navigation, search and context expansion.
-- [ ] #2 Whitespace/generated-file controls, binary/LFS/submodule states and large-file bounds are explicit.
-- [ ] #3 Mouse scrolling/range selection and keyboard equivalents preserve canonical review coordinates; optional delta/difftastic handoff is bounded and restores the terminal.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #2 Whitespace/generated-file controls, binary/LFS/submodule states and large-file bounds are explicit.
+- [x] #3 Mouse scrolling/range selection and keyboard equivalents preserve canonical review coordinates; optional delta/difftastic handoff is bounded and restores the terminal.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -298,4 +298,6 @@ Root actual bounded V6 session52587 terminal1, freeze879 SHA1f414f92fefb65dc83ed
 Root V7 actual session39844 terminal0 on exact879source freeze14b322c25f9c88f5351371c9d2307485b2be84ea0e2a89866ebcb365ef0c8188. Checked native_external_diff48code/10PTY GREEN; native_inline_comments14/10 GREEN; impacted scoped_pr_native_diff27/20, native_full_side34/4, inline_comments73/18 GREEN. Counts overlap by task filters; do not sum as unique additions. All0failed/ignored and independent actual keyboard+mouse/exited/cleanup_completed evidence, fmtcheck/dependency/backlog/diff0. Direct genuine SHA1/SHA2566mode regression1PASS5.70s records actual original-pool Working94/Staged102/Uncommitted96 children (each format), exacttraceequality and no Git/index/worktree/config effects. Narrow canceledstatus promoted above statichelp; strict owned completed-box whitespace normalization handles real wraps without relaxing cancellation sentence/no-replay/identity/temp/TTY oracles. NewNativecohort62code20PTY (14+48) nowfocusedGREEN. Manifest target/build/root-native-combined-v7-checked-20261015.json; memoryPeak2758828032bytes, peakTasks63,0OOM/limit events. Full unfiltered/strict stagedcommentconsumer/cold/MSRV/nativeMac/real-tool gates still required; no TaskDone/AC.
 
 2026-10-18 a12: commit/branch/working/compare diffs use plain file headings (path, Added:, Deleted:, Renamed: a -> b) and hide raw index/rename/mode lines; native patch view unchanged. Gate: test-task v1_repo_views -> 6 code + 2 PTY pass.
+
+2026-10-20 audit at 74360e48 (4/6 ACs met): The native diff is feature-rich and has strong keyboard/mouse PTY coverage (split, wrap, generated, search, range, oversize, delta handoff). Remaining: tests for hunk navigation and PTY coverage of the whitespace, syntax, within-line and context toggles. Remaining: AC1: next/previous hunk ({ and }) is wired and listed as a control but no test exercises it. The syntax toggle (y) and within-line toggle (i) have no PTY journey; within-line has only a unit test. Context expansion is covered only via Full Old/New side (native_full_side_v3). AC5: the main journeys run in keyboard and mouse pairs, but several exposed controls are never driven by a PTY test: hunk nav, s Whitespace, y Syntax, i Within-line, c Context, p Previous match.
 <!-- SECTION:NOTES:END -->

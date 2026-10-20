@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:19'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -42,12 +42,12 @@ A review commonly contains multiple comments and a final decision. Drafting, sub
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Pending inline comments and summary can be added/edited/removed without premature publication.
+- [x] #1 Pending inline comments and summary can be added/edited/removed without premature publication.
 - [ ] #2 Approve/request-changes/comment, submit/discard, reviewer re-request, and permitted dismissal map to verified capabilities.
-- [ ] #3 Server pending-review state, local drafts, and changed heads reconcile with explicit outcomes.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #3 Server pending-review state, local drafts, and changed heads reconcile with explicit outcomes.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -385,4 +385,6 @@ V73 fixes actual history40x14/120x40 footer ownership using existing single-acti
 Root V74 restart fixture correction VERIFIED ACTUALLY: Personal queue Refresh now waits a NEW completed Fresh/fetched original queue result and exact commands-7 preOpen journal, not restored cached rows. Earlier V73 selected PR GET wrongly raced explicit refresh before user34; no endpoint/fixture-count or assertion relaxation. node scripts/test-task.mjs personal_pr_entry_v13 ACTUAL47code12PTY pass0failed0ignored including both personal_pr_summary_v15 keyboard/mouse restart protected-history fresh-inspect explicitACK no-resend tests. Independent journal22positive12unique/key16mouse11cleanup22. Current report target/build/root-pr-actions-v74-checked-20261015.json SHA f0e01cf1137b93a697bd162d55c7fbc07f3ce602ebc84e6ed543edc037023ea1 and freeze1088 SHA7601a50eeeccddad2554582e83040691e4bf84c7f8904ae4777704337958d8a9; fmt/strict alltargets0, broaderActions239code82PTY/framework49code21PTY0. Actual registered4085=2991code1094PTY is compilation/listing, not whole-pass; fresh V75 unfiltered node scripts/test-all.mjs RUNNING. No taskDone/AC/dependency/nativeMac/liveMutation acceptance, full PR workflows remain open.
 
 2026-10-18 a04: PR actions menu reviews usable daily: own-PR/closed-PR review refusal shown before opening a form, review form states exact effect + 'Review summary' field, Summary shows latest decision per reviewer after refresh, menu entry points to Files->F10 Reviews for pending/dismiss/re-request. Gate: node scripts/test-task.mjs v1_pr_reviews passed (2 code + 6 PTY, keyboard+mouse); related pending_reviews_v2_avatars_v7 ready (2), personal_pr_common_v14 pending (2), pr_merge (4), lib avatars_v7 (12), forms (20), pr_legacy_contract (8) passed.
+
+2026-10-20 audit at 74360e48 (5/6 ACs met): Pending reviews in F10 Reviews: create, edit, delete, resume, submit (approve, changes, comment), discard, dismiss and re-request, with paired keyboard and mouse PTY tests and stale-head and restart handling. Remaining: dismiss and re-request permission is shown as UNKNOWN, never checked against a verified capability. Remaining: AC2: approve, request changes, comment, submit, discard, re-request and dismissal are all wired and tested, including a denied 403 dismissal that is not retried (actual_denied_dismissal_unknown_no_retry). But the app never checks permission before dismissal or re-request. The UI labels both as 'eligibility UNKNOWN' (scoped_pr_review_operations_v3.rs:38, browser_v2.rs:557), so they are not tied to a verified capability. Also, pending-review management only lives under Files > F10. The Summary men
 <!-- SECTION:NOTES:END -->

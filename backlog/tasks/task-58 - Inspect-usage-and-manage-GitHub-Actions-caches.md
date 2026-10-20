@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 02:51'
+updated_date: '2026-10-20 14:09'
 labels:
   - actions
   - e2e
@@ -40,11 +40,11 @@ Large or stale caches can explain CI behavior. Cache management needs concrete s
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache list/filter shows repo/ref/key/size/access times and available usage context.
-- [ ] #2 Individual/selected deletion previews exact entries and preserves unrelated caches.
+- [x] #1 Cache list/filter shows repo/ref/key/size/access times and available usage context.
+- [x] #2 Individual/selected deletion previews exact entries and preserves unrelated caches.
 - [ ] #3 Permissions, missing/stale entries and host limits are explicit and refresh after operations.
 - [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -76,4 +76,6 @@ Native cache-management source now includes key-prefix/exact-ref typed filtering
 Actual shared full checkpoint: root ran cargo test --offline --all-targets with CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target, jobs2/incremental0/dev+test debug0. Log target/build/root-all-targets-checkpoint.log: provider_contracts85/85 passed zero ignored (0.54s), actions_contracts10/10 passed zero ignored (0.17s), and tui_e2e102/102 passed zero ignored (7.66s). This task’s two prepared native keyboard/mouse journeys both executed and passed in that real-binary suite, including strict command effects and checkout preservation. New task-specific selector reruns and current fmt/clippy gates still pending; no Done/complete-parity claim.
 
 Checked task-specific command passed: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 node scripts/test-task.mjs actions_cache. Selected 2 meaningful code/provider and 2 real-binary PTY tests, all passed zero ignored; 1 prepared-cache +1 provider deletion test and2 native PTY3.50s. Runner independently verified successful actual keyboard=true and mouse=true journey records at /tmp/ghtui-test-coverage-QWQNZl/journeys.jsonl. Latest global checkpoint also passed258 code+102PTY, cargo fmt --check and cargo clippy --all-targets -- -D warnings (root). Full task acceptance/dependencies/platform/remaining workflow scope remain open, so no Done claim.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Cache list, filter, usage and guarded single-cache delete work in the app, with keyboard and mouse PTY journeys. Remaining: tests for stale/missing/permission-denied deletes, and showing host cache limits in the UI. Remaining: AC3: the 'Selected cache changed or disappeared' (StaleHead) and 'still visible after deletion' guards exist in code, but no test exercises them. No test covers denied permissions. Host storage/retention limits (cache_limits, organization_cache_usage in operations.rs:651/707) are covered only by a provider test and are never called from the UI. Refresh after delete is done. AC4: the testing steps ask for paging, partial and stale outcomes, and no provider test covers stale, missing or partial de
 <!-- SECTION:NOTES:END -->

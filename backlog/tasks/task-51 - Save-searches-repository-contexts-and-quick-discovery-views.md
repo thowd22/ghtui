@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 01:27'
+updated_date: '2026-10-20 14:09'
 labels:
   - search
   - e2e
@@ -38,9 +38,9 @@ Frequent searches and meaningful repository groups should be one action away. Sa
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Saved queries/contexts retain mode, filters, scope and sort and are editable/pinnable.
-- [ ] #2 Fuzzy pickers use nucleo for commands/repos/paths/refs while content uses its explicit search mode.
-- [ ] #3 Saved views survive restart and explain missing/inaccessible repos or unsupported filters.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #2 Fuzzy pickers use nucleo for commands/repos/paths/refs while content uses its explicit search mode.
+- [x] #3 Saved views survive restart and explain missing/inaccessible repos or unsupported filters.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
@@ -67,4 +67,6 @@ Search backend preparation assigned local_git agent after actual identity/theme 
 Preparatory SavedSearch serde model retains version/mode/query/repositories/per-repository working-or-revision sources/sort/pin/account scope; SearchWorkspace save/load/restore uses existing SQLite namespace search:name and separate available mappings, refusing to broaden missing selections. Official Nucleo picker handles smart Unicode normalization/fuzzy indices/deterministic ties/limits/cancellation for navigation only. Actual search_contracts9 passed including saved SQLite restart/account isolation and Workspace/Nucleo cases. Actual saved_searches key/click restart journey remains required before completion.
 
 Checked saved_searches runner passed2 meaningful code contracts and2 actual keyboard/mouse PTY journeys, zero ignored/failures. Artifact /tmp/ghtui-test-coverage-VzVSdw. Verified exact regex input/path filter, saved-version scope, selected repo, SQLite values, wide/narrow restart, then mapping changed to a different existing repo: restore reports unavailable original scope and refuses to broaden results. No gh calls or HEAD changes. Native pin/edit/list picker breadth and broader collaboration prerequisites remain open.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Saving, restoring after restart and the missing-scope warning work for keyboard and mouse. Remaining: pin/edit/delete controls in the UI, plus PTY coverage for them. Remaining: AC1: the model stores mode/input/filters/repositories/revision/sort/pinned (workspace.rs:1067-1148), but the UI always saves pinned=false (src/main.rs:2772). Users cannot pin, rename or delete a saved search; editing is only re-saving under the same name. AC5: the saved_searches PTY covers save, restore and the missing-mapping warning only, so pin/edit actions have no keyboard/mouse coverage and the 'modify its repo set' step is done by rewriting config, not through the UI.
 <!-- SECTION:NOTES:END -->

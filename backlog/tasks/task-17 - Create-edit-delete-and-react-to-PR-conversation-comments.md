@@ -1,12 +1,12 @@
 ---
 id: TASK-17
 title: Create edit delete and react to PR conversation comments
-status: In Progress
+status: Done
 assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-16 04:02'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -43,12 +43,12 @@ Full PR conversation requires managing existing comments as well as posting new 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Create/edit/delete use the exact comment and account with a preview or confirmation where appropriate.
-- [ ] #2 Comment reactions and subscription state expose permissions and verified read-back.
-- [ ] #3 Ambiguous writes reconcile; successful actions refresh all relevant views and search records.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #1 Create/edit/delete use the exact comment and account with a preview or confirmation where appropriate.
+- [x] #2 Comment reactions and subscription state expose permissions and verified read-back.
+- [x] #3 Ambiguous writes reconcile; successful actions refresh all relevant views and search records.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -328,4 +328,6 @@ V142 terminal96397 03:27:11.381Z/deadverified: actual currentRefresh17/4+NewActi
 2026-10-16 V144 actual combined private gates: Close19code4PTY, Retry16code6PTY, Values2code2PTY, Refresh17code4PTY, NewAction14code12PTY ALLPASS,0ignored/bothinputs/unique/allownedcleanup. Broader conversation_comments107codeALLPASS+34/36PTY, exactly two keyboard failures retained: created second body line below80x24 viewport, nullable choice events not followed by completed-owned-form barrier before Preview helper. Graph investigating minimal supported-scroll and per-choice actual-frame fixture successors; strict body/SQL/search/no-replay/Git and command32 oracles preserved. Source1257c720ce33 immutable; soleRoot68031 still live finishing strictchecks; no unfiltered/fullMain/Mac/TaskDone claim. Report root-current-followups-v144-private-20261016.json records actual log/journal hashes. All dependencies/AC/status remain open.
 
 V145 ACTUAL full checked conversation_comments107code36realbinaryPTY ALLGREEN,0ignored/bothinputs/36unique/all90ownedcleanupproduced. CoverageRL58aH SHA8be0fba966336609f7c2db195d3ee50db38e05c2fe37a570025bb508de3a6f70; originalcreate multilinebody+nullable/denied originals nowPASS viaSUPPORTEDsamecommentDown/per-choicecompletedForm, allbody/projection/GH/SQLGit unchanged. SeparateClose19/4 Retry16/6 Values2/2 Refresh17/4 NewAction14/12ALLGREEN, overlappingnotunique wholecount. Current1257freeze4d57dd8a/SAME79305stillliveothergates. NoTask17Done/fullMain/macOS/Metadataclaim.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Create/edit/delete/react/subscription with preview/confirm, reconciliation and search/projection read-back fully covered by both-input PTY + contracts; ready to tick ACs.
 <!-- SECTION:NOTES:END -->

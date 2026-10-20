@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:34'
+updated_date: '2026-10-20 14:09'
 labels:
   - localgit
   - e2e
@@ -36,11 +36,11 @@ Useful Git management includes synchronization, but users need to know which rem
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remote/url/ref/upstream and ahead/behind are visible before fetch/pull/push.
+- [x] #1 Remote/url/ref/upstream and ahead/behind are visible before fetch/pull/push.
 - [ ] #2 Pull strategy and conflict/sequencer outcomes are explained; any force operation requires explicit guarded choice.
 - [ ] #3 Failures/prompts/cancellation preserve work and report partial remote/local effects accurately.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -62,4 +62,6 @@ Native LocalCommand Fetch/Pull/Push/ForcePushLease forms use explicit configured
 Actual checked node scripts/test-task.mjs remote_git passed 5 code/provider + 2 real-binary PTY tests, zero ignored, with shared offline target/jobs2/incremental0. Keyboard/mouse coverage artifact /tmp/ghtui-test-coverage-jRaPCM. Code includes exact lease, changed-target rejection and divergent pull merge/rebase against real local bare remotes; native PTY verifies explicit push/upstream/fetch and independent remote/tracking SHA effects at both sizes. Batch log target/build/native-management-checked.log. Broader native divergent/auth/ambiguous-push recovery remains open; no full task completion claimed.
 
 2026-10-18 a09: sync previews show upstream/ahead/behind and predict diverged/remote-ahead/first-push outcomes; plain-language failure summaries; push defaults tracking for unpublished branches. Gate: node scripts/test-task.mjs v1_local_branches passed 2 code + 2 PTY (keyboard+mouse), 0 ignored; local_management PTY group 14/14 and local_actions_contracts 13/13.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Explicit-remote fetch/pull(ff/merge/rebase)/push/lease all wired with divergence previews and keyboard+mouse PTY; remaining: force-lease PTY, pull-conflict PTY, auth/cancel/partial-effect failure coverage. Remaining: AC2: pull strategy explained (Rebase replays N local commits) and ForcePushLease is a guarded menu command (local_actions.rs:978 "Never uses unrestricted --force"), but force-with-lease has no PTY journey, and no PTY test runs a pull that hits a conflict to show the merge/rebase sequencer outcome. AC3: a rejected push is covered and preserves refs, and GIT_TERMINAL_PROMPT=0 (git.rs:3088) keeps credential prompts from blocking. No test covers an auth or network failure, an in-flight fetch/push ca
 <!-- SECTION:NOTES:END -->

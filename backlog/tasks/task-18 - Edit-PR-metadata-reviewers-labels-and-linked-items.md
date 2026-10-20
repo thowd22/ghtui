@@ -6,7 +6,7 @@ assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:36'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -44,12 +44,12 @@ Users should handle PR organization from the same view: title/body/base, ownersh
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Metadata pickers load eligible values and preserve unmodified fields.
+- [x] #1 Metadata pickers load eligible values and preserve unmodified fields.
 - [ ] #2 Reviewer/team, label, assignee, base, milestone, linked-issue and project operations map to verified host capabilities.
-- [ ] #3 Per-field permission/failure results are visible and server read-back confirms the change.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #3 Per-field permission/failure results are visible and server read-back confirms the change.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -1043,4 +1043,6 @@ V306 TERMINAL staging refusal before Cargo/app tests, original44744 closed1 ands
 2026-10-16 USER SEQUENTIAL RESET: all three active sub-agents interrupted; exact owned ghtui-verify-coherent-feedback-v307-20261016.scope stopped with SIGTERM, original exec 1330 exit143 and scope inactive/dead. V307 stopped during test-inventory compilation: no completed application tests or PTY result; unfinished report/log/source preserved. Autonomous goal paused. See backlog doc-13 (Sequential delivery reset and current-state audit) for actual backlog counts, V304 failing evidence, private-source preservation inventory and one-worker/one-feature/testing-after-implementation policy. No task criteria/status changed and no product completion claimed; do not restart agents or discard target private source. First sequential workstream is consolidation/stabilization of one existing baseline, not another new feature/design branch.
 
 2026-10-18 a08: Metadata tab gains clickable/keyboard quick controls (l/L label, a/A assignee, w/W reviewer, g/G team, m/M milestone) reusing the exact p-menu actions; empty sets show 'none'; plain access line/statuses; picker header drops byte/cap diagnostics; p-menu Home/End. Gate: node scripts/test-task.mjs v1_pr_metadata -> 3 lib + 10 PTY passed; filtered tui_e2e 'metadata' 221/222 (1 pre-existing failure pr_metadata_base_v32_metadata_tab_v51_mouse_actual_nochange..., fails without these changes); lib 'metadata' 442 passed, 'picker' 36 passed; clippy -D warnings clean.
+
+2026-10-20 audit at 74360e48 (5/6 ACs met): Title/body/base, labels, assignees, reviewers/teams, milestone, linked issues all wired and tested by key+mouse; Projects v2 placement exists only as an uncalled provider function. Remaining: AC2: project placement is not reachable. src/providers/gh/pr.rs:1965 add_project_item (addProjectV2ItemById) has no callers in src or tests. Capability text (capability_requirements_v1.rs:170) advertises 'project placement', but there is no UI action, picker, PTY journey or contract test for it.
 <!-- SECTION:NOTES:END -->

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-13 02:51'
+updated_date: '2026-10-20 14:09'
 labels:
   - actions
   - e2e
@@ -43,10 +43,10 @@ Actions configuration includes repository/environment/organization secrets and v
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Metadata lists and variables CRUD support verified eligible repo/environment/org scopes.
-- [ ] #2 Secret set/delete use transient masked input through gh with no cache/log/persisted value.
+- [x] #2 Secret set/delete use transient masked input through gh with no cache/log/persisted value.
 - [ ] #3 Scope/selected-repo policies, permissions and read-back state are explicit and clickable.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -76,4 +76,6 @@ Shared native Actions forms now use positive numeric account identity, typed res
 Actual native PTY checkpoint from root: cargo test --offline --test tui_e2e actions_ -- --nocapture passed8 tests, zero failed/ignored (3.44s). This task contributed2 real-binary journeys: actions_secrets_vars keyboard/mouse. Evidence log target/build/root-actions-regression.log. Tests use physical terminal keyboard/mouse input, strict offline fake-gh command/effect journals, real temporary Git preservation, actors and resizing. Run controls prove job501/attempt2/debug→attempt3, watch/cancel and cancelled deletion; secret tests prove transient masked stdin, no external-editor files/value in draft/Debug/terminal/journal/product config, variable PATCH/readback and cancelled deletion. Earlier native button focus/paging and Escape synchronization failures were repaired without dropping assertions; artifacts retained. Provider checkpoint82 and native source6 were earlier passed separately; latest84provider/source8 and full global test/fmt/clippy gates still pending. This is scoped native coverage, not full task parity or Done: other accepted workflows/permission/platform/host/field-navigation cases remain open.
 
 Checked task-specific command passed: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 node scripts/test-task.mjs actions_secrets_vars. Selected 6 meaningful code/provider and 2 real-binary PTY tests, all passed zero ignored; 1 real secret-form unit +1 secret-plan contract +4 provider scope/redaction/membership tests and2 native PTY3.35s. Runner independently verified successful actual keyboard=true and mouse=true journey records at /tmp/ghtui-test-coverage-PaiJ3R/journeys.jsonl. Latest global checkpoint also passed258 code+102PTY, cargo fmt --check and cargo clippy --all-targets -- -D warnings (root). Full task acceptance/dependencies/platform/remaining workflow scope remain open, so no Done claim.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Secret metadata and variable management work at repo and org scope, with masked transient secret input and keyboard/mouse PTY coverage. Remaining: PTY coverage for environment scope, variable delete/create, and denied-permission UI. Remaining: AC1: repo and org scope are PTY-verified; environment-scope secrets/variables are covered only by provider contracts. Variable create and delete are never completed in PTY (delete is only cancelled). AC3: selected-repository policy is shown and tested, but denied-permission states are not shown or tested in the TUI.
 <!-- SECTION:NOTES:END -->

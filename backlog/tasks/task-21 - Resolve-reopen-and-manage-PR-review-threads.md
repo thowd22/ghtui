@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-15 21:43'
+updated_date: '2026-10-20 14:09'
 labels:
   - review
   - e2e
@@ -42,12 +42,12 @@ Reviewers need to follow discussion at the code location and distinguish unresol
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Thread navigation, expand/collapse, replies, comment edit/delete, and reactions work in diff and timeline.
-- [ ] #2 Resolve/unresolve respects host capabilities and permissions and refreshes server state.
-- [ ] #3 Outdated/moved threads retain provenance and do not jump to an unrelated current line.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #1 Thread navigation, expand/collapse, replies, comment edit/delete, and reactions work in diff and timeline.
+- [x] #2 Resolve/unresolve respects host capabilities and permissions and refreshes server state.
+- [x] #3 Outdated/moved threads retain provenance and do not jump to an unrelated current line.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -321,4 +321,6 @@ V16 source-only implementation refinement approved by Root: sibling-private clos
 2026-10-15 Root V94 baseline isolated selected history1/comment1 both actuallyPASS (unmodified1118), NOT RED; preserved reports. V95 strengthened SAME actual-binary journeys with bounded200ms real receiver-delivery hold and actual flushed-input journal, then executed both before barrier fix: BOTH ACTUALFAIL0passed/1failed/0ignored each, specifically maximum_unacknowledged=2, exact Open and premature PgDn share same completed_cells_end. No fabricated frame/input, no production edit, timeout extension or dropped storage/Git/TTY oracle. V95 report target/build/root-history-v95-controlled-red-20261015.json; freezeSHA5a766c65834b558e33f193f295ec0088fb693f93655fd9870db2188b7acbb28f; historylogSHA535411f4330d828b68b8f7b6341a3d83b029d4ca41f7cc95b1999a23126f0d99; commentlogSHA5e654ebe6053674db0df7ae985e44037e971b76376ec809bede7eebe646ef25a. All4actualnegative-session cleanup records complete, memoryPeak996474880B/tasks35/allpressureOOM0. AFTER original diagnostic session76628 terminal, added NEW actual loaded-detail completed-frame actor+recorded-attempt+notpending barriers before any paging; controlled hold and max1assertion remain. Also applied one-file real Personal Files selection fixture from V93. Production permissions/source/state policies untouched. Corrective focused verification follows; no green/full/dependency/task/macOS claim yet.
 
 2026-10-15 V96 actual RED-to-GREEN: SAME controlled200ms real receiver hold and max-one-unacknowledged-input assertions now pass for selected history mouse1 and comment PostCancel mouse1, with actual NEW completed opened-detail recorded-actor+attempt+notpending barrier; no production edit or timeout change. V96 report target/build/root-navigation-v96-corrective-20261015.json is FAILED overall because next checked Personal gate ran51codePASS/18PTYpass/2legacy status-oracle failures, not history reproduction. Corrected Personal Back oracle now requires exact whole owned Inbox Files body equality pinned immediately after genuine file selection, not ephemeral status; all17actualThreadchildren/Git/SQL/config/TTY remain. New V97 focused runner original45284 launched under same hardcaps, frozen1118/only3testfiles changed vsV93; pending actual checkedPersonal/history/comment/file, fmt/strict/audits. Do not mark planned pending gates PASS. Also retain follow-up investigation: fixed10 paging can theoretically exceed tiny visible body; no production pagination defect was reproduced by current diagnostics, so no speculative production patch or claim made.
+
+2026-10-20 audit at 74360e48 (6/6 ACs met): Thread browsing, reply, edit, delete, reactions, resolve and reopen, and outdated provenance are all implemented and covered by paired PTY and lib tests. It appears ready to mark Done after the gate note is recorded. Remaining: No AC gap found. Two caveats: the backlog status is still In Progress, and thread management runs only through the Files/Catalogue native path, not the Summary actions menu. The Definition of Done also needs a recorded gate, but notes from V57 show focused and whole gates green. Independent check: I checked the cited evidence. AC1, AC3, AC5 and AC6 hold up. Expand and collapse are in review_threads_v1. Reply, resolve and reopen are on Timeline in review_thread_detail_v4 and on the file/native path in review_thread_publication_v1 and file_thread_controls_v75. Edit and delete are in review_thread_comments_v2 and timeline_management_v5. Reactions are in reactions_v3 and timeline_reactions_v5.
 <!-- SECTION:NOTES:END -->

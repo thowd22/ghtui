@@ -1,11 +1,11 @@
 ---
 id: TASK-29
 title: Compare commits and branches with plain-language semantics
-status: In Progress
+status: Done
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-18 00:50'
+updated_date: '2026-10-20 14:09'
 labels:
   - repository
   - e2e
@@ -39,12 +39,12 @@ Snapshot differences and a branch's proposed changes answer different questions.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Pick any two available refs/commits and clearly show base, target, direction, common ancestor and ahead/behind.
-- [ ] #2 Compare saved versions matches Git A-to-B snapshots; proposed-branch changes matches merge-base-to-B.
-- [ ] #3 Swap endpoints, compare merge parents and handle root/no-common-base/missing history explicitly.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #1 Pick any two available refs/commits and clearly show base, target, direction, common ancestor and ahead/behind.
+- [x] #2 Compare saved versions matches Git A-to-B snapshots; proposed-branch changes matches merge-base-to-B.
+- [x] #3 Swap endpoints, compare merge parents and handle root/no-common-base/missing history explicitly.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -80,4 +80,6 @@ Implemented dedicated read-only ComparisonPlan/CompareIntent, exact typed ref/co
 Fresh full Linux checkpoint passed: CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test --offline --locked --all-targets: 288 meaningful code/provider contracts (including 90 strict provider contracts) and 114 actual compiled-binary PTY journeys, zero failures/ignored. cargo fmt --check passed; cargo clippy --offline --locked --all-targets -- -D warnings passed (8.07s). Logs target/build/root-all-targets-checkpoint.log, root-fmt-checkpoint.log, root-clippy-checkpoint.log. Node task-runner negative self-tests passed3/3; dependency integrity audit passed86 upstream roots/10300 files/108 manifest patches/117 registry packages; Backlog doctor clean72tasks. This includes new comparison2, remote-search2, raw-ref identity2, explicit-repo local/unborn2, Actions recovery2 and artifact2 PTY;18 native Actions journeys total. README reflects this actual green evidence only. Native macOS/live disposable-host/release and remaining product acceptance stay open; full product not Done.
 
 2026-10-18 a12: Compare form labels A/B as from/to (branch, tag or commit) and explains snapshot vs proposed. Existing comparison PTY + comparison_contracts pass.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Compare form (C) with snapshot and proposed modes, swap, ahead/behind and common base is implemented, with contract and keyboard/mouse PTY coverage. Edge cases (multi-base, shallow) are tested in contracts only.
 <!-- SECTION:NOTES:END -->

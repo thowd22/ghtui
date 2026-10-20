@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:26'
+updated_date: '2026-10-20 14:09'
 labels:
   - localgit
   - e2e
@@ -36,11 +36,11 @@ The TUI should complete the local edit-to-commit workflow while showing the exac
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Commit form previews staged content and supports message/body and explicit amend.
+- [x] #1 Commit form previews staged content and supports message/body and explicit amend.
 - [ ] #2 Configured hooks/signing run correctly with deliberate prompt/editor handling and clear failures.
-- [ ] #3 Commit/amend verifies resulting object/ref and preserves work when cancelled or rejected.
+- [x] #3 Commit/amend verifies resulting object/ref and preserves work when cancelled or rejected.
 - [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -72,4 +72,6 @@ Operation-only progress now retains bounded terminal-safe multiline stdout/stder
 Canonical diff parser repair verified by shared checked staging gate: 14 code/provider +6 actual keyboard/mouse PTY tests pass, zero ignored/failures, artifact /tmp/ghtui-test-coverage-8Avh5H. Added generated installed-Git core.quotePath=true/false new Unicode-space and quoted control-byte file header contract, alongside direction-aware neighboring partial unstage correctness. Native Japanese-space unstage no longer fails with Unterminated quoted Git path; full regression pending.
 
 2026-10-18 a11: K Commit key/control; Commit disabled with explanation while nothing is staged (Amend unaffected); commit form status explains Ctrl-P then Ctrl-S; stale preview-first error cleared once preview is ready. Gate: node scripts/test-task.mjs v1_local_staging -> 4 code + 2 PTY pass.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Commit and amend with staged preview, hooks and a keyboard/mouse PTY all work; signing-failure and editor/prompt handling are untested. Remaining: AC2: hooks are covered (rejecting hook, and a successful hook with redacted output at git_contracts.rs:1585). Signing is only left enabled; no test configures a failing gpg/ssh signer to check the error shows. GIT_EDITOR and GIT_TERMINAL_PROMPT are set (git.rs:3088-3094), but no test checks editor or prompt handling. AC4: the Testing steps list signing failure; it is untested. A successful amend is tested only in contracts, not in a PTY.
 <!-- SECTION:NOTES:END -->

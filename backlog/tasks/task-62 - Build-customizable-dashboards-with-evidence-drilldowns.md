@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@root'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-15 05:45'
+updated_date: '2026-10-20 14:09'
 labels:
   - delivery
   - e2e
@@ -38,10 +38,10 @@ The user wants an easy overview across the repos they care about. Dashboard widg
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Saved dashboards contain review queues, stale PRs, unresolved threads, failing Actions and defined metric trends.
-- [ ] #2 Scope/window/layout preferences persist and every displayed action/metric is clickable and keyboard reachable.
-- [ ] #3 Actor widgets, colors and partial-data indicators agree with underlying records.
+- [x] #2 Scope/window/layout preferences persist and every displayed action/metric is clickable and keyboard reachable.
+- [x] #3 Actor widgets, colors and partial-data indicators agree with underlying records.
 - [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -73,4 +73,6 @@ Frozen V1 expanded actual gates: checked8code/8of10PTY; whole2159code GREEN and7
 Root postboot V3 checked dashboard gate is genuinely terminal0: hard-capped node scripts/test-task.mjs dashboards PASS8meaningfulcode/10realbinaryPTY0failed0ignored, code0.04s/native8.59s; target/build/root-dashboards-v3-postboot-limited-first.log, target/test-tmp/ghtui-test-coverage-F8F7eN/journeys.jsonl. Includes both-input immutable86GET save/restart/restore/scope/window/drilldown plus malformed/outside-scope recovery, finalUID refusal, and genuine heldGH cancel with childreaping/unchangedSQL/rawGit/config/TTY. Cancel tests now assert actual Dashboard read cancelled, distinct from genuine auth/source Dashboard values unavailable; complete Action unavailable Notice is explicitly closed before actual busy Cancel. Earlier8/8of10 and whole701of704 negatives retained. Current later cache13/inputV3 integration requires fresh whole/fmt/strict; no product/task/dependency/nativeMac completion.
 
 2026-10-15 Root independent composed Main gate GREEN: node scripts/test-all.mjs executed unfiltered cargo test --locked --all-targets under offline/locked fixed CPU200%,MemoryHigh4GiB/Max6GiB/Swap512MiB/Tasks256 scope, shared verification.lock, jobs1/testthreads2/Rayon2/disk target+TMP. ALL2233code/provider including318strictGH +720real-binaryPTY,0failed/ignored; native601.31s. Logs root-fullside-cache-dashboard-maintenance-{whole,fmt,clippy}-v3-first.log. fmt--check0 and strict alltargetClippy -Dwarnings0(59.99s); no lint waiver or vendor source edits. All66 source/config/docs hashes stayed frozen through these gates; all57 original earlier-negative source paths unchanged. Independent whole journal868records/866nonpanicking exited+cleanup-complete positive sessions759keyboard438mouse;2deliberatepanics excluded,0failedcleanup. Dependency audit86/10300/108/117 and backlog78valid0errors, diff--check0. Host hardcaps unchanged; recorded pidspeak48/max256 and no max/OOM events in live observations. Earlier2232code/165of718PTY negative and causal detached-maintenance control remain preserved; this pass is not proof every old failure had identical cause, nor proof of previous host-reboot cause. README refreshed only actual verified checkpoint/fullside/default-profile features and remaining PR/Mac/release scope. Current full does not complete broader task/dependencies/nativeMac acceptance; no AC/DoD/Done checked.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Single default dashboard with saved layout/scope/window and exact drill-downs works, with keyboard/mouse PTY coverage. Missing: unresolved-thread and trend widgets (blocked on TASK-61 history). Remaining: AC1: the dashboard holds only the 8 metric cards (open PRs, needs my review, age, review wait, first review, merge latency, checks, workflows). There is no unresolved-threads widget (src/metrics/threads.rs exists but no card uses it) and no metric-trend widget, because historical metrics are not built (TASK-61 AC2). Only one default profile, not named dashboards. AC4: tests cover layout, profile, drill-down identity and empty/partial states, but not the missing widgets.
 <!-- SECTION:NOTES:END -->

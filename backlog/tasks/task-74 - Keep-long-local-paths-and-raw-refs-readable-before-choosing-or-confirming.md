@@ -1,11 +1,11 @@
 ---
 id: TASK-74
 title: Keep long local paths and raw refs readable before choosing or confirming
-status: In Progress
+status: Done
 assignee:
   - '@graph_parallel'
 created_date: '2026-10-14 23:43'
-updated_date: '2026-10-15 01:55'
+updated_date: '2026-10-20 14:09'
 labels: []
 dependencies:
   - TASK-4
@@ -39,7 +39,7 @@ Six real-binary failures with genuinely long workspace roots show that local ide
 - [x] #2 Local inventory choices retain exact typed identities and expose an always-visible keyboard/mouse route to bounded, scrollable full selected target/identity details; clipping cannot hide the only detail action or turn display text into command authority.
 - [x] #3 Worktree removal intent and preview expose the full escaped target before confirmation, including raw-byte versus Unicode/literal siblings; display/details/cancel never alter the source or chosen mutation target.
 - [x] #4 Long-path Unicode/no-color/focus/resize/scroll/disabled/stale and both-input regressions execute with independent visible/command/storage/Git/config/TTY oracles and nonzero task-key counts.
-- [ ] #5 Full local regression/format/strict-Clippy and source-integrity evidence are recorded; broad Task4/10/35/41/67 dependency acceptance and nativeMac status remain honest.
+- [x] #5 Full local regression/format/strict-Clippy and source-integrity evidence are recorded; broad Task4/10/35/41/67 dependency acceptance and nativeMac status remain honest.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -77,4 +77,6 @@ Root frozen combined Timeline + saved-native-diff + long-local-identity checkpoi
 Root objectively checked the four narrow product/readability criteria using reviewed native/domain evidence and current integrated gates. Task remains In Progress: broad dependency and native macOS/release acceptance are not closed by this Linux checkpoint.
 
 Root integrated checkpoint2026-10-15 terminal GREEN: actual cargo test --all-targets with offline environment passes2012 code/provider (318 strictGH) and650 real-binary PTY functions,0failed/ignored,86.99s native;34targets includes zero-testmain NOTcoverage. All37 frozen source/test paths unchanged through gates (36code/tests+README); only README checkpoint prose updated afterward. strictalltargetClippy0(43.49s inclbuild),fmtcheck0,gitdiffcheck0,dependency audit86sources/10300files/108adaptations/117registry0. Logs target/build/root-inline-mutable-metadata-whole-first.log and -clippy-first.log; immutable source manifest root-inline-mutable-metadata-source-freeze-v1-20261015.json. Existing retained negative1975code/645of646PTY94.80s records Related env-sidecar publication race; separate complete metadata record +4contracttests and2 genuine held pre-env PTYs now prove correction, without weaker auth/proxy/argv/Git/SQL/TTY assertions. This does NOT diagnose/waive older agent Blended failure or prove full product/Mac/release coverage.
+
+2026-10-20 audit at 74360e48 (full suite 6000/0, fmt+clippy clean): all ACs met, confirmed by an independent check. Long-path context, F2 details and full removal-target preview are implemented, with 7 contracts and 2 keyboard/mouse PTYs. ACs 1-4 are checked; AC5 is now satisfied by the green full suite.
 <!-- SECTION:NOTES:END -->

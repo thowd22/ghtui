@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@graph_parallel'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:54'
+updated_date: '2026-10-20 14:09'
 labels:
   - localgit
   - e2e
@@ -89,4 +89,6 @@ V2 corrective handoff frozen2026-10-15 (Task stays InProgress, no AC/DoD complet
 Root current Main admission2026-10-15 onto9012 includes frozen V1+V2, not older parent replacement. Preserved C2 mutable typed work/result, same queue/slot and added stash reciprocal owner/default/newer-intent checks before effects. Accepted Conflict handoff explicitly retires both native diff states before Workspace replacement; added genuine actual sealed Working frame captured BEFORE stash write with independent raw index/config/files/HEAD/stash equality afterward. Checked stash_recovery now15code/12PTY,0failed/ignored, journal BgMHkb14/14 actual nonpanicking cleanup-completed sessions (14keyboard/7mouse); native mutable33code/2PTY and stash_worktrees4code/2PTY also green. Main coherent final whole2037code/provider+666PTY GREEN0failed/ignored90.92s; fmt0, strictClippy0(37.27s), dependency audit0. Exact36 source/test frozen hashes independently unchanged. Initial whole2027code/660of662PTY failed two older frame observers; Task77 records deterministic reproductions, preserved artifacts and narrow observer correction; full latest green does not erase that negative or claim its cause was stash production code. Full commands/logs/freezes root-stash-completed-frame-* under target/build. Native macOS, formal dependencies, broader stash/worktree parity remain open; no Task41 AC/Done inferred.
 
 2026-10-18 a10: Overview summarises saved stashes and linked worktree count (read-only, no stash subcommand) and flags conflicted stash apply without a sequencer; stash/rebase/merge/pull/switch refused while an operation is paused. Gate node scripts/test-task.mjs v1_local_recovery: 5 code + 6 PTY pass; stash_recovery 12/12.
+
+2026-10-20 audit at 74360e48 (0/5 ACs met): Save/apply/pop(+conflict inspection)/add/remove with dirty+ignored guards are reachable and PTY-tested; missing stash view, worktree open, dirty status in worktree list, and any StashDrop/locked-worktree tests. Remaining: AC1: there is no stash content view (open or show a stash's diff). StashDrop has no test at all, and Pop success is only tested in the recovery and failure journeys. AC2: there is no 'open worktree' action, and the worktree list does not show dirty status (that check runs only in the removal preview). AC3: exact-SHA drop confirmation exists in code but is untested. AC4: no tests for stash contents, locked-worktree guard or cancelled removal. AC5: the PTY journey does not cover stash open/view, w
 <!-- SECTION:NOTES:END -->

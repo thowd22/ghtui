@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@foundation'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-18 00:54'
+updated_date: '2026-10-20 14:09'
 labels:
   - localgit
   - e2e
@@ -36,11 +36,11 @@ Users need help finding work after a mistaken branch move or amend. Recovery sho
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reflog explains local ref changes and links entries to commits/diffs and recovery choices.
+- [x] #1 Reflog explains local ref changes and links entries to commits/diffs and recovery choices.
 - [ ] #2 Recovery can create a rescue branch; reset/discard choices expose exact scope and affected work before confirmation.
 - [ ] #3 Expired/unreachable objects and reflog limitations are stated without claiming universal undo.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -64,4 +64,6 @@ Actual checked node scripts/test-task.mjs reflog_recovery passed 3 code/provider
 Typed local inventory picker gate passed: CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=/tmp/ghtui-provider-check.gVlcVM/target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 node scripts/test-task.mjs local_picker selected 7 code tests (2 Form +5 actual Git/picker contracts) and2 actual-binary keyboard/mouse PTY tests, all pass/zero ignored. Artifact /tmp/ghtui-test-coverage-GMYYXM; log target/build/local-picker-checked.log. Native journeys verify cancel/no-match, exact stale branch rejection with unchanged HEAD/index, refreshed branch choice, immutable stash SHA disclosure/apply/retention,80x24 resized picker, and exact raw-byte worktree removal preserving a similar Unicode worktree and root dirty files. Reflog rescue immutable SHA picker currently has code coverage, not an additional native rescue-picker journey. APFS-valid newline path fixture replaces invalid filesystem UTF-8 only on macOS; Linux retains byte0xff, neither platform skips raw-path testing. Full product/global gates and task-specific remaining cases stay open; not Done.
 
 2026-10-18 a10: Overview lists commits left behind by amend/reset/rebase from the raw HEAD reflog (no Git child, expiry stated); Enter opens the commit and Create rescue branch is prefilled. Gate node scripts/test-task.mjs v1_local_recovery: 5 code + 6 PTY pass.
+
+2026-10-20 audit at 74360e48 (3/5 ACs met): Reflog left-behind discovery, open-commit and prefilled rescue branch are reachable and PTY-tested both inputs; remaining: reset preview enumerating affected work, missing/expired-object case tests. Remaining: AC2: a rescue branch works. Reset previews show only a generic 'can replace or remove existing history/files' warning (local_actions.rs:917); they do not list the exact commits or dirty files a hard or mixed reset would discard. AC3: the limitation text is present ('local reflog only, entries expire; not a universal undo', workspace.rs:717), but no test covers an expired, pruned or missing-object reflog entry, and only the HEAD reflog is used (branch reflogs are not).
 <!-- SECTION:NOTES:END -->
