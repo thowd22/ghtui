@@ -239,6 +239,7 @@ impl PreparedConversationPageV19 {
             tab,
             diff: None,
             checks: None,
+            required_checks: None,
             rows: Vec::new(),
             context: members_context,
             metadata_display_v51: None,

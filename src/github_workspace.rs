@@ -170,6 +170,9 @@ pub struct PrPage {
     pub tab: PrTab,
     pub diff: Option<PrDiff>,
     pub checks: Option<Vec<Check>>,
+    /// The base branch's required checks, read beside `checks` (TASK-14 AC #1).
+    /// None until the Checks tab loads; `Unavailable` never marks a check optional.
+    pub required_checks: Option<crate::providers::gh::RequiredChecksV1>,
     pub rows: Vec<PrRow>,
     pub context: Option<crate::providers::gh::PrContext>,
     /// Actual Metadata-tab display availability, never source or permission.
@@ -523,14 +526,51 @@ impl PrPage {
             PrTab::Checks => self.checks.as_ref().map_or_else(
                 || vec![PrRow::text("Checks have not loaded")],
                 |checks| {
+                    let required = self.required_checks.as_ref();
+                    // Required contexts no check reported for this head. They follow the
+                    // check rows, so `check_at` stays one-to-one with `checks`.
+                    let missing = required.map_or_else(Vec::new, |required| {
+                        required
+                            .states(checks)
+                            .into_iter()
+                            .filter(|(_, state)| {
+                                *state == crate::providers::gh::RequiredStateV1::NotReported
+                            })
+                            .map(|(context, _)| PrRow {
+                                label: format!(
+                                    "{} {context} • required • expected, not reported for head {}",
+                                    SemanticToken::Pending.symbol(),
+                                    summary.head_sha
+                                ),
+                                role: SemanticToken::Pending,
+                                actor: None,
+                                anchor: None,
+                                comment: None,
+                                cells: Some(PrCells::Row(vec![
+                                    format!("{context} (required)"),
+                                    "expected".into(),
+                                    crate::ui_table::short_sha(&summary.head_sha).to_owned(),
+                                ])),
+                            })
+                            .collect::<Vec<_>>()
+                    });
                     if checks.is_empty() {
-                        vec![PrRow::text(
+                        let mut rows = vec![PrRow::text(
                             "No checks/statuses reported for this exact head SHA",
-                        )]
+                        )];
+                        rows.extend(missing);
+                        rows
                     } else {
-                        checks
+                        let mut rows: Vec<PrRow> = checks
                             .iter()
                             .map(|check| {
+                                let need = required.and_then(|r| r.required(check));
+                                let marker = match need {
+                                    Some(true) => " • required",
+                                    Some(false) => " • not required",
+                                    None if required.is_some() => " • required unknown",
+                                    None => "",
+                                };
                                 let role = match check.conclusion.as_str() {
                                     "success" => SemanticToken::Success,
                                     "failure" | "timed_out" | "action_required" => {
@@ -547,7 +587,7 @@ impl PrPage {
                                 };
                                 PrRow {
                                     label: format!(
-                                        "{} {} • {} / {} • {}",
+                                        "{} {} • {} / {} • {}{marker}",
                                         role.symbol(),
                                         check.name,
                                         check.status,
@@ -563,7 +603,11 @@ impl PrPage {
                                     anchor: None,
                                     comment: None,
                                     cells: Some(PrCells::Row(vec![
-                                        check.name.clone(),
+                                        if need == Some(true) {
+                                            format!("{} (required)", check.name)
+                                        } else {
+                                            check.name.clone()
+                                        },
                                         if check.conclusion.is_empty() {
                                             check.status.clone()
                                         } else {
@@ -574,7 +618,9 @@ impl PrPage {
                                     link: None,
                                 }
                             })
-                            .collect()
+                            .collect();
+                        rows.extend(missing);
+                        rows
                     }
                 },
             ),
@@ -1553,6 +1599,7 @@ impl GithubWorkspace {
             tab: PrTab::Summary,
             diff: None,
             checks: None,
+            required_checks: None,
             rows: vec![],
             context: None,
             metadata_display_v51: None,
@@ -1653,8 +1700,11 @@ impl GithubWorkspace {
                 page.diff = Some(provider.pr_diff_at(target, cancel)?)
             }
             PrTab::Checks if page.checks.is_none() => {
-                page.checks =
-                    Some(provider.checks(&target.pr.repository, &target.head_sha, cancel)?)
+                let checks = provider.checks(&target.pr.repository, &target.head_sha, cancel)?;
+                let required =
+                    provider.required_checks(&target.pr.repository, &target.base_ref, cancel)?;
+                page.checks = Some(checks);
+                page.required_checks = Some(required);
             }
             PrTab::Metadata if page.context.is_none() => {
                 page.context = Some(provider.pr_context(target, cancel)?)
@@ -1702,6 +1752,7 @@ impl GithubWorkspace {
             tab: PrTab::Summary,
             diff: None,
             checks: None,
+            required_checks: None,
             rows: vec![],
             context: None,
             metadata_display_v51: None,

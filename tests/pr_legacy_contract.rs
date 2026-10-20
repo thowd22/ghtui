@@ -83,6 +83,7 @@ fn workspace() -> GithubWorkspace {
         tab: PrTab::Summary,
         diff: None,
         checks: None,
+        required_checks: None,
         rows: vec![],
         context: None,
         metadata_display_v51: None,

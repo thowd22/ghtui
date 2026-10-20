@@ -4654,6 +4654,79 @@ fn commit_checks_keep_latest_case_insensitive_status_and_pending_semantics() {
 }
 
 #[test]
+fn required_checks_reads_protection_and_rulesets_and_reports_unavailable_honestly() {
+    use ghtui::providers::gh::RequiredChecksV1;
+    let failed = |args: Vec<String>, stderr: &str| {
+        let mut step = step(args, json!(null));
+        step.stdout.clear();
+        step.status = 1;
+        step.stderr = stderr.as_bytes().to_vec();
+        step
+    };
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[
+        step(
+            api_args("repos/example/repo/branches/release/1.x"),
+            json!({"name":"release/1.x","protected":true,"protection":{"enabled":true,"required_status_checks":{"enforcement_level":"everyone","contexts":["unit"],"checks":[{"context":"unit","app_id":15368}]}}}),
+        ),
+        page_step(
+            "repos/example/repo/rules/branches/release/1.x?per_page=100",
+            json!([[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Deploy"}]}}]]),
+        ),
+        // A hidden ruleset read is Unavailable, never "nothing required".
+        step(
+            api_args("repos/example/repo/branches/main"),
+            json!({"name":"main","protected":false}),
+        ),
+        failed(
+            {
+                let mut args = api_args("repos/example/repo/rules/branches/main?per_page=100");
+                args.extend(["--paginate".into(), "--slurp".into()]);
+                args
+            },
+            "gh: Not Found (HTTP 404)",
+        ),
+        // Expired authentication propagates so the caller hides private pages.
+        failed(
+            api_args("repos/example/repo/branches/main"),
+            "gh: Bad credentials (HTTP 401)",
+        ),
+    ]);
+    let gh = provider(&fixture);
+    let cancel = CancellationToken::default();
+    let RequiredChecksV1::Known { base_ref, contexts } = gh
+        .required_checks("example/repo", "release/1.x", &cancel)
+        .unwrap()
+    else {
+        panic!("both sources were read")
+    };
+    assert_eq!(base_ref, "release/1.x");
+    assert_eq!(
+        contexts
+            .iter()
+            .map(|c| c.context.as_str())
+            .collect::<Vec<_>>(),
+        ["unit", "Deploy"]
+    );
+    assert_eq!(contexts[0].app_id, Some(15368));
+    let RequiredChecksV1::Unavailable { reason, .. } =
+        gh.required_checks("example/repo", "main", &cancel).unwrap()
+    else {
+        panic!("a failed ruleset read is not a known empty set")
+    };
+    assert!(reason.starts_with("rulesets "), "{reason}");
+    let error = gh
+        .required_checks("example/repo", "main", &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::Authentication));
+    let rows = journal(&fixture);
+    assert_eq!(rows.len(), 5);
+    assert!(rows
+        .iter()
+        .all(|row| row["matched"] == true && row["stdin_hex"] == "" && row["args"][5] == "GET"));
+}
+
+#[test]
 fn actions_old_cloned_observation_cannot_acknowledge_newer_uncertain_write() {
     let fixture = Fixture::new();
     let mut newer = GhStep::read(&["newer-write"], "");

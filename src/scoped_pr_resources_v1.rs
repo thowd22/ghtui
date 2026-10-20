@@ -415,6 +415,7 @@ pub fn read_resource_with_guard(
         // installed; this selected source uses its own typed observed sidecar.
         input.observed.page.diff = None;
         input.observed.page.checks = None;
+        input.observed.page.required_checks = None;
         Arc::new(
             ScopedPrNavigationV1::bind(
                 original.scope(),

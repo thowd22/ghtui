@@ -71,6 +71,10 @@ pub(crate) use repository_catalogue::{
 };
 mod remote_repository_v1;
 pub use remote_repository_v1::*;
+mod required_checks_v1;
+pub use required_checks_v1::{
+    RequiredChecksV1, RequiredContextV1, RequiredSourceV1, RequiredStateV1,
+};
 mod pr_create_v1;
 pub(in crate::providers) mod pr_issue_links_v87;
 mod pr_resources_v1;
@@ -1330,10 +1334,8 @@ impl GithubProvider {
         if checks.iter().any(|check| {
             check.id == 0
                 || check.name.is_empty()
-                || !check
-                    .head_sha
-                    .to_ascii_lowercase()
-                    .starts_with(&sha.to_ascii_lowercase())
+                // The exact observed head only: a similarly prefixed SHA is another commit.
+                || !check.head_sha.eq_ignore_ascii_case(sha)
                 || check.status.is_empty()
         }) {
             return Err(error(

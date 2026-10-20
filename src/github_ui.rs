@@ -352,9 +352,21 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .as_ref()
             .filter(|_| page.tab == PrTab::Checks && !cell_rows.is_empty() && area.bottom() > y + 1)
         {
+            // The exact head first (it must stay whole), then the base branch's
+            // required-check answer in its semantic role with a word label.
+            let mut spans = vec![ratatui::text::Span::styled(
+                format!("  Head {}", safe_text(&summary.head_sha)),
+                theme.style(SemanticToken::Muted),
+            )];
+            if let (Some(required), Some(checks)) = (&page.required_checks, &page.checks) {
+                let (text, role) = required.summary(checks);
+                spans.push(ratatui::text::Span::styled(
+                    format!(" • {}", safe_text(&text)),
+                    theme.style(role),
+                ));
+            }
             frame.render_widget(
-                Paragraph::new(format!("  Head {}", safe_text(&summary.head_sha)))
-                    .style(theme.style(SemanticToken::Muted)),
+                Paragraph::new(ratatui::text::Line::from(spans)),
                 Rect::new(area.x, y, area.width, 1),
             );
             painter.header(frame.buffer_mut(), y + 1);

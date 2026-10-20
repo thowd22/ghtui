@@ -397,6 +397,13 @@ fn pages() -> Vec<GhStep> {
     );
     statuses.extend(["--paginate".into(), "--slurp".into()]);
     steps.push(read(statuses, json!([[]])));
+    // The base branch's required checks (TASK-14 AC #1): classic protection
+    // requires the reported "Rust tests"; an active ruleset requires "Lint",
+    // which no check reported for this head.
+    steps.push(read(api("repos/org/alpha/branches/main"),json!({"name":"main","protected":true,"protection":{"enabled":true,"required_status_checks":{"enforcement_level":"non_admins","contexts":["Rust tests"],"checks":[{"context":"Rust tests","app_id":null}]}}})));
+    let mut rules = api("repos/org/alpha/rules/branches/main?per_page=100");
+    rules.extend(["--paginate".into(), "--slurp".into()]);
+    steps.push(read(rules,json!([[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Lint"}]}}]])));
     steps
 }
 
@@ -444,7 +451,7 @@ fn detail_steps_v83() -> (Vec<GhStep>, usize, usize) {
     }
     let mut old = pages();
     let checks = old.split_off(13);
-    assert_eq!(checks.len(), 2);
+    assert_eq!(checks.len(), 4);
     let old_diff = old.split_off(11);
     assert_eq!(old_diff.len(), 2);
     let legacy_metadata = old.split_off(7);
@@ -521,7 +528,7 @@ fn detail_steps_v83() -> (Vec<GhStep>, usize, usize) {
     let after_files = steps.len();
     assert_eq!(after_files - before_files, 10);
     steps.extend(checks);
-    assert_eq!(steps.len(), 36);
+    assert_eq!(steps.len(), 38);
     (steps, before_files, after_files)
 }
 fn detail_sql_v83(fixture: &Fixture, include_reservations: bool) -> Vec<String> {
@@ -661,6 +668,13 @@ fn detail(mouse: bool) {
         std::time::Duration::from_secs(8),
     );
     session.wait_for_screen("success");
+    // Required checks correlate with the exact head: the reported one is marked,
+    // the unreported one is an explicit expected row, and the header counts both.
+    session.wait_for_screen("Rust tests (required)");
+    session.wait_for_screen("Lint (required)");
+    session.wait_for_screen("expected");
+    // The header keeps the whole head SHA first; its counts may clip at narrow panes.
+    session.wait_for_screen("Head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa • Required on main");
     session.resize(80, 24);
     choose(&mut session, mouse, "[t Timeline]", b"t");
     session.wait_for_screen("Label: security");

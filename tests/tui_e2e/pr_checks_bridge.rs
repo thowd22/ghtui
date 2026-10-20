@@ -108,6 +108,18 @@ fn startup() -> Vec<GhStep> {
         json!([[]]),
         true,
     ));
+    // The base branch's required checks: unprotected, but an active ruleset
+    // requires the failing check (TASK-14 AC #1).
+    calls.push(get(
+        "repos/example/repo/branches/main",
+        json!({"name":"main","protected":false}),
+    ));
+    calls.push(step(
+        "repos/example/repo/rules/branches/main?per_page=100",
+        "GET",
+        json!([[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":CHECK}]}}]]),
+        true,
+    ));
     calls
 }
 fn bridge() -> Vec<GhStep> {
@@ -199,7 +211,9 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
     open(session, mouse);
     choose(session, mouse, "[k Checks]", b"k");
     session.wait_for_screen(CHECK);
-    records(session, fixture, 16);
+    session.wait_for_screen(&format!("{CHECK} (required)"));
+    session.wait_for_screen("Required on main: 1 failing");
+    records(session, fixture, 18);
     let before_open = session.completed_cursorless_end();
     if mouse {
         session.click_visible_action("[Enter Open check]");
@@ -232,7 +246,7 @@ fn phase_ready(session: &mut Session, fixture: &Fixture, mouse: bool) {
         "completed original run/attempt/job before control input",
         Duration::from_secs(8),
     );
-    records(session, fixture, 32);
+    records(session, fixture, 34);
 }
 fn actions_control(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     session.activate_completed_actions_control(mouse, label, key);
@@ -274,7 +288,7 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
                 .collect::<String>()
         };
         assert!(flatten(&explanation).contains(&flatten(BRIDGE_READ_ONLY_REASON)));
-        assert_eq!(mutation_count(&records(session, fixture, 32)), 0);
+        assert_eq!(mutation_count(&records(session, fixture, 34)), 0);
         let before_close = session.completed_cursorless_end();
         if mouse {
             session.click_visible_action("[Esc Close]");
@@ -305,14 +319,14 @@ fn disabled_bridge_controls(session: &mut Session, fixture: &Fixture, mouse: boo
         );
         assert!(session.completed_cursorless_end() > before_close);
         assert!(!session.screen().contains("Stop watch"));
-        records(session, fixture, 32);
+        records(session, fixture, 34);
     }
     // The explanations do not alter the retained row/source or send any provider request.
     session.first_completed_actions_page(mouse);
-    records(session, fixture, 32);
+    records(session, fixture, 34);
 }
 fn effects(session: &mut Session, fixture: &Fixture, head: &str, index: &[u8]) {
-    let rows = records(session, fixture, 41);
+    let rows = records(session, fixture, 43);
     assert_eq!(mutation_count(&rows), 0);
     assert!(rows.iter().all(|row| row["stdin_hex"] == ""));
     assert!(rows
@@ -321,7 +335,7 @@ fn effects(session: &mut Session, fixture: &Fixture, head: &str, index: &[u8]) {
             .as_str()
             .is_some_and(|s| s.contains("aaa/other") || s.contains("foreign.invalid")))));
     assert_eq!(
-        rows[36]["args"],
+        rows[38]["args"],
         json!([
             "run",
             "view",
@@ -368,7 +382,7 @@ fn happy(mouse: bool) {
     let mut calls = startup();
     calls.extend(bridge());
     calls.extend(log_read(None));
-    assert_eq!(calls.len(), 41);
+    assert_eq!(calls.len(), 43);
     fixture.scripted_gh(&calls);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
@@ -410,10 +424,10 @@ fn happy(mouse: bool) {
         "completed exact selected job details before paged Logs control",
         Duration::from_secs(8),
     );
-    records(&mut session, &fixture, 32);
+    records(&mut session, &fixture, 34);
     actions_control(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_screen(LOG);
-    records(&mut session, &fixture, 41);
+    records(&mut session, &fixture, 43);
     for _ in 0..32 {
         if session.screen().contains("bridge log line 35") {
             break;
@@ -474,7 +488,7 @@ fn private_loss(mouse: bool, expired: bool) {
     let mut calls = startup();
     calls.extend(bridge());
     calls.extend(log_read(Some(expired)));
-    assert_eq!(calls.len(), 41);
+    assert_eq!(calls.len(), 43);
     fixture.scripted_gh(&calls);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
@@ -482,7 +496,7 @@ fn private_loss(mouse: bool, expired: bool) {
     phase_ready(&mut session, &fixture, mouse);
     session.resize(80, 24);
     actions_control(&mut session, mouse, "[l Logs]", b"l");
-    records(&mut session, &fixture, 41);
+    records(&mut session, &fixture, 43);
     session.wait_for_screen("PR check context changed • private pages hidden");
     assert!(!session.screen().contains(JOB));
     assert!(!session.screen().contains(CHECK));

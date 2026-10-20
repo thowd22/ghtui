@@ -345,6 +345,7 @@ impl GithubProvider {
                 tab: crate::github_workspace::PrTab::Summary,
                 diff: None,
                 checks: None,
+                required_checks: None,
                 rows: Vec::new(),
                 context: None,
                 metadata_display_v51: None,

@@ -96,6 +96,7 @@ fn action_context(head: &str, selected: bool) -> PrActionContext {
         tab: PrTab::Conversation,
         diff: None,
         checks: None,
+        required_checks: None,
         rows: vec![],
         context: None,
         metadata_display_v51: None,

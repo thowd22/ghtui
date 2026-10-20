@@ -105,6 +105,7 @@ fn github() -> GithubWorkspace {
         tab: PrTab::Checks,
         diff: None,
         checks: Some(checks),
+        required_checks: None,
         rows: vec![],
         context: None,
         metadata_display_v51: None,

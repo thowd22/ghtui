@@ -25,6 +25,7 @@ fn workspace(tab: PrTab) -> GithubWorkspace {
         tab,
         diff: None,
         checks: None,
+        required_checks: None,
         rows: vec![],
         context: None,
         metadata_display_v51: None,

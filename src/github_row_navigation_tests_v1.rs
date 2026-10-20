@@ -82,6 +82,7 @@ fn app(interactive: bool) -> App {
         tab: PrTab::Conversation,
         diff: None,
         checks: None,
+        required_checks: None,
         rows,
         context: None,
         metadata_display_v51: None,

@@ -153,7 +153,7 @@ pub(crate) fn read(
             coverage: Coverage { loaded:actual.files().len(), total_matches:actual.parent().changed_files().unwrap_or(0), complete:false,
                 reasons:vec!["Notification follow observed current raw parent and bounded Files/patch; conversation/timeline/commits are not loaded; patch availability is labelled separately".into()] },
         },
-        tab:PrTab::Files,diff:None,checks:None,rows,context:None,metadata_display_v51:None,review_progress:None,
+        tab:PrTab::Files,diff:None,checks:None,required_checks:None,rows,context:None,metadata_display_v51:None,review_progress:None,
     };
     let view = Arc::new(view);
     let ticket = Arc::new(NotificationPrPageTicketV63 { _private: () });
