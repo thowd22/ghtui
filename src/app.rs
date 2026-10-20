@@ -1775,6 +1775,7 @@ impl App {
                 crate::repository_diff_sides_native_v1::back(self, ticket)
             }
             Action::RepositoryMode(mode) => {
+                self.sync_history_cursor_revision_v99();
                 self.repository_selection = None;
                 self.repository_mode = mode;
                 self.repository_load_requested = true;
@@ -3768,6 +3769,36 @@ impl App {
             self.dispatch(Action::RepositoryRow(crate::workspace::RowAction::Commit(
                 id,
             )));
+        }
+    }
+
+    /// Leaving the History table for another mode starts from the commit under the `▌` bar,
+    /// as a click on that row would, even when ↑/↓ moved the bar during a running read
+    /// (TASK-99; keyboard and mouse share one meaning).
+    fn sync_history_cursor_revision_v99(&mut self) {
+        let selected = self.repository_list.selected;
+        let Some(workspace) = self.workspace.as_mut() else {
+            return;
+        };
+        if !workspace.graph_visible_v1()
+            || workspace.graph_view_v1 != crate::repository_graph_v1::GraphViewV1::Timeline
+        {
+            return;
+        }
+        let Some(crate::workspace::RowAction::Commit(id)) = workspace
+            .display_rows_v1()
+            .get(selected)
+            .and_then(|row| row.action.clone())
+        else {
+            return;
+        };
+        if id != workspace.revision
+            && workspace
+                .graph_state_v1
+                .as_ref()
+                .is_some_and(|state| state.selected_commit(&id).is_some())
+        {
+            workspace.revision = id;
         }
     }
 

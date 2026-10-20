@@ -1,9 +1,11 @@
-//! UNREGISTERED real-binary Task28 journeys. All declarations are UNRUN.
-//! Intended child of file_history.rs; only existing actual input helpers reused.
+//! Real-binary History paging, parents, shallow, root and cancellation journeys (Task28,
+//! rewritten for the TASK-99 History view): the `Read-only · N commits loaded` status, the `▌`
+//! bar, the commit detail and drill-down, by keyboard and mouse, with independent Git, SQL and
+//! config effect checks.
 #[path = "graph_compact_v2.rs"]
 mod compact_v2;
 use super::*;
-use crate::support::controls::{control_painted, text_has_control};
+use crate::support::history_fixture::selected_history_row;
 use ghtui::{
     config::Config,
     storage::{Cache, Scope},
@@ -319,25 +321,128 @@ fn effects(n: &NativeGraph, s: &Session, original: Option<&Path>) {
         .iter()
         .any(|a| a == "cat-file")));
 }
+/// The History status line for `loaded` commits whose shown window starts at `start`:
+/// `Read-only · 400 commits loaded · showing 201–400 · < > page`.
+fn history_status(loaded: usize, start: usize) -> String {
+    let mut text = format!(
+        "Read-only · {loaded} {} loaded",
+        if loaded == 1 { "commit" } else { "commits" }
+    );
+    if loaded > 200 {
+        text.push_str(&format!(
+            " · showing {}–{} · < > page",
+            start + 1,
+            (start + 200).min(loaded)
+        ));
+    }
+    text
+}
+/// The status line names exactly this count and window, and ` · scroll for more` (possibly
+/// cut by the pane edge) only while the original walk has more to load.
+fn status_is(screen: &str, loaded: usize, start: usize, more: bool) -> bool {
+    let status = history_status(loaded, start);
+    screen.lines().any(|line| {
+        line.find(&status).is_some_and(|at| {
+            let rest = &line[at + status.len()..];
+            !rest.starts_with(|c: char| c.is_ascii_digit()) && rest.starts_with(" · scroll") == more
+        })
+    })
+}
+/// Waits for a settled History frame with this count and window (no pending read).
+fn wait_status(s: &mut Session, loaded: usize, start: usize, more: bool) {
+    s.wait_for_cursorless_condition(
+        |frame| {
+            let screen = frame.contents();
+            status_is(&screen, loaded, start, more)
+                && selected_history_row(frame).is_some()
+                && !screen.contains("Esc Cancel")
+        },
+        &format!(
+            "History status {:?} (more: {more})",
+            history_status(loaded, start)
+        ),
+        Duration::from_secs(8),
+    );
+}
 fn graph(n: &NativeGraph, s: &mut Session, mouse: bool, count: usize) {
     s.wait_for_screen("Recent commits");
-    choose(s, mouse, "[g History]", b"g");
-    s.wait_for_screen(&format!("of {count} loaded"));
-    s.wait_for_control("[D Details]");
-    s.wait_for_screen(&n.tip);
     s.wait_for_settled_footer();
-    // More history is a key-bar control only while the original walk has more to load.
-    if count == 200 {
-        s.wait_for_control("[N More history]");
-    } else {
-        // Complete walks and shallow boundaries alike have no more history to load.
-        s.assert_control_absent("[N More history]");
-    }
+    choose(s, mouse, "[g History]", b"g");
+    s.wait_for_history_ready();
+    // Only an unfinished walk says `scroll for more`; complete walks and shallow boundaries
+    // alike have no more history to load.
+    wait_status(s, count, 0, count == 200);
+    s.wait_for_history_selected(&n.tip);
+    s.wait_for_screen(&format!("Saved: {}", n.tip));
+    s.wait_for_settled_footer();
+}
+/// Git children since `before`, without the detail's changed-files read (`diff-tree`) of a
+/// commit it has not shown yet.
+fn graph_children(n: &NativeGraph, before: usize) -> Vec<Value> {
+    trace(n)
+        .into_iter()
+        .skip(before)
+        .filter(|child| {
+            !child["argv"]
+                .as_array()
+                .is_some_and(|argv| argv.iter().any(|arg| arg == "diff-tree"))
+        })
+        .collect()
+}
+/// Git children since `prior` that walk history or refs. The detail beside the table reads the
+/// shown commit's changed files (`diff-tree`) by design; nothing may re-walk the graph.
+fn walk_reads(n: &NativeGraph, prior: usize) -> Vec<Value> {
+    trace(n)
+        .into_iter()
+        .skip(prior)
+        .filter(|child| {
+            child["argv"].as_array().is_some_and(|argv| {
+                argv.iter().any(|arg| {
+                    ["log", "rev-list", "show-ref", "for-each-ref"]
+                        .iter()
+                        .any(|walk| arg == walk)
+                })
+            })
+        })
+        .collect()
 }
 fn unchanged_calls(n: &NativeGraph, s: &mut Session, prior: usize) {
     s.poll_output(Duration::from_millis(1));
-    assert_eq!(trace(n).len(), prior);
+    assert_eq!(walk_reads(n, prior), Vec::<Value>::new());
     assert!(s.inspect_command_journal(&n.fixture).is_empty());
+}
+/// Follows the drill-down's parent link: Home puts the cursor on the first parent and Enter
+/// follows it; the mouse clicks the parent's short SHA.
+fn follow_parent(s: &mut Session, mouse: bool, parent: &str) {
+    let link = format!("Parent    {}", &parent[..7]);
+    s.wait_for_screen(&link);
+    if mouse {
+        let (x, y) = s
+            .locate(&link)
+            .unwrap_or_else(|| panic!("parent link missing\n{}", s.screen()));
+        s.click(x + 10, y);
+    } else {
+        s.send_key(b"\x1b[H");
+        s.send_key(b"\r");
+    }
+}
+/// The selected commit's drill-down (its parents and files): `P` by key; the mouse picks
+/// `D Details`, the same drill-down (`P` is its key alias and leaves the History bar).
+fn open_parents(s: &mut Session, mouse: bool, commit: &str) {
+    s.wait_for_settled_footer();
+    if mouse {
+        choose_bar_or_palette(s, true, "[D Details]", b"D");
+    } else {
+        s.send_key(b"P");
+    }
+    s.wait_for_screen(&format!("Commit {}", &commit[..7]));
+    s.wait_for_screen("Committer");
+}
+/// u returns from the drill-down or diff to the History table.
+fn graph_back(s: &mut Session, mouse: bool) {
+    s.wait_for_settled_footer();
+    choose(s, mouse, "[u Graph back]", b"u");
+    s.wait_for_history_ready();
 }
 fn paging(mouse: bool) {
     let n = fixture("page");
@@ -348,29 +453,20 @@ fn paging(mouse: bool) {
         .git(&["rev-parse", &format!("{}^", n.tip)])
         .trim()
         .to_owned();
-    if mouse {
-        choose(&mut s, true, "[P Parents]", b"P");
-    } else {
-        s.focus_footer_control("[P Parents]");
-        s.send_key(b"\r");
-    }
-    s.wait_for_screen("Ordered original parents");
-    select_row(&mut s, mouse, &format!("Parent 1: {parent}"));
-    s.try_wait_for_condition(
-        |screen| {
-            screen.contains(&format!("▶ selected {}", &parent[..8]))
-                && screen.contains("Visible commits 1–200")
-                && text_has_control(screen, "[N More history]")
-                && !text_has_control(screen, "[Esc Cancel]")
-        },
-        "Exact selected parent has returned to a complete nonpending Timeline",
-        Duration::from_secs(8),
-    )
-    .unwrap();
-    choose(&mut s, mouse, "[N More history]", b"N");
-    s.wait_for_screen("of 361 loaded");
-    s.wait_for_screen(&n.tip[..8]);
+    // P opens the tip's drill-down; its parent link follows the parent, and u returns to the
+    // table with the bar on it.
+    open_parents(&mut s, mouse, &n.tip);
+    follow_parent(&mut s, mouse, &parent);
+    s.wait_for_screen(&format!("Commit {}", &parent[..7]));
     s.wait_for_screen(&parent);
+    graph_back(&mut s, mouse);
+    s.wait_for_history_selected(&parent);
+    wait_status(&mut s, 200, 0, true);
+    s.wait_for_settled_footer();
+    choose_bar_or_palette(&mut s, mouse, "[L Load more]", b"L");
+    wait_status(&mut s, 361, 0, false);
+    s.wait_for_screen(&n.tip[..7]);
+    s.wait_for_history_selected(&parent);
     let walks = trace(&n)
         .into_iter()
         .filter(|v| {
@@ -389,7 +485,7 @@ fn paging(mouse: bool) {
         .iter()
         .any(|a| a == "--stdin"));
     let before = trace(&n).len();
-    explain_disabled(&mut s, mouse, "[N More history]", b"N", "All ancestors");
+    explain_disabled(&mut s, mouse, "[L Load more]", b"L", "All ancestors");
     unchanged_calls(&n, &mut s, before);
     choose(&mut s, mouse, "[Esc Close]", b"\x1b");
     s.wait_for_overlay_close("Action unavailable • explanation only");
@@ -401,20 +497,32 @@ fn octopus(mouse: bool) {
     let n = fixture("octopus");
     let mut s = launch(&n, mouse);
     graph(&n, &mut s, mouse, 6);
-    s.wait_for_screen("This merge joins 4 histories");
-    choose(&mut s, mouse, "[P Parents]", b"P");
-    s.wait_for_screen("Ordered original parents");
-    for (index, parent) in n.parents.iter().enumerate() {
-        s.wait_for_screen(&format!("Parent {}: {parent}", index + 1));
+    // The detail beside the table lists the four ordered parents.
+    s.wait_for_screen("Parents");
+    for parent in &n.parents {
+        s.wait_for_screen(&parent[..7]);
     }
     for index in [0, 3] {
-        select_row(&mut s, mouse, &format!("[Compare parent {}]", index + 1));
+        // Enter opens the diff against parent 1, which lists every ordered parent to compare.
+        s.wait_for_settled_footer();
+        choose(&mut s, mouse, "[Enter Diff]", b"\r");
         s.wait_for_screen("Saved commit changes");
-        s.wait_for_screen(&format!("Compared parent {}:", index + 1));
-        s.wait_for_screen(&n.parents[index]);
-        s.wait_for_screen(&n.tip);
-        choose(&mut s, mouse, "[u Graph back]", b"u");
-        s.wait_for_screen("of 6 loaded");
+        for (at, parent) in n.parents.iter().enumerate() {
+            s.wait_for_screen(&compare_label(at, parent));
+        }
+        // Parent 1 is the default comparison; another parent is chosen from its row.
+        if index != 0 {
+            select_row(&mut s, mouse, &compare_label(index, &n.parents[index]));
+        }
+        s.wait_for_screen(&format!(
+            "Compared parent {}: {} → {}",
+            index + 1,
+            n.parents[index],
+            n.tip
+        ));
+        graph_back(&mut s, mouse);
+        wait_status(&mut s, 6, 0, false);
+        s.wait_for_history_selected(&n.tip);
         assert_eq!(
             n.fixture
                 .git(&["cat-file", "commit", &n.tip])
@@ -424,10 +532,6 @@ fn octopus(mouse: bool) {
                 .collect::<Vec<_>>(),
             n.parents
         );
-        if index == 0 {
-            choose(&mut s, mouse, "[P Parents]", b"P");
-            s.wait_for_screen("Ordered original parents");
-        }
     }
     let sources = trace(&n);
     assert!(sources.iter().any(|v| v["argv"]
@@ -437,6 +541,14 @@ fn octopus(mouse: bool) {
         .any(|a| a == &n.parents[3])));
     effects(&n, &s, None);
     s.quit_and_assert_restored_terminal(mouse);
+}
+/// The diff's row that compares with the parent at `index`.
+fn compare_label(index: usize, parent: &str) -> String {
+    if index == 0 {
+        format!("Compare to first parent (1): {parent}")
+    } else {
+        format!("Compare to parent {}: {parent}", index + 1)
+    }
 }
 fn shallow(mouse: bool) {
     let n = fixture("shallow");
@@ -449,11 +561,23 @@ fn shallow(mouse: bool) {
         .to_owned();
     let mut s = launch(&n, mouse);
     graph(&n, &mut s, mouse, 1);
-    choose(&mut s, mouse, "[P Parents]", b"P");
-    s.wait_for_screen(&format!("Parent 1: {parent}"));
-    s.wait_for_screen("Shallow parent");
+    s.wait_for_screen("Shallow history boundary");
+    s.wait_for_screen(&format!("Parent    {} (not loaded)", &parent[..7]));
+    // The changed files name the missing parent instead of a raw Git error.
+    s.wait_for_screen("Shallow boundary • parent");
+    assert!(!s.screen().contains("bad object"), "{}", s.screen());
     let before = trace(&n).len();
-    select_row(&mut s, mouse, "[Compare parent 1]");
+    // Diff is disabled: it leaves the bar, and Enter or the detail's `enter diff` explains.
+    s.wait_for_settled_footer();
+    s.assert_control_absent("[Enter Diff]");
+    if mouse {
+        let (x, y) = s
+            .locate("enter diff")
+            .unwrap_or_else(|| panic!("detail diff hint missing\n{}", s.screen()));
+        s.click(x, y);
+    } else {
+        s.send_key(b"\r");
+    }
     s.wait_for_screen("Action unavailable");
     s.wait_for_screen("no fetch");
     unchanged_calls(&n, &mut s, before);
@@ -468,14 +592,17 @@ fn root_detached(mouse: bool) {
     assert_eq!(n.tip.len(), 64);
     let mut s = launch(&n, mouse);
     graph(&n, &mut s, mouse, 1);
-    choose(&mut s, mouse, "[P Parents]", b"P");
-    s.wait_for_screen("Root commit • no parents");
-    assert!(!s.screen().contains("Parent 1:"));
-    choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("of 1 loaded");
-    choose(&mut s, mouse, "[D Details]", b"D");
-    s.wait_for_screen(&format!("Saved commit: {}", n.tip));
-    s.wait_for_screen("refs/tags/actual-graph-name");
+    s.wait_for_screen("Parent    none · root commit");
+    open_parents(&mut s, mouse, &n.tip);
+    s.wait_for_screen("none · root commit");
+    graph_back(&mut s, mouse);
+    wait_status(&mut s, 1, 0, false);
+    s.wait_for_settled_footer();
+    choose_bar_or_palette(&mut s, mouse, "[D Details]", b"D");
+    s.wait_for_screen(&format!("Commit {}", &n.tip[..7]));
+    // The drill-down shows the whole SHA-256 ID and the tag chip.
+    s.wait_for_screen(&n.tip);
+    s.wait_for_screen("actual-graph-name");
     effects(&n, &s, None);
     s.quit_and_assert_restored_terminal(mouse);
     let empty = Fixture::new();
@@ -502,23 +629,29 @@ fn prepared_views(mouse: bool) {
     let n = fixture("octopus");
     let mut s = launch(&n, mouse);
     graph(&n, &mut s, mouse, 6);
+    // The tip's changed files are read once for the detail beside the table.
+    s.wait_for_screen("parent-1.txt");
     let before = trace(&n).len();
-    choose(&mut s, mouse, "[D Details]", b"D");
-    s.wait_for_screen("Author: Exact Graph Writer");
-    s.wait_for_screen("Committer: Exact Graph Recorder");
-    s.wait_for_screen("Original commit message");
+    s.wait_for_settled_footer();
+    choose_bar_or_palette(&mut s, mouse, "[D Details]", b"D");
+    s.wait_for_screen(&format!("Commit {}", &n.tip[..7]));
+    s.wait_for_screen("Exact Graph Writer");
+    s.wait_for_screen("Exact Graph Recorder");
+    s.wait_for_screen("Actual four-parent");
     unchanged_calls(&n, &mut s, before);
-    choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("of 6 loaded");
+    graph_back(&mut s, mouse);
+    wait_status(&mut s, 6, 0, false);
+    s.wait_for_settled_footer();
     choose_bar_or_palette(&mut s, mouse, "[l Legend]", b"l");
     s.wait_for_screen("never permanent branch identities");
     body_to(&mut s, mouse, "●─╮ merge joins a parent lane");
     unchanged_calls(&n, &mut s, before);
-    choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("of 6 loaded");
+    graph_back(&mut s, mouse);
+    wait_status(&mut s, 6, 0, false);
     s.resize(80, 24);
     s.wait_for_main_frame();
-    s.wait_for_control("[P Parents]");
+    s.wait_for_history_ready();
+    s.wait_for_settled_footer();
     choose_bar_or_palette(&mut s, mouse, "[→ Pan right]", b"\x1b[C");
     s.wait_for_screen("History pan: 8 cells");
     choose_bar_or_palette(&mut s, mouse, "[← Pan left]", b"\x1b[D");
@@ -527,15 +660,21 @@ fn prepared_views(mouse: bool) {
         "lanes back at their start",
         std::time::Duration::from_secs(8),
     );
-    s.wait_for_screen("Actual four-parent octopus");
+    s.wait_for_screen("Actual four-parent");
     s.resize(40, 24);
     s.wait_for_main_frame();
-    choose_bar_or_palette(&mut s, mouse, "[P Parents]", b"P");
-    s.wait_for_screen("Ordered original parents");
+    s.wait_for_settled_footer();
+    if mouse {
+        choose_bar_or_palette(&mut s, true, "[D Details]", b"D");
+    } else {
+        s.send_key(b"P");
+    }
+    s.wait_for_screen("Committer");
     s.resize(120, 40);
+    s.wait_for_screen(&format!("Commit {}", &n.tip[..7]));
     s.wait_for_control("[u Graph back]");
-    choose(&mut s, mouse, "[u Graph back]", b"u");
-    s.wait_for_screen("of 6 loaded");
+    graph_back(&mut s, mouse);
+    wait_status(&mut s, 6, 0, false);
     effects(&n, &s, None);
     s.quit_and_assert_restored_terminal(mouse);
 }
@@ -596,7 +735,7 @@ fn source_and_cancel(mouse: bool) {
         let pid_file = held_wrapper(&n);
         let mut s = launch(&n, mouse);
         graph(&n, &mut s, mouse, 200);
-        choose(&mut s, mouse, "[N More history]", b"N");
+        choose_bar_or_palette(&mut s, mouse, "[L Load more]", b"L");
         until(
             &mut s,
             || {
@@ -631,7 +770,7 @@ fn source_and_cancel(mouse: bool) {
                 "Original continuation child did not exit",
             );
             assert!(!s.screen().contains("REPLACEMENT GRAPH MUST NOT APPEAR"));
-            assert!(!s.screen().contains("of 361 loaded"));
+            assert!(!s.screen().contains("361 commits loaded"));
         } else {
             s.wait_for_control("[Esc Cancel]");
             choose(&mut s, mouse, "[Esc Cancel]", b"\x1b");
@@ -641,7 +780,7 @@ fn source_and_cancel(mouse: bool) {
                 "Actual original read group survived cancellation",
             );
             s.wait_for_screen("Cancelled");
-            assert!(!s.screen().contains("of 361 loaded"));
+            assert!(!s.screen().contains("361 commits loaded"));
         }
         s.wait_for_main_frame();
         effects(&n, &s, original.as_deref());

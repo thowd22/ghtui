@@ -453,6 +453,40 @@ impl GitRepository {
         let capped = ids.len() > MAX_OFFSET;
         Ok((ids, capped))
     }
+    /// The latest commit at or below `revision` that changed `path`, by Git's default history
+    /// simplification (`git log -1 <revision> -- <path>`): a merge that kept one parent's
+    /// version is not a change, unlike the `--full-history` chip selection above. Read-only.
+    pub fn original_graph_path_latest_v99(
+        &self,
+        revision: &str,
+        path: &RawPath,
+        deadline: Instant,
+    ) -> GitResult<Option<String>> {
+        if self.navigation_read_window.is_none() {
+            return fail("History file selection requires the actual whole-operation read window");
+        }
+        saved_oid(revision)?;
+        if path.0.is_empty() || path.0.len() > 4096 || path.0.contains(&0) {
+            return fail("History path filter must be 1..4096 bytes");
+        }
+        let args: Vec<OsString> = vec![
+            "log".into(),
+            "-1".into(),
+            "--format=%H".into(),
+            revision.into(),
+            "--".into(),
+            path.as_os_str().to_owned(),
+        ];
+        let bytes = read(self, &args, None, 130, deadline)?;
+        let id = std::str::from_utf8(&bytes)
+            .map_err(|_| GitError("History file change ID is not canonical ASCII".into()))?
+            .trim();
+        if id.is_empty() {
+            return Ok(None);
+        }
+        saved_oid(id)?;
+        Ok(Some(id.to_owned()))
+    }
     pub(crate) fn validate_graph_epoch_v1(
         &self,
         original: &OriginalGraphPageV1,

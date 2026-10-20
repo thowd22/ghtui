@@ -1,10 +1,9 @@
-//! NEW UNREGISTERED child of graph_paging_v1.rs. Real binary, real10000 objects,
-//! all50actual200-record pages, both input paths. Declarations are UNRUN.
+//! Child of graph_paging_v1.rs: the real binary over a real 10,000-commit walk, all fifty
+//! 200-commit pages loaded with `L`, History's `showing a–b · < > page` windows, the drill-down's
+//! parent link across windows and Back, by keyboard and mouse.
 use super::*;
 #[path = "graph_refresh_v3.rs"]
 mod refresh_v3;
-#[path = "../support/graph_compact_selection_v1.rs"]
-mod selection_v1;
 
 fn ordinary10000() -> NativeGraph {
     let mut native = fixture("ordinary");
@@ -44,36 +43,17 @@ fn ordinary10000() -> NativeGraph {
     native
 }
 fn ready_loaded(session: &mut Session, loaded: usize, start: usize) {
-    // More history leaves the key bar once the whole walk (10000 here) is loaded.
-    let more = loaded < 10_000;
-    let count = format!("of {loaded} loaded (limit 10000)");
-    let range = format!(
-        "Visible commits {}–{}",
-        start + 1,
-        (start + 200).min(loaded)
-    );
-    session
-        .wait_for_cursorless_condition(
-            |frame| {
-                let screen = frame.contents();
-                screen.contains(&count)
-                    && screen.contains(&range)
-                    && control_painted(frame, "[N More history]") == more
-                    && !control_painted(frame, "[Esc Cancel]")
-            },
-            &format!("Exact current loaded count/range and complete nonpending frame: loaded={loaded}, start={start}"),
-            Duration::from_secs(8),
-        );
+    // `scroll for more` leaves the status once the whole walk (10000 here) is loaded.
+    wait_status(session, loaded, start, loaded < 10_000);
 }
 fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
     graph(native, session, mouse, 200);
     ready_loaded(session, 200, 0);
     for page in 2..=50 {
         let before = trace(native).len();
-        choose(session, mouse, "[N More history]", b"N");
+        choose_bar_or_palette(session, mouse, "[L Load more]", b"L");
         ready_loaded(session, page * 200, 0);
-        let current = trace(native);
-        let children = &current[before..];
+        let children = &graph_children(native, before);
         assert_eq!(children.len(), 6, "Each explicit More owns one actual prequeue30s/128-child operation; no old-clock renewal");
         assert_eq!(
             children
@@ -89,8 +69,11 @@ fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
             .as_array()
             .is_some_and(|args| args.iter().any(|arg| arg.as_str() == Some(skip.as_str())))));
     }
-    // This is FULL actual loaded history, not a truncated/censored known page.
-    session.wait_for_screen("of 10000 loaded (limit 10000)");
+    // This is FULL actual loaded history, not a truncated/censored known page: the last
+    // window ends with the completed walk's boundary row.
+    ready_loaded(session, 10_000, 0);
+    choose_bar_or_palette(session, mouse, "[End Last loaded]", b"\x1b[F");
+    ready_loaded(session, 10_000, 9800);
     body_to(
         session,
         mouse,
@@ -113,71 +96,57 @@ fn load_all(native: &NativeGraph, session: &mut Session, mouse: bool) {
     ready_loaded(session, 10_000, 0);
 }
 
-fn select_loaded_row(session: &mut Session, mouse: bool, label: &str, actual_saved_sha: &str) {
+/// The ordinal of the ordinary commit under the `▌` bar; the tip's message is cut by its ref
+/// chips, so it counts as 9999.
+fn selected_ordinal(frame: &vt100::Screen) -> Option<usize> {
+    let row = selected_history_row(frame)?;
+    match row.message.strip_prefix("Ordinary graph version ") {
+        Some(digits) if digits.len() == 5 => digits.parse().ok(),
+        _ => row.message.contains('…').then_some(9_999),
+    }
+}
+/// Moves the `▌` bar down the first window to the ordinary commit `label` (`sha`): Down in
+/// batches of at most 8, each waiting for its frame, or a click on the row's SHA after
+/// scrolling it into view.
+fn select_loaded_row(session: &mut Session, mouse: bool, label: &str, sha: &str) {
     if mouse {
-        select_row(session, true, label);
+        body_to(session, true, label);
+        session.click_history_row(sha);
+        session.wait_for_history_selected(sha);
         return;
     }
-    let deadline = Instant::now() + Duration::from_secs(8);
+    let target: usize = label
+        .trim_start_matches("Ordinary graph version ")
+        .parse()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         session.poll_output(Duration::from_millis(1));
         let frame = session
             .completed_cursorless_screen()
-            .expect("actual completed Graph frame");
-        let batch = selection_v1::first_page_down_batch(frame, label, actual_saved_sha)
-            .unwrap_or_else(|reason| {
-                panic!(
-                    "Refused graph navigation plan: {reason}\n{}",
-                    session.screen()
-                )
-            });
-        let Some(batch) = batch else {
-            session.send_key(b"\r");
-            return;
-        };
-        let previous = session.completed_cursorless_end();
-        // Preserve every real commit AND parent-connector action, with at most
-        //16 genuine Down events per bounded batch. Labels are navigation hints;
-        // independent full SHA/read completion below remains object authority.
-        session.send_key(&batch.bytes());
-        loop {
-            session.poll_output(Duration::from_millis(1));
-            if session.completed_cursorless_end() > previous
-                && session.completed_cursorless_screen().is_some_and(|frame| {
-                    selection_v1::selected_subject(frame)
-                        .is_ok_and(|subject| subject == batch.expected_subject)
-                        && !control_painted(frame, "[Esc Cancel]")
-                })
-            {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "Actual NEW graph frame did not finish the exact bounded batch toward {label}\n{}",
-                session.screen()
-            );
+            .expect("a completed History frame");
+        let current = selected_ordinal(frame)
+            .unwrap_or_else(|| panic!("no ordinary commit under the bar\n{}", session.screen()));
+        assert!(current >= target, "Down would move away from {label}");
+        if current == target {
+            break;
         }
-        assert!(
-            Instant::now() < deadline,
-            "Exact graph row never became keyboard-selected: {label}\n{}",
-            session.screen()
+        let step = (current - target).min(8);
+        let expected = current - step;
+        session.send_key(&b"\x1b[B".repeat(step));
+        session.wait_for_cursorless_condition(
+            |frame| {
+                selected_ordinal(frame) == Some(expected)
+                    && !frame.contents().contains("Esc Cancel")
+            },
+            &format!("the bar on ordinary commit {expected:05}"),
+            deadline.saturating_duration_since(Instant::now()),
         );
     }
+    session.wait_for_history_selected(sha);
 }
 fn visible_page(session: &mut Session, loaded: usize, start: usize) {
-    session.wait_for_cursorless_condition(
-        |frame| {
-            let screen = frame.contents();
-            screen.contains(&format!(
-                "Visible commits {}–{}",
-                start + 1,
-                (start + 200).min(loaded)
-            )) && screen.contains(&format!("of {loaded} loaded (limit 10000)"))
-                && !control_painted(frame, "[Esc Cancel]")
-        },
-        "Actual newer/older projection has completed",
-        Duration::from_secs(8),
-    );
+    wait_status(session, loaded, start, loaded < 10_000);
 }
 fn full_back(mouse: bool) {
     let native = ordinary10000();
@@ -193,70 +162,63 @@ fn full_back(mouse: bool) {
         .git(&["rev-parse", "HEAD~400"])
         .trim()
         .to_owned();
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     choose_bar_or_palette(&mut session, mouse, "[→ Pan right]", b"\x1b[C");
     session.wait_for_screen("History pan: 8 cells");
-    if mouse {
-        choose(&mut session, true, "[P Parents]", b"P");
-    } else {
-        session.focus_footer_control("[P Parents]");
-        session.send_key(b"\r");
-    }
+    open_parents(&mut session, mouse, &selected);
     session.wait_for_screen(&format!(
-        "Parent 1: {}",
-        native.fixture.git(&["rev-parse", "HEAD~401"]).trim()
+        "Parent    {}",
+        &native.fixture.git(&["rev-parse", "HEAD~401"]).trim()[..7]
     ));
     unchanged_calls(&native, &mut session, full);
-    choose(&mut session, mouse, "[u Graph back]", b"u");
+    graph_back(&mut session, mouse);
     visible_page(&mut session, 10_000, 400);
+    session.wait_for_history_selected(&selected);
     choose_bar_or_palette(&mut session, mouse, "[End Last loaded]", b"\x1b[F");
     visible_page(&mut session, 10_000, 9800);
     unchanged_calls(&native, &mut session, full);
     choose_bar_or_palette(&mut session, mouse, "[Home First loaded]", b"\x1b[H");
     visible_page(&mut session, 10_000, 0);
-    // Select actual last row on first projection; its actual parent lives on
-    // another projection, proving cross-page global membership not row index.
-    if mouse {
-        body_to(&mut session, true, "Ordinary graph version 09800");
-    }
-    select_loaded_row(
-        &mut session,
-        mouse,
-        "Ordinary graph version 09800",
-        &native.tip,
-    );
+    // Select the last row of the first window; its parent lives in the next window, proving
+    // global membership rather than a row index.
     let last_first_page = native
         .fixture
         .git(&["rev-parse", "HEAD~199"])
         .trim()
         .to_owned();
-    session.wait_for_cursorless_condition(
-        |frame| {
-            let screen = frame.contents();
-            screen.contains(&format!("Saved: {last_first_page}"))
-                && screen.contains(&format!("▶ selected {}", &last_first_page[..8]))
-                && !control_painted(frame, "[Esc Cancel]")
-        },
-        "Exact last first-page member has completed selection before opening Parents",
-        Duration::from_secs(8),
+    select_loaded_row(
+        &mut session,
+        mouse,
+        "Ordinary graph version 09800",
+        &last_first_page,
     );
-    choose(&mut session, mouse, "[P Parents]", b"P");
-    session.wait_for_screen("[Compare parent 1]");
-    select_row(&mut session, mouse, "Parent 1:");
+    open_parents(&mut session, mouse, &last_first_page);
+    let parent = native
+        .fixture
+        .git(&["rev-parse", "HEAD~200"])
+        .trim()
+        .to_owned();
+    follow_parent(&mut session, mouse, &parent);
+    session.wait_for_screen(&format!("Commit {}", &parent[..7]));
+    graph_back(&mut session, mouse);
     visible_page(&mut session, 10_000, 200);
+    session.wait_for_history_selected(&parent);
     session.wait_for_screen("Ordinary graph version 09799");
     unchanged_calls(&native, &mut session, full);
     // Return to exact earlier member/range, then leave via an actual Git tree
     // operation. Back must restore full shared pages, not rebuildpage1/HEAD.
     choose_bar_or_palette(&mut session, mouse, "[> Older loaded]", b">");
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
+    session.wait_for_screen(&format!("Saved: {selected}"));
     let before_back = trace(&native).len();
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     session.wait_for_screen("History pan: 8 cells");
     let restore = &trace(&native)[before_back..];
     assert!(!restore.is_empty());
@@ -270,13 +232,13 @@ fn full_back(mouse: bool) {
             .iter()
             .any(|arg| arg == "log" || arg == "rev-list" || arg == "show-ref"))));
     session.resize(80, 24);
-    session.wait_for_control("[P Parents]");
-    choose(&mut session, mouse, "[P Parents]", b"P");
-    session.wait_for_screen("Ordered original parents");
-    choose(&mut session, mouse, "[u Graph back]", b"u");
-    session.wait_for_control("[> Older loaded]");
+    session.wait_for_main_frame();
+    session.wait_for_history_ready();
+    open_parents(&mut session, mouse, &selected);
+    graph_back(&mut session, mouse);
     session.resize(120, 40);
     visible_page(&mut session, 10_000, 400);
+    session.wait_for_history_selected(&selected);
     effects(&native, &session, None);
     session.quit_and_assert_restored_terminal(mouse);
 }
@@ -285,7 +247,7 @@ fn discard(mouse: bool) {
     let mut session = launch(&native, mouse);
     graph(&native, &mut session, mouse, 200);
     ready_loaded(&mut session, 200, 0);
-    choose(&mut session, mouse, "[N More history]", b"N");
+    choose_bar_or_palette(&mut session, mouse, "[L Load more]", b"L");
     ready_loaded(&mut session, 400, 0);
     let prior = trace(&native).len();
     let old_sql = sql(&native.fixture);
@@ -297,6 +259,7 @@ fn discard(mouse: bool) {
     ready_loaded(&mut session, 400, 0);
     // The previous200-source bookmark must be honestly unavailable, no legacy
     // graph reconstruction/source decode/HEAD fallback despite real objects.
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     session.wait_for_screen("Original Graph snapshot unavailable");
     unchanged_calls(&native, &mut session, prior);
@@ -326,6 +289,7 @@ fn restore_cancel(mouse: bool) {
     let pid_file = held_restore(&native);
     let mut session = launch(&native, mouse);
     load_all(&native, &mut session, mouse);
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
     fs::write(
@@ -358,7 +322,7 @@ fn restore_cancel(mouse: bool) {
     session.wait_for_screen("Cancelled");
     session.wait_for_main_frame();
     session.wait_for_screen("Saved file tree");
-    assert!(!session.screen().contains("of 10000 loaded"));
+    assert!(!session.screen().contains("10000 commits loaded"));
     effects(&native, &session, None);
     session.quit_and_assert_restored_terminal(mouse);
 }

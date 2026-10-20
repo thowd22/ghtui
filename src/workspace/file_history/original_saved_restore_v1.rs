@@ -33,7 +33,10 @@ impl Workspace {
             )?;
             let mut state =
                 FileProvenance::new(provenance.revision.clone(), provenance.path.clone());
-            if provenance.view != 0 {
+            if provenance.view == 0 && provenance.selection.is_none() {
+                // The file again after Back from blame: its provenance state stays, empty.
+                workspace.file_provenance = Some(state);
+            } else {
                 let source = if provenance.selection.is_some() {
                     provenance.return_view
                 } else {
@@ -71,6 +74,32 @@ impl Workspace {
                 }
                 workspace.file_provenance = Some(state);
                 match provenance.view {
+                    // The file again after Back from the line (to its blame) and Back from the
+                    // blame: the same two Backs, keeping the attributed line (TASK-99: History
+                    // opened from this file returns here).
+                    0 => {
+                        for _ in 0..2 {
+                            if workspace
+                                .file_provenance
+                                .as_ref()
+                                .is_some_and(|state| state.view == ProvenanceView::File)
+                            {
+                                break;
+                            }
+                            workspace.provenance_action_from_repository_v1(
+                                repository,
+                                FileAction::Back,
+                                cancellation.clone(),
+                            )?;
+                        }
+                        if workspace
+                            .file_provenance
+                            .as_ref()
+                            .is_none_or(|state| state.view != ProvenanceView::File)
+                        {
+                            return Err("Original file view is unavailable; no retarget".into());
+                        }
+                    }
                     2 | 3 => {}
                     5 => workspace.provenance_action_from_repository_v1(
                         repository,

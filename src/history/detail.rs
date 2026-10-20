@@ -173,6 +173,19 @@ impl HistoryDetailStateV994 {
         if !matches!(cached, FilesV994::Waiting) {
             return cached;
         }
+        // A shallow boundary's parent is not in this clone: say so instead of reading a diff
+        // Git can only answer with `bad object` (no fetch, no invented empty-tree diff).
+        if let (Some(parent), Some(state)) = (parent, workspace.graph_state_v1.as_ref()) {
+            if state.last_page().epoch().is_shallow_commit(commit)
+                && state.selected_commit(parent).is_none()
+            {
+                let error = format!(
+                    "Shallow boundary • parent {parent} is not in this clone; no fetch or empty diff guessed"
+                );
+                self.store(commit.to_owned(), Err(error.clone()));
+                return FilesV994::Failed(error);
+            }
+        }
         if let Some(inflight) = &self.inflight {
             if inflight.commit == commit {
                 return FilesV994::Waiting;

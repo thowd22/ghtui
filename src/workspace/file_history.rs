@@ -192,7 +192,9 @@ impl Workspace {
                 spec.set_path(Some(state.path.clone()));
                 self.history_filter_v993(spec, Some(repo))?;
                 // Select the file's latest change in the opened revision's own history, not a
-                // change on another branch that happens to sort above it.
+                // change on another branch that happens to sort above it. Git's default
+                // simplification names it (`git log -1 <revision> -- <path>`); the path chip's
+                // `--full-history` set also holds merges that only kept one side's version.
                 let graph = self
                     .graph_state_v1
                     .clone()
@@ -202,16 +204,31 @@ impl Workspace {
                     .flags(&graph)
                     .map(<[bool]>::to_vec)
                     .unwrap_or_default();
+                let latest = repo
+                    .original_graph_path_latest_v99(&state.revision, &state.path, deadline)
+                    .map_err(|error| error.to_string())?
+                    .filter(|id| self.history_filter_v993.matched(&graph, id) == Some(true));
                 let ancestors = graph.ancestors_v993(&state.revision)?;
-                if let Some(index) =
-                    (0..flags.len()).find(|index| flags[*index] && ancestors[*index])
-                {
-                    let id = graph
-                        .observed_at_v993(index)
-                        .ok_or("History match is not a loaded member")?
-                        .commit()
-                        .id
-                        .clone();
+                let fallback = || -> Result<Option<String>, String> {
+                    let Some(index) =
+                        (0..flags.len()).find(|index| flags[*index] && ancestors[*index])
+                    else {
+                        return Ok(None);
+                    };
+                    Ok(Some(
+                        graph
+                            .observed_at_v993(index)
+                            .ok_or("History match is not a loaded member")?
+                            .commit()
+                            .id
+                            .clone(),
+                    ))
+                };
+                let target = match latest {
+                    Some(id) => Some(id),
+                    None => fallback()?,
+                };
+                if let Some(id) = target {
                     if id != self.revision {
                         self.revision = id;
                         self.install_graph_v1(

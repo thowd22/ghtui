@@ -1,5 +1,6 @@
-//! NEW UNREGISTERED child of graph_compact_v2. Source-only declarations:
-//! genuine ordinary10000 history/all50actual pages, no censored known-page proof.
+//! Child of graph_compact_v2: Refresh, the deliberate Re-read preview and held/replaced
+//! Refresh reads over the genuine 10,000-commit History, with the window, the `▌` bar and the
+//! lane pan kept, by keyboard and mouse.
 use super::*;
 
 fn older400(native: &NativeGraph, session: &mut Session, mouse: bool) -> String {
@@ -13,14 +14,13 @@ fn older400(native: &NativeGraph, session: &mut Session, mouse: bool) -> String 
         .git(&["rev-parse", "HEAD~400"])
         .trim()
         .to_owned();
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     choose_bar_or_palette(session, mouse, "[→ Pan right]", b"\x1b[C");
     session.wait_for_screen("History pan: 8 cells");
     selected
 }
 fn exact_recheck(native: &NativeGraph, before: usize, expected: usize) {
-    let current = trace(native);
-    let reads = &current[before..];
+    let reads = &graph_children(native, before);
     assert_eq!(
         reads.len(),
         expected,
@@ -50,25 +50,26 @@ fn refresh_full(mouse: bool) {
     choose_bar_or_palette(&mut session, mouse, "[r Refresh]", b"r");
     session.wait_for_screen("Original Graph snapshot refreshed");
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     session.wait_for_screen("History pan: 8 cells");
     exact_recheck(&native, before, 10);
     session.resize(80, 24);
     session.wait_for_main_frame();
-    session.wait_for_control("[P Parents]");
-    choose(&mut session, mouse, "[P Parents]", b"P");
-    session.wait_for_screen("Ordered original parents");
+    session.wait_for_history_ready();
+    open_parents(&mut session, mouse, &selected);
     session.wait_for_screen(&format!(
-        "Parent 1: {}",
-        native.fixture.git(&["rev-parse", "HEAD~401"]).trim()
+        "Parent    {}",
+        &native.fixture.git(&["rev-parse", "HEAD~401"]).trim()[..7]
     ));
-    choose(&mut session, mouse, "[u Graph back]", b"u");
+    graph_back(&mut session, mouse);
     visible_page(&mut session, 10_000, 400);
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "[w Working]", b"w");
     session.wait_for_screen("DIRTY GRAPH REFRESH V3 CANARY");
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     effects(&native, &session, None);
     session.quit_and_assert_restored_terminal(mouse);
 }
@@ -101,7 +102,7 @@ fn deliberate_reread(mouse: bool) {
     session.wait_for_overlay_close("Re-read original Graph • first page");
     session.wait_for_main_frame();
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     unchanged_calls(&native, &mut session, before);
     session.resize(120, 40);
     session.wait_for_main_frame();
@@ -115,14 +116,13 @@ fn deliberate_reread(mouse: bool) {
     session.wait_for_overlay_close("Re-read original Graph • first page");
     session.wait_for_screen("Original Graph re-read • first200 loaded");
     ready_loaded(&mut session, 200, 0);
-    session.wait_for_screen(&format!("▶ selected {}", &native.tip[..8]));
+    session.wait_for_history_selected(&native.tip);
     session.wait_for_cursorless_condition(
         |frame| !frame.contents().contains("History pan:"),
         "lanes back at their start",
         std::time::Duration::from_secs(8),
     );
-    let actual = trace(&native);
-    let reads = &actual[before..];
+    let reads = &graph_children(&native, before);
     assert_eq!(
         reads.len(),
         20,
@@ -141,9 +141,10 @@ fn deliberate_reread(mouse: bool) {
         .as_array()
         .is_some_and(|argv| argv.iter().any(|arg| arg == "--skip=200"))));
     let back = trace(&native).len();
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     session.wait_for_screen("History pan: 8 cells");
     exact_recheck(&native, back, 10);
     effects(&native, &session, None);
@@ -207,7 +208,7 @@ fn pending_refresh(mouse: bool, replace: bool) {
     );
     session.wait_for_main_frame();
     visible_page(&mut session, 10_000, 400);
-    session.wait_for_screen(&format!("▶ selected {}", &selected[..8]));
+    session.wait_for_history_selected(&selected);
     assert!(!session
         .screen()
         .contains("Original Graph snapshot refreshed"));

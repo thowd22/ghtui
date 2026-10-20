@@ -1,9 +1,11 @@
-//! Compiled-binary file provenance journeys with independent real Git effect checks.
+//! Compiled-binary file provenance journeys with independent real Git effect checks. A file's
+//! history is the History view with the file's `path:` chip (TASK-99); blame, the responsible
+//! commit in History, its introduced diff and the original file keep their own views.
 #[path = "graph_paging_v1.rs"]
 mod graph_paging_v1;
 #[path = "original_saved_navigation_v1.rs"]
 mod original_saved_navigation_v1;
-use crate::support::{Fixture, Session};
+use crate::support::{history_fixture::history_filter_row, Fixture, Session};
 use std::{
     fs,
     time::{Duration, Instant},
@@ -74,7 +76,58 @@ fn select_row(session: &mut Session, mouse: bool, label: &str) {
         session.poll_output(Duration::from_millis(50));
     }
 }
+/// Moves History's `▌` bar to the commit `sha`: Down/Up presses, or a click on its SHA cell.
+fn select_history(session: &mut Session, mouse: bool, sha: &str) {
+    session.wait_for_history_ready();
+    if mouse {
+        session.click_history_row(sha);
+    } else {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            session.poll_output(Duration::from_millis(30));
+            let rows = session.history_rows();
+            let selected = rows.iter().position(|row| row.selected);
+            let wanted = rows.iter().position(|row| sha.starts_with(&row.sha));
+            match (selected, wanted) {
+                (Some(at), Some(wanted)) if at == wanted => break,
+                (Some(at), Some(wanted)) if wanted < at => session.send_key(b"\x1b[A"),
+                _ => session.send_key(b"\x1b[B"),
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{sha} never reached by the keyboard\n{}",
+                session.screen()
+            );
+            session.poll_output(Duration::from_millis(60));
+        }
+    }
+    session.wait_for_history_selected(sha);
+}
+/// The file's History: the `path:` chip in the filter row, its match count in the border and
+/// the bar on the file's latest change at or below the opened revision.
+fn wait_path_history(session: &mut Session, path: &str, matches: usize, latest: &str) {
+    let chip = format!("path: {path}");
+    session.wait_for_cursorless_condition(
+        |screen| {
+            history_filter_row(screen).is_some_and(|row| {
+                row.removable.iter().any(|(label, _)| *label == chip)
+                    && row.matches == Some(matches)
+            })
+        },
+        &format!("History with {chip} and {matches} matches"),
+        Duration::from_secs(10),
+    );
+    session.wait_for_history_ready();
+    session.wait_for_history_selected(latest);
+    session.wait_for_settled_footer();
+}
+/// Global Back (Alt-← or the header's `Alt-← Back` token).
+fn global_back(session: &mut Session, mouse: bool) {
+    session.wait_for_settled_footer();
+    choose(session, mouse, "Alt-← Back", b"\x1b[1;3D");
+}
 fn tree_file(session: &mut Session, mouse: bool, name: &str) {
+    session.wait_for_settled_footer();
     choose(session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
     select_row(session, mouse, name);
@@ -179,11 +232,13 @@ fn happy(mouse: bool) {
     let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "[g History]", b"g");
-    session.wait_for_screen("loaded (limit 10000)");
-    select_row(&mut session, mouse, "Chosen snapshot after rename");
-    session.wait_for_screen(&chosen);
+    session.wait_for_history_ready();
+    session.wait_for_screen("Read-only · 16 commits loaded");
+    select_history(&mut session, mouse, &chosen);
     tree_file(&mut session, mouse, "new name.txt");
+    session.wait_for_screen(&format!("Saved: {chosen}"));
     session.wait_for_screen("responsible second line");
     assert!(!session.screen().contains("future source line outside"));
     // Saved-file line actions use exact immutable BlameAt coordinates too.
@@ -196,39 +251,27 @@ fn happy(mouse: bool) {
     choose(&mut session, mouse, "[u File back]", b"u");
     session.wait_for_screen("new name.txt:1 / saved version");
     session.wait_for_screen(&chosen);
-    choose(&mut session, mouse, "[H History]", b"H");
-    session.wait_for_screen("File history — chosen saved version");
-    session.wait_for_screen("Rename: old name.txt → new name.txt");
-    session.wait_for_screen("History entries 1–10");
-    explain_disabled(
-        &mut session,
-        mouse,
-        "[P Previous]",
-        b"P",
-        "First source page",
+    // H (the mouse clicks `f File history`): History of every branch with the file's path
+    // chip. `new name.txt` changed in the rename and in the future version; the bar lands on
+    // the chosen revision's own change, not the newer one above it.
+    session.wait_for_settled_footer();
+    choose(&mut session, mouse, "[f File history]", b"H");
+    wait_path_history(&mut session, "new name.txt", 2, &chosen);
+    let future = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert!(
+        session
+            .history_rows()
+            .iter()
+            .any(|row| future.starts_with(&row.sha)),
+        "non-matching and newer commits stay visible\n{}",
+        session.screen()
     );
-    // The disabled explanation captures input; an underlying Tree click is inert.
-    if mouse {
-        session.click_visible_action("[t Tree]");
-    }
-    choose(&mut session, mouse, "[Esc Close]", b"\x1b");
-    // The history heading remains visible behind the Notice. Prove the
-    // capturing overlay actually closed before sending N; otherwise ESC+N
-    // can be decoded as Alt-N and leave the first-page explanation open.
-    session.wait_for_overlay_close("Action unavailable • explanation only");
-    session.wait_for_screen("File history — chosen saved version");
-    choose(&mut session, mouse, "[N Next]", b"N");
-    session.wait_for_screen("History entries 11–15");
-    session.wait_for_screen("Responsible source line change");
-    provenance_row(&mut session, mouse, "Responsible source line change");
-    session.wait_for_screen("Original path: old name.txt");
-    session.wait_for_screen(&responsible);
-    choose(&mut session, mouse, "[F Original file]", b"F");
-    session.wait_for_screen("old name.txt");
-    session.wait_for_screen("responsible second line");
-    choose(&mut session, mouse, "[u File back]", b"u");
-    session.wait_for_screen("File history — chosen saved version");
-    session.wait_for_screen("History entries 11–15");
+    // The Esc filter clear is also offered while the chip is set.
+    session.wait_for_control("[Esc Clear filter]");
+    global_back(&mut session, mouse);
+    session.wait_for_screen("new name.txt:1 / saved version");
+    session.wait_for_screen(&chosen);
+    session.wait_for_settled_footer();
     choose(&mut session, mouse, "[Y Blame]", b"Y");
     session.wait_for_screen("Blame lines 1–100 of 145");
     session.wait_for_screen("moved/copied line detection (-M/-C) is off");
@@ -250,10 +293,14 @@ fn happy(mouse: bool) {
     choose(&mut session, mouse, "[u File back]", b"u");
     session.wait_for_screen("Line blame");
     blame_row(&mut session, mouse, "responsible second line");
-    choose(&mut session, mouse, "[G Responsible graph]", b"G");
-    session.wait_for_screen("loaded (limit 10000)");
-    session.wait_for_screen(&responsible);
+    // G opens the responsible commit in History; Back returns to the attributed line.
+    choose(&mut session, mouse, "[G Commit in History]", b"G");
+    session.wait_for_history_ready();
+    session.wait_for_history_selected(&responsible);
     session.wait_for_screen("Responsible source line change");
+    global_back(&mut session, mouse);
+    session.wait_for_screen("Original line: 2 • chosen file line: 2");
+    session.wait_for_screen(&responsible);
     choose(&mut session, mouse, "[u File back]", b"u");
     session.wait_for_screen("Blame lines 1–100");
     session.wait_for_screen(&chosen);
@@ -353,7 +400,7 @@ fn limits(mouse: bool) {
         assert!(!session.screen().contains("Original line:"));
         assert!(!session.screen().contains("Blame lines"));
         for (label, key) in [
-            ("[G Responsible graph]", b"G".as_slice()),
+            ("[G Commit in History]", b"G".as_slice()),
             ("[D Introduced diff]", b"D".as_slice()),
             ("[F Original file]", b"F".as_slice()),
         ] {
@@ -361,17 +408,28 @@ fn limits(mouse: bool) {
             let before = children();
             assert!(before > 0, "The actual unsupported object was read");
             choose(&mut session, mouse, label, key);
-            session.wait_for_screen("Select an exact history entry or attributed line");
+            session.wait_for_screen("Select an attributed line before navigating its commit");
             assert_eq!(children(), before, "An explanation cannot read a target");
             assert!(!session.screen().contains("Original line:"));
             choose(&mut session, mouse, "[Esc Close]", b"\x1b");
             session.wait_for_overlay_close("Action unavailable • explanation only");
             session.wait_for_screen(expected);
         }
-        choose(&mut session, mouse, "[H History]", b"H");
-        session.wait_for_screen("File history — chosen saved version");
-        session.wait_for_screen("Limits: single-file");
+        // H (the mouse clicks `f File history`): History with the file's path chip and the bar
+        // on the commit that saved it.
+        let saved = fixture
+            .git(&["log", "-1", "--format=%H", "HEAD", "--", name])
+            .trim()
+            .to_owned();
+        session.wait_for_settled_footer();
+        choose(&mut session, mouse, "[f File history]", b"H");
+        wait_path_history(&mut session, name, 1, &saved);
+        session.wait_for_screen("Read-only · 3 commits loaded");
+        // Back to HEAD's row, so the next file's tree is HEAD's again.
+        select_history(&mut session, mouse, head.trim());
         session.resize(80, 24);
+        session.wait_for_main_frame();
+        session.wait_for_history_ready();
     }
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
@@ -427,10 +485,16 @@ fn shallow(mouse: bool) {
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close("Action unavailable • explanation only");
     session.wait_for_screen("Original path: file.txt");
-    choose(&mut session, mouse, "[G Responsible graph]", b"G");
-    session.wait_for_screen("loaded (limit 10000)");
-    session.wait_for_screen("Shallow visible saved version");
+    choose(&mut session, mouse, "[G Commit in History]", b"G");
+    session.wait_for_history_ready();
+    session.wait_for_history_selected(head.trim());
+    session.wait_for_screen("Read-only · 1 commit loaded");
+    session.wait_for_screen("Shallow history boundary");
+    // The message is cut to the 80-column table's MESSAGE column.
+    session.wait_for_screen("Shallow visible saved v");
     assert!(!session.screen().contains("Older source version"));
+    global_back(&mut session, mouse);
+    session.wait_for_screen("Original path: file.txt");
     choose(&mut session, mouse, "[u File back]", b"u");
     session.wait_for_screen("Blame lines 1–1 of 1");
     session.wait_for_screen("shallow chosen line");

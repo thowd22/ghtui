@@ -331,7 +331,8 @@ fn journey(mouse: bool) {
     assert!(history_tab_selected(screen), "{}", s.screen());
     s.wait_for_settled_footer();
     s.choose(mouse, "Alt-← Back", BACK_KEY);
-    s.wait_for_screen("README.md at saved version");
+    // Back restores the same file at the same saved version (its line view).
+    s.wait_for_screen("README.md:1 / saved version");
     assert_eq!(repo.state(), baseline);
 
     // The `Show History` command opens the same view.
@@ -368,6 +369,9 @@ fn journey(mouse: bool) {
     let matched = selected_history_row(s.completed_cursorless_screen().unwrap())
         .unwrap()
         .sha;
+    // The match becomes the saved version before the bar settles; a click taken earlier can
+    // land on a transient `Esc Cancel` token.
+    wait_texts(&mut s, &[&format!("Saved: {}", full_sha(&repo, &matched))]);
     s.wait_for_settled_footer();
     s.choose(mouse, "[D Details]", b"D");
     wait_texts(
