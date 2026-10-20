@@ -1,10 +1,10 @@
 ---
 id: TASK-93
 title: 'Design language: Repository as persistent panels'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-20 01:37'
+updated_date: '2026-10-20 14:00'
 labels:
   - ui-design
 dependencies:
@@ -34,4 +34,6 @@ Repository becomes numbered panels (1 Status, 2 Files, 3 Branches, 4 Commits) be
 
 <!-- SECTION:NOTES:BEGIN -->
 Overview is Files plus Recent commits panels with a preview from 130 columns. Remaining: native diff, saved-folder detail and pickers are still full-screen takeovers. Gate: node scripts/test-all.mjs 5933 passed/0 failed, fmt and clippy clean (732b0709).
+
+Phase 5: verified at 74360e48. node scripts/test-all.mjs 6000 passed 0 failed; fmt and clippy -D warnings clean.
 <!-- SECTION:NOTES:END -->

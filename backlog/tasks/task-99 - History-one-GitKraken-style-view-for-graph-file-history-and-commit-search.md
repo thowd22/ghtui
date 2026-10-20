@@ -1,10 +1,10 @@
 ---
 id: TASK-99
 title: 'History: one GitKraken-style view for graph, file history and commit search'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 20:38'
-updated_date: '2026-10-20 09:53'
+updated_date: '2026-10-20 14:00'
 labels:
   - ui-design
   - history
@@ -37,4 +37,6 @@ Replace Repository's separate Graph (g), file History (H) and commit searching w
 
 <!-- SECTION:NOTES:BEGIN -->
 History replaces Graph and file History (g/H aliases), paging verified on a 10k-commit fixture and a ~200-branch repo. Open: TASK-99.3 remainder and TASK-100 polish. Gate: node scripts/test-all.mjs 5979 passed/0 failed, fmt and clippy clean (582be36f).
+
+Phase 5: verified at 74360e48. node scripts/test-all.mjs 6000 passed 0 failed; fmt and clippy -D warnings clean.
 <!-- SECTION:NOTES:END -->

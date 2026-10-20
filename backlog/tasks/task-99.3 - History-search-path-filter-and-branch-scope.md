@@ -1,10 +1,10 @@
 ---
 id: TASK-99.3
 title: 'History: search, path filter and branch scope'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 20:38'
-updated_date: '2026-10-20 09:53'
+updated_date: '2026-10-20 14:00'
 labels:
   - ui-design
   - history
@@ -33,4 +33,6 @@ ordinal: 31069
 
 <!-- SECTION:NOTES:BEGIN -->
 Done: / highlight with dimmed non-matches, n/N, author:/path:/branch: chips, scope, f in Tree, H alias. Remaining: f from Search results and PR Files; file history following renames. Gate: node scripts/test-all.mjs 5979 passed/0 failed, fmt and clippy clean (582be36f).
+
+Phase 5: verified at 74360e48. node scripts/test-all.mjs 6000 passed 0 failed; fmt and clippy -D warnings clean.
 <!-- SECTION:NOTES:END -->

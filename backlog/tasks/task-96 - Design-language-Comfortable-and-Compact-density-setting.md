@@ -1,10 +1,10 @@
 ---
 id: TASK-96
 title: 'Design language: Comfortable and Compact density setting'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-20 01:37'
+updated_date: '2026-10-20 14:00'
 labels:
   - ui-design
 dependencies:
@@ -32,4 +32,6 @@ Settings › Density: Comfortable (default; spacing and splits) and Compact (tod
 
 <!-- SECTION:NOTES:BEGIN -->
 Comfortable/Compact setting with Settings control and config; Compact drops the split, tightens gaps and Inbox rows. Remaining: Comfortable 2-row Inbox items. Gate: node scripts/test-all.mjs 5933 passed/0 failed, fmt and clippy clean (732b0709).
+
+Phase 5: verified at 74360e48. node scripts/test-all.mjs 6000 passed 0 failed; fmt and clippy -D warnings clean.
 <!-- SECTION:NOTES:END -->

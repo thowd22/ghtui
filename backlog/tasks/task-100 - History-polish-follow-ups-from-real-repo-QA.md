@@ -1,9 +1,10 @@
 ---
 id: TASK-100
 title: 'History: polish follow-ups from real-repo QA'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-20 09:53'
+updated_date: '2026-10-20 14:00'
 labels:
   - ui-design
   - history
@@ -26,3 +27,9 @@ From the Phase 4 captures on the ~200-branch insights clone and the design criti
 - [ ] #3 History shows one status line, not one in the table and one below it
 - [ ] #4 PTY journeys at 80x24 and 140x42, keyboard and mouse, working tree unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Phase 5: verified at 74360e48. node scripts/test-all.mjs 6000 passed 0 failed; fmt and clippy -D warnings clean.
+<!-- SECTION:NOTES:END -->
