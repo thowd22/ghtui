@@ -916,6 +916,12 @@ impl LocalPlan {
         if mutation.destructive {
             preview.push("Warning: this can replace or remove existing history/files. Inspect the target before confirming.".into());
         }
+        preview.extend(
+            repo.affected_preview_v1(&mutation.operation, &current_status)
+                .map_err(|error| error.to_string())?
+                .iter()
+                .map(|line| sanitize_terminal(line)),
+        );
         if selected_conflict && command == LocalCommand::StageFile {
             preview.push("Stages the complete resolved working file and removes its base/ours/theirs conflict stages. Inspect the working content before confirming.".into());
             if let Some(path) = &context.selected_path {

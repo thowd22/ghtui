@@ -455,6 +455,112 @@ fn sequencer(mouse: bool) {
 }
 
 #[test]
+fn history_previews_keyboard_list_commits_pick_abort_rebase_skip_revert_and_reset() {
+    history_previews(false);
+}
+#[test]
+fn history_previews_mouse_list_commits_pick_abort_rebase_skip_revert_and_reset() {
+    history_previews(true);
+}
+/// TASK-42/43: every history preview names the exact commits by full SHA before
+/// confirmation; cherry-pick abort, rebase skip and a clean revert run end to end.
+fn history_previews(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"base\n", "base");
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.commit_file("file.txt", b"theirs\n", "theirs");
+    let theirs = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.commit_file("extra.txt", b"extra\n", "extra");
+    let extra = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["switch", "main"]);
+    fixture.commit_file("file.txt", b"ours\n", "ours");
+    let ours = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let mut session = launch(&fixture);
+    let conflict = |session: &mut Session| {
+        session.wait_for_screen("CONFLICT: the operation stopped");
+        local::close(session, mouse);
+        refresh(session, mouse);
+        session.wait_for_screen("conflicted  file.txt");
+    };
+
+    // Cherry-pick previews the one commit, stops on the conflict, then aborts.
+    operation(&mut session, mouse, LocalCommand::CherryPick);
+    fill(&mut session, mouse, &[("Saved version", &theirs)]);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("Commit applied on top of HEAD (1):");
+    session.wait_for_screen(&format!("{theirs} theirs"));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), format!("{ours}\n"));
+    local::confirm(&mut session, mouse, 1);
+    conflict(&mut session);
+    assert!(fixture.repo().join(".git/CHERRY_PICK_HEAD").exists());
+    operation(&mut session, mouse, LocalCommand::Abort);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen(&format!("{theirs} theirs"));
+    local::confirm(&mut session, mouse, 0);
+    session.wait_for_screen("Completed • Abort operation");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), format!("{ours}\n"));
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+
+    // Rebase previews the replayed commit, stops on it, and Skip drops it.
+    operation(&mut session, mouse, LocalCommand::Rebase);
+    fill(&mut session, mouse, &[("Saved version", "feature")]);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen(&format!("Commits replayed onto {extra} (1):"));
+    session.wait_for_screen(&format!("{ours} ours"));
+    local::confirm(&mut session, mouse, 1);
+    conflict(&mut session);
+    operation(&mut session, mouse, LocalCommand::Skip);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("Stopped commit that is skipped");
+    session.wait_for_screen(&format!("{ours} ours"));
+    local::confirm(&mut session, mouse, 0);
+    session.wait_for_screen("Completed • Skip current commit");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), format!("{extra}\n"));
+    assert!(!fixture.repo().join(".git/rebase-merge").exists());
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"theirs\n"
+    );
+
+    // A clean revert names the undone commit and records a new one on top.
+    operation(&mut session, mouse, LocalCommand::Revert);
+    fill(&mut session, mouse, &[("Saved version", &theirs)]);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("Commit whose changes are undone (1):");
+    session.wait_for_screen(&format!("{theirs} theirs"));
+    local::confirm(&mut session, mouse, 1);
+    session.wait_for_screen("Completed • Revert commit");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD^"]), format!("{extra}\n"));
+    assert_eq!(
+        fs::read(fixture.repo().join("file.txt")).unwrap(),
+        b"base\n"
+    );
+
+    // A hard reset preview lists the commits leaving the branch and the dirty file.
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    fs::write(fixture.repo().join("extra.txt"), b"dirty extra\n").unwrap();
+    operation(&mut session, mouse, LocalCommand::Reset);
+    fill(
+        &mut session,
+        mouse,
+        &[("Saved version", &theirs), ("Reset effect", "hard")],
+    );
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("Commits leaving the current branch");
+    session.wait_for_screen(&format!("{extra} extra"));
+    session.wait_for_screen("Uncommitted tracked changes discarded (1):");
+    session.wait_for_screen("  extra.txt");
+    local::close(&mut session, mouse);
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        fs::read(fixture.repo().join("extra.txt")).unwrap(),
+        b"dirty extra\n"
+    );
+    finish(&mut session, &fixture, mouse);
+}
+
+#[test]
 fn reflog_recovery_keyboard_rescue_old_commit_and_cancel_reset() {
     recovery(false);
 }

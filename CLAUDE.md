@@ -27,6 +27,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **A new worktree can start on an old commit. Run `git merge --ff-only main` first.**
 - **When cherry-picking an agent's branch onto main, take only the commits not on main yet** (`git log main..<branch>`). Skip any commit whose title is already on main; it is the same work under a different SHA.
 - **Resolve conflicts so both sides' intent survives,** and build once afterwards.
+- **Worktree-isolated agents: put multi-step build/test commands in a scratch script** and pass it to `agent-run.sh`. Compound shell commands or heredocs that mention `git` (even `git_contracts`) are refused by the isolation check, and a log redirect into a not-yet-created `~/.cache/ghtui-agents/<name>/` fails silently before the run starts.
 - **Commit identity:** `git -c user.name=thowd22 -c user.email=thowd2@gmail.com commit`. Run `cargo fmt` first. Never add `.claude/` or `target-fullside-*.log`. Never push, and never tag or publish a release: those need the user's go-ahead.
 
 ## 4. "Flaky" usually means a real race

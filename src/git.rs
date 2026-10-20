@@ -1749,6 +1749,130 @@ impl GitRepository {
     }
 
     /// A mutation is always first converted into a target/effect preview with an observed state.
+    /// Read-only preview lines naming the exact commits (full SHA + subject) a
+    /// history operation would apply, replay, revert, skip or move off the
+    /// branch, plus the exact local changes a hard/mixed reset would drop.
+    pub fn affected_preview_v1(
+        &self,
+        operation: &Operation,
+        status: &RepoStatus,
+    ) -> GitResult<Vec<String>> {
+        const SHOWN: usize = 50;
+        let list = |title: &str, range: &str, no_merges: bool| -> GitResult<Vec<String>> {
+            let count = format!("--max-count={}", SHOWN + 1);
+            let mut args = vec!["log", "--no-color", "--format=%H %s", count.as_str()];
+            if no_merges {
+                args.push("--no-merges");
+            }
+            args.extend([range, "--"]);
+            let bytes = self.read(&args)?;
+            let mut rows = bytes
+                .split(|byte| *byte == b'\n')
+                .filter(|line| !line.is_empty())
+                .map(|line| format!("  {}", display_bytes(line)))
+                .collect::<Vec<_>>();
+            let more = rows.len() > SHOWN;
+            rows.truncate(SHOWN);
+            let mut lines = vec![format!(
+                "{title} ({}{}):",
+                rows.len(),
+                if more { "+" } else { "" }
+            )];
+            if rows.is_empty() {
+                lines.push("  none".into());
+            }
+            lines.extend(rows);
+            if more {
+                lines.push(format!("  … list stops after {SHOWN} commits"));
+            }
+            Ok(lines)
+        };
+        let head = || self.resolve("HEAD");
+        let changed = |hard: bool| {
+            status
+                .entries
+                .iter()
+                .filter(|entry| !entry.untracked())
+                .filter(|entry| entry.staged() || entry.conflict || (hard && entry.worktree != '.'))
+                .map(|entry| format!("  {}", entry.path.display()))
+                .collect::<Vec<_>>()
+        };
+        match operation {
+            Operation::Merge(revision) => {
+                let id = self.resolve(revision)?;
+                list(
+                    "Commits this merge brings in",
+                    &format!("{}..{id}", head()?),
+                    false,
+                )
+            }
+            Operation::Rebase(revision) => {
+                let id = self.resolve(revision)?;
+                list(
+                    &format!("Commits replayed onto {id}"),
+                    &format!("{id}..{}", head()?),
+                    true,
+                )
+            }
+            Operation::CherryPick(revision) => {
+                let id = self.resolve(revision)?;
+                list("Commit applied on top of HEAD", &format!("{id}^!"), false)
+            }
+            Operation::Revert(revision) => {
+                let id = self.resolve(revision)?;
+                list("Commit whose changes are undone", &format!("{id}^!"), false)
+            }
+            Operation::Continue | Operation::Skip | Operation::Abort => {
+                let name = match status.operation {
+                    Some(Sequencer::Merge) => "MERGE_HEAD",
+                    Some(Sequencer::Rebase) => "REBASE_HEAD",
+                    Some(Sequencer::CherryPick) => "CHERRY_PICK_HEAD",
+                    Some(Sequencer::Revert) => "REVERT_HEAD",
+                    _ => return Ok(Vec::new()),
+                };
+                let Ok(raw) = std::fs::read(self.git_dir.join(name)) else {
+                    return Ok(Vec::new());
+                };
+                let id = display_bytes(raw.split(|byte| *byte == b'\n').next().unwrap_or(&[]));
+                if id.len() < 40 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Ok(Vec::new());
+                }
+                let title = match operation {
+                    Operation::Continue => "Stopped commit that continues with the resolved index",
+                    Operation::Skip => "Stopped commit that is skipped (its changes are dropped)",
+                    _ => "Stopped commit; abort returns to the state before the operation",
+                };
+                list(title, &format!("{id}^!"), false)
+            }
+            Operation::Reset { revision, mode } => {
+                let id = self.resolve(revision)?;
+                let mut lines = list(
+                    "Commits leaving the current branch (reflog keeps them until it expires)",
+                    &format!("{id}..{}", head()?),
+                    false,
+                )?;
+                let (title, paths) = match mode {
+                    ResetMode::Hard => ("Uncommitted tracked changes discarded", changed(true)),
+                    ResetMode::Mixed => (
+                        "Staged changes unstaged; working files kept",
+                        changed(false),
+                    ),
+                    ResetMode::Soft => ("Index and working files are kept", Vec::new()),
+                };
+                lines.push(format!("{title} ({}):", paths.len()));
+                if paths.is_empty() {
+                    lines.push("  none".into());
+                }
+                lines.extend(paths);
+                if *mode == ResetMode::Hard {
+                    lines.push("Untracked files are kept.".into());
+                }
+                Ok(lines)
+            }
+            _ => Ok(Vec::new()),
+        }
+    }
+
     pub fn plan(&self, operation: Operation) -> GitResult<MutationPlan> {
         self.plan_with_config_v9(operation, None)
     }

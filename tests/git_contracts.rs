@@ -9,6 +9,8 @@ mod provider_special_read_v1;
 mod raw_git_argv_v1;
 #[path = "support/raw_git_argv_v1_tests.rs"]
 mod raw_git_argv_v1_tests;
+#[path = "git_contracts/sequencer_previews_v1.rs"]
+mod sequencer_previews_v1;
 
 use ghtui::git::{
     Comparison, GitRepository, Operation, PullStrategy, RawPath, ResetMode, Sequencer,
