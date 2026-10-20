@@ -241,7 +241,7 @@ fn topics(view: View) -> &'static [(HelpLineKind, &'static str)] {
             (G, "Parents show how saved versions are related. A merge joins histories and can have multiple parents; colored graph lanes are not permanent branch identities."),
             (H, "History"),
             (G, "History (g, or f / H on a file) shows every branch as colored lanes: ● is a commit, ●─╮ a merge and ●─╯ where a branch started. Chips name HEAD, local branches, origin/… remote branches and tags. Browsing is read-only: it never checks out, resets or moves a ref."),
-            (S, "History: / searches message, author, path or SHA (author:, path: and branch: become removable chips; Esc clears); n / N next and previous match; h hides non-matches; B branch scope; Enter diff; f file history; Y blame; y copy SHA; D details below 120 columns; scrolling past the end or L loads older commits."),
+            (S, "History: / searches message, author, path or SHA (author:, path: and branch: become removable chips; Esc clears); n / N next and previous match; h hides non-matches; B branch scope; Enter diff; f file history; Y blame; y copy SHA; A Actions runs of the exact commit; D details below 120 columns; scrolling past the end or L loads older commits."),
             (L, "Search highlights only loaded commits; non-matches stay dimmed for context. The status line counts loaded commits and the last row marks where loaded history ends."),
             (G, "HEAD is the checked-out version. Detached HEAD means no branch name currently follows it. An unborn repository has no saved commits yet."),
             (G, "Working files are your uncommitted edits. Staged changes are the part selected for the next commit. Saved versions are immutable Git objects."),

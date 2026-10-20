@@ -371,3 +371,48 @@ fn history_detail_v994_text_helpers_wrap_words_fit_paths_and_date_both_ways() {
         )
     );
 }
+
+/// TASK-52: `A` and the `A actions runs` token open the shared Actions view on the runs of the
+/// exact commit, with one meaning; nothing is read here (the worker reads on the next turn).
+#[test]
+fn history_detail_actions_runs_key_and_click_open_actions_for_the_exact_commit() {
+    let real = Real::new("sha1");
+    let baseline = real.snapshot();
+    let mut terminal = Terminal::new(TestBackend::new(140, 42)).unwrap();
+    let wanted = Some(crate::actions_workspace::ActionsAction::CommitRuns(
+        real.original.clone(),
+    ));
+    let mut keyboard = app(&real);
+    draw(&mut keyboard, &mut terminal);
+    let screen = draw(&mut keyboard, &mut terminal);
+    assert!(screen.contains("A actions runs"), "{screen}");
+    let keys = footer_keys(&keyboard);
+    assert!(keys
+        .iter()
+        .any(|key| key.key == "A" && key.disabled.is_none()));
+    press(&mut keyboard, KeyCode::Char('A'));
+    assert_eq!(keyboard.view, View::Actions);
+    assert_eq!(keyboard.actions_action, wanted);
+    assert!(keyboard.actions_load_requested);
+
+    let mut mouse = app(&real);
+    draw(&mut mouse, &mut terminal);
+    let token = mouse
+        .hits
+        .iter()
+        .find(|hit| hit.action == Action::HistoryDetailV994(DetailUiActionV994::ActionsRuns))
+        .expect("the actions runs token is clickable")
+        .rect;
+    click(&mut mouse, token);
+    assert_eq!(mouse.view, View::Actions);
+    assert_eq!(mouse.actions_action, wanted);
+    assert_eq!(real.snapshot(), baseline);
+
+    // Only a full object ID reaches the run filter.
+    assert!(crate::actions_workspace::commit_runs_sha(&real.original[..7]).is_err());
+    assert!(crate::actions_workspace::commit_runs_sha(&"g".repeat(40)).is_err());
+    assert_eq!(
+        crate::actions_workspace::commit_runs_sha(&"AB".repeat(20)).unwrap(),
+        "ab".repeat(20)
+    );
+}

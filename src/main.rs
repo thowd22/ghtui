@@ -2488,7 +2488,10 @@ fn run() -> Result<()> {
                         let identity = verified.ok_or("No verified Actions identity")?;
                         ghtui::storage::Scope::github(&identity.host,identity.account_id).map_err(|error|error.to_string())?;
                         let mut workspace = ActionsWorkspace::new(identity,repositories);
-                        workspace.load_catalog(&provider,&cancel).map_err(|error|error.to_string())?;
+                        // A commit's runs (TASK-52) load their own filtered page below.
+                        if !matches!(action,Some(ActionsAction::CommitRuns(_))) {
+                            workspace.load_catalog(&provider,&cancel).map_err(|error|error.to_string())?;
+                        }
                         workspace
                     };
                     if let Some(ActionsAction::Compose(command)) = action {

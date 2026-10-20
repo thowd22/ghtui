@@ -134,6 +134,23 @@ pub fn draw(
         );
         y += 1;
     }
+    // TASK-52: runs opened for one commit name its full SHA; `f Filter runs` replaces it.
+    if let Some(sha) = workspace
+        .filter
+        .head_sha
+        .as_ref()
+        .filter(|_| workspace.view == ActionsView::Runs && y < area.bottom())
+    {
+        frame.render_widget(
+            Paragraph::new(crate::ui_chrome::fit(
+                &sanitize_terminal(&format!("Commit {sha} • runs of this exact commit only")),
+                usize::from(area.width),
+            ))
+            .style(theme.style(SemanticToken::Normal)),
+            Rect::new(area.x, y, area.width, 1),
+        );
+        y += 1;
+    }
     if let Some(warning) = workspace.warnings.last().filter(|_| y < area.bottom()) {
         frame.render_widget(
             Paragraph::new(sanitize_terminal(warning)).style(theme.style(SemanticToken::Pending)),

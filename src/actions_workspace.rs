@@ -104,6 +104,16 @@ impl ActionsView {
             )
     }
 }
+/// The exact commit of [`ActionsAction::CommitRuns`]: a full 40- or 64-hex object ID,
+/// lowercased. A short or symbolic name could match another commit, so it is refused.
+pub fn commit_runs_sha(sha: &str) -> GithubResult<String> {
+    if !matches!(sha.len(), 40 | 64) || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(plain_error(
+            "Actions runs need the commit's full SHA; nothing was requested",
+        ));
+    }
+    Ok(sha.to_ascii_lowercase())
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionsAction {
     EditWorkflowLocalV9,
@@ -117,6 +127,9 @@ pub enum ActionsAction {
         id: u64,
         attempt: u64,
     },
+    /// TASK-52: the runs of one exact commit (a History commit's `A Actions runs`). Read only:
+    /// it replaces the run filter with `head_sha` and reloads the newest page.
+    CommitRuns(String),
     OpenJob(u64),
     Logs(Option<u64>),
     Annotations(u64),
@@ -982,7 +995,7 @@ impl ActionsWorkspace {
         use ActionsAction::*;
         if matches!(
             action,
-            OpenRun { .. } | View(_) | Back | Repository(_) | Artifacts | Logs(_)
+            OpenRun { .. } | View(_) | Back | Repository(_) | Artifacts | Logs(_) | CommitRuns(_)
         ) {
             self.watch_note = None;
         }
@@ -996,6 +1009,17 @@ impl ActionsWorkspace {
             Select(index) => {
                 self.select(*index);
                 return Ok(());
+            }
+            CommitRuns(sha) => {
+                let sha = commit_runs_sha(sha)?;
+                self.filter = RunFilter {
+                    head_sha: Some(sha),
+                    ..RunFilter::default()
+                };
+                self.run = None;
+                self.selected = 0;
+                self.top = 0;
+                return self.load_catalog(gh, cancel);
             }
             Watch => {
                 if let Err(reason) = self.toggle_watch() {

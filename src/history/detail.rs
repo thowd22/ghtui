@@ -61,6 +61,8 @@ pub enum DetailUiActionV994 {
     Activate,
     /// Show the full SHA to copy: ghtui has no clipboard integration.
     CopySha,
+    /// TASK-52: open the shared Actions view on the runs of this exact commit (read only).
+    ActionsRuns,
 }
 
 type FilesResult = Result<Arc<HistoryChangedFilesV994>, String>;
@@ -472,6 +474,15 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
         .with_compact("SHA")
         .with_priority(9),
     );
+    keys.push(
+        KeyControl::new(
+            "A",
+            "Actions runs",
+            Action::HistoryDetailV994(DetailUiActionV994::ActionsRuns),
+        )
+        .with_compact("Runs")
+        .with_priority(30),
+    );
     if !drill {
         // Below the split width the drill-down is the only way to the detail.
         let pane = app.preview_area_v92.is_some();
@@ -613,6 +624,19 @@ pub fn dispatch(app: &mut App, action: DetailUiActionV994) {
                 }
             };
             app.dispatch(action);
+        }
+        DetailUiActionV994::ActionsRuns => {
+            // The run filter wants the exact object ID; the graph walk always has it.
+            if crate::actions_workspace::commit_runs_sha(&commit).is_err() {
+                app.dispatch(Action::Explain(
+                    "Actions runs need the commit's full SHA • nothing was requested".into(),
+                ));
+                return;
+            }
+            app.dispatch(Action::View(View::Actions));
+            app.dispatch(Action::Actions(
+                crate::actions_workspace::ActionsAction::CommitRuns(commit),
+            ));
         }
         DetailUiActionV994::CopySha => {
             app.dispatch(Action::Explain(format!(
@@ -1319,6 +1343,14 @@ fn hints(app: &App, theme: Theme, width: usize) -> Vec<Row> {
             None,
         ));
     }
+    tokens.push((
+        vec![
+            Span::styled("A", theme.role(Role::Accent).add_modifier(Modifier::BOLD)),
+            Span::styled(" actions runs", theme.role(Role::TextMuted)),
+        ],
+        Some(Action::HistoryDetailV994(DetailUiActionV994::ActionsRuns)),
+        None,
+    ));
     let mut rows = Vec::new();
     flow(
         &mut rows,

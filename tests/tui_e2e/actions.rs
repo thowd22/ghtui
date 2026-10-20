@@ -9,6 +9,8 @@ mod approval_recovery;
 mod approvals;
 #[path = "actions/cache_outcomes_v1.rs"]
 mod cache_outcomes_v1;
+#[path = "actions/commit_runs_v1.rs"]
+mod commit_runs_v1;
 #[path = "actions/controls_v1.rs"]
 mod controls_v1;
 #[path = "actions/lease_selection.rs"]
