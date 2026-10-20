@@ -259,7 +259,13 @@ fn profile(
     assert!(session.inspect_command_journal(&source.fixture).is_empty());
 }
 fn select_original(session: &mut Session, mouse: bool, original: &str) {
-    ready(session, &[COMMITTERLESS, "loaded (limit 10000)"]);
+    ready(session, &["Read-only · ", " commits loaded"]);
+    let rows = session.wait_for_history_ready();
+    assert!(
+        rows.iter()
+            .any(|row| row.selected && row.message.starts_with("Saved unknown")),
+        "History opens on the {COMMITTERLESS} HEAD commit"
+    );
     session.open_saved_graph_subject(mouse, AUTHORLESS, original);
 }
 fn durable(fixture: &Fixture, intent: &Value) {

@@ -3771,6 +3771,17 @@ impl App {
             } else if next >= self.repository_list.top + self.repository_visible_rows {
                 self.repository_list.top = next + 1 - self.repository_visible_rows.max(1);
             }
+            // In History the bar is the chosen commit, as a click on its row makes it: the
+            // saved commit, its actor rows and `a`/`c` follow the keyboard too. A running read
+            // (a page of older commits) is not replaced by mere cursor movement.
+            let workspace = self.workspace.as_ref().unwrap();
+            if workspace.graph_visible_v1() && !self.loading[View::Repository.index()] {
+                if let Some(action @ crate::workspace::RowAction::Commit(_)) =
+                    workspace.display_rows_v1()[next].action.clone()
+                {
+                    self.dispatch(Action::RepositoryRow(action));
+                }
+            }
         } else {
             self.dispatch(Action::Scroll(if down { 1 } else { -1 }));
         }
