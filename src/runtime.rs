@@ -1695,6 +1695,9 @@ impl Background {
                         if app.view == View::Inbox && !preserve_scoped_view {
                             app.reset_lists_v92();
                             app.github_content_focused = true;
+                        } else if !preserve_scoped_view {
+                            // New Inbox rows arrived while away: the saved place is stale.
+                            app.view_lists_v10[View::Inbox.index()] = Default::default();
                         }
                         app.hits.clear();
                     }

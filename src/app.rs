@@ -267,6 +267,9 @@ pub struct App {
     pub repository_list: crate::ui_table::ListState,
     /// The plain content scroll of the remaining views (Search, Actions, Dashboard).
     pub content_list: crate::ui_table::ListState,
+    /// Each view's list state while another view is shown, so switching away and back keeps
+    /// the user's place (TASK-10). Search, Actions and Dashboard share `content_list`.
+    pub view_lists_v10: [crate::ui_table::ListState; 5],
     pub palette_index: usize,
     pub command_palette: Option<crate::command_palette::CommandPalette>,
     pub command_palette_context: Option<crate::navigation_catalogue::CatalogueContext>,
@@ -546,6 +549,7 @@ impl Default for App {
             inbox_list: Default::default(),
             repository_list: Default::default(),
             content_list: Default::default(),
+            view_lists_v10: Default::default(),
             palette_index: 0,
             command_palette: None,
             command_palette_context: None,
@@ -1587,12 +1591,21 @@ impl App {
                 self.clear_capability_inspector();
                 self.repository_selection = None;
                 self.user_navigated = true;
+                let previous = self.view;
                 self.view = view;
                 self.content_pane = crate::list_preview_v92::Pane::List;
                 self.repository_content_focused = view == View::Repository;
                 self.github_content_focused = view == View::Inbox;
                 self.overlay = None;
-                self.reset_lists_v92();
+                if previous == view {
+                    self.reset_lists_v92();
+                } else {
+                    // Keep the place in the view being left; restore the destination's.
+                    self.view_lists_v10[previous.index()] = *self.list_for(previous);
+                    let restored = std::mem::take(&mut self.view_lists_v10[view.index()]);
+                    self.reset_lists_v92();
+                    *self.list_for_mut(view) = restored;
+                }
                 self.status = format!("{} • focused view", view.label());
                 self.search_controls.editing = None;
                 self.actions_content_focused = view == View::Actions;
@@ -4044,6 +4057,37 @@ mod pointer_hover_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn navigation_context_v10_each_view_keeps_its_list_place_across_switches() {
+        let mut app = App::new();
+        app.inbox_list = crate::ui_table::ListState {
+            selected: 2,
+            top: 1,
+        };
+        app.dispatch(Action::View(View::Repository));
+        assert_eq!(app.inbox_list, Default::default());
+        app.repository_list.selected = 4;
+        app.dispatch(Action::View(View::Actions));
+        app.content_list.selected = 1;
+        app.dispatch(Action::View(View::Search));
+        // Search, Actions and Dashboard share one list; each keeps its own place.
+        assert_eq!(app.content_list, Default::default());
+        app.dispatch(Action::View(View::Inbox));
+        assert_eq!(
+            app.inbox_list,
+            crate::ui_table::ListState {
+                selected: 2,
+                top: 1
+            }
+        );
+        app.dispatch(Action::View(View::Repository));
+        assert_eq!(app.repository_list.selected, 4);
+        app.dispatch(Action::View(View::Actions));
+        assert_eq!(app.content_list.selected, 1);
+        // Choosing the view already shown still starts its list from the top.
+        app.dispatch(Action::View(View::Actions));
+        assert_eq!(app.content_list, Default::default());
+    }
     #[test]
     fn app_constructor_v142_preserves_empty_private_lifecycle_and_normal_help_navigation() {
         let mut app = App::new();

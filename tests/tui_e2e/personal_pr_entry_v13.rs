@@ -3,6 +3,8 @@
 use super::*;
 #[path = "file_comments_personal_v75.rs"]
 mod file_comments_v75;
+#[path = "navigation_context_v10.rs"]
+mod navigation_context_v10;
 use std::{fs, time::Duration};
 const REPO: &str = "example/repo0000";
 const BODY: &str = "PRIVATE_ORIGINAL_PERSONAL_BODY_ALLOCATION";
