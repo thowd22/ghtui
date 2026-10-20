@@ -115,6 +115,20 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
                 .disabled_by(reason),
         );
     }
+    if tab == PrTab::Timeline && !scoped {
+        // A Timeline item's comment, review or commit, shown in its own tab (TASK-13).
+        let action = crate::pr_timeline_links_v13::action(app);
+        let reason = match &action {
+            Action::Explain(reason) => Some(reason.clone()),
+            _ => None,
+        };
+        keys.push(
+            KeyControl::new("Enter", "Go to item", action)
+                .with_compact("Go to")
+                .with_priority(6)
+                .disabled_by(reason),
+        );
+    }
     if crate::pr_checks_native::scoped::choices::has_candidates(app)
         && !crate::pr_checks_native::scoped::choices::pending(app)
     {

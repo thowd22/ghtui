@@ -261,6 +261,7 @@ impl PreparedConversationPageV19 {
                         anchor: None,
                         comment: None,
                         cells: None,
+                        link: None,
                     },
                 );
             }

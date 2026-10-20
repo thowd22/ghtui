@@ -78,6 +78,7 @@ pub mod pr_progress;
 pub mod pr_projection;
 pub(crate) mod pr_read_origin_v13;
 pub mod pr_state_model;
+pub mod pr_timeline_links_v13;
 pub mod pr_ui;
 pub mod pr_write_journal;
 pub mod prepared_form_text_v1;

@@ -193,6 +193,16 @@ pub struct PrRow {
     /// Table cells for the tab's columns (`PrPage::columns`); `label` keeps the full prose
     /// (full SHA, UTC time) for palette, plans and logs. None paints `label` as a prose row.
     pub cells: Option<PrCells>,
+    /// A Timeline item's own record in another loaded tab (TASK-13). Navigation only:
+    /// kept only when that exact comment, review or commit is in this PR's details.
+    pub link: Option<PrRowLinkV13>,
+}
+/// What a Timeline row points at: a conversation comment, a review or a commit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PrRowLinkV13 {
+    Comment(u64),
+    Review(u64),
+    Commit(String),
 }
 /// A PR list row painted as table cells (TASK-91): Commits, Files and Checks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -240,7 +250,12 @@ impl PrRow {
             anchor: None,
             comment: None,
             cells: None,
+            link: None,
         }
+    }
+    fn with_link(mut self, link: Option<PrRowLinkV13>) -> Self {
+        self.link = link;
+        self
     }
     fn actor(label: impl Into<String>, actor: crate::providers::gh::Actor) -> Self {
         Self {
@@ -499,6 +514,7 @@ impl PrPage {
                             anchor: row.left.anchor,
                             comment: None,
                             cells: None,
+                            link: None,
                         });
                     }
                 }
@@ -555,13 +571,23 @@ impl PrPage {
                                         },
                                         crate::ui_table::short_sha(&check.head_sha).to_owned(),
                                     ])),
+                                    link: None,
                                 }
                             })
                             .collect()
                     }
                 },
             ),
-            PrTab::Timeline => timeline_projection_v1::prepare(&self.details.timeline)?,
+            PrTab::Timeline => {
+                let mut rows = timeline_projection_v1::prepare(&self.details.timeline)?;
+                // A link survives only when its exact record is in these details.
+                for row in &mut rows {
+                    if row.link.as_ref().is_some_and(|link| !self.details_contain_v13(link)) {
+                        row.link = None;
+                    }
+                }
+                rows
+            }
             PrTab::Progress => self.review_progress.as_ref().map_or_else(
                 || vec![PrRow { role: SemanticToken::Pending, ..PrRow::text("Review progress UNAVAILABLE • no viewed state inferred. Refresh this exact PR, then open Review progress again.") }],
                 |progress| progress.rows().into_iter().map(|(label,role)|PrRow {role, ..PrRow::text(label)}).collect(),
@@ -625,6 +651,62 @@ impl PrPage {
             .as_ref()?
             .selected_row(path)
             .map(|row| row + usize::from(!self.details.coverage.complete))
+    }
+    /// Whether this PR's loaded details hold the exact record a Timeline link names.
+    fn details_contain_v13(&self, link: &PrRowLinkV13) -> bool {
+        match link {
+            PrRowLinkV13::Comment(id) => self.details.comments.iter().any(|c| c.id == *id),
+            PrRowLinkV13::Review(id) => self
+                .details
+                .reviews
+                .iter()
+                .any(|review| review["id"].as_u64() == Some(*id)),
+            PrRowLinkV13::Commit(sha) => {
+                *sha == self.details.summary.head_sha
+                    || self.details.commits.iter().any(|commit| commit.sha == *sha)
+            }
+        }
+    }
+    /// The Timeline link on `row`, only while the Timeline tab is shown.
+    pub fn timeline_link_at(&self, row: usize) -> Option<&PrRowLinkV13> {
+        (self.tab == PrTab::Timeline)
+            .then(|| self.rows.get(row)?.link.as_ref())
+            .flatten()
+    }
+    /// The tab that shows a Timeline link's record: comments and reviews in Conversation,
+    /// the current head commit in Checks (they ran on it), any other commit in Commits.
+    pub fn timeline_target_v13(&self, link: &PrRowLinkV13) -> PrTab {
+        match link {
+            PrRowLinkV13::Comment(_) | PrRowLinkV13::Review(_) => PrTab::Conversation,
+            PrRowLinkV13::Commit(sha) if *sha == self.details.summary.head_sha => PrTab::Checks,
+            PrRowLinkV13::Commit(_) => PrTab::Commits,
+        }
+    }
+    /// The row of the current tab that shows a Timeline link's record.
+    pub fn link_row_v13(&self, link: &PrRowLinkV13) -> Option<usize> {
+        match (self.tab, link) {
+            (PrTab::Conversation, PrRowLinkV13::Comment(id)) => self.rows.iter().position(|row| {
+                row.actor.is_some()
+                    && row
+                        .comment
+                        .as_ref()
+                        .is_some_and(|comment| comment.observed.id == *id)
+            }),
+            (PrTab::Conversation, PrRowLinkV13::Review(id)) => {
+                let label = format!("review {id} ");
+                self.rows
+                    .iter()
+                    .position(|row| row.actor.is_some() && row.label.starts_with(&label))
+            }
+            (PrTab::Commits, PrRowLinkV13::Commit(sha)) => self.rows.iter().position(|row| {
+                matches!(row.cells, Some(PrCells::Row(_)))
+                    && row.label.split(' ').next() == Some(sha.as_str())
+            }),
+            (PrTab::Checks, PrRowLinkV13::Commit(_)) => {
+                (0..self.rows.len()).find(|row| self.check_at(*row).is_some())
+            }
+            _ => None,
+        }
     }
 }
 /// Issue references after GitHub's closing keywords (`Fixes #12`,
@@ -925,6 +1007,7 @@ impl GithubWorkspace {
             return false;
         };
         row.comment.is_some()
+            || page.timeline_link_at(index).is_some() && self.scoped_pr_navigation.is_none()
             || page.progress_file_at(index).is_some()
             || page.check_at(index).is_some()
             || self

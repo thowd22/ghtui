@@ -1941,6 +1941,7 @@ impl Background {
                             app.choose_history_bar_commit();
                         }
                     }
+                    let mut github_installed_v13 = false;
                     if let Some(github) = prepared.github {
                         {
                             let actor_was_pending = app.local_commit_actors.is_pending();
@@ -2080,6 +2081,7 @@ impl Background {
                         if let Some(origin) = prepared.github_origin {
                             app.github_origin = Some(origin);
                         }
+                        github_installed_v13 = true;
                     }
                     if let Some(metrics) = prepared.metrics {
                         if !prepared.clear_private && !prepared.clear_metrics {
@@ -2289,6 +2291,10 @@ impl Background {
                             app.context = context;
                         }
                         app.status = prepared.status;
+                    }
+                    // After the prepared status, so the Timeline item's own status shows.
+                    if github_installed_v13 {
+                        crate::pr_timeline_links_v13::after_install(app);
                     }
                     if let Some(restore) = prepared.navigation_restore {
                         app.finish_navigation(restore);

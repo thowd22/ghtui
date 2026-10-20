@@ -1,6 +1,6 @@
 //! Pure presentation of observed timeline fields, never identity/access proof.
 //! Comment/review authors and event generators are distinct documented roles.
-use super::{value_actor, PrRow};
+use super::{value_actor, PrRow, PrRowLinkV13};
 use serde_json::Value;
 use std::fmt;
 
@@ -62,6 +62,12 @@ fn scalar<'a>(event: &'a Value, field: &str, fallback: &'a str) -> &'a str {
         .unwrap_or(fallback)
 }
 
+/// Only a full hexadecimal object ID can name a commit; anything else stays text.
+fn commit_link(sha: Option<&str>) -> Option<PrRowLinkV13> {
+    sha.filter(|sha| crate::search::model::valid_sha(sha))
+        .map(|sha| PrRowLinkV13::Commit(sha.to_owned()))
+}
+
 #[cfg(test)]
 thread_local! { static MATERIALIZED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
@@ -76,10 +82,13 @@ pub(super) fn prepare(events: &[Value]) -> Result<Vec<PrRow>, TimelineDisplayLim
         let created = scalar(event, "created_at", "time not provided");
         match kind {
             "commented" => {
-                rows.push(PrRow::actor(
-                    format!("comment author • commented • {created}"),
-                    value_actor(&event["user"]),
-                ));
+                rows.push(
+                    PrRow::actor(
+                        format!("comment author • commented • {created}"),
+                        value_actor(&event["user"]),
+                    )
+                    .with_link(event["id"].as_u64().map(PrRowLinkV13::Comment)),
+                );
                 if event["actor"].is_object() {
                     rows.push(PrRow::actor(
                         format!("event generator • commented • {created}"),
@@ -90,10 +99,13 @@ pub(super) fn prepare(events: &[Value]) -> Result<Vec<PrRow>, TimelineDisplayLim
             "reviewed" => {
                 let submitted = scalar(event, "submitted_at", "submission time not provided");
                 let state = scalar(event, "state", "review state not provided");
-                rows.push(PrRow::actor(
-                    format!("review author • reviewed • {state} • {submitted}"),
-                    value_actor(&event["user"]),
-                ));
+                rows.push(
+                    PrRow::actor(
+                        format!("review author • reviewed • {state} • {submitted}"),
+                        value_actor(&event["user"]),
+                    )
+                    .with_link(event["id"].as_u64().map(PrRowLinkV13::Review)),
+                );
                 if event["actor"].is_object() {
                     // Preserve extra observed metadata without equating it to
                     // the documented reviewer or granting it that role.
@@ -119,9 +131,10 @@ pub(super) fn prepare(events: &[Value]) -> Result<Vec<PrRow>, TimelineDisplayLim
                     .as_str()
                     .and_then(|message| message.lines().next())
                     .unwrap_or("");
-                rows.push(PrRow::text(format!(
-                    "● commit {short} • {author} • {date} • {subject}"
-                )));
+                rows.push(
+                    PrRow::text(format!("● commit {short} • {author} • {date} • {subject}"))
+                        .with_link(commit_link(event["sha"].as_str())),
+                );
             }
             _ => rows.push(PrRow::actor(
                 format!("observed event actor • {kind} • {created}"),
@@ -135,7 +148,7 @@ pub(super) fn prepare(events: &[Value]) -> Result<Vec<PrRow>, TimelineDisplayLim
             rows.push(PrRow::text(format!("Label: {label}")));
         }
         if let Some(sha) = event["commit_id"].as_str() {
-            rows.push(PrRow::text(format!("Commit: {sha}")));
+            rows.push(PrRow::text(format!("Commit: {sha}")).with_link(commit_link(Some(sha))));
         }
     }
     Ok(rows)

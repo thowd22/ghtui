@@ -79,6 +79,8 @@ pub enum Action {
     Select(usize),
     Github(crate::github_workspace::GithubAction),
     GithubRow(usize),
+    /// Show the selected Timeline item's comment, review or commit in its own tab.
+    PrTimelineGoV13,
     PrChecks(crate::pr_checks_native::PrChecksUiAction),
     PrCheckChoice(crate::pr_checks_native::scoped::choices::PrCheckChoiceUiV1),
     PrCheckContinueV2(
@@ -406,6 +408,8 @@ pub struct App {
         Option<std::sync::Arc<crate::providers::gh::PrCheckAttemptAdvanceV2>>,
     pub pr_check_continuation_cancel_v2: bool,
     pub pr_checks_cancel_actions: bool,
+    /// A Timeline item opened in another tab and the Timeline place to return to (TASK-13).
+    pub pr_timeline_return_v13: Option<crate::pr_timeline_links_v13::TimelineReturnV13>,
     pub catalogue: Option<crate::repository_catalogue_native::CatalogueModal>,
     pub remote_repository: Option<crate::remote_repository_native_v1::RemoteRepositoryNativeV1>,
     pub remote_repository_cancel_requested: bool,
@@ -649,6 +653,7 @@ impl Default for App {
             pr_check_attempt_advance_v2: None,
             pr_check_continuation_cancel_v2: false,
             pr_checks_cancel_actions: false,
+            pr_timeline_return_v13: None,
             catalogue: None,
             remote_repository: None,
             remote_repository_cancel_requested: false,
@@ -1972,6 +1977,7 @@ impl App {
                 self.view_list_mut().top = top;
             }
             Action::Select(index) => self.view_list_mut().selected = index,
+            Action::PrTimelineGoV13 => crate::pr_timeline_links_v13::go(self),
             Action::GithubRow(index) => {
                 if let Some(page) = self.github.as_ref().and_then(|github| github.pr.as_ref()) {
                     self.inbox_list.selected = index.min(page.rows.len().saturating_sub(1));
@@ -1993,6 +1999,8 @@ impl App {
                             comment.observed.id,
                             comment.observed.author.label()
                         );
+                    } else if let Some(link) = page.timeline_link_at(self.inbox_list.selected) {
+                        self.status = crate::pr_timeline_links_v13::selected_status(page, link);
                     } else if let Some(file) = page.progress_file_at(self.inbox_list.selected) {
                         self.status = format!(
                             "Selected file {} • {} • p PR actions",
@@ -2065,6 +2073,7 @@ impl App {
                     return;
                 }
                 if matches!(action, GithubAction::Open(_) | GithubAction::Back) {
+                    self.pr_timeline_return_v13 = None;
                     self.pr_file_images = None;
                     self.pr_inspection = None;
                     self.pr_pending_message.clear();
@@ -3335,6 +3344,15 @@ impl App {
                                     self.dispatch(Action::PrChecks(
                                         crate::pr_checks_native::PrChecksUiAction::Open,
                                     ));
+                                    return;
+                                }
+                                if self
+                                    .github
+                                    .as_ref()
+                                    .and_then(|github| github.pr.as_ref())
+                                    .is_some_and(|page| page.tab == PrTab::Timeline)
+                                {
+                                    self.dispatch(crate::pr_timeline_links_v13::action(self));
                                     return;
                                 }
                                 self.dispatch(Action::GithubRow(self.inbox_list.selected));

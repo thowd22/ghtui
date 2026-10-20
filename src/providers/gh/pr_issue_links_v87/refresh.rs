@@ -254,6 +254,7 @@ impl ActualIssueLinkPageContextV87 {
             anchor: None,
             comment: None,
             cells: None,
+            link: None,
         };
         use crate::theme::SemanticToken;
         let issue = &self.after.issue;
