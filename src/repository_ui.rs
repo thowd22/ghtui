@@ -3,6 +3,7 @@
 #[path = "repository_diff_header_v1_tests.rs"]
 mod diff_header_v1_tests;
 mod file_history;
+pub mod history_filter;
 pub(crate) mod history_table;
 #[cfg(test)]
 #[path = "repository_views_v1_tests.rs"]
@@ -213,6 +214,8 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
             .with_priority(8),
         );
     }
+    // History's search, match, hide and scope keys lead its own (TASK-99.3).
+    context.extend(history_filter::controls(app));
     context.extend(graph);
     context.extend(files);
     if diff_side.is_none() && !detail {

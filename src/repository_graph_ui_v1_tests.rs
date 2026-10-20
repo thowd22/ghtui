@@ -96,7 +96,7 @@ fn commit_graph_v1_controls_wrap_all_same_actions_key_mouse_at120_80_40_without_
             (KeyCode::Home, "Home First loaded", "Home First"),
             (KeyCode::End, "End Last loaded", "End Last"),
             (KeyCode::Char('x'), "x Discard graph Back", "x Discard"),
-            (KeyCode::Char('N'), "N More history", "N More"),
+            (KeyCode::Char('L'), "L Load more", "L More"),
             (KeyCode::Char('P'), "P Parents", "P Parents"),
             (KeyCode::Char('D'), "D Details", "D Details"),
             (KeyCode::Char('l'), "l Legend", "l Legend"),
@@ -149,7 +149,7 @@ fn commit_graph_v1_controls_wrap_all_same_actions_key_mouse_at120_80_40_without_
             }));
             assert_eq!(keyboard.repository_action, mouse.repository_action);
             assert_eq!(keyboard.status, mouse.status);
-            if code == KeyCode::Char('N') {
+            if code == KeyCode::Char('L') {
                 assert!(keyboard.overlay.is_some());
                 assert!(keyboard.repository_action.is_none());
             }
@@ -164,7 +164,7 @@ fn commit_graph_v1_original_history_actor_tree_do_not_get_stale_graph_hits_or_ke
     let mut loaded = workspace(&real);
     loaded.actor_profile = Some(crate::identity::GitRole::Author);
     assert!(controls(&loaded, false).is_empty());
-    assert_eq!(key(&loaded, KeyCode::Char('N')), None);
+    assert_eq!(key(&loaded, KeyCode::Char('L')), None);
     loaded.actor_profile = None;
     loaded.mode = RepositoryMode::Tree;
     assert!(controls(&loaded, false).is_empty());

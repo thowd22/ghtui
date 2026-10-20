@@ -119,6 +119,63 @@ impl OriginalGraphStateV1 {
         }
         Ok(rows)
     }
+    /// Lane rows `start..end` with only the `visible` loaded commits (hide mode, TASK-99.3).
+    /// The layout runs over every shown commit from the first loaded one, and each lane joins
+    /// through hidden commits to the nearest shown ancestor, so lanes never break.
+    pub(crate) fn lane_rows_v993(
+        &self,
+        start: usize,
+        end: usize,
+        visible: &[bool],
+    ) -> Result<Vec<crate::history::lanes::GraphRow>, String> {
+        use crate::history::lanes::{LaneCommit, LaneLayout, LaneOptions, HISTORY_LANE_PALETTE};
+        let end = end.min(self.loaded());
+        if visible.len() != self.loaded() {
+            return Err("Hidden History rows do not describe this walk".into());
+        }
+        let mut commits = Vec::with_capacity(self.loaded());
+        for node in self.topology.rows() {
+            let commit = self
+                .topology
+                .commit(&self.pages, node.member)
+                .ok_or("Compact graph actual member lost")?;
+            commits.push((
+                commit.id.as_str(),
+                commit
+                    .parents
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+            ));
+        }
+        let parents = crate::history::filter::hidden_parents(&commits, visible)?;
+        let epoch = self.last_page().epoch();
+        let mut layout = LaneLayout::new(LaneOptions {
+            palette: HISTORY_LANE_PALETTE,
+            max_columns: HISTORY_VISIBLE_LANES_V991,
+            max_lanes: MAX_LANES,
+        });
+        let mut rows = Vec::new();
+        for index in (0..end).filter(|index| visible[*index]) {
+            let id = commits[index].0;
+            let lane = LaneCommit::new(id, parents[index].iter().copied())
+                .with_boundary(epoch.is_shallow_commit(id));
+            let row = layout.push(&lane)?;
+            if index >= start {
+                rows.push(row);
+            }
+        }
+        Ok(rows)
+    }
+    /// Per loaded commit: is it `id` or one of its loaded ancestors?
+    pub(crate) fn ancestors_v993(&self, id: &str) -> Result<Vec<bool>, String> {
+        self.topology.ancestors(id)
+    }
+    /// The loaded commit at topology `index`, with its message and chips.
+    pub(crate) fn observed_at_v993(&self, index: usize) -> Option<&OriginalGraphCommitV1> {
+        let member = self.topology.rows().get(index)?.member;
+        self.topology.observed(&self.pages, member)
+    }
     pub(crate) fn member_at_v2(&self, index: usize) -> Option<&Commit> {
         let member = self.topology.rows().get(index)?.member;
         self.topology.commit(&self.pages, member)

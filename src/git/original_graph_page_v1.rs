@@ -106,7 +106,10 @@ struct RefSnapshotV1 {
     overflow: usize,
 }
 pub enum OriginalGraphReadV1<'a> {
+    /// Every local branch, remote branch, tag and HEAD, plus the opened revision.
     Start(&'a str),
+    /// Only the given revision and its ancestors: one branch scope (TASK-99.3).
+    Only(&'a str),
     Continue(&'a OriginalGraphPageV1),
 }
 pub struct OriginalGraphPageV1 {
@@ -116,6 +119,8 @@ pub struct OriginalGraphPageV1 {
     /// tag of the ref snapshot, HEAD (attached or detached) and `walk_tip`.
     walk: Arc<[String]>,
     walk_key: [u8; 32],
+    /// The walk starts from every ref (false: from `walk_tip` alone).
+    all_refs: bool,
     offset: usize,
     next_offset: usize,
     lookahead: Option<String>,
@@ -147,6 +152,26 @@ impl OriginalGraphPageV1 {
     /// Fingerprint of the walk tips; pages of one walk share it.
     pub fn walk_fingerprint(&self) -> [u8; 32] {
         self.walk_key
+    }
+    /// True when the walk starts from every branch, remote branch, tag and HEAD; false for a
+    /// one-branch scope that walks `walk_tip` alone.
+    pub fn all_refs(&self) -> bool {
+        self.all_refs
+    }
+    /// The commit a branch, remote branch or tag chip of this walk's ref snapshot names,
+    /// matched by its display name (`main`, `origin/main`, `v1.0`). Refs past the 4096 cap
+    /// are not named and so not found.
+    pub fn ref_target_v993(&self, name: &str) -> Option<&str> {
+        let mut found: Option<(&HistoryRefV1, &str)> = None;
+        for (id, chips) in &self.refs.chips {
+            for chip in chips.iter().filter(|chip| chip.name == name) {
+                // A local branch wins over a same-named tag; ties keep the first kind order.
+                if found.is_none_or(|(old, _)| chip.kind < old.kind) {
+                    found = Some((chip, id.as_str()));
+                }
+            }
+        }
+        found.map(|(_, id)| id)
     }
     pub fn offset(&self) -> usize {
         self.offset
@@ -233,16 +258,26 @@ impl GitRepository {
         }
         clock(self, deadline)?;
         let source = Arc::new(local_commit_actor_v1::source_identity(self)?);
-        let (tip, offset, previous) = match request {
-            OriginalGraphReadV1::Start(tip) => {
+        let (tip, offset, previous, all_refs) = match request {
+            OriginalGraphReadV1::Start(tip) | OriginalGraphReadV1::Only(tip) => {
                 saved_oid(tip)?;
-                (tip, 0, None)
+                (
+                    tip,
+                    0,
+                    None,
+                    matches!(request, OriginalGraphReadV1::Start(_)),
+                )
             }
             OriginalGraphReadV1::Continue(old) => {
                 if old.source.as_ref() != source.as_ref() || !old.has_more() {
                     return fail("Original graph source/cursor has no admissible continuation");
                 }
-                (old.walk_tip.as_str(), old.next_offset, Some(old))
+                (
+                    old.walk_tip.as_str(),
+                    old.next_offset,
+                    Some(old),
+                    old.all_refs,
+                )
             }
         };
         let before = epoch(self, deadline)?;
@@ -258,7 +293,7 @@ impl GitRepository {
         };
         let (walk, walk_key) = match previous {
             Some(old) => (old.walk.clone(), old.walk_key),
-            None => walk_tips(&references, tip),
+            None => walk_tips(&references, tip, all_refs),
         };
         let limit = format!("--max-count={}", (PAGE + 1).min(MAX_OFFSET + 1 - offset));
         let skip = format!("--skip={offset}");
@@ -353,6 +388,7 @@ impl GitRepository {
             walk_tip: tip.into(),
             walk,
             walk_key,
+            all_refs,
             offset,
             next_offset: offset + commits.len(),
             lookahead,
@@ -360,6 +396,62 @@ impl GitRepository {
             refs: references,
             commits: Arc::from(commits),
         }))
+    }
+    /// Commits Git selects in this page's walk for History's author and path chips
+    /// (TASK-99.3): `git log --full-history` from the same walk tips with
+    /// `--regexp-ignore-case --fixed-strings --author=…` and the pathspec, bounded like the
+    /// walk itself. The flag reports that the 10,000-commit bound stopped the read.
+    pub fn original_graph_filter_ids_v993(
+        &self,
+        page: &OriginalGraphPageV1,
+        author: Option<&str>,
+        path: Option<&RawPath>,
+        deadline: Instant,
+    ) -> GitResult<(HashSet<String>, bool)> {
+        if self.navigation_read_window.is_none() {
+            return fail("History filters require the actual whole-operation read window");
+        }
+        let mut args: Vec<OsString> = vec![
+            "log".into(),
+            "--topo-order".into(),
+            "--full-history".into(),
+            "--format=%H".into(),
+            format!("--max-count={}", MAX_OFFSET + 1).into(),
+        ];
+        if let Some(author) = author {
+            if author.is_empty() || author.len() > 1024 || author.contains('\0') {
+                return fail("History author filter must be 1..1024 bytes");
+            }
+            args.push("--regexp-ignore-case".into());
+            args.push("--fixed-strings".into());
+            args.push(format!("--author={author}").into());
+        }
+        args.push("--stdin".into());
+        args.push("--".into());
+        if let Some(path) = path {
+            if path.0.is_empty() || path.0.len() > 4096 || path.0.contains(&0) {
+                return fail("History path filter must be 1..4096 bytes");
+            }
+            args.push(path.as_os_str().to_owned());
+        }
+        let mut input = Vec::with_capacity(page.walk.len() * 65);
+        for id in page.walk.iter() {
+            input.extend_from_slice(id.as_bytes());
+            input.push(b'\n');
+        }
+        let bytes = read(self, &args, Some(&input), (MAX_OFFSET + 1) * 66, deadline)?;
+        let mut ids = HashSet::new();
+        for line in bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+        {
+            let id = std::str::from_utf8(line)
+                .map_err(|_| GitError("History filter ID is not canonical ASCII".into()))?;
+            saved_oid(id)?;
+            ids.insert(id.to_owned());
+        }
+        let capped = ids.len() > MAX_OFFSET;
+        Ok((ids, capped))
     }
     pub(crate) fn validate_graph_epoch_v1(
         &self,
@@ -655,19 +747,28 @@ fn ref_snapshot(repo: &GitRepository, deadline: Instant) -> GitResult<RefSnapsho
     })
 }
 /// Sorted distinct walk tips (branches, remotes, tags, HEAD and the opened
-/// revision) and their fingerprint. Stable for one ref snapshot.
-fn walk_tips(references: &RefSnapshotV1, tip: &str) -> (Arc<[String]>, [u8; 32]) {
-    let mut walk = references
-        .tips
-        .iter()
-        .chain(references.head.as_ref())
-        .map(String::as_str)
-        .chain([tip])
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+/// revision, or the opened revision alone for a branch scope) and their
+/// fingerprint. Stable for one ref snapshot.
+fn walk_tips(references: &RefSnapshotV1, tip: &str, all_refs: bool) -> (Arc<[String]>, [u8; 32]) {
+    let mut walk = if all_refs {
+        references
+            .tips
+            .iter()
+            .chain(references.head.as_ref())
+            .map(String::as_str)
+            .chain([tip])
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    } else {
+        vec![tip.to_owned()]
+    };
     walk.sort_unstable();
     walk.dedup();
     let mut digest = Sha256::new();
+    if !all_refs {
+        // A one-branch walk never shares a fingerprint with the all-refs walk of one tip.
+        digest.update(b"only\0");
+    }
     for id in &walk {
         digest.update(id.as_bytes());
         digest.update([0]);

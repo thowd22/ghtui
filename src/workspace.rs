@@ -358,6 +358,8 @@ pub struct Workspace {
     pub graph_view_v1: crate::repository_graph_v1::GraphViewV1,
     pub graph_horizontal_v1: usize,
     pub(crate) graph_projection_start_v2: usize,
+    /// The History filter row: search text, author/path chips, branch scope (TASK-99.3).
+    pub history_filter_v993: crate::history::filter::HistoryFilterV993,
     pub tree: Option<TreeBrowser>,
     pub tree_navigation_v1: Option<Arc<PreparedOriginalTreeNavigationV1>>,
     pub tree_breadcrumbs_v2: Option<Arc<crate::repository_tree_viewport_v2::TreeBreadcrumbStripV2>>,
@@ -601,6 +603,7 @@ impl Workspace {
             graph_view_v1: Default::default(),
             graph_horizontal_v1: 0,
             graph_projection_start_v2: 0,
+            history_filter_v993: Default::default(),
             tree: None,
             tree_navigation_v1: None,
             tree_breadcrumbs_v2: None,
@@ -959,7 +962,7 @@ impl Workspace {
         if matches!(action, RowAction::OriginalDiffReturn(_)) {
             return Err("Original comparison Back requires its captured typed worker owner; no source/clock was inferred".into());
         }
-        let pure = matches!(&action, RowAction::Graph(action) if !matches!(action, crate::repository_graph_v1::GraphActionV1::More | crate::repository_graph_v1::GraphActionV1::CompareParent(_)))
+        let pure = matches!(&action, RowAction::Graph(action) if !matches!(action, crate::repository_graph_v1::GraphActionV1::More | crate::repository_graph_v1::GraphActionV1::CompareParent(_) | crate::repository_graph_v1::GraphActionV1::Filter(_)))
             || matches!(
                 &action,
                 RowAction::Actor(_)

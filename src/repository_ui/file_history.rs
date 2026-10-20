@@ -23,7 +23,8 @@ pub(super) fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
         ]
     } else {
         vec![
-            ("H", "History", "History", FileAction::History, 20),
+            // History with a `path:` chip for this file; `H` is a hand-written alias.
+            ("f", "File history", "History", FileAction::PathHistory, 20),
             ("Y", "Blame", "Blame", FileAction::Blame, 21),
             ("u", "File back", "Back", FileAction::Back, 5),
             ("P", "Previous", "Prev", FileAction::Previous, 22),

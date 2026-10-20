@@ -36,6 +36,8 @@ fn parts(theme: Theme, chips: Vec<RefChip>) -> Parts {
         ),
         age: "17h".into(),
         focused: false,
+        matched: None,
+        query: None,
     }
 }
 fn shown(placed: &[Placed]) -> Vec<&'static str> {
@@ -244,4 +246,73 @@ fn history_refs_v992_span_cells_end_in_an_ellipsis_at_the_column_edge() {
     );
     let text: String = (0..6).map(|x| buffer[(x, 0)].symbol()).collect();
     assert_eq!(text, " main…");
+}
+
+#[test]
+fn history_filter_v993_rows_dim_non_matches_and_underline_the_query() {
+    for mode in [ColorMode::TrueColor, ColorMode::NoColor] {
+        let theme = theme(mode);
+        let mut matched = parts(theme, vec![chip(Kind::Local, "main")]);
+        matched.matched = Some(true);
+        matched.query = Some("parser".into());
+        let mut other = parts(theme, vec![chip(Kind::Tag, "v1.0")]);
+        other.matched = Some(false);
+        let hit = row(&matched, None, theme);
+        let dim = row(&other, None, theme);
+        // A match: bold SHA, the query underlined inside the subject, the author chip kept.
+        assert!(hit.cells[1].spans[0]
+            .1
+            .add_modifier
+            .contains(Modifier::BOLD));
+        let spans = &hit.cells[2].spans;
+        let underlined: Vec<&str> = spans
+            .iter()
+            .filter(|(_, style)| style.add_modifier.contains(Modifier::UNDERLINED))
+            .map(|(text, _)| text.as_str())
+            .collect();
+        assert_eq!(underlined, ["parser"], "{mode:?}");
+        assert_eq!(
+            spans
+                .iter()
+                .map(|(text, _)| text.as_str())
+                .collect::<String>(),
+            " main  Merge feature/parser into main"
+        );
+        assert!(hit.actor.is_some());
+        // A non-match stays, dimmed: SHA, chips, subject, author text and age.
+        let dimmed = theme.role(Role::TextDim);
+        assert_eq!(dim.cells[1].role, Some(Role::TextDim));
+        assert!(dim.cells[2].spans.iter().all(|(_, style)| *style == dimmed));
+        assert!(dim.actor.is_none());
+        assert!(
+            dim.cells[3].text.contains("AL") && dim.cells[3].text.ends_with(" Ada Lovelace"),
+            "{:?}",
+            dim.cells[3].text
+        );
+        assert_eq!(dim.cells[3].role, Some(Role::TextDim));
+        assert_eq!(dim.cells[4].role, Some(Role::TextDim));
+        if mode == ColorMode::NoColor {
+            assert!(dimmed.add_modifier.contains(Modifier::DIM));
+        } else {
+            assert_ne!(dimmed.fg, theme.role(Role::Text).fg);
+        }
+        // Without a filter nothing changes.
+        let plain = row(&parts(theme, Vec::new()), None, theme);
+        assert_eq!(plain.cells[1].role, Some(Role::Commit));
+        assert!(plain.actor.is_some());
+    }
+    // Overlapping and repeated occurrences, and a subject whose lowercase changes length.
+    let base = Style::default();
+    let hit = Style::default().add_modifier(Modifier::UNDERLINED);
+    assert_eq!(
+        subject_spans("Fix fix FIX", Some("fix"), base, hit)
+            .into_iter()
+            .filter(|(_, style)| *style == hit)
+            .count(),
+        3
+    );
+    assert_eq!(
+        subject_spans("İstanbul fix", Some("fix"), base, hit).len(),
+        1
+    );
 }

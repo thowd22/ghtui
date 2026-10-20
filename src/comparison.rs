@@ -324,6 +324,7 @@ impl ComparisonPlan {
             graph_view_v1: Default::default(),
             graph_horizontal_v1: 0,
             graph_projection_start_v2: 0,
+            history_filter_v993: Default::default(),
             tree: None,
             tree_navigation_v1: None,
             tree_breadcrumbs_v2: None,

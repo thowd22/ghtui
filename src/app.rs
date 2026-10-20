@@ -95,6 +95,8 @@ pub enum Action {
     SearchBlend(crate::search::fusion::ui::BlendAction),
     SearchRankDetails,
     RepositoryHunk,
+    /// The History filter row: search, matches, hide, branch scope, chips (TASK-99.3).
+    HistoryFilterV993(crate::repository_ui::history_filter::HistoryFilterActionV993),
     RepositorySource,
     Actions(crate::actions_workspace::ActionsAction),
     Explain(String),
@@ -336,6 +338,8 @@ pub struct App {
     pub repository_mode: crate::workspace::RepositoryMode,
     pub repository_load_requested: bool,
     pub repository_action: Option<crate::workspace::RowAction>,
+    /// The History query while it has keyboard focus (TASK-99.3).
+    pub history_filter_input_v993: Option<String>,
     pub repository_content_focused: bool,
     pub repository_visible_rows: usize,
     /// Repository panels (TASK-93): panel scroll offsets and the untracked toggle.
@@ -588,6 +592,7 @@ impl Default for App {
             repository_mode: crate::workspace::RepositoryMode::Overview,
             repository_load_requested: false,
             repository_action: None,
+            history_filter_input_v993: None,
             repository_content_focused: true,
             repository_visible_rows: 20,
             repository_panels_v93: Default::default(),
@@ -1837,8 +1842,18 @@ impl App {
                     crate::workspace::RowAction::Graph(
                         crate::repository_graph_v1::GraphActionV1::More
                             | crate::repository_graph_v1::GraphActionV1::Horizontal(_)
+                            | crate::repository_graph_v1::GraphActionV1::Filter(_)
                     )
                 );
+                if !matches!(
+                    &action,
+                    crate::workspace::RowAction::Graph(
+                        crate::repository_graph_v1::GraphActionV1::Filter(_)
+                    )
+                ) {
+                    // A row, a click or another graph action takes the focus from the query.
+                    self.history_filter_input_v993 = None;
+                }
                 self.repository_action = Some(action);
                 if !keep_viewport {
                     self.repository_list.top = 0;
@@ -2149,6 +2164,9 @@ impl App {
             }
             Action::SearchSource(action) => crate::search_sources::ui::dispatch(self, action),
             Action::RepositoryHunk => self.select_repository_hunk(),
+            Action::HistoryFilterV993(action) => {
+                crate::repository_ui::history_filter::dispatch(self, action)
+            }
             Action::LocalQuick(quick) => self.local_quick(quick),
             Action::RepositoryPanelsV93(action) => {
                 crate::repository_panels_v93::dispatch(self, action)
@@ -2863,6 +2881,10 @@ impl App {
                     }
                     return;
                 }
+                // The History query owns typed characters before any shortcut.
+                if crate::repository_ui::history_filter::key(self, key) {
+                    return;
+                }
                 if let Some(shortcut) = pressed_shortcut(key.code, key.modifiers) {
                     if let Some(action) = self
                         .bindings
@@ -3022,7 +3044,8 @@ impl App {
                     }
                     let file_action =
                         match key.code {
-                            KeyCode::Char('H') => Some(crate::workspace::FileAction::History),
+                            // `H` is an alias of `f`: History with a path chip (TASK-99.3).
+                            KeyCode::Char('H') => Some(crate::workspace::FileAction::PathHistory),
                             KeyCode::Char('Y') => Some(crate::workspace::FileAction::Blame),
                             KeyCode::Char('u') => Some(crate::workspace::FileAction::Back),
                             KeyCode::Char('P') => Some(crate::workspace::FileAction::Previous),

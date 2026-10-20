@@ -43,10 +43,14 @@ pub(crate) fn boundary_scroll_v2(app: &crate::app::App, delta: i32) -> Option<Gr
         return None;
     };
     let action = GraphActionV1::Window(direction);
-    // At outermost loaded boundary ordinary harmless scroll semantics remain;
-    // explicit visible disabled buttons still explain the same closed reason.
-    workspace
-        .graph_action_reason_v1(&action)
-        .is_none()
-        .then_some(action)
+    if workspace.graph_action_reason_v1(&action).is_none() {
+        return Some(action);
+    }
+    // Past the last loaded commit History reads the next page (TASK-99.3); elsewhere at the
+    // outermost loaded boundary ordinary harmless scroll semantics remain.
+    (direction == GraphWindowActionV2::Older
+        && workspace
+            .graph_action_reason_v1(&GraphActionV1::More)
+            .is_none())
+    .then_some(GraphActionV1::More)
 }

@@ -49,6 +49,8 @@ pub enum GraphActionV1 {
     Horizontal(i32),
     Window(GraphWindowActionV2),
     DiscardBack,
+    /// Apply the History filter row: text, author/path chips, branch scope, hide (TASK-99.3).
+    Filter(crate::history::filter::HistoryFilterSpecV993),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphCoverageV1 {
@@ -441,6 +443,9 @@ struct ProjectionBuilderV1 {
     navigation_rows: HashMap<Vec<u8>, usize>,
     limit: usize,
 }
+#[cfg(test)]
+#[path = "repository_graph_filter_v993_tests.rs"]
+mod filter_v993_tests;
 #[cfg(test)]
 #[path = "repository_graph_lanes_v991_tests.rs"]
 mod lanes_v991_tests;

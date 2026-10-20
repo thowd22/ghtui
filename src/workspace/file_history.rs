@@ -22,6 +22,8 @@ pub enum ProvenanceView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileAction {
     History,
+    /// History of every branch with a `path:` chip for this file (TASK-99.3; `f`, alias `H`).
+    PathHistory,
     Blame,
     BlameAt(u32),
     HistoryEntry(String),
@@ -191,6 +193,58 @@ impl Workspace {
             }
         }
         match action {
+            FileAction::PathHistory => {
+                let origin = self
+                    .actor_origin
+                    .clone()
+                    .ok_or("Original History source unavailable")?;
+                let deadline = repo
+                    .original_graph_deadline_v1()
+                    .ok_or("File History lost its original whole-operation clock")?;
+                let graph = super::graph_v1::read_graph_through_v991(
+                    repo,
+                    &origin,
+                    &state.revision,
+                    deadline,
+                )?;
+                self.revision = state.revision.clone();
+                self.history_filter_v993 = Default::default();
+                self.file_provenance = None;
+                self.install_graph_v1(graph, crate::repository_graph_v1::GraphViewV1::Timeline)?;
+                let mut spec = crate::history::filter::HistoryFilterSpecV993::default();
+                spec.set_path(Some(state.path.clone()));
+                self.history_filter_v993(spec, Some(repo))?;
+                // Select the file's latest change in the opened revision's own history, not a
+                // change on another branch that happens to sort above it.
+                let graph = self
+                    .graph_state_v1
+                    .clone()
+                    .ok_or("History closed while filtering")?;
+                let flags = self
+                    .history_filter_v993
+                    .flags(&graph)
+                    .map(<[bool]>::to_vec)
+                    .unwrap_or_default();
+                let ancestors = graph.ancestors_v993(&state.revision)?;
+                if let Some(index) =
+                    (0..flags.len()).find(|index| flags[*index] && ancestors[*index])
+                {
+                    let id = graph
+                        .observed_at_v993(index)
+                        .ok_or("History match is not a loaded member")?
+                        .commit()
+                        .id
+                        .clone();
+                    if id != self.revision {
+                        self.revision = id;
+                        self.install_graph_v1(
+                            graph,
+                            crate::repository_graph_v1::GraphViewV1::Timeline,
+                        )?;
+                    }
+                }
+                return Ok(());
+            }
             FileAction::History => {
                 state.view = ProvenanceView::History;
                 state.history = Some(

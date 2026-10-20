@@ -40,7 +40,7 @@ impl Workspace {
         };
         self.install_graph_v1(graph, GraphViewV1::Timeline)
     }
-    fn install_graph_v1(
+    pub(crate) fn install_graph_v1(
         &mut self,
         state: Arc<OriginalGraphStateV1>,
         view: GraphViewV1,
@@ -60,8 +60,21 @@ impl Workspace {
             .loaded_member_v2(&selected.id)
             .ok_or("Original loaded member missing")?;
         let projection_start = member.node as usize / 200 * 200;
-        let presentation =
-            GraphPresentationV1::prepare_window_v2(&state, &selected.id, view, projection_start)?;
+        // Match flags follow the walk; hide mode drops the non-matching rows (TASK-99.3).
+        self.history_filter_v993.sync(&state);
+        let hidden = self
+            .history_filter_v993
+            .spec
+            .hide
+            .then(|| self.history_filter_v993.flags(&state))
+            .flatten();
+        let presentation = GraphPresentationV1::prepare_window_v993(
+            &state,
+            &selected.id,
+            view,
+            projection_start,
+            hidden,
+        )?;
         self.graph_projection_start_v2 = projection_start;
         self.graph_state_v1 = Some(state);
         self.graph_display_v1 = Some(presentation);
@@ -282,8 +295,132 @@ impl Workspace {
                     .saturating_add_signed(delta as isize)
                     .min(2048)
             }
+            GraphActionV1::Filter(spec) => return self.history_filter_v993(spec, repository),
         }
         Ok(())
+    }
+    /// Applies the History filter row (TASK-99.3): a changed branch scope re-reads the walk
+    /// from that branch (or returns to the kept all-branches walk), changed author/path chips
+    /// ask Git for their commits over the walk, and text and hide mode are local. A new
+    /// filter selects the next match; clearing every chip returns to the selection before
+    /// filtering. Reads only.
+    pub(crate) fn history_filter_v993(
+        &mut self,
+        spec: crate::history::filter::HistoryFilterSpecV993,
+        repository: Option<&GitRepository>,
+    ) -> Result<(), String> {
+        use crate::history::filter::{HistoryScopeV993 as Scope, SavedHistoryV993};
+        let repository = repository.ok_or("History filters need the actual original handle")?;
+        let deadline = repository
+            .original_graph_deadline_v1()
+            .ok_or("History filter lost its original whole-operation clock")?;
+        let origin = self
+            .actor_origin
+            .clone()
+            .ok_or("Original History source unavailable")?;
+        let mut state = self
+            .graph_state_v1
+            .clone()
+            .ok_or("Open History before filtering it")?;
+        let old = self.history_filter_v993.spec.clone();
+        if old.is_empty() && !spec.is_empty() {
+            self.history_filter_v993.saved =
+                self.graph_position_v2()
+                    .ok()
+                    .map(|position| SavedHistoryV993 {
+                        state: state.clone(),
+                        position,
+                    });
+        }
+        let mut revision = self.revision.clone();
+        if spec.scope != old.scope {
+            let target = match &spec.scope {
+                Scope::All => None,
+                Scope::Current => Some(
+                    state
+                        .last_page()
+                        .observed_head()
+                        .ok_or("HEAD names no commit; nothing to scope to")?
+                        .to_owned(),
+                ),
+                Scope::Branch(name) => Some(
+                    state
+                        .last_page()
+                        .ref_target_v993(name)
+                        .ok_or_else(|| {
+                            format!(
+                                "No branch, remote branch or tag named {} in this History • branch:all shows every branch",
+                                crate::app::safe_text(name)
+                            )
+                        })?
+                        .to_owned(),
+                ),
+            };
+            state = match target {
+                None => match self
+                    .history_filter_v993
+                    .saved
+                    .clone()
+                    .filter(|saved| saved.state.last_page().all_refs())
+                {
+                    Some(saved) => {
+                        revision = saved.position.selected.clone();
+                        saved.state
+                    }
+                    None => read_graph_through_v991(repository, &origin, &revision, deadline)?,
+                },
+                Some(target) => {
+                    let scoped = read_graph_scoped_v993(repository, &origin, &target, deadline)?;
+                    if scoped.selected_commit(&revision).is_none() {
+                        revision = target;
+                    }
+                    scoped
+                }
+            };
+        }
+        let walk = state.last_page().walk_fingerprint();
+        let filter = &mut self.history_filter_v993;
+        let chips_changed = spec.chips_differ(&old);
+        filter.spec = spec.clone();
+        if spec.author.is_none() && spec.path.is_none() {
+            filter.set_chip_ids(None, false, walk);
+        } else if chips_changed || !filter.chips_current(&state) {
+            let (ids, capped) = repository
+                .original_graph_filter_ids_v993(
+                    state.last_page(),
+                    spec.author.as_deref(),
+                    spec.path.as_ref(),
+                    deadline,
+                )
+                .map_err(|error| error.to_string())?;
+            filter.set_chip_ids(Some(ids), capped, walk);
+        }
+        filter.sync(&state);
+        if spec.is_empty() {
+            if let Some(saved) = filter.saved.take() {
+                if state.selected_commit(&saved.position.selected).is_some() {
+                    revision = saved.position.selected;
+                }
+            }
+        } else if filter.matched(&state, &revision) == Some(false) {
+            // A new filter moves to the next match below the selection (wrapping).
+            let from = state
+                .loaded_member_v2(&revision)
+                .map_or(0, |member| member.node as usize);
+            if let Some(next) = filter.step(&state, from, true) {
+                revision = state
+                    .observed_at_v993(next)
+                    .ok_or("History match is not a loaded member")?
+                    .commit()
+                    .id
+                    .clone();
+            }
+        }
+        self.revision = revision;
+        self.install_graph_v1(state, GraphViewV1::Timeline)?;
+        repository
+            .validate_graph_epoch_v1(self.graph_state_v1.as_ref().unwrap().last_page(), deadline)
+            .map_err(|error| error.to_string())
     }
     pub(crate) fn restore_graph_v1(
         &mut self,
@@ -302,7 +439,14 @@ impl Workspace {
             .validate_graph_fingerprint_v1(route.epoch, deadline)
             .map_err(|error| error.to_string())?;
         let first = repository
-            .original_graph_page_v1(OriginalGraphReadV1::Start(&route.walk_tip), deadline)
+            .original_graph_page_v1(
+                if route.all_refs {
+                    OriginalGraphReadV1::Start(&route.walk_tip)
+                } else {
+                    OriginalGraphReadV1::Only(&route.walk_tip)
+                },
+                deadline,
+            )
             .map_err(|error| error.to_string())?;
         if first.epoch().fingerprint() != route.epoch || route.loaded == 0 || route.loaded > 10_000
         {
@@ -397,6 +541,7 @@ impl Workspace {
         Ok(Some(
             crate::navigation_local_source_v1::OriginalGraphRouteV1 {
                 walk_tip: state.walk_tip().into(),
+                all_refs: state.last_page().all_refs(),
                 walk: state.last_page().walk_fingerprint(),
                 selected: self.revision.clone(),
                 loaded: state.loaded(),
@@ -418,8 +563,40 @@ pub(crate) fn read_graph_through_v991(
     target: &str,
     deadline: std::time::Instant,
 ) -> Result<Arc<OriginalGraphStateV1>, String> {
+    read_graph_from_v993(
+        repository,
+        origin,
+        OriginalGraphReadV1::Start(target),
+        target,
+        deadline,
+    )
+}
+
+/// The first page of a one-branch walk from `target` (a History branch scope, TASK-99.3).
+pub(crate) fn read_graph_scoped_v993(
+    repository: &GitRepository,
+    origin: &Arc<crate::git::OriginalLocalActorOriginV1>,
+    target: &str,
+    deadline: std::time::Instant,
+) -> Result<Arc<OriginalGraphStateV1>, String> {
+    read_graph_from_v993(
+        repository,
+        origin,
+        OriginalGraphReadV1::Only(target),
+        target,
+        deadline,
+    )
+}
+
+fn read_graph_from_v993(
+    repository: &GitRepository,
+    origin: &Arc<crate::git::OriginalLocalActorOriginV1>,
+    start: OriginalGraphReadV1<'_>,
+    target: &str,
+    deadline: std::time::Instant,
+) -> Result<Arc<OriginalGraphStateV1>, String> {
     let page = repository
-        .original_graph_page_v1(OriginalGraphReadV1::Start(target), deadline)
+        .original_graph_page_v1(start, deadline)
         .map_err(|error| error.to_string())?;
     let mut state = OriginalGraphStateV1::start(origin.clone(), page)?;
     while state.selected_commit(target).is_none() {

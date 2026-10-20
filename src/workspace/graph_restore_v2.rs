@@ -80,11 +80,18 @@ impl Workspace {
         }
         let state = self.graph_state_v1.as_ref().unwrap().clone();
         let pose = state.projection_position_v2(&self.graph_position_v2()?, action)?;
-        let display = GraphPresentationV1::prepare_window_v2(
+        let hidden = self
+            .history_filter_v993
+            .spec
+            .hide
+            .then(|| self.history_filter_v993.flags(&state))
+            .flatten();
+        let display = GraphPresentationV1::prepare_window_v993(
             &state,
             &pose.selected,
             pose.view,
             pose.projection_start,
+            hidden,
         )?;
         self.revision = pose.selected.clone();
         self.selected_commit = state.selected_commit(&pose.selected).cloned();
@@ -171,6 +178,7 @@ impl Workspace {
                     tree_breadcrumbs_v2: None,
                     original_comparison_v1: None,
                     original_diff_side_v1: None,
+                    history_filter_v993: Default::default(),
                 };
                 if position.view == GraphViewV1::Comparison {
                     workspace.graph_action_v1(

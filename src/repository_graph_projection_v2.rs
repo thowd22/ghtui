@@ -10,6 +10,17 @@ impl GraphPresentationV1 {
         view: GraphViewV1,
         start: usize,
     ) -> Result<Arc<Self>, String> {
+        Self::prepare_window_v993(state, selected, view, start, None)
+    }
+    /// The timeline window, keeping only the `visible` loaded commits when History hides
+    /// non-matching ones (TASK-99.3). The selected commit is always shown.
+    pub(crate) fn prepare_window_v993(
+        state: &OriginalGraphStateV1,
+        selected: &str,
+        view: GraphViewV1,
+        start: usize,
+        visible: Option<&[bool]>,
+    ) -> Result<Arc<Self>, String> {
         if view != GraphViewV1::Timeline {
             let result = Self::prepare(state, selected, view)?;
             if state
@@ -44,10 +55,28 @@ impl GraphPresentationV1 {
             None,
             Vec::new(),
         )?;
-        let lanes = state.lane_rows_v991(start, end)?;
+        let shown = visible.map(|flags| {
+            let selected_node = state
+                .loaded_member_v2(&selected.id)
+                .map_or(usize::MAX, |member| member.node as usize);
+            flags
+                .iter()
+                .enumerate()
+                .map(|(index, flag)| *flag || index == selected_node)
+                .collect::<Vec<_>>()
+        });
+        let lanes = match &shown {
+            Some(shown) => state.lane_rows_v993(start, end, shown)?,
+            None => state.lane_rows_v991(start, end)?,
+        };
         // One graph column for the window: every message starts at the same cell.
         let graph_width = lanes.iter().map(|row| row.cells.len()).max().unwrap_or(0);
-        for (node, lane) in state.topology.rows()[start..end].iter().zip(&lanes) {
+        let nodes = state.topology.rows()[start..end]
+            .iter()
+            .enumerate()
+            .filter(|(offset, _)| shown.as_ref().is_none_or(|shown| shown[start + offset]))
+            .map(|(_, node)| node);
+        for (node, lane) in nodes.zip(&lanes) {
             let commit = state
                 .topology
                 .commit(&state.pages, node.member)
@@ -173,7 +202,7 @@ impl GraphPresentationV1 {
     }
 }
 
-/// `Read-only · 230 commits loaded · showing 201–230 · < > page · N load more`, plus the
+/// `Read-only · 230 commits loaded · showing 201–230 · < > page · scroll or L for more`, plus the
 /// refs past the 4096-name cap when there are any: they are neither named nor walked.
 fn history_summary_v992(state: &OriginalGraphStateV1, start: usize, end: usize) -> String {
     let loaded = state.loaded();
@@ -185,7 +214,7 @@ fn history_summary_v992(state: &OriginalGraphStateV1, start: usize, end: usize) 
         text.push_str(&format!(" · showing {}–{end} · < > page", start + 1));
     }
     match state.coverage {
-        GraphCoverageV1::MoreAvailable => text.push_str(" · N load more"),
+        GraphCoverageV1::MoreAvailable => text.push_str(" · scroll or L for more"),
         GraphCoverageV1::Capped => text.push_str(" · 10000-commit limit"),
         _ => {}
     }

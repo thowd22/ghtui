@@ -27,7 +27,9 @@ pub fn key(workspace: &Workspace, key: KeyCode) -> Option<GraphActionV1> {
         return None;
     }
     match key {
-        KeyCode::Char('N') => Some(GraphActionV1::More),
+        // `n`/`N` step through History matches (TASK-99.3); More loads with `L` or by
+        // moving past the last loaded commit.
+        KeyCode::Char('L') => Some(GraphActionV1::More),
         KeyCode::Char('P') => Some(GraphActionV1::Parents),
         KeyCode::Char('D') => Some(GraphActionV1::Details),
         KeyCode::Char('l') => Some(GraphActionV1::Legend),
@@ -59,7 +61,7 @@ pub fn controls(workspace: &Workspace, busy: bool) -> Vec<KeyControl> {
     let controls: Vec<(&str, &str, Option<&str>, GraphActionV1, u8)> =
         if workspace.graph_view_v1 == GraphViewV1::Timeline {
             vec![
-                ("N", "More history", Some("More"), GraphActionV1::More, 14),
+                ("L", "Load more", Some("More"), GraphActionV1::More, 14),
                 ("D", "Details", None, GraphActionV1::Details, 15),
                 ("P", "Parents", None, GraphActionV1::Parents, 16),
                 (

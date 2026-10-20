@@ -171,6 +171,7 @@ pub(crate) fn row_key(action: &RowAction) -> Result<Vec<u8>, String> {
                 }
                 _ => hash.field(match action {
                     FileAction::History => b"history",
+                    FileAction::PathHistory => b"path-history",
                     FileAction::Blame => b"blame",
                     FileAction::Previous => b"previous",
                     FileAction::Next => b"next",

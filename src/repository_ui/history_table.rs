@@ -11,7 +11,12 @@ use crate::{
     ui_table::{Cell, Column, Table, TableRow},
     workspace::{RowAction, Workspace},
 };
-use ratatui::{layout::Rect, style::Style, widgets::Paragraph, Frame};
+use ratatui::{
+    layout::Rect,
+    style::{Modifier, Style},
+    widgets::Paragraph,
+    Frame,
+};
 
 /// Lower priority stays longer: at 80 columns AGE leaves first, then AUTHOR, before MESSAGE
 /// is cut below its minimum.
@@ -56,6 +61,10 @@ struct Parts {
     author: crate::identity::ActorIdentity,
     age: String,
     focused: bool,
+    /// Some while History filters: does this commit match (TASK-99.3)?
+    matched: Option<bool>,
+    /// The lowercase search text, underlined where it occurs in the subject.
+    query: Option<String>,
 }
 
 fn graph_spans(
@@ -102,8 +111,11 @@ fn parts(workspace: &Workspace, index: usize, now: u64, theme: Theme) -> Option<
     let Some(RowAction::Commit(id)) = &workspace.display_rows_v1().get(index)?.action else {
         return None;
     };
-    let observed = workspace.graph_state_v1.as_ref()?.observed(id)?;
+    let state = workspace.graph_state_v1.as_ref()?;
+    let observed = state.observed(id)?;
     let commit = observed.commit();
+    let filter = &workspace.history_filter_v993;
+    let matched = filter.matched(state, id);
     let age = u64::try_from(commit.author.timestamp)
         .map(|authored| crate::ui_table::age_from_seconds(now.saturating_sub(authored)))
         .unwrap_or_else(|_| crate::ui_table::NONE.into());
@@ -118,14 +130,57 @@ fn parts(workspace: &Workspace, index: usize, now: u64, theme: Theme) -> Option<
         ),
         age,
         focused: workspace.graph_focus_row_v1() == Some(index),
+        matched,
+        query: filter
+            .spec
+            .text()
+            .filter(|_| matched == Some(true))
+            .map(str::to_lowercase),
     })
+}
+
+/// The subject with every occurrence of the (lowercase) query emphasised.
+fn subject_spans(
+    subject: &str,
+    query: Option<&str>,
+    base: Style,
+    hit: Style,
+) -> Vec<(String, Style)> {
+    let Some(query) = query.filter(|query| !query.is_empty()) else {
+        return vec![(subject.to_owned(), base)];
+    };
+    let lower = subject.to_lowercase();
+    // Byte offsets only line up when lowercasing kept every length.
+    if lower.len() != subject.len() {
+        return vec![(subject.to_owned(), base)];
+    }
+    let mut spans = Vec::new();
+    let mut at = 0;
+    for (start, found) in lower.match_indices(query) {
+        if start < at
+            || !subject.is_char_boundary(start)
+            || !subject.is_char_boundary(start + found.len())
+        {
+            continue;
+        }
+        if start > at {
+            spans.push((subject[at..start].to_owned(), base));
+        }
+        spans.push((subject[start..start + found.len()].to_owned(), hit));
+        at = start + found.len();
+    }
+    if at < subject.len() {
+        spans.push((subject[at..].to_owned(), base));
+    }
+    spans
 }
 
 /// The MESSAGE cell: chips (one blank between them and before the subject), then the subject.
 /// `width` limits the chips to what leaves the subject [`SUBJECT_KEEP`] cells; the rest are
 /// counted in a `+N` chip.
 fn message(parts: &Parts, width: Option<usize>, theme: Theme) -> Cell {
-    let base = theme.role(Role::Text);
+    let dimmed = parts.matched == Some(false);
+    let base = theme.role(if dimmed { Role::TextDim } else { Role::Text });
     let subject_cells = crate::editor::display_width(&parts.subject).min(SUBJECT_KEEP);
     let (shown, hidden) = match width {
         Some(width) => refs::fit(&parts.chips, width.saturating_sub(subject_cells + 1)),
@@ -138,7 +193,11 @@ fn message(parts: &Parts, width: Option<usize>, theme: Theme) -> Cell {
                 " {} ",
                 crate::ui_chrome::fit(&chip.label, refs::MAX_CHIP_CELLS)
             ),
-            chip_style(theme, chip.kind),
+            if dimmed {
+                theme.role(Role::TextDim)
+            } else {
+                chip_style(theme, chip.kind)
+            },
         ));
         spans.push((" ".into(), base));
     }
@@ -149,26 +208,70 @@ fn message(parts: &Parts, width: Option<usize>, theme: Theme) -> Cell {
         ));
         spans.push((" ".into(), base));
     }
-    spans.push((parts.subject.clone(), base));
+    spans.extend(subject_spans(
+        &parts.subject,
+        parts.query.as_deref(),
+        base,
+        theme
+            .role(Role::Warning)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+    ));
     Cell::spans(spans)
 }
 
 fn row(parts: &Parts, width: Option<usize>, theme: Theme) -> TableRow<RowAction> {
-    TableRow::cells(vec![
-        Cell::spans(parts.graph.clone()),
-        Cell::styled(
-            crate::ui_table::short_sha(&parts.id),
+    let sha = crate::ui_table::short_sha(&parts.id);
+    // While History filters, a match keeps full ink with a bold SHA and its text underlined;
+    // a commit that does not match stays for context, dimmed (TASK-99.3).
+    let dimmed = parts.matched == Some(false);
+    let sha = match parts.matched {
+        Some(true) => Cell::spans(vec![(
+            sha.to_owned(),
+            theme
+                .role(if parts.focused {
+                    Role::Head
+                } else {
+                    Role::Commit
+                })
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Some(false) => Cell::styled(sha, Role::TextDim),
+        None => Cell::styled(
+            sha,
             if parts.focused {
                 Role::Head
             } else {
                 Role::Commit
             },
         ),
+    };
+    TableRow::cells(vec![
+        Cell::spans(parts.graph.clone()),
+        sha,
         message(parts, width, theme),
-        String::new().into(),
-        Cell::styled(parts.age.as_str(), Role::TextMuted),
+        if dimmed {
+            // The initials and name of the chip, in dim ink so the row reads as context.
+            Cell::styled(
+                format!(
+                    "{} {}",
+                    crate::identity::InitialsChip::text(&parts.author, theme.mode),
+                    crate::ui_table::actor_text(&parts.author)
+                ),
+                Role::TextDim,
+            )
+        } else {
+            String::new().into()
+        },
+        Cell::styled(
+            parts.age.as_str(),
+            if dimmed {
+                Role::TextDim
+            } else {
+                Role::TextMuted
+            },
+        ),
     ])
-    .with_actor(Some(parts.author.clone()))
+    .with_actor((!dimmed).then(|| parts.author.clone()))
     .with_action(Some(RowAction::Commit(parts.id.clone())))
 }
 
@@ -183,11 +286,34 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if area.height < 3 || area.width < 8 {
         return;
     }
-    let block = crate::ui_chrome::pane_block(theme, &[TITLE, SCOPE], focused)
+    let scope = super::history_filter::title_scope(workspace);
+    let block = crate::ui_chrome::pane_block(theme, &[TITLE, &scope], focused)
         .borders(ratatui::widgets::Borders::TOP);
-    let inner = block.inner(area);
+    let mut inner = block.inner(area);
     frame.render_widget(block, area);
     crate::repository_panels_v93::join_rule(frame, area);
+    // The filter row (and, with room, a rule under it) sits above the table header.
+    super::history_filter::draw_count(frame, app, Rect::new(area.x, area.y, area.width, 1));
+    if super::history_filter::shown(app) && inner.height >= 6 {
+        super::history_filter::draw_row(frame, app, Rect::new(inner.x, inner.y, inner.width, 1));
+        let ruled = u16::from(inner.height >= 14);
+        if ruled == 1 {
+            frame.render_widget(
+                Paragraph::new("─".repeat(usize::from(inner.width.saturating_sub(2))))
+                    .style(theme.role(Role::TextDim)),
+                Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1),
+            );
+        }
+        inner = Rect::new(
+            inner.x,
+            inner.y + 1 + ruled,
+            inner.width,
+            inner.height - 1 - ruled,
+        );
+    }
+    let Some(workspace) = app.workspace.as_ref() else {
+        return;
+    };
     let rows = workspace.display_rows_v1();
     // Row 0 is the window summary (`Read-only · N commits loaded`): the status line.
     let summary = rows
@@ -197,9 +323,21 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let status_rows = u16::from(summary.is_some() && inner.height >= 4);
     let body = Rect::new(inner.x, inner.y, inner.width, inner.height - status_rows);
     if let (Some(summary), 1) = (summary, status_rows) {
+        let filter = &workspace.history_filter_v993;
+        let mut summary = summary.to_owned();
+        if filter.spec.matching() {
+            summary.push_str(if filter.spec.hide {
+                " · non-matching commits hidden"
+            } else {
+                " · non-matching commits stay visible for context"
+            });
+            if filter.chip_capped() {
+                summary.push_str(" · matches stop at the 10,000-commit walk");
+            }
+        }
         frame.render_widget(
             Paragraph::new(crate::ui_chrome::fit(
-                &crate::app::safe_text(summary),
+                &crate::app::safe_text(&summary),
                 usize::from(inner.width.saturating_sub(2)),
             ))
             .style(theme.role(Role::TextMuted)),
@@ -262,6 +400,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         list.ensure_visible(visible);
         top = list.top;
     }
+    // Never leave blank rows below the last commit while earlier ones are scrolled away (a
+    // taller terminal, or a shorter filtered window).
+    top = top.min(parts.len().saturating_sub(visible));
     let rendered = crate::ui_table::draw_table_at(
         frame,
         body,

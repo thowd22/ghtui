@@ -10,7 +10,7 @@ impl Workspace {
         operation: &LocalGitNavigationReadV1,
     ) -> Result<(), String> {
         operation.check()?;
-        let pure = matches!(&action, RowAction::Graph(action) if !matches!(action, crate::repository_graph_v1::GraphActionV1::More | crate::repository_graph_v1::GraphActionV1::CompareParent(_)))
+        let pure = matches!(&action, RowAction::Graph(action) if !matches!(action, crate::repository_graph_v1::GraphActionV1::More | crate::repository_graph_v1::GraphActionV1::CompareParent(_) | crate::repository_graph_v1::GraphActionV1::Filter(_)))
             || matches!(
                 &action,
                 RowAction::Actor(_)

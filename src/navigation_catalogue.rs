@@ -389,8 +389,8 @@ impl Builder {
         for (id, label, action) in [
             (
                 "history",
-                "Inspect selected file history",
-                crate::workspace::FileAction::History,
+                "Open the selected file's History",
+                crate::workspace::FileAction::PathHistory,
             ),
             (
                 "blame",
