@@ -15,6 +15,8 @@ mod commit_runs_v1;
 mod controls_v1;
 #[path = "actions/lease_selection.rs"]
 mod lease_selection;
+#[path = "actions/limitations_v1.rs"]
+mod limitations_v1;
 #[path = "actions/log_export_v1.rs"]
 mod log_export_v1;
 #[path = "actions/optional_attempt_v1.rs"]
@@ -1136,11 +1138,24 @@ fn cache_management(mouse: bool) {
     ]);
     steps.extend(current_account());
     let deleted_count = steps.len();
-    steps.extend([read(
-        "repos/example/repo/actions/cache/usage",
-        updated_usage,
-        false,
-    )]);
+    steps.extend([
+        read(
+            "repos/example/repo/actions/cache/usage",
+            updated_usage,
+            false,
+        ),
+        // TASK-58: Usage also reads the host's storage and retention limits.
+        read(
+            "repos/example/repo/actions/cache/storage-limit",
+            json!({"max_cache_size_gb":10}),
+            false,
+        ),
+        read(
+            "repos/example/repo/actions/cache/retention-limit",
+            json!({"max_cache_retention_days":7}),
+            false,
+        ),
+    ]);
     let final_count = steps.len();
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
@@ -1187,6 +1202,7 @@ fn cache_management(mouse: bool) {
     journal(&mut session, &fixture, deleted_count);
     choose(&mut session, mouse, "Usage", b"u");
     session.wait_for_screen("Cache storage: 4096 bytes in 1 caches");
+    session.wait_for_screen("Host cache limits: storage up to 10 GB • retention up to 7 days");
     let rows = journal(&mut session, &fixture, final_count);
     let writes = rows
         .iter()

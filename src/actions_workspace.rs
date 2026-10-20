@@ -12,6 +12,7 @@ pub(crate) mod scoped_read_v1;
 pub(crate) mod scoped_resources_v2;
 pub use commands::*;
 mod approvals;
+mod limitations;
 mod publication_targets;
 mod publications;
 mod settings;
@@ -526,6 +527,8 @@ pub struct ActionsWorkspace {
     pub policy_section: PolicySection,
     pub runners: Vec<SelfHostedRunner>,
     pub runner_groups: Vec<RunnerGroup>,
+    /// A settings page whose read is denied, missing or out of scope, and why (TASK-58/59/60).
+    pub view_limitation: Option<(ActionsView, String)>,
     pub rows: Vec<ActionsRow>,
     pub controls: Vec<ActionsControl>,
     pub selected: usize,
@@ -637,6 +640,7 @@ impl ActionsWorkspace {
             policy_section: PolicySection::Permissions,
             runners: vec![],
             runner_groups: vec![],
+            view_limitation: None,
             rows: vec![],
             controls: vec![],
             selected: 0,
@@ -1304,6 +1308,38 @@ impl ActionsWorkspace {
     }
     fn load_view(&mut self, gh: &GithubProvider, cancel: &CancellationToken) -> GithubResult<()> {
         use ActionsView::*;
+        let view = self.view;
+        if !matches!(
+            view,
+            Secrets | Variables | Environments | Policies | Runners | RunnerGroups
+        ) {
+            return self.load_view_inner(gh, cancel);
+        }
+        // Each read replaces the page's previous limitation; a denied, missing or unsupported
+        // read is a visible explanation with disabled controls, never an empty inventory.
+        self.view_limitation = None;
+        match self.load_view_inner(gh, cancel) {
+            Err(error) if limitations::is_capability_limit(&error) => {
+                match view {
+                    Secrets => self.secrets.clear(),
+                    Variables => self.variables.clear(),
+                    Environments => self.environments.clear(),
+                    Policies => self.policy = None,
+                    Runners => self.runners.clear(),
+                    _ => self.runner_groups.clear(),
+                }
+                self.view_limitation = Some((view, limitations::explain(view, &error)));
+                Ok(())
+            }
+            result => result,
+        }
+    }
+    fn load_view_inner(
+        &mut self,
+        gh: &GithubProvider,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
+        use ActionsView::*;
         match self.view {
             Runs => {
                 // Keep the same run selected when a refresh or watch tick adds newer runs.
@@ -1356,9 +1392,12 @@ impl ActionsWorkspace {
                 let org = match &self.scope {
                     ActionsScope::Organization { organization } => organization.clone(),
                     _ => {
-                        return Err(plain_error(
-                            "Runner groups require an explicitly selected organization scope",
-                        ))
+                        self.runner_groups.clear();
+                        self.view_limitation = Some((
+                            RunnerGroups,
+                            limitations::RUNNER_GROUPS_NEED_ORGANIZATION.into(),
+                        ));
+                        return Ok(());
                     }
                 };
                 self.runner_groups = gh.runner_groups(&org, cancel)?;
@@ -1427,6 +1466,14 @@ impl ActionsWorkspace {
             Usage => {
                 let usage = gh.cache_usage(self.repository()?, cancel)?;
                 self.rows=vec![ActionsRow::text(format!("Cache storage: {} bytes in {} caches",usage.active_caches_size_in_bytes,usage.active_caches_count)),ActionsRow::text("Cache units are bytes. Workflow timing is milliseconds, not cost; billing multipliers are not inferred.")];
+                // Host storage and retention limits for this repository (TASK-58). The
+                // caches page stays one request lighter; limits are read here, on demand.
+                let scope = ActionsScope::Repository {
+                    repository: self.repository()?.into(),
+                };
+                self.rows.extend(limitations::cache_limit_rows(
+                    gh.cache_limits(&scope, cancel),
+                ));
             }
             Workflow
             | Logs
@@ -2034,12 +2081,7 @@ impl ActionsWorkspace {
                 );
                 self.runner_groups
                     .iter()
-                    .map(|group| {
-                        ActionsRow::text(format!(
-                            "#{} • {} • visibility {} • default {} • inherited {}",
-                            group.id, group.name, group.visibility, group.default, group.inherited
-                        ))
-                    })
+                    .map(|group| ActionsRow::text(limitations::runner_group_label(group)))
                     .collect()
             }
             Usage => self.rows.clone(),
@@ -2061,6 +2103,16 @@ impl ActionsWorkspace {
             }
             Publications | PublicationInspection => self.prepare_publication_rows(),
         };
+        if let Some((_, reason)) = self
+            .view_limitation
+            .as_ref()
+            .filter(|(view, _)| *view == self.view)
+        {
+            self.rows.insert(0, limitations::limitation_row(reason));
+            if self.view == Environments {
+                self.environment_rows.insert(0, None);
+            }
+        }
         if self.rows.is_empty() {
             self.rows.push(ActionsRow::text(if self.view == Artifacts {
                 "This run has no artifacts (or they were already deleted)."
@@ -2155,6 +2207,13 @@ impl ActionsWorkspace {
             .and_then(|snapshot| snapshot.blocking_reason(self, command))
         {
             return Some(reason);
+        }
+        if let Some((_, reason)) = self
+            .view_limitation
+            .as_ref()
+            .filter(|(view, _)| limitations::view_of(command) == Some(*view))
+        {
+            return Some(reason.clone());
         }
         let run = self.run.as_ref().map(|page| &page.attempt.run);
         let missing = match command {
