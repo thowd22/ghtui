@@ -17,6 +17,8 @@ pub(crate) mod action_lineage_v12;
 pub mod avatars_v7;
 #[path = "scoped_pr_review_browser_v2.rs"]
 pub mod browser_v2;
+#[path = "scoped_pr_review_capability_v20.rs"]
+pub mod capability_v20;
 #[path = "scoped_pr_review_native_v2.rs"]
 pub mod native_v2;
 #[path = "scoped_pr_review_plan_v2.rs"]

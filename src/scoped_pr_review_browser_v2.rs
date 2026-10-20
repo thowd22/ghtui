@@ -112,6 +112,11 @@ impl ReviewBrowserV2 {
             );
         }
         use crate::providers::gh::ObservedReviewStateV2;
+        if action == ReviewRequestedActionV2::Dismiss
+            && self.dismiss_capability_v20() == super::capability_v20::ReviewCapabilityV20::Denied
+        {
+            return Some(super::capability_v20::DISMISS_DENIED_V20);
+        }
         let Some(selected) = &self.selection else {
             return Some("Resume the actual selected review first; no raw ID or cached row is publication authority");
         };
@@ -157,6 +162,50 @@ impl ReviewBrowserV2 {
             return Some("Actual pending comments refer to another H; preserve text and explicitly re-anchor before submission");
         }
         None
+    }
+    pub fn dismiss_capability_v20(&self) -> super::capability_v20::ReviewCapabilityV20 {
+        super::capability_v20::dismiss(self.draft.repository_permissions_v20())
+    }
+    /// Re-request reviewer/team is refused before any request only when the
+    /// observed flags verify a role below triage and the viewer is not
+    /// (or might be) the pull request's own author.
+    pub fn request_disabled_v20(&self) -> Option<&'static str> {
+        let uid = self.draft.identity().account_id;
+        let maybe_author = self
+            .intent()
+            .parent()
+            .author_account_id()
+            .is_none_or(|author| Some(author) == uid);
+        (super::capability_v20::request_reviewers(
+            self.draft.repository_permissions_v20(),
+            maybe_author,
+        ) == super::capability_v20::ReviewCapabilityV20::Denied)
+            .then_some(super::capability_v20::REQUEST_DENIED_V20)
+    }
+    /// The painted label names the verified capability; the UNKNOWN label is
+    /// kept only while the observed flags cannot decide.
+    fn control_label_v20(
+        &self,
+        action: ReviewBrowserActionV2,
+        label: &'static str,
+    ) -> &'static str {
+        use super::capability_v20::ReviewCapabilityV20::{Denied, Verified};
+        match action {
+            ReviewBrowserActionV2::Effect(ReviewRequestedActionV2::Dismiss) => {
+                match self.dismiss_capability_v20() {
+                    Verified => "[I Dismiss: write verified]",
+                    Denied => "[I Dismiss: needs write]",
+                    _ => label,
+                }
+            }
+            ReviewBrowserActionV2::RequestReviewerV3 if self.request_disabled_v20().is_some() => {
+                "[F5 Re-request: needs triage]"
+            }
+            ReviewBrowserActionV2::RequestTeamV3 if self.request_disabled_v20().is_some() => {
+                "[F7 Team: needs triage]"
+            }
+            _ => label,
+        }
     }
     pub fn owns(&self, app: &App) -> bool {
         self.intent().owns(app)
@@ -742,8 +791,8 @@ pub fn draw(
     }
     let mut controls_height = 1u16;
     let mut used = 0u16;
-    for (_, label) in CONTROLS {
-        let width = label.len() as u16;
+    for (action, label) in CONTROLS {
+        let width = view.control_label_v20(action, label).len() as u16;
         if used > 0 && used.saturating_add(width) > inner.width {
             controls_height += 1;
             used = 0;
@@ -854,6 +903,7 @@ pub fn draw(
     let mut x = inner.x;
     let mut y = inner.bottom() - controls_height;
     for (action, label) in CONTROLS {
+        let label = view.control_label_v20(action, label);
         if x + label.len() as u16 > inner.right() {
             x = inner.x;
             y += 1;
@@ -870,6 +920,9 @@ pub fn draw(
         let disabled = match action {
             ReviewBrowserActionV2::NewBatch => view.new_batch_disabled_v12().is_some(),
             ReviewBrowserActionV2::Effect(action) => view.effect_disabled(action).is_some(),
+            ReviewBrowserActionV2::RequestReviewerV3 | ReviewBrowserActionV2::RequestTeamV3 => {
+                view.request_disabled_v20().is_some()
+            }
             _ => false,
         };
         let style = theme.style(if clickable && !disabled {

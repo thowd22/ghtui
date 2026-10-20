@@ -1720,6 +1720,12 @@ pub fn browser_action(app: &mut App, action: ReviewBrowserActionV2) {
                 },
             );
         }
+        ReviewBrowserActionV2::RequestReviewerV3 | ReviewBrowserActionV2::RequestTeamV3
+            if view.request_disabled_v20().is_some() =>
+        {
+            let reason = view.request_disabled_v20().unwrap_or_default();
+            view.notice(reason);
+        }
         ReviewBrowserActionV2::RequestReviewerV3 => {
             if view.teams_v3.is_some() {
                 view.notice("Choose the actual submitted reviewer or explicit selected team");

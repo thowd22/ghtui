@@ -61,6 +61,32 @@ enum Failure {
     UnknownAuthor,
     MissingSubmission,
     DeniedDismiss,
+    /// The review phase's own repository read reports a complete read-only
+    /// permission set: Dismiss and Re-request are refused with zero writes.
+    ReadOnly,
+    /// The review phase's own repository read reports push: Dismiss names
+    /// the verified grant and publishes normally.
+    WriteVerified,
+}
+fn dismiss_label(failure: Failure) -> &'static str {
+    match failure {
+        Failure::ReadOnly => "[I Dismiss: needs write]",
+        Failure::WriteVerified => "[I Dismiss: write verified]",
+        _ => "[I Dismiss: eligibility UNKNOWN]",
+    }
+}
+/// Replace the permission flags on every review-phase `repos/{FIRST}` read
+/// with a complete observed set. Earlier Files/source reads stay unchanged.
+fn observed_permissions(steps: &mut [GhStep], push: bool) {
+    let endpoint = format!("repos/{FIRST}");
+    for step in steps {
+        if step.args.get(1) == Some(&endpoint) {
+            let mut value: Value = serde_json::from_slice(&step.stdout).unwrap();
+            value["permissions"] =
+                json!({"pull":true,"triage":false,"push":push,"maintain":false,"admin":false});
+            step.stdout = value.to_string().into_bytes();
+        }
+    }
 }
 struct HeldOriginal {
     identity: ProcessIdentity,
@@ -409,6 +435,14 @@ fn edited_field(session: &mut Session, label: &str, value: &str) {
         .unwrap();
 }
 fn browser_ready(session: &mut Session, before: usize, fragment: &str) {
+    browser_ready_with(
+        session,
+        before,
+        fragment,
+        "[I Dismiss: eligibility UNKNOWN]",
+    )
+}
+fn browser_ready_with(session: &mut Session, before: usize, fragment: &str, dismiss: &str) {
     session.wait_for_new_cursorless_condition(
         before,
         |frame| {
@@ -416,7 +450,7 @@ fn browser_ready(session: &mut Session, before: usize, fragment: &str) {
             text.contains("Scoped reviews")
                 && text.contains("[B New batch]")
                 && text.contains("[R Resume selected]")
-                && text.contains("[I Dismiss: eligibility UNKNOWN]")
+                && text.contains(dismiss)
                 && text.contains(fragment)
         },
         "NEW completed original review browser frame, full useful controls and actual observed row",
@@ -566,13 +600,17 @@ fn journey(mouse: bool, effect: Effect, failure: Failure) {
     } else {
         json!([row(&h, effect, failure, false)])
     };
+    let review_start = steps.len();
     steps.extend(source_open(&h, actual_rows.clone()));
     if !anchored {
         steps.extend(selection(&h, effect, failure, "RIGHT"));
     }
     let disabled = matches!(
         failure,
-        Failure::StaleSubmit | Failure::UnknownAuthor | Failure::MissingSubmission
+        Failure::StaleSubmit
+            | Failure::UnknownAuthor
+            | Failure::MissingSubmission
+            | Failure::ReadOnly
     );
     if !disabled {
         if !anchored {
@@ -608,6 +646,12 @@ fn journey(mouse: bool, effect: Effect, failure: Failure) {
         }
     }
     steps.append(&mut confirmation);
+    if matches!(failure, Failure::ReadOnly | Failure::WriteVerified) {
+        observed_permissions(
+            &mut steps[review_start..],
+            failure == Failure::WriteVerified,
+        );
+    }
     if failure == Failure::UnknownAuthor {
         for step in &mut steps {
             if let Ok(mut value) = serde_json::from_slice::<Value>(&step.stdout) {
@@ -637,27 +681,44 @@ fn journey(mouse: bool, effect: Effect, failure: Failure) {
         selected_image_range(&mut session, mouse, side, &h.h);
         choose(&mut session, mouse, "[V Batch]", b"V");
     } else {
+        let dismiss = dismiss_label(failure);
         let before = session.completed_cursorless_end();
         choose(&mut session, mouse, "[F10 Reviews]", b"\x1b[21~");
-        browser_ready(&mut session, before, "#810");
+        browser_ready_with(&mut session, before, "#810", dismiss);
         let before = session.completed_cursorless_end();
         choose(&mut session, mouse, "[R Resume selected]", b"R");
-        browser_ready(
+        browser_ready_with(
             &mut session,
             before,
             "Actual existing server pending comment",
+            dismiss,
         );
         if disabled {
-            let (label, key) = effect_choice(effect);
+            let (mut label, key) = effect_choice(effect);
+            if effect == Effect::Dismiss {
+                label = dismiss;
+            }
             choose(&mut session, mouse, label, key);
             ready(
                 &mut session,
                 &[match failure {
                     Failure::UnknownAuthor => "author is unknown",
                     Failure::MissingSubmission => "actual submitted",
+                    Failure::ReadOnly => "dismissal needs write",
                     _ => "another H",
                 }],
             );
+            if failure == Failure::ReadOnly {
+                // Re-request reviewer is refused by the same verified flags,
+                // before any form, read or write, by key and by click alike.
+                choose(
+                    &mut session,
+                    mouse,
+                    "[F5 Re-request: needs triage]",
+                    b"\x1b[15~",
+                );
+                ready(&mut session, &["re-request refused"]);
+            }
             assert_eq!(commands(&session, &fixture).len(), steps.len());
             assert_eq!(
                 raw(&fixture)
@@ -674,7 +735,10 @@ fn journey(mouse: bool, effect: Effect, failure: Failure) {
             session.quit_and_assert_restored_terminal(mouse);
             return;
         }
-        let (label, key) = effect_choice(effect);
+        let (mut label, key) = effect_choice(effect);
+        if effect == Effect::Dismiss {
+            label = dismiss;
+        }
         choose(&mut session, mouse, label, key);
     }
     if effect == Effect::Discard {
@@ -1068,6 +1132,18 @@ paired!(
     pending_reviews_v2_native_mouse_actual_denied_dismissal_unknown_no_retry,
     Dismiss,
     DeniedDismiss
+);
+paired!(
+    pending_reviews_v2_native_keyboard_verified_read_only_refuses_dismiss_and_rerequest,
+    pending_reviews_v2_native_mouse_verified_read_only_refuses_dismiss_and_rerequest,
+    Dismiss,
+    ReadOnly
+);
+paired!(
+    pending_reviews_v2_native_keyboard_verified_write_dismissal,
+    pending_reviews_v2_native_mouse_verified_write_dismissal,
+    Dismiss,
+    WriteVerified
 );
 
 fn files_after_restart(

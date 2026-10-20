@@ -106,6 +106,9 @@ pub struct ScopedReviewDraftV2 {
     >,
     pub(super) needs_new_v12: bool,
     pub(crate) new_notice_v12: Option<Arc<crate::prepared_form_text_v1::PreparedFormTextV1>>,
+    /// Repository permission flags from this SAME source session's own
+    /// repository observation; missing flags stay unknown.
+    repository_permissions_v20: crate::providers::gh::RepositoryCataloguePermissions,
 }
 impl std::fmt::Debug for ScopedReviewDraftV2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -133,6 +136,11 @@ impl ScopedReviewDraftV2 {
     }
     pub fn restored_values(&self) -> bool {
         self.restored_values
+    }
+    pub fn repository_permissions_v20(
+        &self,
+    ) -> &crate::providers::gh::RepositoryCataloguePermissions {
+        &self.repository_permissions_v20
     }
     pub(crate) fn new_action_revision_v12(
         &self,
@@ -280,15 +288,12 @@ impl ScopedReviewDraftV2 {
         session
             .verify(intent.navigation.original(), cancel)
             .map_err(source_failure)?;
+        let observation = session
+            .observation_v1(intent.parent().repository_id())
+            .ok_or_else(|| source_failure(safe_local()))?;
+        let repository_permissions_v20 = observation.repository().permissions.clone();
         let parent = measured
-            .pr_inline_original_parent_v1(
-                session
-                    .observation_v1(intent.parent().repository_id())
-                    .ok_or_else(|| source_failure(safe_local()))?,
-                &intent.files.observed,
-                resources,
-                cancel,
-            )
+            .pr_inline_original_parent_v1(observation, &intent.files.observed, resources, cancel)
             .map_err(source_failure)?;
         let local = ResourceLocalGuard::capture_boundary_v13(
             database,
@@ -457,6 +462,7 @@ impl ScopedReviewDraftV2 {
             lineage_v12: choice.revision,
             needs_new_v12: choice.needs_new,
             new_notice_v12,
+            repository_permissions_v20,
         });
         clock(cancel, deadline)?;
         Ok(result)
