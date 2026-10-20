@@ -243,12 +243,26 @@ fn table_journey(mouse: bool) {
     let (gamma_y, gamma) = wait_line(&mut session, &["org/gamma#9", "Update docs", "Created"]);
     let mut rows = [alpha_y, beta_y, gamma_y];
     rows.sort();
+    // Comfortable density (the default, TASK-96): each PR is its row over a muted detail line.
     assert_eq!(
         rows,
-        [header_y + 1, header_y + 2, header_y + 3],
+        [header_y + 1, header_y + 3, header_y + 5],
         "{}",
         session.screen()
     );
+    for row in rows {
+        let detail = session
+            .screen()
+            .lines()
+            .nth(usize::from(row) + 1)
+            .unwrap_or_default()
+            .to_owned();
+        assert!(
+            detail.contains("Open · updated"),
+            "{detail}\n{}",
+            session.screen()
+        );
+    }
     let age_end = cell_x(&header, "AGE") as usize + 3;
     for row in [&alpha, &beta, &gamma] {
         assert_eq!(cell_x(row, "org/"), cell_x(&header, "PR"), "{row}");
@@ -261,7 +275,7 @@ fn table_journey(mouse: bool) {
         );
         assert!(cells.get(age_end).is_none_or(|cell| *cell == ' '), "{row}");
     }
-    // The old two-line item format is gone.
+    // The old pre-table two-line item format is gone.
     assert!(!session.screen().contains("review/checks: open PR to load"));
     let first = session.wait_for_selected_row(&title, "Improve auth");
     assert!(first.starts_with("org/alpha#7"), "{first}");

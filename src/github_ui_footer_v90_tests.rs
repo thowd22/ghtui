@@ -176,8 +176,9 @@ fn design_footer_v90_inbox_queues_are_tabs_and_keys_match_their_clicks() {
             "{expected:?} has no click target"
         );
     }
-    // Every row under the column titles is content: one table row per PR, no bottom button.
-    assert_eq!(app.github_visible_rows, 41 - 1 - 3 - 1);
+    // Every row under the column titles is content: one two-line item per PR at Comfortable
+    // density (TASK-96), no bottom button.
+    assert_eq!(app.github_visible_rows, (41 - 1 - 3 - 1) / 2);
 }
 
 #[test]

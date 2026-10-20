@@ -500,7 +500,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         painter.header(frame.buffer_mut(), y);
         y += 1;
     }
-    app.github_visible_rows = usize::from(area.bottom().saturating_sub(y));
+    // Comfortable (TASK-96): one item is its table row over a muted detail line; Compact keeps
+    // one line per pull request. Scrolling, paging and `ensure_visible` count items.
+    let lines = usize::from(area.bottom().saturating_sub(y));
+    let lines_per_item = if crate::ui_chrome::density().is_compact() || lines < 2 {
+        1
+    } else {
+        2
+    };
+    app.github_visible_rows = lines / lines_per_item;
     if visible.is_empty() && y < area.bottom() {
         painter.empty(
             frame.buffer_mut(),
@@ -513,20 +521,72 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     let selected = github.selected_index();
+    // The detail line starts under TITLE; it names the queues when the QUEUE column left.
+    let detail_x = painter.column_x(1).unwrap_or(area.x);
+    let queues_shown = painter.column_x(4).is_some();
     for (offset, index) in (app.inbox_list.top..visible.len())
         .take(app.github_visible_rows)
         .enumerate()
     {
-        let y = y + offset as u16;
+        let y = y + (offset * lines_per_item) as u16;
         painter.row(frame.buffer_mut(), y, &rows[index]);
+        if lines_per_item == 2 {
+            painter.detail(
+                frame.buffer_mut(),
+                detail_x,
+                y + 1,
+                &inbox_detail(visible[index], !queues_shown),
+            );
+        }
         if index == selected {
             painter.select(frame.buffer_mut(), y);
+            if lines_per_item == 2 {
+                painter.select_continuation(frame.buffer_mut(), y + 1);
+            }
         }
+        // One click target per pull request: its row and detail line together.
+        let mut rect = painter.line(y);
+        rect.height = lines_per_item as u16;
         app.hits.push(HitRegion {
-            rect: painter.line(y),
+            rect,
             action: Action::Github(GithubAction::Open(visible[index].into())),
         });
     }
+}
+
+/// A Comfortable Inbox item's muted second line: state (draft kept), when it was last
+/// updated, and its queues when the QUEUE column was dropped for width. Cached fields only.
+pub(crate) fn inbox_detail(pr: &crate::providers::gh::PullRequest, queues: bool) -> String {
+    use crate::providers::gh::Queue;
+    let mut state = pr.state.to_ascii_lowercase();
+    if let Some(first) = state.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    let mut parts = vec![if pr.draft && !state.is_empty() {
+        format!("{state} · draft")
+    } else if pr.draft {
+        "Draft".to_string()
+    } else {
+        state
+    }];
+    if let Some(age) = crate::ui_table::age_at(&pr.updated_at, crate::storage::now()) {
+        parts.push(format!("updated {age} ago"));
+    }
+    if queues && !pr.queues.is_empty() {
+        parts.push(
+            pr.queues
+                .iter()
+                .map(|queue| match queue {
+                    Queue::Authored => "Created",
+                    Queue::Assigned => "Assigned",
+                    Queue::ReviewRequested => "Review",
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+    parts.retain(|part| !part.is_empty());
+    parts.join(" · ")
 }
 
 /// The Compact Inbox's one summary row: the queue summary on the left (cut with an ellipsis

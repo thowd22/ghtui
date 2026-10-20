@@ -572,17 +572,171 @@ fn design_density_v96_compact_inbox_keeps_the_whole_list_and_one_summary_row() {
     key(&mut compact, KeyCode::Enter);
     assert!(compact.github_action.is_some());
 
-    // At 80x24 both modes drill down; Compact gives the list one more row.
+    // At 80x24 both modes drill down; Compact gives the list one more line and one line per
+    // PR, where Comfortable's items take two (14 lines: 7 items, against 15).
     let mut comfortable = inbox_at(Density::Comfortable);
     paint(&mut comfortable, 80, 24);
     let mut compact = inbox_at(Density::Compact);
     let (_, lines) = paint(&mut compact, 80, 24);
+    assert_eq!(comfortable.github_visible_rows, 7);
     assert_eq!(
         compact.github_visible_rows,
-        comfortable.github_visible_rows + 1,
+        2 * comfortable.github_visible_rows + 1,
         "{}",
         lines.join("\n")
     );
+    crate::ui_chrome::set_density(Density::Comfortable);
+}
+
+/// TASK-96: an Inbox of `count` pull requests (`example/actual#1`…), every third a draft.
+fn long_inbox(density: crate::config::Density, count: u64) -> App {
+    let mut app = inbox_at(density);
+    let github = app.github.as_mut().unwrap();
+    github.inbox.pull_requests = (1..=count)
+        .map(|number| {
+            let mut pr = pull_request(
+                number % 9 + 1,
+                &format!("Change number {number}"),
+                "sam-ops",
+            );
+            pr.number = number;
+            pr.id = format!("PR_{number}");
+            pr.url = format!("https://github.invalid/example/actual/pull/{number}");
+            pr.draft = number % 3 == 0;
+            pr
+        })
+        .collect();
+    github.selected = github.inbox.pull_requests.first().map(Into::into);
+    app
+}
+
+/// The line index holding PR `number`'s table row: `example/actual#N ` padded in its cell and
+/// its title on one line (the split preview names the PR on a line of its own).
+fn pr_line(lines: &[String], number: u64) -> usize {
+    let reference = format!("example/actual#{number} ");
+    let title = format!("Change number {number}");
+    lines
+        .iter()
+        .position(|line| line.contains(&reference) && line.contains(&title))
+        .unwrap_or_else(|| panic!("no row for #{number}:\n{}", lines.join("\n")))
+}
+
+#[test]
+fn design_density_v96_comfortable_inbox_items_are_two_lines_and_compact_one() {
+    use crate::config::Density;
+    for (width, height) in [(80u16, 24u16), (140, 42)] {
+        let mut app = long_inbox(Density::Comfortable, 30);
+        let (buffer, lines) = paint(&mut app, width, height);
+        let screen = lines.join("\n");
+        let header = lines
+            .iter()
+            .position(|line| line.contains(" PR ") && line.contains("TITLE"))
+            .expect("the Inbox column titles");
+        let visible = app.github_visible_rows;
+        assert!(visible >= 3, "{screen}");
+        for number in 1..=visible as u64 {
+            let row = pr_line(&lines, number);
+            assert_eq!(row, header + 1 + 2 * (number as usize - 1), "{screen}");
+            // The muted second line: state (draft kept), last update; never another PR.
+            // Only the list pane's part of the line (the split preview shares the row).
+            let detail = lines[row + 1].split("││").next().unwrap();
+            let state = if number % 3 == 0 {
+                "Open · draft · updated "
+            } else {
+                "Open · updated "
+            };
+            assert!(detail.contains(state), "{detail}\n{screen}");
+            assert!(!detail.contains("example/actual#"), "{detail}");
+            // The detail line starts under TITLE.
+            assert_eq!(
+                detail.find("Open"),
+                lines[header].find("TITLE"),
+                "{detail}\n{}",
+                lines[header]
+            );
+            // Queues are named on the detail line only when the QUEUE column left.
+            assert_eq!(
+                detail.contains("Created"),
+                !lines[header].contains("QUEUE"),
+                "{detail}\n{}",
+                lines[header]
+            );
+        }
+        assert!(
+            !holds(&lines, &format!("example/actual#{} ", visible + 1)),
+            "{screen}"
+        );
+        // The `▌` bar marks the selected item once; its detail line shares the Selection
+        // background so the two lines read as one item.
+        let first = pr_line(&lines, 1);
+        // The list pane starts at the left edge in both layouts; its bar sits inside the border.
+        let x0 = 1;
+        assert_eq!(
+            buffer[(x0, first as u16)].symbol(),
+            crate::ui_table::SELECTION_BAR
+        );
+        assert_ne!(
+            buffer[(x0, first as u16 + 1)].symbol(),
+            crate::ui_table::SELECTION_BAR
+        );
+        let selection = crate::ui_table::selection_style(app.theme())
+            .bg
+            .unwrap_or_default();
+        assert_eq!(buffer[(x0 + 4, first as u16 + 1)].bg, selection);
+        assert_ne!(buffer[(x0 + 4, first as u16 + 2)].bg, selection);
+
+        // A click on either line of an item opens that same PR.
+        for line in [pr_line(&lines, 2), pr_line(&lines, 2) + 1] {
+            app.github_action = None;
+            click(&mut app, 12, line as u16);
+            let pr = app.github.as_ref().unwrap().inbox.pull_requests[1].clone();
+            assert_eq!(
+                app.github_action,
+                Some(GithubAction::Open(PrKey::from(&pr)))
+            );
+        }
+        // The keyboard moves item by item and scrolls by whole items past the last one.
+        app.github_action = None;
+        let selected = app.github.as_ref().unwrap().selected_index();
+        for _ in selected..visible {
+            key(&mut app, KeyCode::Down);
+        }
+        assert_eq!(app.github.as_ref().unwrap().selected_index(), visible);
+        assert_eq!(app.inbox_list.top, 1);
+        let (buffer, lines) = paint(&mut app, width, height);
+        let row = pr_line(&lines, visible as u64 + 1);
+        assert_eq!(row, header + 1 + 2 * (visible - 1), "{}", lines.join("\n"));
+        assert_eq!(
+            buffer[(x0, row as u16)].symbol(),
+            crate::ui_table::SELECTION_BAR
+        );
+        assert!(!holds(&lines, "example/actual#1 "), "{}", lines.join("\n"));
+        assert!(
+            app.github_action.is_none(),
+            "moving the cursor reads nothing"
+        );
+        // The wheel scrolls whole items too.
+        app.dispatch(Action::Scroll(3));
+        let (_, lines) = paint(&mut app, width, height);
+        assert_eq!(pr_line(&lines, 5), header + 1, "{}", lines.join("\n"));
+
+        // Compact: one line per PR, no detail line, the same number of PRs on one line each.
+        let mut compact = long_inbox(Density::Compact, 30);
+        let (_, lines) = paint(&mut compact, width, height);
+        let header = lines
+            .iter()
+            .position(|line| line.contains(" PR ") && line.contains("TITLE"))
+            .unwrap();
+        assert!(
+            compact.github_visible_rows > visible,
+            "{}",
+            lines.join("\n")
+        );
+        for number in 1..=3 {
+            assert_eq!(pr_line(&lines, number), header + number as usize);
+        }
+        assert!(!holds(&lines, "Open · updated"), "{}", lines.join("\n"));
+    }
     crate::ui_chrome::set_density(Density::Comfortable);
 }
 

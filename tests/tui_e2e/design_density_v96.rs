@@ -3,6 +3,8 @@
 //! header and two blank cells between table columns; Compact keeps the whole list, puts the
 //! freshness on the queue summary row and one blank cell between columns. Settings › Density
 //! switches live, Save settings writes `density` to config.toml, and no gh command runs.
+//! Comfortable items are two lines (the table row over a muted `Open · updated …` detail
+//! line) and Compact keeps one; a click on either line, or Enter, opens the same PR.
 use super::*;
 use crate::support::with_density;
 use ghtui::config::Density;
@@ -24,6 +26,19 @@ fn title_offset(screen: &str) -> Option<usize> {
     Some(find("TITLE")? - find("PR ")?)
 }
 
+/// The screen line of the Inbox table row for `reference` (the line that also holds its
+/// title, so the split preview's own `owner/repo#N` line is never taken for it).
+fn item_row(screen: &str, reference: &str) -> Option<usize> {
+    let title = match reference {
+        "org/alpha#7" => "Improve auth",
+        "org/beta#7" => "Repair parser",
+        _ => "Update docs",
+    };
+    screen
+        .lines()
+        .position(|line| line.contains(reference) && line.contains(title))
+}
+
 /// Whether the screen shows the Inbox at `density`; `wide` screens split at Comfortable.
 fn laid_out(screen: &str, density: Density, wide: bool) -> bool {
     let preview = screen.contains("─ Preview");
@@ -36,9 +51,23 @@ fn laid_out(screen: &str, density: Density, wide: bool) -> bool {
     let rows = ["org/alpha#7", "org/beta#7", "org/gamma#9"]
         .iter()
         .all(|reference| screen.contains(reference));
+    // Comfortable: each PR's row is followed by its detail line; Compact: by the next PR.
+    let below = |reference: &str| {
+        let lines = screen.lines().collect::<Vec<_>>();
+        item_row(screen, reference)
+            .and_then(|row| lines.get(row + 1).copied())
+            .unwrap_or_default()
+    };
+    let two_line = below("org/alpha#7").contains("Open · updated")
+        && below("org/beta#7").contains("Open · updated")
+        && below("org/gamma#9").contains("Open · updated");
+    let one_line =
+        below("org/alpha#7").contains("org/beta#7") && !screen.contains("Open · updated");
     rows && match density {
-        Density::Comfortable => preview == wide && section && !summary && gap == Some(2),
-        Density::Compact => !preview && !section && summary && gap == Some(1),
+        Density::Comfortable => {
+            preview == wide && section && !summary && gap == Some(2) && two_line
+        }
+        Density::Compact => !preview && !section && summary && gap == Some(1) && one_line,
     }
 }
 
@@ -90,7 +119,10 @@ fn density_journey(density: Density, mouse: bool) {
     let fixture = configured();
     let saved = with_density(&fixture, density);
     assert_eq!(saved.density, density);
-    fixture.scripted_gh(&initial(false));
+    // The journey ends by opening `Improve auth` (its summary and conversation pages).
+    let mut steps = initial(false);
+    steps.extend(pages().into_iter().take(7));
+    fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 140, 42);
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
@@ -121,6 +153,33 @@ fn density_journey(density: Density, mouse: bool) {
 
     // Presenting and switching density ran no gh command.
     journal(&mut session, &fixture, 7);
+
+    // Either line of an item opens it: the detail line below `Improve auth` by click at
+    // Comfortable (its row at Compact), or Up then Enter by keyboard.
+    if mouse {
+        let row = item_row(&session.screen(), "org/alpha#7").expect("the Improve auth row") as u16;
+        let line = match density {
+            Density::Comfortable => row + 1,
+            Density::Compact => row,
+        };
+        assert!(
+            density == Density::Compact
+                || session
+                    .screen()
+                    .lines()
+                    .nth(usize::from(line))
+                    .is_some_and(|text| text.contains("Open · updated")),
+            "{}",
+            session.screen()
+        );
+        session.click(20, line);
+    } else {
+        session.send_key(b"\x1b[A");
+        session.wait_for_selected_row(&title, "Improve auth");
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("1 comments");
+    journal(&mut session, &fixture, 14);
     session.quit_and_assert_restored_terminal(mouse);
 }
 

@@ -762,6 +762,34 @@ impl<'t> TablePainter<'t> {
             }
         }
     }
+    /// Where column `index` of the spec starts on screen, `None` when it was dropped for width.
+    pub fn column_x(&self, index: usize) -> Option<u16> {
+        self.placed
+            .iter()
+            .find(|placed| placed.column == index)
+            .map(|placed| self.columns_x() + placed.x)
+    }
+    /// A muted detail line at `y` under a two-line item's cells (Comfortable density,
+    /// TASK-96), starting at `x` and cut with an ellipsis at the pane's edge.
+    pub fn detail(&self, buffer: &mut Buffer, x: u16, y: u16, text: &str) {
+        let x = x.clamp(self.columns_x(), self.area.right());
+        put(
+            buffer,
+            x,
+            y,
+            self.area.right(),
+            &fit(
+                &sanitize_terminal(text),
+                usize::from(self.area.right().saturating_sub(x)),
+            ),
+            self.theme.role(Role::TextMuted),
+        );
+    }
+    /// The Selection background over a selected item's continuation line at `y`, without the
+    /// `▌` bar: the bar marks the item once, on its first line.
+    pub fn select_continuation(&self, buffer: &mut Buffer, y: u16) {
+        buffer.set_style(self.line(y), selection_style(self.theme));
+    }
     /// The Selection background and the `▌` bar over the line at `y` (accent when focused).
     pub fn select(&self, buffer: &mut Buffer, y: u16) {
         select_line(buffer, self.line(y), self.table.focused, self.theme);

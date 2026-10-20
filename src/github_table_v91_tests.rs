@@ -79,7 +79,8 @@ fn design_table_v91_inbox_rows_are_aligned_table_rows_with_bar_ages_and_open_tar
         let (y1, first) = line_with(&lines, &["example/actual#1", "Footer row 1", "alice"]);
         let (y2, second) = line_with(&lines, &["example/actual#2", "Fix dark", "bob"]);
         let (y3, third) = line_with(&lines, &["example/actual#3", "[draft]", "carol"]);
-        assert_eq!((y1, y2, y3), (header_y + 1, header_y + 2, header_y + 3));
+        // Comfortable (the default, TASK-96): each PR is its row over a muted detail line.
+        assert_eq!((y1, y2, y3), (header_y + 1, header_y + 3, header_y + 5));
         // Columns line up under their titles; the login has no `@`; the long title is cut.
         for row in [first, second, third] {
             assert_eq!(column(row, "example/"), column(header, "PR"), "{row}");
@@ -126,10 +127,13 @@ fn design_table_v91_inbox_rows_are_aligned_table_rows_with_bar_ages_and_open_tar
             .iter()
             .zip([y1, y2, y3].into_iter().zip(&github.inbox.pull_requests))
         {
-            assert_eq!(*rect, Rect::new(0, y as u16, width, 1));
+            assert_eq!(*rect, Rect::new(0, y as u16, width, 2));
             assert_eq!(*key, PrKey::from(pr));
         }
-        assert_eq!(app.github_visible_rows, usize::from(height) - header_y - 1);
+        assert_eq!(
+            app.github_visible_rows,
+            (usize::from(height) - header_y - 1) / 2
+        );
     }
 }
 
