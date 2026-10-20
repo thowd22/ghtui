@@ -1,10 +1,10 @@
 ---
 id: TASK-92
 title: 'Design language: list plus detail split at wide widths'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-18 20:22'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies:
@@ -32,5 +32,5 @@ At 120+ columns Inbox, Actions and Search show the list beside a live preview of
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
+List plus preview split from 120 columns for Inbox, Actions Runs, Search; per-view list state, Tab/click pane focus. Gate: node scripts/test-all.mjs 5933 passed/0 failed, fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->

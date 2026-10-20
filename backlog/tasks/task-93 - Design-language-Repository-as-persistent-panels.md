@@ -1,10 +1,10 @@
 ---
 id: TASK-93
 title: 'Design language: Repository as persistent panels'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-18 20:22'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies:
@@ -33,5 +33,5 @@ Repository becomes numbered panels (1 Status, 2 Files, 3 Branches, 4 Commits) be
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
+Overview is Files plus Recent commits panels with a preview from 130 columns. Remaining: native diff, saved-folder detail and pickers are still full-screen takeovers. Gate: node scripts/test-all.mjs 5933 passed/0 failed, fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->

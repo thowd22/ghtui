@@ -1,10 +1,10 @@
 ---
 id: TASK-94
 title: 'Design language: hierarchy, sections and provenance placement'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-18 23:26'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies:
@@ -30,7 +30,5 @@ Uppercase accent section headers, label/value blocks with aligned muted labels, 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
-
-2026-10-18 partial: ui_chrome::section_header (title left in view hue, provenance right, provenance wins when narrow, Warning role for partial) used for Inbox freshness, Actions freshness/watch and Dashboard as-of; coverage/PARTIAL rows unchanged. label_value helper added with unit tests but not adopted (detail strings are test literals; Phase 3 split). Tests: design_hierarchy_v94_* unit + PTY in tests/tui_e2e/design_inbox_v94_v95.rs.
+Sections with hierarchy and provenance moved into pane borders/context lines (Phase 1). Landed in Phases 0-1 (pushed); latest gate 5933 passed/0 failed, fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->

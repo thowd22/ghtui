@@ -1,10 +1,10 @@
 ---
 id: TASK-98
 title: 'Design language: color system, view hues and bundled themes'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 20:25'
-updated_date: '2026-10-18 23:00'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies:
@@ -31,7 +31,5 @@ More color, with meaning: each view owns a hue (Inbox mauve, Repository peach, S
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: default theme Catppuccin Mocha (Tokyo Night and Gruvbox Dark selectable in Settings, plus a 16-color fallback); status as filled badges in details and titles, colored glyphs in list rows. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
-
-2026-10-18: Five themes (mock hex), dark/light aliases, Indexed256 + hue-preserving 16-color downsample, COLORTERM detection, per-view hues, lane list, badge API, Settings swatch landed in b9e1dfb7. Gruvbox failure text tinted to #f95b43 and badge ink #1d2021 for 4.5:1. Still open: badges and data-color roles adopted in views. Gates: cargo test --lib design_ (8 passed); cargo test --test tui_e2e -- design_theme_v98 (2 passed).
+Color system, per-view hues and bundled themes (Catppuccin Mocha default, Gruvbox etc.). Landed in Phases 0-1 (pushed); verified in the full gates since, latest 5933 passed/0 failed with fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->

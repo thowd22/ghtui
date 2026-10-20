@@ -1,10 +1,10 @@
 ---
 id: TASK-91
 title: 'Design language: table component for lists'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-18 20:22'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies:
@@ -31,5 +31,5 @@ Shared table renderer: muted header row, aligned and truncating columns (ellipsi
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
+Shared ui_table (columns, ▌ bar, priority dropping, initials chips) on Actions, Inbox, PR tabs, Search, Dashboard, Repository commits. Gate: node scripts/test-all.mjs 5933 passed/0 failed, fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->

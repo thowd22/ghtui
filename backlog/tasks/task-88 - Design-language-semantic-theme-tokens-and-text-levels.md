@@ -1,10 +1,10 @@
 ---
 id: TASK-88
 title: 'Design language: semantic theme tokens and text levels'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-18 23:00'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies: []
@@ -30,7 +30,5 @@ Introduce role-based theme tokens (accent, selection, text, muted, dim, border, 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
-
-2026-10-18: Role enum, SemanticToken::role, Theme::role, Accent token (Focus keeps underline) and no-raw-color source scan landed in b9e1dfb7. Still open: splitting the ~105 Focus call sites and replacing hand-applied REVERSED/UNDERLINED in view files. Gate: cargo test --lib design_ (8 passed).
+Semantic theme roles and text levels in src/theme.rs used across views. Landed in Phases 0-1 (pushed); verified in the full gates since, latest 5933 passed/0 failed with fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->

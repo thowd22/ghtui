@@ -1,10 +1,10 @@
 ---
 id: TASK-96
 title: 'Design language: Comfortable and Compact density setting'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-18 19:59'
-updated_date: '2026-10-19 20:24'
+updated_date: '2026-10-20 01:37'
 labels:
   - ui-design
 dependencies:
@@ -31,7 +31,5 @@ Settings › Density: Comfortable (default; spacing and splits) and Compact (tod
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-User decisions 2026-10-18: footer key bar replaces top button rows; list + preview split at >=120 cols (drill-down when narrow); rounded borders; Comfortable density by default with Compact as a setting. Mockups: https://claude.ai/artifact/63SzYQzQwKbCwYzGuAwqn3
-
-2026-10-19: density comfortable|compact in config.rs (default comfortable), ui_chrome::density() per frame; Compact = no list+preview split, queue summary carries freshness (no PULL REQUESTS row), 1-cell column gap, 1-line Search results. Settings Density control (focus order Host, Set, Theme, Density, Save, Close). Gate: node scripts/test-task.mjs design_density_v96 -> code 4/4, PTY 4/4 (keyboard+mouse, 140x42 and 80x24). Not yet: running all other journeys under Compact; Comfortable 2-row Inbox items.
+Comfortable/Compact setting with Settings control and config; Compact drops the split, tightens gaps and Inbox rows. Remaining: Comfortable 2-row Inbox items. Gate: node scripts/test-all.mjs 5933 passed/0 failed, fmt and clippy clean (732b0709).
 <!-- SECTION:NOTES:END -->
