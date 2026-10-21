@@ -155,6 +155,8 @@ pub enum ActionsAction {
     PublicationInspect(i64),
     PublicationAcknowledge(i64),
     PublicationAcknowledgeAcceptance(i64),
+    /// TASK-34: the open run's triggering and run actor profiles. Read-only; no gh read.
+    ActorProfile,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActionsCommand {
@@ -416,6 +418,8 @@ impl ActionsControl {
             Compose(ChooseScope | FilterRuns | FilterCaches | SearchLogs) => 45,
             Compose(_) => 34,
             ScopedReadV2(_) | Policy(_) => 35,
+            // A read-only profile: the first control to leave a narrow bar (Commands keeps it).
+            ActorProfile => 90,
             _ => 50,
         }
     }
@@ -472,6 +476,7 @@ impl ActionsControl {
                 "Acknowledge"
             }
             ActionsAction::EditWorkflowLocalV9 if text == "Edit YAML locally" => "Edit YAML",
+            ActionsAction::ActorProfile if text == "Actor profile" => "Actor",
             _ => return None,
         };
         Some(compact)
@@ -1010,6 +1015,8 @@ impl ActionsWorkspace {
                     "This read needs its actual original-scoped Actions owner; no legacy fallback",
                 ))
             }
+            // The App opens profiles itself; a worker never reads for one.
+            ActorProfile => return Ok(()),
             Select(index) => {
                 self.select(*index);
                 return Ok(());
@@ -1660,6 +1667,12 @@ impl ActionsWorkspace {
                     .into_iter()
                     .map(command),
                 );
+                if self.run.is_some() {
+                    // The run and triggering actor rows stay read-only; this explicit control
+                    // opens both actors' profiles (TASK-34).
+                    self.controls
+                        .push(add("[@ Actor profile]", ActionsAction::ActorProfile));
+                }
                 let mut rows = vec![];
                 if let Some(page) = &self.run {
                     let run = &page.attempt.run;

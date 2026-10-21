@@ -23,6 +23,8 @@ fn commit(sha: &str, message: &str) -> CommitSummary {
         committer: Actor::default(),
         author_name: "Alice".into(),
         committer_name: "Alice".into(),
+        author_email: String::new(),
+        committer_email: String::new(),
         authored_at: "2026-10-12T12:00:00Z".into(),
         parents: vec![],
     }

@@ -169,6 +169,8 @@ fn design_table_v91_pr_commits_show_short_sha_rows_and_full_sha_details() {
                 committer: actor("bob"),
                 author_name: "Alice A".into(),
                 committer_name: "Bob B".into(),
+                author_email: String::new(),
+                committer_email: String::new(),
                 authored_at: "2026-01-01T00:00:00Z".into(),
                 parents: vec!["d".repeat(40)],
             }];

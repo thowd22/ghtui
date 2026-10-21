@@ -265,6 +265,11 @@ pub struct CommitSummary {
     pub committer: Actor,
     pub author_name: String,
     pub committer_name: String,
+    /// The Git emails recorded in the commit (TASK-34 profiles). Older cached pages lack them.
+    #[serde(default)]
+    pub author_email: String,
+    #[serde(default)]
+    pub committer_email: String,
     pub authored_at: String,
     pub parents: Vec<String>,
 }
@@ -2017,6 +2022,8 @@ fn commit_from_json(v: &Value) -> CommitSummary {
         committer: Actor::from_json(&v["committer"]),
         author_name: text(&v["commit"]["author"], "name"),
         committer_name: text(&v["commit"]["committer"], "name"),
+        author_email: text(&v["commit"]["author"], "email"),
+        committer_email: text(&v["commit"]["committer"], "email"),
         authored_at: text(&v["commit"]["author"], "date"),
         parents: v
             .get("parents")

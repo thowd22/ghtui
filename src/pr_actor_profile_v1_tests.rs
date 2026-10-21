@@ -4,7 +4,7 @@ use super::*;
 use crate::app::{Overlay, View};
 use crate::github_workspace::{GithubAction, GithubWorkspace, PrPage};
 use crate::providers::gh::{
-    ConversationComment, Coverage, HostIdentity, PrDetails, PrSummary, PullRequest,
+    CommitSummary, ConversationComment, Coverage, HostIdentity, PrDetails, PrSummary, PullRequest,
 };
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use std::collections::BTreeSet;
@@ -333,4 +333,270 @@ fn key_and_click_on_a_non_comment_selection_open_the_pr_author() {
             "opening a profile moves no selection"
         );
     }
+}
+
+fn commit(sha: char, author: Actor, committer: Actor) -> CommitSummary {
+    CommitSummary {
+        sha: sha.to_string().repeat(40),
+        message: format!("Commit {sha} subject\n\nbody"),
+        author,
+        committer,
+        author_name: "Alice Author".into(),
+        committer_name: "Local Committer".into(),
+        author_email: "alice@example.invalid".into(),
+        committer_email: "committer@example.invalid".into(),
+        authored_at: "2026-10-12T12:00:00Z".into(),
+        parents: vec![],
+    }
+}
+
+fn commits_app() -> App {
+    let mut app = app(PrTab::Commits);
+    let page = app.github.as_mut().unwrap().pr.as_mut().unwrap();
+    page.details.commits = vec![
+        commit('c', actor("alice", "User"), actor("", "")),
+        commit('d', actor("", ""), actor("web-flow", "User")),
+    ];
+    page.prepare_rows().unwrap();
+    app
+}
+
+#[test]
+fn commits_list_github_and_no_account_authors_and_committers() {
+    let app = commits_app();
+    let page = page(&app);
+    let text = commits_text(
+        "github.invalid",
+        "octocat",
+        "example/repo #7",
+        &page.details.commits,
+        |_| None,
+    );
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines[0], "Actor profiles — commit authors and committers");
+    assert_eq!(
+        crate::scoped_pr_observed_tabs_v1::resources::native::notice_title(&text),
+        TITLE
+    );
+    // The GitHub-linked author: the same chip and label the rows paint, verified, plus the
+    // Git identity the commit recorded.
+    let alice = ActorIdentity::github("github.invalid", &actor("alice", "User"));
+    let first = lines
+        .iter()
+        .position(|line| *line == "Commit 1 of 2: ccccccc Commit c subject")
+        .unwrap();
+    assert_eq!(lines[first + 1], "Commit author (GitHub account)");
+    assert_eq!(
+        lines[first + 2],
+        format!("[{}] {}", alice.initials(), alice.label())
+    );
+    assert!(text.contains("Verified: github.invalid reported this account on example/repo #7"));
+    assert!(text.contains("Git records: Alice Author <alice@example.invalid>"));
+    // The committer without an account is honest: no username, the Git name and email only.
+    let committer = lines
+        .iter()
+        .position(|line| *line == "Commit committer — no GitHub account")
+        .unwrap();
+    assert!(committer > first);
+    assert_eq!(
+        lines[committer + 1],
+        "[LC] committer Local Committer <committer@example.invalid> [local Git]"
+    );
+    assert_eq!(
+        lines[committer + 2],
+        "No GitHub account: the host linked none to this Git identity"
+    );
+    assert_eq!(lines[committer + 3], "Git name: Local Committer");
+    assert_eq!(lines[committer + 4], "Git email: committer@example.invalid");
+    assert!(lines[committer..committer + 6]
+        .iter()
+        .all(|line| !line.starts_with("Username")));
+    // The second commit swaps them.
+    assert!(text.contains("Commit 2 of 2: ddddddd Commit d subject"));
+    assert!(text.contains("[AA] author Alice Author <alice@example.invalid> [local Git]"));
+    assert!(text.contains("Username: @web-flow"));
+    assert!(text.ends_with("Read-only • reads nothing from GitHub or Git"));
+    // A missing email is reported as unavailable, never invented.
+    let mut bare = page.details.commits[1].clone();
+    bare.author_email.clear();
+    let text = commits_text("github.invalid", "", "x", &[bare], |_| None);
+    assert!(text.contains("Git email: unavailable"), "{text}");
+}
+
+#[test]
+fn commits_listing_stays_under_the_notice_cut() {
+    let commits: Vec<_> = (0..200)
+        .map(|_| commit('e', actor("alice", "User"), actor("", "")))
+        .collect();
+    let text = commits_text("github.invalid", "", "example/repo #7", &commits, |_| None);
+    assert!(text.chars().count() < 16_000, "{}", text.len());
+    assert!(text.contains("more commits are not listed here"));
+    assert!(text.ends_with("Read-only • reads nothing from GitHub or Git"));
+}
+
+#[test]
+fn commits_tab_key_and_click_list_commit_actors_without_new_targets() {
+    for click in [false, true] {
+        let mut app = commits_app();
+        let github = app.github.as_ref().unwrap();
+        // Commit rows stay read-only: the profile never makes them targets.
+        assert!((0..page(&app).rows.len()).all(|index| !github.pr_row_is_interactive(index)));
+        if click {
+            let keys = crate::github_ui::footer_keys(&app);
+            let control = keys.iter().find(|control| control.key == "@").unwrap();
+            assert!(control.disabled.is_none());
+            app.dispatch(control.action.clone());
+        } else {
+            app.handle_event(Event::Key(KeyEvent::new(
+                KeyCode::Char('@'),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert_eq!(app.overlay, Some(Overlay::Notice), "click={click}");
+        assert!(app
+            .notice
+            .starts_with("Actor profiles — commit authors and committers\n"));
+        assert!(app.notice.contains("Commit committer — no GitHub account"));
+        assert!(app.github_action.is_none());
+        assert!(page(&app).tab == PrTab::Commits);
+    }
+}
+
+fn run_app() -> App {
+    use crate::actions_workspace::{ActionsView, ActionsWorkspace, RunPage};
+    use crate::providers::gh::{RunAttempt, WorkflowRun};
+    let mut actions = ActionsWorkspace::new(
+        HostIdentity {
+            host: "github.invalid".into(),
+            login: "octocat".into(),
+            account_id: Some(42),
+            gh_version: "2.99.0".into(),
+        },
+        vec!["example/repo".into()],
+    );
+    actions.run = Some(RunPage {
+        repository: "example/repo".into(),
+        attempt: RunAttempt {
+            run: WorkflowRun {
+                id: 123,
+                workflow_id: 7,
+                name: "CI".into(),
+                title: "Original run".into(),
+                head_sha: "a".repeat(40),
+                head_branch: "feature".into(),
+                event: "pull_request".into(),
+                status: "completed".into(),
+                conclusion: "failure".into(),
+                attempt: 2,
+                actor: actor("alice", "User"),
+                triggering_actor: actor("renovate[bot]", "Bot"),
+                created_at: String::new(),
+                updated_at: String::new(),
+                url: String::new(),
+            },
+            jobs: vec![],
+            definition_note: "exact original attempt".into(),
+        },
+        selected_job: None,
+        logs: None,
+        annotations: vec![],
+    });
+    actions.view = ActionsView::Run;
+    actions.prepare_rows();
+    App {
+        view: View::Actions,
+        actions: Some(actions),
+        actions_content_focused: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn run_profile_names_the_triggering_and_run_actors() {
+    let app = run_app();
+    let run = &app
+        .actions
+        .as_ref()
+        .unwrap()
+        .run
+        .as_ref()
+        .unwrap()
+        .attempt
+        .run;
+    let text = run_text("github.invalid", "octocat", "example/repo", run, |_| None);
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines[0], "Actor profile — Actions run actors");
+    assert_eq!(lines[1], "Run 123 attempt 2 on example/repo");
+    let trigger = lines
+        .iter()
+        .position(|line| *line == "Triggering actor (started attempt 2)")
+        .unwrap();
+    let bot = ActorIdentity::github("github.invalid", &run.triggering_actor);
+    assert_eq!(
+        lines[trigger + 1],
+        format!("[{}] {}", bot.initials(), bot.label())
+    );
+    assert!(lines[trigger + 1].ends_with("] @renovate[bot] [bot]"));
+    assert!(text.contains("Kind: Bot (automation account)"));
+    let actor = lines
+        .iter()
+        .position(|line| *line == "Run actor (started the first attempt)")
+        .unwrap();
+    assert!(actor > trigger);
+    assert_eq!(lines[actor + 2], "Username: @alice");
+    assert!(text.contains("Verified: github.invalid reported this account on example/repo run 123"));
+    assert!(!text.contains("Signed-in account"));
+}
+
+#[test]
+fn run_detail_control_key_and_click_open_the_run_actors() {
+    use crate::actions_workspace::ActionsAction;
+    for click in [false, true] {
+        let mut app = run_app();
+        let rows_before: Vec<_> = app
+            .actions
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .map(|row| row.action.clone())
+            .collect();
+        let keys = crate::actions_ui::footer_keys(app.actions.as_ref().unwrap());
+        let control = keys.iter().find(|control| control.key == "@").unwrap();
+        assert_eq!(control.label, "Actor profile");
+        assert_eq!(control.action, Action::Actions(ActionsAction::ActorProfile));
+        assert!(control.disabled.is_none());
+        if click {
+            app.dispatch(control.action.clone());
+        } else {
+            app.handle_event(Event::Key(KeyEvent::new(
+                KeyCode::Char('@'),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert_eq!(app.overlay, Some(Overlay::Notice), "click={click}");
+        assert!(app
+            .notice
+            .starts_with("Actor profile — Actions run actors\n"));
+        assert!(app.actions_action.is_none(), "no worker action is queued");
+        let actions = app.actions.as_ref().unwrap();
+        // The actor rows stay read-only.
+        assert_eq!(
+            actions
+                .rows
+                .iter()
+                .map(|row| row.action.clone())
+                .collect::<Vec<_>>(),
+            rows_before
+        );
+    }
+    // Without an open run the Runs list offers no profile control.
+    let mut app = run_app();
+    let actions = app.actions.as_mut().unwrap();
+    actions.run = None;
+    actions.view = crate::actions_workspace::ActionsView::Runs;
+    actions.prepare_rows();
+    assert!(crate::actions_ui::footer_keys(actions)
+        .iter()
+        .all(|control| control.key != "@"));
 }

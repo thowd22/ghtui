@@ -2261,6 +2261,11 @@ impl App {
             }
             Action::HistoryDetailV994(action) => crate::history::detail::dispatch(self, action),
             Action::Actions(action) => {
+                if action == crate::actions_workspace::ActionsAction::ActorProfile {
+                    // Read-only (TASK-34): no worker, gh read, SQL or Git effect.
+                    crate::pr_actor_profile_v1::open_run(self);
+                    return;
+                }
                 if crate::scoped_actions_native_v1::intercept(self,&action){return;}
                 if crate::pr_checks_native::scoped::choices::continuations_v2::intercept(
                     self, &action,

@@ -4,7 +4,8 @@
 //! rows that were already targets (a selected comment); no heading becomes selectable. The
 //! profile shows the same initials and `@login` the Conversation row paints, the account kind
 //! and whether the host verified it; opening, closing and resizing reads nothing more from gh
-//! and leaves the checkout untouched.
+//! and leaves the checkout untouched. On Commits the same control lists every commit author
+//! and committer, including an honest "No GitHub account" profile for an unlinked committer.
 use super::{
     choose, closed_explanation, configured, details, initial, local_git_witness, mutation_count,
     records, select_comment,
@@ -202,6 +203,129 @@ fn journey(mouse: bool) {
     assert_eq!(local_git_witness(&fixture), git);
     assert!(!fixture.root.join("config/ghtui/avatars").exists());
     session.quit_and_assert_restored_terminal(mouse);
+}
+
+/// One PR commit: GitHub linked its author to @alice; its committer has no GitHub account.
+fn commit_value() -> Value {
+    json!({
+        "sha": "c".repeat(40),
+        "commit": {
+            "message": "Tighten profile wording\n\nBody",
+            "author": {"name": "Alice Author", "email": "alice@example.invalid", "date": "2026-10-12T12:00:00Z"},
+            "committer": {"name": "Local Committer", "email": "committer@example.invalid", "date": "2026-10-12T12:00:00Z"}
+        },
+        "author": {"id": 77, "login": "alice", "type": "User"},
+        "committer": null,
+        "parents": [{"sha": "b".repeat(40)}]
+    })
+}
+
+/// TASK-34: the Commits tab's commit rows stay read-only, so `@ Actor profile` (key, or its
+/// Commands entry by click) lists every commit's author and committer. The linked author
+/// shows the shared GitHub profile; the committer without an account shows an honest "No
+/// GitHub account" profile with the Git name and email, and no username. Reads nothing.
+fn commits_journey(mouse: bool) {
+    let fixture = configured();
+    let git = local_git_witness(&fixture);
+    let mut steps = initial();
+    let mut detail = details(vec![comment(
+        9,
+        "octocat",
+        "User",
+        "Existing starter comment",
+    )]);
+    let commits = detail
+        .iter_mut()
+        .find(|step| {
+            step.args
+                .iter()
+                .any(|arg| arg == "repos/example/repo/pulls/7/commits?per_page=100")
+        })
+        .unwrap();
+    commits.stdout = serde_json::to_vec(&json!([[commit_value()]])).unwrap();
+    steps.extend(detail);
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    choose(&mut session, mouse, "1 Inbox", b"1");
+    session.wait_for_screen("Inbox • focused view");
+    choose(&mut session, mouse, "[r Refresh]", b"r");
+    session.wait_for_screen("Native collaboration");
+    session.wait_for_screen("Fresh • fetched");
+    choose(&mut session, mouse, "Native collaboration", b"\r");
+    session.wait_for_screen("1 comments");
+    let reads = steps.len();
+    records(&mut session, &fixture, reads);
+
+    choose(&mut session, mouse, "[h Commits]", b"h");
+    session.wait_for_screen("Commit = a saved version");
+    session.wait_for_screen("Tighten profile wording");
+    session.wait_for_screen("committer Local Committer [local Git; no associated username]");
+    let before = session.screen();
+    if mouse {
+        session.invoke_via_palette(true, "[@ Actor profile]");
+    } else {
+        session.send_key(b"@");
+    }
+    session.wait_for_screen("Actor profile • read-only");
+    for text in [
+        "Actor profiles — commit authors and committers",
+        "1 commits on example/repo #7",
+        "Commit 1 of 1: ccccccc Tighten profile wording",
+        "Commit author (GitHub account)",
+        "[AL] @alice",
+        "Username: @alice",
+        "Verified: github.invalid reported this account on example/repo #7",
+    ] {
+        session.wait_for_screen(text);
+    }
+    // The committer section sits below the first page of the notice.
+    if mouse {
+        session.click_visible_action("[PgDn More]");
+    } else {
+        session.send_key(b"\x1b[6~");
+    }
+    for text in [
+        "Commit committer — no GitHub account",
+        "[LC] committer Local Committer <committer@example.invalid>",
+        "No GitHub account: the host linked none to this Git identity",
+        "Git name: Local Committer",
+        "Git email: committer@example.invalid",
+        "Never guessed from a Git name or email",
+    ] {
+        session.wait_for_screen(text);
+    }
+    let screen = session.screen();
+    assert!(!screen.contains("@Local"), "no guessed username\n{screen}");
+    // Resizing keeps the profile readable.
+    session.resize(80, 24);
+    session.wait_for_screen("Actor profile • read-only");
+    close(&mut session, mouse);
+    // The commit rows were never selection targets, before or after the profile.
+    let after = session.screen();
+    for screen in [&before, &after] {
+        assert!(
+            !screen
+                .lines()
+                .any(|line| line.contains('▌') && line.contains("Tighten")),
+            "{screen}"
+        );
+    }
+    assert!(after.contains("Commit = a saved"), "{after}");
+
+    assert_eq!(mutation_count(&records(&mut session, &fixture, reads)), 0);
+    assert_eq!(local_git_witness(&fixture), git);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn actor_identity_keyboard_pr_commit_author_and_no_account_committer_profiles() {
+    commits_journey(false);
+}
+
+#[test]
+fn actor_identity_mouse_pr_commit_author_and_no_account_committer_profiles() {
+    commits_journey(true);
 }
 
 #[test]

@@ -3,6 +3,8 @@ use crate::support::{Fixture, GhStep, Session};
 use ghtui::config::Config;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+#[path = "actions/actor_profile_v1.rs"]
+mod actor_profile_v1;
 #[path = "actions/approval_recovery.rs"]
 mod approval_recovery;
 #[path = "actions/approvals.rs"]
