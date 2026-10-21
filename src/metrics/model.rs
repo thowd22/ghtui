@@ -510,9 +510,22 @@ pub struct DashboardSnapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetricsAction {
+    /// Save the current Dashboard over the active named dashboard (Default when none).
     SaveDashboard,
+    /// Open the account's active saved dashboard.
     RestoreDashboard,
     DefaultDashboard,
+    /// Save the current Dashboard as a new named dashboard and make it active.
+    SaveDashboardAs(String),
+    /// Open one named saved dashboard with fresh evidence and make it active.
+    SwitchDashboard(String),
+    /// Rename one saved dashboard (preferences only, no repository read).
+    RenameDashboard {
+        from: String,
+        to: String,
+    },
+    /// Delete one saved dashboard (preferences only, no repository read).
+    DeleteDashboard(String),
     Window(UtcWindow),
     Repository(String),
     AllSelected,

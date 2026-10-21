@@ -394,7 +394,8 @@ fn dashboard_widgets_footer_keys_have_lowest_priority_and_layout_disables_them()
     );
     let lowest = keys
         .iter()
-        .filter(|key| key.key != "z" && key.key != "u")
+        // N Dashboards (named dashboards) is the only control below these two.
+        .filter(|key| !["z", "u", "N"].contains(&key.key.as_str()))
         .map(|key| key.priority)
         .max()
         .unwrap();

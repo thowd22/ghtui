@@ -2988,6 +2988,17 @@ impl App {
                 if crate::repository_ui::history_filter::key(self, key) {
                     return;
                 }
+                // A Dashboard name being typed owns every key before any shortcut.
+                if self.view == View::Dashboard {
+                    if let Some(action) = self
+                        .metrics
+                        .as_ref()
+                        .and_then(|metrics| crate::metrics_ui::name_entry_action(key, metrics))
+                    {
+                        self.dispatch(Action::Metrics(action));
+                        return;
+                    }
+                }
                 if let Some(shortcut) = pressed_shortcut(key.code, key.modifiers) {
                     if let Some(action) = self
                         .bindings

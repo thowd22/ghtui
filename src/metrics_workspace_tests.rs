@@ -451,7 +451,8 @@ fn metrics_dashboard_keyboard_page_scroll_and_hover_wheel_only_move_current_pane
     )
     .unwrap();
     workspace.apply(action).unwrap();
-    assert_eq!(workspace.selected, 7);
+    // Ten cards (eight metrics plus the Stale PRs and Unresolved threads widgets): a page is 8.
+    assert_eq!(workspace.selected, 8);
     let wheel = |column, row| {
         Event::Mouse(MouseEvent {
             kind: MouseEventKind::ScrollUp,
@@ -468,7 +469,7 @@ fn metrics_dashboard_keyboard_page_scroll_and_hover_wheel_only_move_current_pane
     )
     .unwrap();
     workspace.apply(action).unwrap();
-    assert_eq!(workspace.selected, 4);
+    assert_eq!(workspace.selected, 5);
 }
 #[test]
 fn metrics_dashboard_pending_controls_explain_and_never_render_obsolete_counts_or_actor_rows() {

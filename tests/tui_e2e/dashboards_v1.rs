@@ -1,22 +1,27 @@
 //! Actual executable/PTY journeys for saved preferences, not restored metrics.
 use super::*;
-use ghtui::dashboard_profile_v1::PROFILE_KEY;
-use rusqlite::{params, Connection};
+use ghtui::dashboard_profile_v1::{PROFILES_KEY, PROFILE_KEY};
+use rusqlite::{params, Connection, OptionalExtension};
 
 fn database(fixture: &Fixture) -> std::path::PathBuf {
     fixture.root.join("config/ghtui/cache.sqlite3")
 }
-fn saved(fixture: &Fixture) -> Value {
+/// The saved view `name` (the version-1 default or the version-2 named dashboards).
+fn saved_view(fixture: &Fixture, name: &str) -> Option<Value> {
     let sql = Connection::open(database(fixture)).unwrap();
     let scope = Scope::github(gh_fixture::HOST, Some(42)).unwrap();
-    let raw: String = sql
-        .query_row(
-            "SELECT payload FROM saved_views WHERE host=?1 AND login=?2 AND name=?3",
-            params![scope.host, scope.login, PROFILE_KEY],
-            |row| row.get(0),
-        )
-        .unwrap();
-    serde_json::from_str(&raw).unwrap()
+    sql.query_row(
+        "SELECT payload FROM saved_views WHERE host=?1 AND login=?2 AND name=?3",
+        params![scope.host, scope.login, name],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .unwrap()
+    .map(|raw| serde_json::from_str(&raw).unwrap())
+}
+/// The original version-1 default profile, which ghtui reads but never writes.
+fn saved(fixture: &Fixture) -> Value {
+    saved_view(fixture, PROFILE_KEY).unwrap()
 }
 fn absent(session: &mut Session, text: &str) {
     session
@@ -114,23 +119,40 @@ fn happy_dashboard(mouse: bool) {
     session.wait_for_screen("Default dashboard saved");
     journal(&mut session, &fixture, 29);
     assert_eq!(as_of(&mut session), clock);
-    let profile = saved(&fixture);
-    assert_eq!(profile["repositories"], json!([APP]));
-    assert_eq!(profile["window_days"], 30);
+    // Save writes the version-2 named dashboards, never the version-1 default.
+    assert!(saved_view(&fixture, PROFILE_KEY).is_none());
+    let profile = saved_view(&fixture, PROFILES_KEY).unwrap();
+    assert_eq!(profile["version"], 2);
     assert_eq!(profile["account_id"], 42);
+    assert_eq!(profile["active"], "Default");
+    assert_eq!(profile["dashboards"].as_array().unwrap().len(), 1);
+    let board = &profile["dashboards"][0];
+    assert_eq!(board["name"], "Default");
+    assert_eq!(board["repositories"], json!([APP]));
+    assert_eq!(board["window_days"], 30);
+    assert_eq!(board["stale_days"], 7);
     assert_eq!(
-        profile["layout"]["slots"][0],
-        json!({"kind":"NeedsMyReview","visible":true})
+        board["layout"]["slots"][0],
+        json!({"widget":"NeedsMyReview","visible":true})
     );
     assert_eq!(
-        profile["layout"]["slots"][1],
-        json!({"kind":"OpenPrs","visible":false})
+        board["layout"]["slots"][1],
+        json!({"widget":"OpenPrs","visible":false})
+    );
+    assert_eq!(
+        board["layout"]["slots"][8],
+        json!({"widget":"StalePrs","visible":true})
+    );
+    assert_eq!(
+        board["layout"]["slots"][9],
+        json!({"widget":"UnresolvedThreads","visible":true})
     );
     assert!(profile.get("cached_metrics").is_none());
+    assert!(board.get("cached_metrics").is_none());
     choose(&mut session, mouse, "[D Defaults]", b"D");
     cards_ready(&mut session, 3, 1);
     journal(&mut session, &fixture, 39);
-    assert_eq!(saved(&fixture), profile);
+    assert_eq!(saved_view(&fixture, PROFILES_KEY).unwrap(), profile);
     exit(&mut session, mouse);
     preserve(&fixture, &head, &index, &status);
 
@@ -192,7 +214,8 @@ fn happy_dashboard(mouse: bool) {
     session.wait_for_screen("@alice");
     journal(&mut session, &fixture, 86);
     exit(&mut session, mouse);
-    assert_eq!(saved(&fixture), profile);
+    assert_eq!(saved_view(&fixture, PROFILES_KEY).unwrap(), profile);
+    assert!(saved_view(&fixture, PROFILE_KEY).is_none());
     let cache = Cache::open(&database(&fixture)).unwrap();
     assert_eq!(
         cache
@@ -201,13 +224,12 @@ fn happy_dashboard(mouse: bool) {
             .as_deref(),
         Some("preserve exact draft bytes")
     );
-    assert!(cache
-        .saved_view(
-            &Scope::github(gh_fixture::HOST, Some(43)).unwrap(),
-            PROFILE_KEY
-        )
-        .unwrap()
-        .is_none());
+    for key in [PROFILE_KEY, PROFILES_KEY] {
+        assert!(cache
+            .saved_view(&Scope::github(gh_fixture::HOST, Some(43)).unwrap(), key)
+            .unwrap()
+            .is_none());
+    }
     metadata_only(&fixture);
     preserve(&fixture, &head, &index, &status);
 }
@@ -412,6 +434,7 @@ fn fenced_save(mouse: bool, cancelled: bool) {
     exit(&mut session, mouse);
     journal(&mut session, &fixture, count);
     assert_eq!(saved(&fixture), original);
+    assert!(saved_view(&fixture, PROFILES_KEY).is_none());
     let cache = Cache::open(&database(&fixture)).unwrap();
     assert_eq!(
         cache.draft(&scope, "guarded-save").unwrap().as_deref(),

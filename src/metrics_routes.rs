@@ -2,7 +2,7 @@
 //! never invokes this module. Current observations are not historical trends.
 use crate::{
     app::View,
-    dashboard_profile_v1::SavedDashboardV1,
+    dashboard_profile_v1::{NamedDashboard, SavedDashboards, DEFAULT_NAME},
     metrics::{dashboard, MetricTarget, MetricsAction, UtcWindow},
     metrics_repository::{repository_evidence, MetricsReadGuard},
     metrics_workspace::MetricsWorkspace,
@@ -48,6 +48,71 @@ impl std::fmt::Display for Failure {
         match self {
             Self::Provider(error) => error.fmt(f),
             Self::Invalid(error) => error.fmt(f),
+        }
+    }
+}
+/// One change to the account's saved dashboards, written only after the final
+/// principal bracket and source proof.
+enum ProfileWrite {
+    /// Replace (or add) the named dashboard and make it active.
+    Save(NamedDashboard),
+    /// Add a new named dashboard; an existing name is refused.
+    Create(NamedDashboard),
+    /// Make a saved dashboard the one Open saved restores.
+    Activate(String),
+    Rename {
+        from: String,
+        to: String,
+    },
+    Delete(String),
+}
+impl ProfileWrite {
+    /// Applies the change and returns the status naming it.
+    fn apply(&self, dashboards: &mut SavedDashboards) -> Result<String, String> {
+        Ok(match self {
+            Self::Save(dashboard) => {
+                dashboards.upsert(dashboard.clone())?;
+                format!(
+                    "{} dashboard saved • account-scoped preferences only • original evidence as-of retained",
+                    dashboard.name()
+                )
+            }
+            Self::Create(dashboard) => {
+                dashboards.create(dashboard.clone())?;
+                format!(
+                    "New dashboard saved: {} • now active • preferences only, never access",
+                    dashboard.name()
+                )
+            }
+            Self::Activate(name) => {
+                dashboards.activate(name)?;
+                format!(
+                    "Switched to saved dashboard {name} • fresh repository evidence • preferences are not access authority"
+                )
+            }
+            Self::Rename { from, to } => {
+                let old = dashboards.rename(from, to)?;
+                format!(
+                    "Renamed saved dashboard {old} → {} • evidence unchanged",
+                    to.trim()
+                )
+            }
+            Self::Delete(name) => {
+                let removed = dashboards.delete(name)?;
+                format!("Deleted saved dashboard {removed} • current values and evidence unchanged")
+            }
+        })
+    }
+    /// The workspace's active dashboard name after this change was written.
+    fn active_after(&self, active: Option<String>) -> Option<String> {
+        match self {
+            Self::Save(dashboard) | Self::Create(dashboard) => Some(dashboard.name().to_owned()),
+            Self::Activate(name) => Some(name.clone()),
+            Self::Rename { from, to } => match active {
+                Some(active) if active.eq_ignore_ascii_case(from) => Some(to.trim().to_owned()),
+                other => other,
+            },
+            Self::Delete(name) => active.filter(|active| !active.eq_ignore_ascii_case(name)),
         }
     }
 }
@@ -151,38 +216,92 @@ pub fn prepare(
     let start = Instant::now();
     let original_declared = request.declared.clone();
     let preference_result = constrain_saved_scope(&mut request, action.as_ref());
-    let mut save_after_identity = None;
-    let mut restored_profile = None;
+    let mut save_after_identity: Option<ProfileWrite> = None;
+    let mut restored_profile: Option<NamedDashboard> = None;
     let result = match (preference_result, action.as_ref()) {
         (Err(error), _) => Err(error),
-        (Ok(()), Some(MetricsAction::SaveDashboard)) => (|| {
+        (Ok(()), Some(MetricsAction::SaveDashboard | MetricsAction::SaveDashboardAs(_))) => {
+            (|| {
+                let previous = request.previous.as_ref().ok_or_else(|| {
+                    Failure::Invalid("Load Dashboard evidence before saving preferences".into())
+                })?;
+                let (name, create) = match action.as_ref() {
+                    Some(MetricsAction::SaveDashboardAs(name)) => (name.as_str(), true),
+                    _ => (
+                        previous.active_dashboard.as_deref().unwrap_or(DEFAULT_NAME),
+                        false,
+                    ),
+                };
+                let profile = NamedDashboard::capture(previous, name)?;
+                let prepared = cached_window(
+                    &request,
+                    &identity,
+                    previous.snapshot.window,
+                    provider,
+                    cancel,
+                    start,
+                )?;
+                save_after_identity = Some(if create {
+                    ProfileWrite::Create(profile)
+                } else {
+                    ProfileWrite::Save(profile)
+                });
+                Ok(prepared)
+            })()
+        }
+        (Ok(()), Some(MetricsAction::RestoreDashboard | MetricsAction::SwitchDashboard(_))) => {
+            (|| {
+                let scope = Scope::github(&identity.host, identity.account_id)
+                    .map_err(|error| Failure::Invalid(error.to_string()))?;
+                let cache = Cache::open(&request.database)
+                    .map_err(|error| Failure::Invalid(error.to_string()))?;
+                let name = match action.as_ref() {
+                    Some(MetricsAction::SwitchDashboard(name)) => Some(name.as_str()),
+                    _ => None,
+                };
+                let profile = SavedDashboards::load(&cache, &scope)?
+                    .ok_or_else(|| {
+                        Failure::Invalid(
+                            "No saved dashboard for this account; Save dashboard first".into(),
+                        )
+                    })?
+                    .restore(name, &original_declared)?;
+                drop(cache);
+                request.declared = profile.repositories().to_vec();
+                request.selected_repository = None;
+                request.window_days = profile.window_days();
+                let prepared = load(&request, &identity, None, provider, cancel, start)?;
+                if name.is_some() {
+                    save_after_identity = Some(ProfileWrite::Activate(profile.name().to_owned()));
+                }
+                restored_profile = Some(profile);
+                Ok(prepared)
+            })()
+        }
+        (
+            Ok(()),
+            Some(MetricsAction::RenameDashboard { .. } | MetricsAction::DeleteDashboard(_)),
+        ) => (|| {
+            // Preferences only: the original evidence stays as it was, with no repository read.
             let previous = request.previous.as_ref().ok_or_else(|| {
-                Failure::Invalid("Load Dashboard evidence before saving preferences".into())
+                Failure::Invalid("Load Dashboard evidence before changing saved dashboards".into())
             })?;
-            let profile = SavedDashboardV1::capture(previous)?;
-            let prepared = cached_window(
-                &request,
-                &identity,
-                previous.snapshot.window,
-                provider,
-                cancel,
-                start,
-            )?;
-            save_after_identity = Some(profile);
-            Ok(prepared)
-        })(),
-        (Ok(()), Some(MetricsAction::RestoreDashboard)) => (|| {
-            let scope = Scope::github(&identity.host, identity.account_id)
-                .map_err(|error| Failure::Invalid(error.to_string()))?;
-            let cache = Cache::open(&request.database)
-                .map_err(|error| Failure::Invalid(error.to_string()))?;
-            let profile = SavedDashboardV1::load(&cache, &scope, &original_declared)?;
-            request.declared = profile.repositories().to_vec();
-            request.selected_repository = None;
-            request.window_days = profile.window_days();
-            let prepared = load(&request, &identity, None, provider, cancel, start)?;
-            restored_profile = Some(profile);
-            Ok(prepared)
+            let mut retained = previous.clone();
+            retained.pending = None;
+            retained.status = None;
+            save_after_identity = Some(match action.as_ref() {
+                Some(MetricsAction::RenameDashboard { from, to }) => ProfileWrite::Rename {
+                    from: from.clone(),
+                    to: to.clone(),
+                },
+                Some(MetricsAction::DeleteDashboard(name)) => ProfileWrite::Delete(name.clone()),
+                _ => unreachable!("matched above"),
+            });
+            Ok(PreparedView {
+                metrics: Some(retained),
+                status: "Saved dashboards changing • preferences only".into(),
+                ..Default::default()
+            })
         })(),
         (Ok(()), Some(MetricsAction::DefaultDashboard)) => {
             request.selected_repository = None;
@@ -237,17 +356,24 @@ pub fn prepare(
             }
             if let Some(metrics) = &mut prepared.metrics {
                 if let Some(profile) = restored_profile {
+                    metrics.apply_stale_days(profile.stale_days())?;
                     metrics
                         .apply_layout(profile.layout().clone())
                         .map_err(|error| error.to_string())?;
                     metrics.restored_scope = Some(Arc::from(profile.repositories().to_vec()));
+                    metrics.active_dashboard = Some(profile.name().to_owned());
                     metrics.scope_label = format!("Saved scope • {}", metrics.scope_label);
-                    prepared.status = "Saved dashboard restored • fresh repository evidence • preferences are not access authority".into();
+                    prepared.status = format!(
+                        "Saved dashboard restored: {} • fresh repository evidence • preferences are not access authority",
+                        profile.name()
+                    );
                 } else if action != Some(MetricsAction::DefaultDashboard) {
                     if let Some(previous) = &request.previous {
+                        metrics.apply_stale_days(previous.stale_days)?;
                         metrics
                             .apply_layout(previous.layout.clone())
                             .map_err(|error| error.to_string())?;
+                        metrics.active_dashboard = previous.active_dashboard.clone();
                         metrics.restored_scope = previous.restored_scope.clone();
                         if metrics.restored_scope.is_some()
                             && !metrics.scope_label.starts_with("Saved scope")
@@ -258,43 +384,82 @@ pub fn prepare(
                 } else {
                     prepared.status = "Dashboard defaults • all configured repositories • last7 days • all widgets • saved profile preserved".into();
                 }
-                if let Some(profile) = save_after_identity {
+                if let Some(write) = save_after_identity {
                     if cancel.is_cancelled() || limits(start).is_err() {
                         return Ok(hidden(
                             "Dashboard preference save cancelled or expired • no profile written",
                             false,
                         ));
                     }
-                    let saved = (|| -> Result<(), String> {
-                        let cache =
-                            Cache::open(&request.database).map_err(|error| error.to_string())?;
+                    let scope = Scope::github(&final_identity.host, final_identity.account_id)
+                        .map_err(|error| error.to_string())?;
+                    // Err(Ok(reason)): the change itself is refused and nothing is written;
+                    // Err(Err(reason)): storage or source proof failed, so values are hidden.
+                    let saved = (|| -> Result<String, Result<String, String>> {
+                        let cache = Cache::open(&request.database)
+                            .map_err(|error| Err(error.to_string()))?;
                         if let Some(guard) = &metrics.read_guard {
-                            guard.validate_parents(&metrics.observations)?;
+                            guard.validate_parents(&metrics.observations).map_err(Err)?;
                         }
+                        let mut dashboards =
+                            SavedDashboards::load_for_write(&cache, &scope).map_err(Ok)?;
+                        let status = write.apply(&mut dashboards).map_err(Ok)?;
                         if cancel.is_cancelled() || limits(start).is_err() {
-                            return Err(
+                            return Err(Err(
                                 "Dashboard save cancelled or expired before local preference write"
                                     .into(),
-                            );
+                            ));
                         }
-                        profile.save(&cache)?;
+                        dashboards.save(&cache).map_err(Err)?;
                         if let Some(guard) = &metrics.read_guard {
-                            guard.validate_parents(&metrics.observations)?;
+                            guard.validate_parents(&metrics.observations).map_err(Err)?;
                         }
-                        Ok(())
+                        Ok(status)
                     })();
-                    if let Err(error) = saved {
-                        return Ok(hidden(
-                            format!("Dashboard preferences unavailable: {error}"),
-                            false,
-                        ));
+                    match saved {
+                        Ok(status) => {
+                            metrics.active_dashboard =
+                                write.active_after(metrics.active_dashboard.take());
+                            prepared.status = status;
+                        }
+                        Err(Ok(reason)) => {
+                            prepared.status = format!("Saved dashboards unchanged: {reason}");
+                        }
+                        Err(Err(error)) => {
+                            return Ok(hidden(
+                                format!("Dashboard preferences unavailable: {error}"),
+                                false,
+                            ));
+                        }
                     }
-                    prepared.status = "Default dashboard saved • account-scoped preferences only • original evidence as-of retained".into();
+                }
+                // The Dashboards list shows what is saved now (a local read, no gh call).
+                if let Ok(scope) = Scope::github(&final_identity.host, final_identity.account_id) {
+                    let saved = Cache::open(&request.database)
+                        .map_err(|error| error.to_string())
+                        .and_then(|cache| SavedDashboards::load(&cache, &scope));
+                    metrics.attach_saved_dashboards(saved);
+                }
+                // A dashboard created from the Dashboards list returns to that list.
+                if matches!(action, Some(MetricsAction::SaveDashboardAs(_)))
+                    && metrics.view == crate::metrics_workspace::MetricsView::Cards
+                {
+                    let _ =
+                        metrics.apply(crate::metrics_workspace::MetricsWorkspaceAction::Dashboards);
                 }
             }
             // Retain today's points for a fresh or recomputed snapshot and attach the
             // window's retained trend. Open keeps the original workspace's trends.
-            if prepared.navigate_to.is_none() && action != Some(MetricsAction::Threads) {
+            if prepared.navigate_to.is_none()
+                && !matches!(
+                    action,
+                    Some(
+                        MetricsAction::Threads
+                            | MetricsAction::RenameDashboard { .. }
+                            | MetricsAction::DeleteDashboard(_)
+                    )
+                )
+            {
                 if let Some(metrics) = &mut prepared.metrics {
                     let retained = crate::metrics_trend_v1::retain_and_load(
                         &request.database,
@@ -348,7 +513,11 @@ fn constrain_saved_scope(
 ) -> Result<(), Failure> {
     if matches!(
         action,
-        Some(MetricsAction::RestoreDashboard | MetricsAction::DefaultDashboard)
+        Some(
+            MetricsAction::RestoreDashboard
+                | MetricsAction::SwitchDashboard(_)
+                | MetricsAction::DefaultDashboard
+        )
     ) {
         return Ok(());
     }

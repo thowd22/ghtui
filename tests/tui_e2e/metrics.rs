@@ -12,6 +12,8 @@ use std::{collections::BTreeMap, fs, time::Duration};
 
 #[path = "metrics_boundaries.rs"]
 mod boundaries;
+#[path = "dashboard_named_v1.rs"]
+mod dashboard_named_v1;
 #[path = "dashboard_origin_v1.rs"]
 mod dashboard_origin_v1;
 #[path = "dashboard_trends_v1.rs"]

@@ -146,6 +146,34 @@ pub fn draw(
                 }
             }
         }
+        if workspace.view == MetricsView::Dashboards {
+            let mut lines = vec![(
+                "Saved dashboards • Enter or click switches • preferences only, never access"
+                    .to_string(),
+                SemanticToken::Head,
+            )];
+            if let Some(note) = &workspace.saved_dashboards_note {
+                lines.push((note.clone(), SemanticToken::Pending));
+            }
+            if let Some(entry) = &workspace.name_entry {
+                lines.push((
+                    match &entry.rename {
+                        Some(from) => format!("Rename {from} to: {}▏", entry.text),
+                        None => format!("New dashboard name: {}▏", entry.text),
+                    },
+                    SemanticToken::Reference,
+                ));
+            }
+            for (label, role) in lines {
+                if y < area.bottom() {
+                    frame.render_widget(
+                        Paragraph::new(label).style(theme.style(role)),
+                        Rect::new(area.x, y, area.width, 1),
+                    );
+                    y += 1;
+                }
+            }
+        }
         if workspace.view == MetricsView::Repositories && y < area.bottom() {
             frame.render_widget(Paragraph::new("Choose ALL declared repositories or exactly one; no organization/global fallback").style(theme.style(SemanticToken::Head)),Rect::new(area.x,y,area.width,1));
             y += 1;
@@ -170,6 +198,7 @@ pub fn draw(
             MetricsView::Threads => {
                 "No unresolved threads read • the summary names any partial source"
             }
+            MetricsView::Dashboards => "No saved dashboards • n New saves this one by name",
             _ => {
                 "No contributing records • inspect Details for source coverage; absence is not zero"
             }
@@ -294,6 +323,31 @@ pub fn keyboard_action(
         action
     })
 }
+/// While a dashboard name is typed, every key belongs to the name: printable characters,
+/// Backspace, Enter (save) and Esc (discard). Returns None when no name is being typed.
+pub fn name_entry_action(
+    event: KeyEvent,
+    workspace: &MetricsWorkspace,
+) -> Option<MetricsWorkspaceAction> {
+    workspace.name_entry.as_ref()?;
+    if event.kind != KeyEventKind::Press {
+        return Some(MetricsWorkspaceAction::Select(workspace.selected));
+    }
+    Some(match event.code {
+        KeyCode::Enter => MetricsWorkspaceAction::NameSubmit,
+        KeyCode::Esc => MetricsWorkspaceAction::NameCancel,
+        KeyCode::Backspace => MetricsWorkspaceAction::NameBackspace,
+        KeyCode::Char(character)
+            if !event
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
+            MetricsWorkspaceAction::NameChar(character)
+        }
+        // Other keys are swallowed so no shortcut fires while naming.
+        _ => MetricsWorkspaceAction::Select(workspace.selected),
+    })
+}
 /// The Dashboard's key bar. While a read is preparing every control is disabled and its key
 /// explains why; a window the cached scope cannot recompute is disabled with that reason.
 pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
@@ -314,6 +368,37 @@ pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
             .with_selected(selected)
     };
     let mut keys = Vec::new();
+    if workspace.name_entry.is_some() && workspace.pending.is_none() {
+        // Typed characters go to the name; only these two act.
+        return vec![
+            KeyControl::new("Enter", "Save name", Action::Metrics(W::NameSubmit)).with_priority(1),
+            KeyControl::new("Esc", "Discard name", Action::Metrics(W::NameCancel))
+                .with_compact("Discard")
+                .with_priority(2),
+        ];
+    }
+    if workspace.view == MetricsView::Dashboards {
+        let none = workspace
+            .saved_dashboards
+            .get(workspace.selected)
+            .is_none()
+            .then(|| "No saved dashboard is selected; n New saves this one".to_string());
+        let armed = workspace.delete_armed.is_some();
+        keys.extend([
+            KeyControl::new("n", "New", Action::Metrics(W::NewDashboard)).with_priority(10),
+            KeyControl::new("e", "Rename", Action::Metrics(W::RenameDashboard))
+                .with_priority(11)
+                .disabled_by(none.clone()),
+            KeyControl::new(
+                "x",
+                if armed { "Confirm delete" } else { "Delete" },
+                Action::Metrics(W::DeleteDashboard),
+            )
+            .with_priority(12)
+            .disabled_by(none)
+            .with_selected(armed),
+        ]);
+    }
     if layout {
         keys.extend([
             KeyControl::new(
@@ -362,7 +447,7 @@ pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
             .disabled_by(
                 matches!(
                     workspace.view,
-                    MetricsView::Layout | MetricsView::Repositories
+                    MetricsView::Layout | MetricsView::Repositories | MetricsView::Dashboards
                 )
                 .then(|| "Return to dashboard cards before opening a trend".to_string()),
             )
@@ -387,6 +472,14 @@ pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
                 }),
             )
             .with_selected(workspace.view == MetricsView::Threads),
+        // Named dashboards, below every other Dashboard control: Commands first.
+        KeyControl::new("N", "Dashboards", Action::Metrics(W::Dashboards))
+            .with_compact("Boards")
+            .with_priority(if layout { 70 } else { 50 })
+            .disabled_by(
+                layout.then(|| "Return to dashboard cards before switching dashboards".to_string()),
+            )
+            .with_selected(workspace.view == MetricsView::Dashboards),
     ]);
     if workspace.pending.is_some() {
         for key in &mut keys {

@@ -184,7 +184,26 @@ pub enum MetricsWorkspaceAction {
     TrendDay(usize),
     /// Open the stale open PRs widget (derived from the loaded inventory, no read).
     Stale,
+    /// List the account's saved named dashboards.
+    Dashboards,
+    /// Start naming a new dashboard saved from the current one.
+    NewDashboard,
+    /// Start renaming the selected saved dashboard.
+    RenameDashboard,
+    /// Arm, then confirm, deleting the selected saved dashboard.
+    DeleteDashboard,
+    /// Name entry: one typed character, Backspace, submit or discard.
+    NameChar(char),
+    NameBackspace,
+    NameSubmit,
+    NameCancel,
     Explain(String),
+}
+/// A dashboard name being typed: for a new dashboard, or to rename `rename`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NameEntry {
+    pub rename: Option<String>,
+    pub text: String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetricsView {
@@ -206,9 +225,12 @@ pub enum MetricsView {
     Stale,
     /// Unresolved review threads read on demand for the loaded open PRs.
     Threads,
+    /// The account's saved named dashboards.
+    Dashboards,
 }
-/// An open PR is stale when GitHub last updated it at least this many days before the as-of.
-pub const STALE_DAYS: u64 = 7;
+/// The default stale threshold: an open PR is stale when GitHub last updated it at least
+/// this many days before the as-of. Each dashboard may choose another.
+pub const STALE_DAYS: u64 = crate::dashboard_profile_v1::DEFAULT_STALE_DAYS;
 #[derive(Clone, Debug)]
 pub struct MetricsPreparedRow {
     pub label: String,
@@ -292,6 +314,19 @@ pub struct MetricsWorkspace {
     pub thread_rows: Arc<[MetricsPreparedRow]>,
     pub thread_summary: Option<String>,
     threads_return: (MetricsView, usize, usize),
+    /// This dashboard's stale threshold in days (one of `STALE_THRESHOLDS`).
+    pub stale_days: u64,
+    /// The saved named dashboard this one was opened from or saved as.
+    pub active_dashboard: Option<String>,
+    /// The account's saved dashboards as last read by the worker.
+    pub saved_dashboards: Arc<[crate::dashboard_profile_v1::DashboardEntry]>,
+    /// Why the saved dashboards could not be listed, when they could not.
+    pub saved_dashboards_note: Option<String>,
+    dashboard_rows: Arc<[MetricsPreparedRow]>,
+    dashboards_return: (MetricsView, usize, usize),
+    pub name_entry: Option<NameEntry>,
+    /// The saved dashboard a first Delete armed; a second Delete confirms it.
+    pub delete_armed: Option<String>,
 }
 fn row(
     label: String,
@@ -1005,9 +1040,18 @@ impl MetricsWorkspace {
             thread_rows: Arc::from([]),
             thread_summary: None,
             threads_return: (MetricsView::Cards, 0, 0),
+            stale_days: STALE_DAYS,
+            active_dashboard: None,
+            saved_dashboards: Arc::from([]),
+            saved_dashboards_note: None,
+            dashboard_rows: Arc::from([]),
+            dashboards_return: (MetricsView::Cards, 0, 0),
+            name_entry: None,
+            delete_armed: None,
         };
-        prepared.rebuild_layout()?;
         prepared.prepare_stale();
+        prepared.rebuild_layout()?;
+        prepared.rebuild_dashboard_rows();
         Ok(prepared)
     }
     pub fn rows(&self) -> &[MetricsPreparedRow] {
@@ -1025,6 +1069,7 @@ impl MetricsWorkspace {
             MetricsView::TrendDay { card, day } => &self.trends[card].days[day],
             MetricsView::Stale => &self.stale_rows,
             MetricsView::Threads => &self.thread_rows,
+            MetricsView::Dashboards => &self.dashboard_rows,
         }
     }
     /// The exact canonical PR target of an original observation.
@@ -1049,7 +1094,8 @@ impl MetricsWorkspace {
     }
     fn prepare_stale(&mut self) {
         let as_of = self.snapshot.as_of;
-        let cutoff = as_of.saturating_sub(STALE_DAYS * 86_400);
+        let days = self.stale_days;
+        let cutoff = as_of.saturating_sub(days.saturating_mul(86_400));
         let open = self
             .observations
             .iter()
@@ -1106,7 +1152,7 @@ impl MetricsWorkspace {
             })
             .collect();
         self.stale_summary = format!(
-            "{} open PRs not updated for {STALE_DAYS}+ days (GitHub updated_at at or before {}){}",
+            "{} open PRs not updated for {days}+ days (GitHub updated_at at or before {}){}",
             self.stale_rows.len(),
             utc_label(cutoff),
             if unknown == 0 {
@@ -1120,6 +1166,8 @@ impl MetricsWorkspace {
     pub fn attach_threads(&mut self, rows: Vec<MetricsPreparedRow>, summary: String) {
         self.thread_rows = Arc::from(rows);
         self.thread_summary = Some(sanitize_terminal(&summary));
+        // The Unresolved threads card shows what this read found.
+        let _ = self.rebuild_layout();
         if !matches!(self.view, MetricsView::Threads) {
             self.remember();
             self.threads_return = (self.view, self.selected, self.top);
@@ -1200,15 +1248,17 @@ impl MetricsWorkspace {
         let cards = self
             .layout
             .shown()
-            .map(|kind| {
-                self.all_card_rows
+            .map(|widget| match widget.metric() {
+                Some(kind) => self
+                    .all_card_rows
                     .iter()
                     .find(|row| {
                         row.action
                             == Some(MetricsWorkspaceAction::Metric(MetricsAction::Card(kind)))
                     })
                     .cloned()
-                    .ok_or("Original dashboard widget is unavailable")
+                    .ok_or("Original dashboard widget is unavailable"),
+                None => Ok(self.widget_card_row(widget)),
             })
             .collect::<Result<Vec<_>, _>>()?;
         self.card_rows = Arc::from(cards);
@@ -1222,36 +1272,162 @@ impl MetricsWorkspace {
             &mut self.trend_return,
             &mut self.stale_return,
             &mut self.threads_return,
+            &mut self.dashboards_return,
         ] {
             if position.0 == MetricsView::Cards {
                 position.1 = position.1.min(last);
                 position.2 = position.2.min(position.1);
             }
         }
-        self.layout_rows = Arc::from(
-            self.layout
-                .slots()
-                .iter()
-                .enumerate()
-                .map(|(index, slot)| {
-                    let label = crate::dashboard_profile_v1::WIDGETS
-                        .iter()
-                        .find(|(kind, _)| *kind == slot.kind)
-                        .expect("validated widget")
-                        .1;
-                    row(
-                        format!("[{}] {label}", if slot.visible { "x" } else { " " }),
-                        if slot.visible {
-                            SemanticToken::Success
-                        } else {
-                            SemanticToken::Muted
-                        },
-                        Some(MetricsWorkspaceAction::ToggleWidget(index)),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        );
+        let mut layout_rows = self
+            .layout
+            .slots()
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| {
+                let label = slot.widget.label();
+                row(
+                    format!("[{}] {label}", if slot.visible { "x" } else { " " }),
+                    if slot.visible {
+                        SemanticToken::Success
+                    } else {
+                        SemanticToken::Muted
+                    },
+                    Some(MetricsWorkspaceAction::ToggleWidget(index)),
+                )
+            })
+            .collect::<Vec<_>>();
+        // The last Layout row cycles the stale threshold through STALE_THRESHOLDS.
+        layout_rows.push(row(
+            format!(
+                "Stale threshold: {} days (Space or click cycles {})",
+                self.stale_days,
+                crate::dashboard_profile_v1::STALE_THRESHOLDS
+                    .map(|days| days.to_string())
+                    .join("/")
+            ),
+            SemanticToken::Reference,
+            Some(MetricsWorkspaceAction::ToggleWidget(
+                self.layout.slots().len(),
+            )),
+        ));
+        self.layout_rows = Arc::from(layout_rows);
         Ok(())
+    }
+    /// The Cards row of an attention widget: its name, then what it currently holds.
+    fn widget_card_row(
+        &self,
+        widget: crate::dashboard_profile_v1::DashboardWidget,
+    ) -> MetricsPreparedRow {
+        use crate::dashboard_profile_v1::DashboardWidget;
+        let (value, role, action) = if widget == DashboardWidget::StalePrs {
+            (
+                format!("{} idle {}+ days", self.stale_rows.len(), self.stale_days),
+                if self.stale_rows.is_empty() {
+                    SemanticToken::Success
+                } else {
+                    SemanticToken::Pending
+                },
+                MetricsWorkspaceAction::Stale,
+            )
+        } else {
+            (
+                match &self.thread_summary {
+                    Some(_) => format!("{} listed • Enter reads again", self.thread_rows.len()),
+                    None => "Not read • Enter reads current threads".into(),
+                },
+                SemanticToken::Reference,
+                MetricsWorkspaceAction::Metric(MetricsAction::Threads),
+            )
+        };
+        let title = widget.label();
+        let mut card_row = row(format!("{title}: {value}"), role, Some(action));
+        card_row.cells = vec![title.into(), value.into()];
+        card_row
+    }
+    /// The Dashboards list: each saved dashboard switches by Enter or click.
+    fn rebuild_dashboard_rows(&mut self) {
+        self.dashboard_rows = self
+            .saved_dashboards
+            .iter()
+            .map(|entry| {
+                row(
+                    sanitize_terminal(&format!(
+                        "{}{} • {} repositories • {} days • stale {}d",
+                        entry.name,
+                        if entry.active { " • active" } else { "" },
+                        entry.repositories,
+                        entry.window_days,
+                        entry.stale_days
+                    )),
+                    if entry.active {
+                        SemanticToken::Success
+                    } else {
+                        SemanticToken::Normal
+                    },
+                    Some(MetricsWorkspaceAction::Metric(
+                        MetricsAction::SwitchDashboard(entry.name.clone()),
+                    )),
+                )
+            })
+            .collect();
+        if self.view == MetricsView::Dashboards {
+            self.selected = self
+                .selected
+                .min(self.dashboard_rows.len().saturating_sub(1));
+            self.top = self.top.min(self.selected);
+        }
+    }
+    /// Worker-only: the account's saved dashboards as just read, or why they could not be.
+    pub fn attach_saved_dashboards(
+        &mut self,
+        saved: Result<Option<crate::dashboard_profile_v1::SavedDashboards>, String>,
+    ) {
+        match saved {
+            Ok(saved) => {
+                self.saved_dashboards = Arc::from(
+                    saved
+                        .as_ref()
+                        .map(|saved| saved.entries())
+                        .unwrap_or_default(),
+                );
+                self.saved_dashboards_note = None;
+            }
+            Err(error) => {
+                self.saved_dashboards = Arc::from([]);
+                self.saved_dashboards_note = Some(sanitize_terminal(&format!(
+                    "Saved dashboards unreadable: {error}"
+                )));
+            }
+        }
+        if self.active_dashboard.as_ref().is_some_and(|active| {
+            !self
+                .saved_dashboards
+                .iter()
+                .any(|entry| &entry.name == active)
+        }) {
+            self.active_dashboard = None;
+        }
+        self.rebuild_dashboard_rows();
+    }
+    /// The saved dashboard selected in the Dashboards list.
+    fn selected_saved(&self) -> Result<String, String> {
+        if self.view != MetricsView::Dashboards {
+            return Err("Open Dashboards (N) and select a saved dashboard first".into());
+        }
+        self.saved_dashboards
+            .get(self.selected)
+            .map(|entry| entry.name.clone())
+            .ok_or_else(|| "No saved dashboard is selected; n New saves this one".into())
+    }
+    /// Applies a restored dashboard's stale threshold.
+    pub fn apply_stale_days(&mut self, days: u64) -> Result<(), String> {
+        if !crate::dashboard_profile_v1::STALE_THRESHOLDS.contains(&days) {
+            return Err("Stale threshold is not one of the offered day counts".into());
+        }
+        self.stale_days = days;
+        self.prepare_stale();
+        self.rebuild_layout()
     }
     /// Returns only actual worker requests. Local Card/Back/picker/detail/selection is consumed.
     pub fn apply(
@@ -1280,19 +1456,127 @@ impl MetricsWorkspace {
                 if self.view != MetricsView::Layout {
                     return Err("Open Layout before changing its widgets".into());
                 }
-                self.layout.toggle(index)?;
+                if index == self.layout.slots().len() {
+                    // The stale threshold row cycles to the next offered day count.
+                    let thresholds = crate::dashboard_profile_v1::STALE_THRESHOLDS;
+                    let next = thresholds
+                        .iter()
+                        .position(|days| *days == self.stale_days)
+                        .map_or(STALE_DAYS, |at| thresholds[(at + 1) % thresholds.len()]);
+                    self.apply_stale_days(next)?;
+                } else {
+                    self.layout.toggle(index)?;
+                    self.rebuild_layout()?;
+                }
                 self.selected = index;
-                self.rebuild_layout()?;
             }
             MetricsWorkspaceAction::MoveWidget(down) => {
                 if self.view != MetricsView::Layout {
                     return Err("Open Layout before reordering widgets".into());
+                }
+                if self.selected >= self.layout.slots().len() {
+                    return Err(
+                        "The stale threshold row stays last; select a widget to move".into(),
+                    );
                 }
                 self.selected = self.layout.move_slot(self.selected, down)?;
                 self.rebuild_layout()?;
             }
             MetricsWorkspaceAction::Select(index) => {
                 self.selected = index.min(self.rows().len().saturating_sub(1));
+                if self.delete_armed.is_some() {
+                    self.delete_armed = None;
+                    self.status = Some("Delete not confirmed • saved dashboards unchanged".into());
+                }
+            }
+            MetricsWorkspaceAction::Dashboards => {
+                if self.view == MetricsView::Dashboards {
+                    return Ok(None);
+                }
+                if self.view == MetricsView::Layout {
+                    return Err("Return to dashboard cards before switching dashboards".into());
+                }
+                self.remember();
+                self.dashboards_return = (self.view, self.selected, self.top);
+                self.view = MetricsView::Dashboards;
+                self.selected = self
+                    .saved_dashboards
+                    .iter()
+                    .position(|entry| entry.active)
+                    .unwrap_or(0);
+                self.top = 0;
+                self.delete_armed = None;
+            }
+            MetricsWorkspaceAction::NewDashboard => {
+                if self.view != MetricsView::Dashboards {
+                    return Err("Open Dashboards (N) before naming a new dashboard".into());
+                }
+                self.delete_armed = None;
+                self.name_entry = Some(NameEntry {
+                    rename: None,
+                    text: String::new(),
+                });
+            }
+            MetricsWorkspaceAction::RenameDashboard => {
+                let name = self.selected_saved()?;
+                self.delete_armed = None;
+                self.name_entry = Some(NameEntry {
+                    rename: Some(name.clone()),
+                    text: name,
+                });
+            }
+            MetricsWorkspaceAction::DeleteDashboard => {
+                let name = self.selected_saved()?;
+                if self.delete_armed.as_deref() != Some(name.as_str()) {
+                    self.status = Some(format!(
+                        "Delete saved dashboard {name}? x again confirms • any other key keeps it"
+                    ));
+                    self.delete_armed = Some(name);
+                    return Ok(None);
+                }
+                self.delete_armed = None;
+                return self.apply(MetricsWorkspaceAction::Metric(
+                    MetricsAction::DeleteDashboard(name),
+                ));
+            }
+            MetricsWorkspaceAction::NameChar(character) => {
+                let entry = self
+                    .name_entry
+                    .as_mut()
+                    .ok_or("No dashboard name is being typed")?;
+                if !character.is_control()
+                    && entry.text.chars().count() < crate::dashboard_profile_v1::MAX_NAME_CHARS
+                {
+                    entry.text.push(character);
+                }
+            }
+            MetricsWorkspaceAction::NameBackspace => {
+                self.name_entry
+                    .as_mut()
+                    .ok_or("No dashboard name is being typed")?
+                    .text
+                    .pop();
+            }
+            MetricsWorkspaceAction::NameCancel => {
+                self.name_entry = None;
+                self.status = Some("Name discarded • saved dashboards unchanged".into());
+            }
+            MetricsWorkspaceAction::NameSubmit => {
+                let entry = self
+                    .name_entry
+                    .clone()
+                    .ok_or("No dashboard name is being typed")?;
+                let name = crate::dashboard_profile_v1::validate_name(&entry.text)?;
+                let request = match entry.rename {
+                    Some(from) if from == name => {
+                        self.name_entry = None;
+                        return Err("The name is unchanged; nothing renamed".into());
+                    }
+                    Some(from) => MetricsAction::RenameDashboard { from, to: name },
+                    None => MetricsAction::SaveDashboardAs(name),
+                };
+                self.name_entry = None;
+                return self.apply(MetricsWorkspaceAction::Metric(request));
             }
             MetricsWorkspaceAction::Repositories => {
                 self.remember();
@@ -1323,13 +1607,14 @@ impl MetricsWorkspace {
                         self.view = MetricsView::CardInfo(card);
                     }
                     MetricsView::Cards => {
-                        self.selected = index.min(self.card_rows.len().saturating_sub(1));
+                        let selected = index.min(self.card_rows.len().saturating_sub(1));
+                        let card = self.displayed_card(selected).ok_or(
+                            "Stale PRs and Unresolved threads have no formula details; Enter opens them",
+                        )?;
+                        self.selected = selected;
                         self.remember();
                         self.info_return = (MetricsView::Cards, self.selected, self.top);
-                        self.view = MetricsView::CardInfo(
-                            self.displayed_card(self.selected)
-                                .ok_or("Original dashboard widget unavailable")?,
-                        );
+                        self.view = MetricsView::CardInfo(card);
                     }
                     MetricsView::Details { card, .. }
                     | MetricsView::Trend(card)
@@ -1337,10 +1622,8 @@ impl MetricsWorkspace {
                         self.info_return = original;
                         self.view = MetricsView::CardInfo(card);
                     }
-                    MetricsView::Repositories => {
-                        return Err(
-                            "Choose a repository or Back before inspecting metric details".into(),
-                        )
+                    MetricsView::Repositories | MetricsView::Dashboards => {
+                        return Err("Choose a row or Back before inspecting metric details".into())
                     }
                     MetricsView::Stale | MetricsView::Threads => {
                         return Err(
@@ -1356,7 +1639,7 @@ impl MetricsWorkspace {
                 let card = match self.view {
                     MetricsView::Cards => self
                         .displayed_card(index.min(self.card_rows.len().saturating_sub(1)))
-                        .ok_or("Original dashboard widget unavailable")?,
+                        .ok_or("Trends cover the metric cards; select one of them first")?,
                     MetricsView::Contributors(card)
                     | MetricsView::CardInfo(card)
                     | MetricsView::Details { card, .. } => card,
@@ -1364,7 +1647,8 @@ impl MetricsWorkspace {
                     MetricsView::Layout
                     | MetricsView::Repositories
                     | MetricsView::Stale
-                    | MetricsView::Threads => {
+                    | MetricsView::Threads
+                    | MetricsView::Dashboards => {
                         return Err("Return to dashboard cards before opening a trend".into())
                     }
                 };
@@ -1440,7 +1724,17 @@ impl MetricsWorkspace {
                     return Err("Dashboard request is still preparing; cancel through the application before navigating back".into());
                 }
                 self.remember();
+                self.delete_armed = None;
+                self.name_entry = None;
                 match self.view {
+                    MetricsView::Dashboards => {
+                        (self.view, self.selected, self.top) = self.dashboards_return;
+                        if self.view == MetricsView::Cards {
+                            self.selected =
+                                self.selected.min(self.card_rows.len().saturating_sub(1));
+                            self.top = self.top.min(self.selected);
+                        }
+                    }
                     MetricsView::Layout => {
                         (self.view, self.selected, self.top) = self.layout_return;
                         if self.view == MetricsView::Cards {
@@ -1541,6 +1835,12 @@ impl MetricsWorkspace {
                     | MetricsAction::SaveDashboard
                     | MetricsAction::RestoreDashboard
                     | MetricsAction::DefaultDashboard => {}
+                    MetricsAction::SaveDashboardAs(name)
+                    | MetricsAction::SwitchDashboard(name)
+                    | MetricsAction::DeleteDashboard(name)
+                    | MetricsAction::RenameDashboard { to: name, .. } => {
+                        crate::dashboard_profile_v1::validate_name(name)?;
+                    }
                     _ => return Err("Unexpected Dashboard action".into()),
                 }
                 self.remember();
