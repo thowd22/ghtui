@@ -20,10 +20,15 @@ Linux (x86_64 and arm64):
 curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash
 ```
 
+This URL works once the first release is published on that repository.
+Until then, [build from source](#build-from-source).
+
 The installer downloads a static binary for your CPU and checks its SHA-256
 against the release's `SHA256SUMS`. It then installs a single file,
-`~/.local/bin/ghtui`. It doesn't use sudo or edit your shell profile. If
-`~/.local/bin` isn't on your `PATH`, add it:
+`~/.local/bin/ghtui`. It doesn't use sudo or edit your shell profile. It
+needs Bash 3.2 or newer, `curl`, `tar`, `gzip`, `od` and `sha256sum` (or
+`shasum`), which come with Linux and macOS. It doesn't need Rust, Node or
+`jq`. If `~/.local/bin` isn't on your `PATH`, add it:
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # or ~/.zshrc
@@ -43,16 +48,24 @@ Pass options through `bash -s --`, for example to pin a version:
 curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --version v0.1.0
 ```
 
-Running the installer again upgrades in place. To roll back, run it again with
-the older `--version`. Release binaries for macOS aren't published yet, so on
-macOS build from source (see below).
+ghtui never updates itself. To upgrade, run the installer again: it installs
+the latest release in place, and does nothing if that version is already
+installed. To roll back, run it again with the older `--version`. "Latest" is
+looked up once, and every file then comes from that exact version.
+
+The installer also knows the macOS targets (Intel, and Apple silicon even
+from a Rosetta shell), but release binaries for macOS aren't published yet.
+On macOS it stops and points you to building from source (see below). Other
+systems and CPUs get a clear "unsupported" error.
 
 #### What the installer checks, and what it can't
 
 - Downloads use HTTPS only, including redirects, with certificate checks and
-  time limits. Your `~/.curlrc` is ignored.
-- The archive must match its SHA-256 in the release's `SHA256SUMS`, must hold
-  exactly one file named `ghtui`, and that file must report the requested
+  time and size limits. Your `~/.curlrc` is ignored.
+- The archive must match its SHA-256 in the release's `SHA256SUMS`. It must
+  hold exactly one regular file named `ghtui`, with no other paths, links or
+  directories. That file's header must say it was built for your OS and CPU.
+  Only after those checks is it run once, to confirm it reports the requested
   version. All of this happens before anything is installed. If a check
   fails, the binary you already had stays as it was.
 - The new binary is written next to the old one and renamed over it, so an
@@ -69,10 +82,15 @@ GitHub build provenance attestation that you can check with `gh`:
 gh attestation verify ghtui-v0.1.0-x86_64-unknown-linux-musl.tar.gz --repo thowd22/ghtui
 ```
 
-To read the script before running it, download it first:
+`curl | bash` runs whatever the server sends, so you are trusting that
+release and GitHub's HTTPS. The script is written so that a download cut off
+partway runs nothing. To read the script before running it, download it
+first. `SHA256SUMS` lists `install.sh` too:
 
 ```sh
 curl -fsSLO https://github.com/thowd22/ghtui/releases/latest/download/install.sh
+curl -fsSLO https://github.com/thowd22/ghtui/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS   # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
 less install.sh
 bash install.sh
 ```
@@ -233,8 +251,19 @@ or unknown, the dashboard says so instead of showing zero.
 curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --uninstall
 ```
 
-This removes the binary only. To remove your settings and cache too, delete
-`~/.config/ghtui`.
+This removes the binary only, and only if it looks like ghtui. It never
+follows a symlink. Pass the same `--install-dir DIR` if you installed
+somewhere else. Your settings, cache, unsent drafts and repositories are
+kept. They live in one directory, which you can delete yourself if you want
+them gone:
+
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/ghtui`, which holds `config.toml`, the
+  `cache.sqlite3` database (cached data and drafts), the search `index` and
+  `avatars`
+- macOS: `~/Library/Application Support/ghtui`
+- or the directory you passed with `--config-dir`
+
+Your Git repositories are never touched.
 
 ## Development
 
