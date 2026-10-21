@@ -282,7 +282,9 @@ fn suggestion_apply_plan_then_journaled_push_confirms_and_a_moved_head_writes_no
         &CancellationToken::default(),
     )
     .unwrap_err();
-    assert!(refused.contains("No remote of this checkout points at someone/fork"));
+    assert!(refused
+        .message
+        .contains("No remote of this checkout points at someone/fork"));
 
     let mut ctx = context(Some(work.clone()));
     ctx.head = head.clone();
@@ -382,4 +384,85 @@ fn suggestion_apply_plan_then_journaled_push_confirms_and_a_moved_head_writes_no
     // The checkout's refs and index never changed.
     assert_eq!(git(&work, &["for-each-ref"]), refs_before);
     assert_eq!(fs::read(work.join(".git/index")).unwrap(), index_before);
+}
+
+#[test]
+fn suggestion_apply_plan_rows_lead_with_actor_chips_and_failures_keep_their_state() {
+    let mut unknown_id = posted("```suggestion\ny\n```");
+    unknown_id.author = Some(author("hubot", None));
+    unknown_id.line = Some(3);
+    let threads = vec![
+        thread(1, posted("```suggestion\nx\n```")),
+        thread(2, unknown_id),
+    ];
+    let found = candidates(&threads, HOST);
+    let alice = found[0].actor.clone().unwrap();
+    let hubot = found[1].actor.clone().unwrap();
+    let mut view = SuggestionApplyViewV23::new(context(None), found);
+    view.chosen = vec![true, true];
+    view.planned = Some(PlannedV23 {
+        plan: SuggestionPlan {
+            expected_head: "a".repeat(40),
+            commit: "b".repeat(40),
+            tree: "d".repeat(40),
+            files: vec![],
+            preview: vec![],
+            message: "s\n\nCo-authored-by: alice <7+alice@users.noreply.github.com>\n".into(),
+            attribution_limits: vec![
+                "@hubot has no known numeric account; no co-author trailer was added.".into(),
+            ],
+            pushed: false,
+        },
+        remote: PushRemote {
+            name: "origin".into(),
+            configured_url: "u".into(),
+            fetch_url: "u".into(),
+            push_url: "u".into(),
+        },
+        committer: ("Reviewer Person".into(), "reviewer@example.invalid".into()),
+        date: "1 +0000".into(),
+        subject: "s".into(),
+        chosen: vec![0, 1],
+    });
+    let rows = plan_lines(&view);
+    let find = |prefix: &str| {
+        rows.iter()
+            .find(|row| row.text.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix} missing: {rows:?}"))
+            .clone()
+    };
+    let credit = find("Credit: Co-authored-by: alice");
+    assert_eq!(credit.actor, Some(alice));
+    assert_eq!(credit.role, SemanticToken::Actor);
+    let limit = find("Attribution limit: @hubot");
+    assert_eq!(
+        limit.actor,
+        Some(hubot),
+        "the limited reviewer keeps a chip"
+    );
+    assert_eq!(limit.role, SemanticToken::Conflict);
+    let committer = find("Committer Reviewer Person");
+    let local = committer.actor.expect("committer chip");
+    assert!(local.label().contains("[local Git]"), "{}", local.label());
+    assert!(committer.text.ends_with("local Git identity"));
+    assert!(rows
+        .iter()
+        .filter(|row| row.text.starts_with("Plan commit") || row.text.starts_with("Push to"))
+        .all(|row| row.actor.is_none()));
+    // Conflicts read as conflicts, everything else as a failure; both say
+    // nothing was written.
+    let conflict = PlanFailure::from(SuggestionError::Conflict {
+        path: FILE.into(),
+        start: 2,
+        end: 2,
+    });
+    assert_eq!(conflict.role, SemanticToken::Conflict);
+    assert!(conflict.message.contains("Nothing was written or pushed"));
+    let rejected = PlanFailure::from(SuggestionError::PushRejected("no".into()));
+    assert_eq!(rejected.role, SemanticToken::Failure);
+    assert_eq!(
+        PlanFailure::from("plain").role,
+        SemanticToken::Failure,
+        "unclassified text failed"
+    );
 }

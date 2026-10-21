@@ -10,7 +10,7 @@
 //! outcome: confirmed, not written, or uncertain.
 use crate::{
     app::App,
-    identity::{ActorIdentity, AvatarState, AvatarWidget},
+    identity::{ActorIdentity, AvatarState, ListAvatar},
     pr_write_journal::{
         PrConfirmedEffect, PrEffectKind, PrWriteIntent, PrWriteJournal, PrWriteTarget,
     },
@@ -20,7 +20,7 @@ use crate::{
     },
     suggestions::{
         apply_isolated, committer_identity, parse_suggestions, resolve_push_remote, ApplyRequest,
-        OriginalSource, PushRemote, Suggestion, SuggestionAuthor, SuggestionPlan,
+        OriginalSource, PushRemote, Suggestion, SuggestionAuthor, SuggestionError, SuggestionPlan,
     },
     theme::SemanticToken,
 };
@@ -176,9 +176,46 @@ pub struct PlannedV23 {
     pub chosen: Vec<usize>,
 }
 
+/// Why planning stopped, and the semantic state it shows: lines that changed
+/// under the suggestion, overlapping ranges or a moved head are conflicts;
+/// everything else failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanFailure {
+    pub message: String,
+    pub role: SemanticToken,
+}
+impl From<String> for PlanFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            role: SemanticToken::Failure,
+        }
+    }
+}
+impl From<&str> for PlanFailure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+impl From<SuggestionError> for PlanFailure {
+    fn from(error: SuggestionError) -> Self {
+        let role = match error {
+            SuggestionError::Conflict { .. }
+            | SuggestionError::Overlap { .. }
+            | SuggestionError::OutdatedHead { .. } => SemanticToken::Conflict,
+            SuggestionError::Cancelled => SemanticToken::Cancelled,
+            _ => SemanticToken::Failure,
+        };
+        Self {
+            message: error.to_string(),
+            role,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum JobResult {
-    Planned(Result<Box<PlannedV23>, String>),
+    Planned(Result<Box<PlannedV23>, PlanFailure>),
     Pushed(PushOutcomeV23),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -518,7 +555,7 @@ struct PlanInput {
     chosen: Vec<usize>,
 }
 
-fn plan(input: &PlanInput, cancel: &CancellationToken) -> Result<PlannedV23, String> {
+fn plan(input: &PlanInput, cancel: &CancellationToken) -> Result<PlannedV23, PlanFailure> {
     let deadline = Some(Instant::now() + PLAN_LIMIT);
     let context = &input.context;
     let checkout = context.checkout.as_deref().ok_or(
@@ -552,8 +589,7 @@ fn plan(input: &PlanInput, cancel: &CancellationToken) -> Result<PlannedV23, Str
         date: Some(&date),
         expected_commit: None,
         push_to: Some(&remote.push_url),
-    })
-    .map_err(|error| error.to_string())?;
+    })?;
     Ok(PlannedV23 {
         plan,
         remote,
@@ -701,12 +737,18 @@ pub fn tick(app: &mut App, database: &Path) {
                 view.planned = Some(*planned);
                 view.scroll = 0;
             }
-            JobResult::Planned(Err(message)) => {
-                view.status = message;
-                view.status_role = SemanticToken::Failure;
+            JobResult::Planned(Err(failure)) => {
+                view.status = failure.message;
+                view.status_role = failure.role;
             }
             JobResult::Pushed(outcome) => {
                 view.planned = None;
+                // Nothing reached the remote: keep the user's choice so the
+                // same batch can be planned again once the cause is fixed.
+                let keep_choice = matches!(
+                    outcome,
+                    PushOutcomeV23::NotWritten(_) | PushOutcomeV23::Refused(_)
+                );
                 let (status, role) = match outcome {
                     PushOutcomeV23::Confirmed { commit, attempt } => (
                         format!(
@@ -715,9 +757,13 @@ pub fn tick(app: &mut App, database: &Path) {
                         ),
                         SemanticToken::Success,
                     ),
-                    PushOutcomeV23::NotWritten(message) | PushOutcomeV23::Refused(message) => {
-                        (message, SemanticToken::Failure)
-                    }
+                    PushOutcomeV23::NotWritten(message) | PushOutcomeV23::Refused(message) => (
+                        format!(
+                            "{} Your choice is kept • p Plan to try again.",
+                            message.split_whitespace().collect::<Vec<_>>().join(" ")
+                        ),
+                        SemanticToken::Failure,
+                    ),
                     PushOutcomeV23::Uncertain(message) => (
                         format!(
                             "The push outcome is unknown: {message}. The journal marks it uncertain."
@@ -728,7 +774,9 @@ pub fn tick(app: &mut App, database: &Path) {
                 app.status = status.clone();
                 view.status = status;
                 view.status_role = role;
-                view.chosen.iter_mut().for_each(|chosen| *chosen = false);
+                if !keep_choice {
+                    view.chosen.iter_mut().for_each(|chosen| *chosen = false);
+                }
             }
         }
         return;
@@ -796,37 +844,86 @@ pub fn tick(app: &mut App, database: &Path) {
     });
 }
 
-fn plan_lines(view: &SuggestionApplyViewV23) -> Vec<(String, SemanticToken)> {
+/// One row of the plan pane. A row about a person leads with that person's
+/// shared avatar chip: a GitHub reviewer's for credits and attribution limits,
+/// the local Git identity's for the committer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanRowV23 {
+    pub text: String,
+    pub role: SemanticToken,
+    pub actor: Option<ActorIdentity>,
+}
+
+/// The chosen reviewer whose suggestion carries `login`, as observed.
+fn chosen_actor(
+    view: &SuggestionApplyViewV23,
+    planned: &PlannedV23,
+    login: &str,
+) -> Option<ActorIdentity> {
+    planned
+        .chosen
+        .iter()
+        .filter_map(|index| view.candidates.get(*index))
+        .find(|candidate| {
+            candidate
+                .suggestion
+                .as_ref()
+                .and_then(|suggestion| suggestion.author.as_ref())
+                .is_some_and(|author| author.login == login)
+        })
+        .and_then(|candidate| candidate.actor.clone())
+}
+
+pub fn plan_lines(view: &SuggestionApplyViewV23) -> Vec<PlanRowV23> {
+    let row = |text: String, role| PlanRowV23 {
+        text,
+        role,
+        actor: None,
+    };
     let mut lines = vec![];
     let Some(planned) = &view.planned else {
         if let Some(candidate) = view.candidates.get(view.cursor) {
-            lines.push((
-                format!(
-                    "Suggested by {} • {} lines {}–{} • replaces them with:",
-                    candidate.author_label, candidate.path, candidate.start, candidate.end
-                ),
-                SemanticToken::Muted,
-            ));
+            lines.push(PlanRowV23 {
+                actor: candidate.actor.clone(),
+                ..row(
+                    format!(
+                        "Suggested by {} • {} lines {}–{} • replaces them with:",
+                        candidate.author_label, candidate.path, candidate.start, candidate.end
+                    ),
+                    SemanticToken::Muted,
+                )
+            });
             for line in &candidate.replacement {
-                lines.push((format!("+{line}"), SemanticToken::Added));
+                lines.push(row(format!("+{line}"), SemanticToken::Added));
             }
             if candidate.replacement.is_empty() {
-                lines.push(("(deletes the lines)".into(), SemanticToken::Removed));
+                lines.push(row("(deletes the lines)".into(), SemanticToken::Removed));
             }
         }
         return lines;
     };
     let plan = &planned.plan;
+    let committer = ActorIdentity::local(
+        &crate::git::GitActor {
+            name: planned.committer.0.clone(),
+            email: planned.committer.1.clone(),
+            timestamp: 0,
+        },
+        crate::identity::GitRole::Committer,
+    );
     // One fact per row so nothing important is cut at 80 columns.
-    lines.push((format!("Plan commit {}", plan.commit), SemanticToken::Head));
-    lines.push((
+    lines.push(row(
+        format!("Plan commit {}", plan.commit),
+        SemanticToken::Head,
+    ));
+    lines.push(row(
         format!(
             "Parent {} (PR head) • tree {}",
             plan.expected_head, plan.tree
         ),
         SemanticToken::Ancestor,
     ));
-    lines.push((
+    lines.push(row(
         format!(
             "Branch {} • lease on {}",
             view.context.branch,
@@ -834,54 +931,74 @@ fn plan_lines(view: &SuggestionApplyViewV23) -> Vec<(String, SemanticToken)> {
         ),
         SemanticToken::Reference,
     ));
-    lines.push((
+    lines.push(row(
         format!(
             "Push to {} {}",
             planned.remote.name, planned.remote.push_url
         ),
         SemanticToken::Reference,
     ));
-    lines.push((
-        format!(
-            "Committer {} <{}> • date {}",
-            planned.committer.0, planned.committer.1, planned.date
-        ),
-        SemanticToken::Actor,
-    ));
-    lines.push((
+    lines.push(PlanRowV23 {
+        actor: Some(committer),
+        ..row(
+            format!(
+                "Committer {} <{}> • date {} • local Git identity",
+                planned.committer.0, planned.committer.1, planned.date
+            ),
+            SemanticToken::Actor,
+        )
+    });
+    lines.push(row(
         format!("Message: {}", planned.subject),
         SemanticToken::Normal,
     ));
     for (path, blob) in &plan.files {
-        lines.push((format!("File {path} → blob {blob}"), SemanticToken::Changed));
+        lines.push(row(
+            format!("File {path} → blob {blob}"),
+            SemanticToken::Changed,
+        ));
     }
     for trailer in plan
         .message
         .lines()
         .filter(|line| line.starts_with("Co-authored-by:"))
     {
-        lines.push((format!("Credit: {trailer}"), SemanticToken::Actor));
+        let login = trailer
+            .trim_start_matches("Co-authored-by:")
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        lines.push(PlanRowV23 {
+            actor: chosen_actor(view, planned, login),
+            ..row(format!("Credit: {trailer}"), SemanticToken::Actor)
+        });
     }
     for limit in &plan.attribution_limits {
-        lines.push((
-            format!("Attribution limit: {limit}"),
-            SemanticToken::Conflict,
-        ));
+        let login = limit
+            .strip_prefix('@')
+            .and_then(|rest| rest.split_whitespace().next());
+        lines.push(PlanRowV23 {
+            actor: login.and_then(|login| chosen_actor(view, planned, login)),
+            ..row(
+                format!("Attribution limit: {limit}"),
+                SemanticToken::Conflict,
+            )
+        });
     }
-    lines.push((
+    lines.push(row(
         "Nothing is written until y Confirm push • the checkout, index and local refs never change"
             .into(),
         SemanticToken::Muted,
     ));
-    for row in &plan.preview {
-        let role = if row.starts_with('+') {
+    for preview in &plan.preview {
+        let role = if preview.starts_with('+') {
             SemanticToken::Added
-        } else if row.starts_with('-') {
+        } else if preview.starts_with('-') {
             SemanticToken::Removed
         } else {
             SemanticToken::Reference
         };
-        lines.push((row.clone(), role));
+        lines.push(row(preview.clone(), role));
     }
     lines
 }
@@ -1001,21 +1118,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         rect.x += width;
         rect.width -= width;
         if let Some(identity) = &candidate.actor {
-            let chip = rect.width.min(4);
-            let image = match avatars.get(identity) {
-                Some(AvatarState::Ready(image)) => Some(image.as_ref()),
-                _ => None,
-            };
-            frame.render_widget(
-                AvatarWidget {
-                    identity,
-                    image,
-                    theme,
-                },
-                Rect::new(rect.x, rect.y, chip, 1),
-            );
-            rect.x += chip;
-            rect.width -= chip;
+            let lead = avatar_lead(frame, avatars, theme, identity, rect);
+            rect.x += lead;
+            rect.width -= lead;
         }
         let detail = match &candidate.refusal {
             Some(reason) => Span::styled(
@@ -1048,13 +1153,40 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let lines = plan_lines(view);
     let height = inside.bottom().saturating_sub(y) as usize;
     view.scroll = view.scroll.min(lines.len().saturating_sub(height));
-    for (text, role) in lines.iter().skip(view.scroll).take(height) {
+    for line in lines.iter().skip(view.scroll).take(height) {
+        let mut rect = Rect::new(inside.x, y, inside.width, 1);
+        if let Some(identity) = &line.actor {
+            let lead = avatar_lead(frame, avatars, theme, identity, rect);
+            rect.x += lead;
+            rect.width -= lead;
+        }
         frame.render_widget(
-            Paragraph::new(text.as_str()).style(theme.style(*role)),
-            Rect::new(inside.x, y, inside.width, 1),
+            Paragraph::new(line.text.as_str()).style(theme.style(line.role)),
+            rect,
         );
         y += 1;
     }
+}
+
+/// Draws the shared list avatar (image or initials chip) and its gap at the
+/// start of `rect`; returns the cells used.
+fn avatar_lead(
+    frame: &mut Frame,
+    avatars: &crate::actor_avatar_states_v1::ActorAvatarStatesV1,
+    theme: crate::theme::Theme,
+    identity: &ActorIdentity,
+    rect: Rect,
+) -> u16 {
+    let image = match avatars.get(identity) {
+        Some(AvatarState::Ready(image)) => Some(image.as_ref()),
+        _ => None,
+    };
+    ListAvatar {
+        identity,
+        image,
+        theme,
+    }
+    .render_lead(rect, frame.buffer_mut(), theme.base())
 }
 
 #[cfg(test)]

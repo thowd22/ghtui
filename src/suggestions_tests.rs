@@ -355,10 +355,8 @@ fn suggestions_outdated_head_conflict_overlap_and_rejection_push_nothing() {
     current.suggestions = &good;
     match apply_isolated(&current) {
         Err(SuggestionError::PushRejected(message)) => {
-            assert!(
-                message.contains("permission denied") || message.contains("rejected"),
-                "{message}"
-            )
+            // Only the remote's own explanation, on one line.
+            assert_eq!(message, "permission denied to octocat")
         }
         other => panic!("{other:?}"),
     }

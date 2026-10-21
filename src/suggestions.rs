@@ -462,6 +462,23 @@ impl Drop for Scratch {
     }
 }
 
+/// The remote's own explanation of a refused push: the `remote:` lines a hook
+/// or the host printed, else Git's whole message, on one line.
+fn rejection_reason(message: &str) -> String {
+    let text = message.strip_prefix("git push: ").unwrap_or(message);
+    let remote: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("remote:"))
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect();
+    if remote.is_empty() {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        remote.join(" • ")
+    }
+}
+
 pub fn co_author_trailer(author: &SuggestionAuthor) -> Option<String> {
     author.account_id.map(|id| {
         format!(
@@ -810,7 +827,7 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
                 )))
             }
             (Err(SuggestionError::Git(message)), Ok(_)) => {
-                return Err(SuggestionError::PushRejected(message))
+                return Err(SuggestionError::PushRejected(rejection_reason(&message)))
             }
             (Err(stop @ (SuggestionError::Cancelled | SuggestionError::TimedOut)), Ok(remote))
                 if remote == actual =>
