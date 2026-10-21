@@ -398,6 +398,23 @@ fn rendered(app: &mut App) -> String {
         .map(|cell| cell.symbol())
         .collect()
 }
+/// Read-only observation of the original held worker's last two durable
+/// writes: its attempt is Uncertain and no sync reservation stays active.
+fn original_terminal_effects_committed(path: &std::path::Path) -> bool {
+    let Ok(connection) =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return false;
+    };
+    connection
+        .query_row(
+            "SELECT (SELECT count(*) FROM pr_write_attempts WHERE state='uncertain')=1
+                AND NOT EXISTS(SELECT 1 FROM sync_reservations WHERE active=1)",
+            [],
+            |r| r.get::<_, bool>(0),
+        )
+        .unwrap_or(false)
+}
 fn replacement(mode: u8) {
     let command = PrCommand::NewComment;
     let mut tail = phase(command, false, Some(true));
@@ -607,6 +624,28 @@ fn replacement(mode: u8) {
             .as_deref(),
         Some(original_body.as_str())
     );
+    if mode <= 2 {
+        // The reaped readback only means the original worker's gh child is
+        // gone. That worker still commits its terminal effects afterwards:
+        // mark_uncertain, then the possible-text fence that deactivates every
+        // sync reservation of this scope. A replacement Core reserving its
+        // source before that fence is (correctly) refused by it, so release
+        // the replacement only once both original effects are durable.
+        let until = Instant::now() + Duration::from_secs(8);
+        while !original_terminal_effects_committed(&database(&s.fixture)) {
+            assert!(
+                Instant::now() < until,
+                "Original uncertain marker and possible-text fence were never committed"
+            );
+            bg.poll(&mut s.app);
+            std::thread::yield_now();
+        }
+        // The genuinely late original completion is now sent; polling it
+        // still cannot erase the replacement status.
+        bg.poll(&mut s.app);
+        assert_eq!(s.app.status, expected_status);
+        assert_eq!(channel::generation(&bg), Some(generation));
+    }
     released.send(()).unwrap();
     let until = Instant::now() + Duration::from_secs(8);
     while channel::generation(&bg).is_some() {
