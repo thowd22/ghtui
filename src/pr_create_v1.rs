@@ -73,8 +73,7 @@ impl PrCreatePlanV1 {
         text: &str,
         theme: crate::theme::Theme,
     ) -> ratatui::text::Line<'static> {
-        use crate::identity::InitialsChip;
-        use ratatui::text::{Line, Span};
+        use ratatui::text::Line;
         let actor = self
             .actor_rows
             .iter()
@@ -85,18 +84,32 @@ impl PrCreatePlanV1 {
         else {
             return Line::styled(text.to_owned(), theme.base());
         };
-        let identity = actor.identity(&self.host);
-        let chip = if theme.mode == crate::theme::ColorMode::NoColor {
-            theme.style(crate::theme::SemanticToken::Actor)
-        } else {
-            theme.identity_chip(InitialsChip::slot(&identity))
-        };
-        Line::from(vec![
-            Span::styled(actor.prefix, theme.base()),
-            Span::styled(InitialsChip::text(&identity, theme.mode), chip),
-            Span::styled(format!(" {rest}"), theme.base()),
-        ])
+        actor_chip_line(actor.prefix, &actor.identity(&self.host), rest, theme)
     }
+}
+
+/// A preview row that names a GitHub user: `prefix`, the shared filled
+/// initials chip in the identity's hue (`[AB]` without colour), one blank
+/// cell, then `rest` (the login and anything after it). PR create and PR
+/// action previews both paint their actor rows through this.
+pub fn actor_chip_line(
+    prefix: &str,
+    identity: &crate::identity::ActorIdentity,
+    rest: &str,
+    theme: crate::theme::Theme,
+) -> ratatui::text::Line<'static> {
+    use crate::identity::InitialsChip;
+    use ratatui::text::{Line, Span};
+    let chip = if theme.mode == crate::theme::ColorMode::NoColor {
+        theme.style(crate::theme::SemanticToken::Actor)
+    } else {
+        theme.identity_chip(InitialsChip::slot(identity))
+    };
+    Line::from(vec![
+        Span::styled(prefix.to_owned(), theme.base()),
+        Span::styled(InitialsChip::text(identity, theme.mode), chip),
+        Span::styled(format!(" {rest}"), theme.base()),
+    ])
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

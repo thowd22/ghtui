@@ -115,7 +115,7 @@ impl MergeContext {
         })
     }
 }
-pub const PR_MERGE_CONTEXT_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequest{id headRefOid baseRefOid mergeStateStatus reviewDecision viewerCanMergeAsAdmin viewerCanEnableAutoMerge viewerCanDisableAutoMerge autoMergeRequest{mergeMethod enabledAt enabledBy{login avatarUrl}} mergeQueueEntry{id state position headCommit{oid} baseCommit{oid} enqueuer{login avatarUrl} enqueuedAt jump}}}}";
+pub const PR_MERGE_CONTEXT_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequest{id headRefOid baseRefOid mergeStateStatus reviewDecision viewerCanMergeAsAdmin viewerCanEnableAutoMerge viewerCanDisableAutoMerge autoMergeRequest{mergeMethod enabledAt enabledBy{__typename login avatarUrl}} mergeQueueEntry{id state position headCommit{oid} baseCommit{oid} enqueuer{__typename login avatarUrl} enqueuedAt jump}}}}";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PrTextEdit {

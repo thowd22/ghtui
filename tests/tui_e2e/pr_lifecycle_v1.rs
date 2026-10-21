@@ -45,6 +45,11 @@ struct Case {
     write: GhStep,
     after: Value,
     done: &'static str,
+    /// Preview actor rows beyond the account, as (prefix, initials, rest,
+    /// login); each must carry the shared filled chip (TASK-24/25 AC6).
+    actors: ActorRows,
+    /// Preview state rows (label text, token) drawn in shared semantic ink.
+    states: StateRows,
     /// Open this PR tab (mouse label, key) before using the menu.
     tab: Option<(&'static str, &'static [u8], &'static str)>,
     opening: Vec<GhStep>,
@@ -59,6 +64,11 @@ fn open_summary(session: &mut Session, mouse: bool) {
     session.wait_for_screen("1 comments");
 }
 fn journey(case: Case, mouse: bool) {
+    journey_in(case, mouse, false)
+}
+/// `no_color` runs the same journey under NO_COLOR, where actor chips print
+/// as the bracketed `[AB] login` text form.
+fn journey_in(case: Case, mouse: bool, no_color: bool) {
     let fixture = configured();
     let git = local_git_witness(&fixture);
     let mut steps = with_pr(initial(), &case.before);
@@ -83,7 +93,14 @@ fn journey(case: Case, mouse: bool) {
     // Post-write refresh of the same PR in its new state.
     steps.extend(with_pr(inspected(vec![starter()]), &case.after));
     fixture.scripted_gh(&steps);
-    let mut session = Session::launch(&fixture, 120, 40);
+    let env: &[(&str, &str)] = if no_color { &[("NO_COLOR", "1")] } else { &[] };
+    let mut session = Session::launch_binary(
+        std::path::Path::new(env!("CARGO_BIN_EXE_ghtui")),
+        &fixture,
+        120,
+        40,
+        env,
+    );
     open_summary(&mut session, mouse);
     records(&mut session, &fixture, opened);
     if case.before["draft"] == json!(true) {
@@ -106,6 +123,9 @@ fn journey(case: Case, mouse: bool) {
     }
     preview(&mut session, mouse);
     session.wait_for_screen(case.preview);
+    // TASK-24/25 AC6: the account and any other named actor carry the
+    // shared chip; state rows keep their label in semantic ink.
+    wait_preview_paint(&mut session, case.actors, case.states, no_color);
     let before = records(&mut session, &fixture, previewed);
     assert_eq!(mutation_count(&before), 0);
     assert!(!session
@@ -150,6 +170,8 @@ fn ready_case() -> Case {
         write: cli(&["pr", "ready", "7", "--repo", REPO]),
         after: pr(),
         done: "Native collaboration • open",
+        actors: &[],
+        states: &[],
         tab: None,
         opening: vec![],
     }
@@ -173,6 +195,8 @@ fn auto_merge_case() -> Case {
         ]),
         after: pr_with(|v| v["auto_merge"] = json!({"merge_method":"squash"})),
         done: "auto-merge enabled",
+        actors: &[],
+        states: &[],
         tab: None,
         opening: vec![repo_settings_step(repo_settings())],
     }
@@ -184,10 +208,13 @@ fn disable_auto_merge_case() -> Case {
         label: "Disable auto-merge",
         choice: None,
         // Who enabled the request comes from the fresh merge-context read.
-        preview: "Auto-merge (squash) was enabled by @alice",
+        preview: "Auto-merge (squash) was enabled at 2026-10-20T00:00:00Z",
         write: cli(&["pr", "merge", "7", "--repo", REPO, "--disable-auto"]),
         after: pr(),
         done: "auto-merge disabled",
+        // The enabler is its own actor row with the shared chip.
+        actors: &[("Enabled by: ", "AL", "alice", "alice")],
+        states: &[],
         tab: None,
         opening: vec![write(
             "graphql",
@@ -208,7 +235,7 @@ fn disable_auto_merge_case() -> Case {
                 "autoMergeRequest":{
                     "mergeMethod":"SQUASH",
                     "enabledAt":"2026-10-20T00:00:00Z",
-                    "enabledBy":{"login":"alice","avatarUrl":"https://avatars.invalid/u/7"}
+                    "enabledBy":{"__typename":"User","login":"alice","avatarUrl":"https://avatars.invalid/u/7"}
                 },
                 "mergeQueueEntry":null
             }}}),
@@ -225,6 +252,8 @@ fn update_rebase_case() -> Case {
         write: cli(&["pr", "update-branch", "7", "--repo", REPO, "--rebase"]),
         after: behind,
         done: "Mergeable: yes • behind",
+        actors: &[],
+        states: &[("Merge state: behind", ghtui::theme::SemanticToken::Diverged)],
         tab: None,
         opening: vec![],
     }
@@ -245,6 +274,8 @@ fn update_merge_case() -> Case {
         ),
         after: behind,
         done: "Mergeable: yes • behind",
+        actors: &[],
+        states: &[],
         tab: None,
         opening: vec![],
     }
@@ -261,6 +292,8 @@ fn draft_case() -> Case {
         write: cli(&["pr", "ready", "7", "--repo", REPO, "--undo"]),
         after: pr_with(|v| v["draft"] = json!(true)),
         done: "Native collaboration • open [draft]",
+        actors: &[],
+        states: &[],
         tab: COMMITS,
         opening: vec![],
     }
@@ -274,6 +307,8 @@ fn close_case() -> Case {
         write: cli(&["pr", "close", "7", "--repo", REPO]),
         after: pr_with(|v| v["state"] = json!("closed")),
         done: "Native collaboration • closed",
+        actors: &[],
+        states: &[],
         tab: COMMITS,
         opening: vec![],
     }
@@ -289,6 +324,8 @@ fn reopen_case() -> Case {
         done: "Native collaboration • open",
         // Summary and Conversation route Close/Reopen through the native
         // State composer (pr_lifecycle_v68); other tabs use this menu path.
+        actors: &[],
+        states: &[],
         tab: COMMITS,
         opening: vec![],
     }
@@ -539,6 +576,15 @@ fn v1_pr_lifecycle_keyboard_disables_auto_merge() {
 #[test]
 fn v1_pr_lifecycle_mouse_disables_auto_merge() {
     journey(disable_auto_merge_case(), true)
+}
+/// Without colour the enabler and account chips print as `[AB] login`.
+#[test]
+fn v1_pr_lifecycle_keyboard_no_color_disables_auto_merge_with_text_chips() {
+    journey_in(disable_auto_merge_case(), false, true)
+}
+#[test]
+fn v1_pr_lifecycle_mouse_no_color_disables_auto_merge_with_text_chips() {
+    journey_in(disable_auto_merge_case(), true, true)
 }
 #[test]
 fn v1_pr_lifecycle_keyboard_rebases_branch_onto_base() {

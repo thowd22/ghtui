@@ -4,6 +4,7 @@
 //! `merge_workflows_*` covers TASK-24 and `pr_lifecycle_*` covers TASK-25.
 use super::*;
 use ghtui::providers::gh::PR_MERGE_CONTEXT_QUERY;
+use ghtui::theme::SemanticToken;
 
 const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const MOVED: &str = "cccccccccccccccccccccccccccccccccccccccc";
@@ -44,7 +45,7 @@ fn graphql(query: &str, variables: Value, response: Value) -> GhStep {
     )
 }
 fn queue_entry(position: u64) -> Value {
-    json!({"id":"MQ1","state":"QUEUED","position":position,"headCommit":{"oid":MOVED},"baseCommit":{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"enqueuer":{"login":"octocat"},"enqueuedAt":"2026-10-20T00:00:00Z","jump":false})
+    json!({"id":"MQ1","state":"QUEUED","position":position,"headCommit":{"oid":MOVED},"baseCommit":{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"enqueuer":{"__typename":"User","login":"alice"},"enqueuedAt":"2026-10-20T00:00:00Z","jump":false})
 }
 fn merge_context(queue: Value) -> GhStep {
     graphql(
@@ -87,6 +88,11 @@ struct Flow {
     done: &'static str,
     /// Cancel the preview instead of confirming.
     cancel: bool,
+    /// Preview actor rows beyond the account, as (prefix, initials, rest,
+    /// login); each must carry the shared filled chip (TASK-24/25 AC6).
+    actors: ActorRows,
+    /// Preview state rows (label text, token) drawn in shared semantic ink.
+    states: StateRows,
 }
 fn open_summary(session: &mut Session, mouse: bool) {
     session.wait_for_screen("ghtui");
@@ -169,6 +175,11 @@ fn run_sized_checked(
         preview(&mut session, mouse);
     }
     session.wait_for_screen(flow.preview);
+    if flow.preview_pr.is_none() {
+        // TASK-24/25 AC6: the account and any other named actor carry the
+        // shared chip; state rows keep their label in semantic ink.
+        wait_preview_paint(&mut session, flow.actors, flow.states, false);
+    }
     assert_eq!(writes(&records(&mut session, &fixture, previewed)), 0);
     if flow.cancel || flow.preview_pr.is_some() {
         choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
@@ -252,6 +263,8 @@ fn squash_only() -> Flow {
         confirm: vec![],
         after: pr(),
         done: "",
+        actors: &[],
+        states: &[],
         cancel: true,
     }
 }
@@ -303,6 +316,8 @@ fn queued_merge() -> Flow {
         confirm,
         after: pr(),
         done: "in merge queue at position 2 (QUEUED); not merged yet",
+        actors: &[],
+        states: &[("Mergeable: yes • clean", SemanticToken::Success)],
         cancel: false,
     }
 }
@@ -327,6 +342,8 @@ fn enqueue() -> Flow {
         confirm,
         after: pr(),
         done: "in merge queue at position 1 (QUEUED); not merged yet",
+        actors: &[],
+        states: &[("Merge state: CLEAN", SemanticToken::Success)],
         cancel: false,
     }
 }
@@ -347,10 +364,16 @@ fn dequeue() -> Flow {
         refused: None,
         choice: None,
         preview_pr: None,
-        preview: "Removes queue entry MQ1 (position 1, QUEUED) added by",
+        preview: "Removes queue entry MQ1 (position 1, QUEUED) added at 2026-10-20T00:00:00Z",
         confirm,
         after: pr(),
         done: "removed from the merge queue; nothing merged",
+        // The enqueuer is a different user from the account.
+        actors: &[("Enqueued by: ", "AL", "alice", "alice")],
+        states: &[(
+            "Removes queue entry MQ1 (position 1, QUEUED)",
+            SemanticToken::Pending,
+        )],
         cancel: false,
     }
 }
@@ -525,6 +548,8 @@ fn lock() -> Flow {
         confirm,
         after: pr(),
         done: "conversation locked",
+        actors: &[],
+        states: &[],
         cancel: false,
     }
 }
@@ -549,6 +574,8 @@ fn unlock() -> Flow {
         confirm,
         after: pr(),
         done: "conversation unlocked",
+        actors: &[],
+        states: &[],
         cancel: false,
     }
 }
@@ -586,6 +613,8 @@ fn revert() -> Flow {
         confirm,
         after: merged(),
         done: "revert PR #8 opened",
+        actors: &[],
+        states: &[],
         cancel: false,
     }
 }
@@ -620,6 +649,8 @@ fn delete_branch() -> Flow {
         confirm,
         after: merged(),
         done: "remote branch feature deleted",
+        actors: &[],
+        states: &[],
         cancel: false,
     }
 }
@@ -687,6 +718,8 @@ fn add_to_project() -> Flow {
         confirm,
         after: pr(),
         done: "added to project Triage #5 (example)",
+        actors: &[],
+        states: &[],
         cancel: false,
     }
 }
@@ -722,6 +755,8 @@ fn remove_from_project() -> Flow {
         confirm,
         after: pr(),
         done: "removed from project Board #1 (example)",
+        actors: &[],
+        states: &[],
         cancel: false,
     }
 }

@@ -706,7 +706,9 @@ fn changed_target_reason(prepared: &PrSummary, fresh: &PrSummary) -> String {
     ))
 }
 /// Who enabled the pending auto-merge request, read when the form opened.
-fn auto_merge_enabler_line(context: &PrActionContext) -> Option<String> {
+fn auto_merge_enabler_line(
+    context: &PrActionContext,
+) -> Option<(String, crate::providers::gh::Actor)> {
     let info = context
         .governance
         .merge_context
@@ -722,10 +724,12 @@ fn auto_merge_enabler_line(context: &PrActionContext) -> Option<String> {
     } else {
         info.enabled_at
     };
-    Some(sanitize_terminal(&format!(
-        "Auto-merge ({method}) was enabled by {} at {when}; disabling cancels it for everyone.",
-        info.enabled_by.label()
-    )))
+    Some((
+        sanitize_terminal(&format!(
+            "Auto-merge ({method}) was enabled at {when}; disabling cancels it for everyone."
+        )),
+        info.enabled_by,
+    ))
 }
 fn allowed_merge_methods(settings: Option<&RepoMergeSettings>) -> Vec<&'static str> {
     [
@@ -1147,12 +1151,8 @@ impl GovernedOperation {
             ],
             Self::Dequeue(entry) => vec![
                 format!(
-                    "Removes queue entry {} (position {}, {}) added by {} at {}.",
-                    entry.id,
-                    entry.position,
-                    entry.state,
-                    entry.enqueuer.label(),
-                    entry.enqueued_at
+                    "Removes queue entry {} (position {}, {}) added at {}.",
+                    entry.id, entry.position, entry.state, entry.enqueued_at
                 ),
                 "Nothing is merged; the PR stays open and can be queued again.".into(),
             ],
@@ -1438,8 +1438,97 @@ pub struct PrPlan {
     pub context: PrActionContext,
     pub command: PrCommand,
     pub preview: Vec<String>,
+    /// How the form paints `preview`: actor rows carry the shared chip and
+    /// Git/merge state rows their semantic ink. Display only.
+    pub paint: PrPreviewPaintV1,
     operation: PrOperation,
     intent: PrWriteIntent,
+}
+
+/// A PR action preview row that names a GitHub user: `prefix`, then the
+/// actor's shared initials chip, then the login and the rest of the row.
+#[derive(Clone, Debug)]
+pub struct PrPreviewActorRowV1 {
+    pub row: usize,
+    pub prefix: &'static str,
+    pub actor: crate::providers::gh::Actor,
+}
+
+/// Display-only paint for a PR action preview (TASK-24/25 AC6). Rows that
+/// name a user draw the same filled initials chip as PR create and every
+/// other actor row; Git and merge-state rows keep their text label and add
+/// the shared semantic ink, so colour is never the only signal.
+#[derive(Clone, Debug, Default)]
+pub struct PrPreviewPaintV1 {
+    pub host: String,
+    pub actors: Vec<PrPreviewActorRowV1>,
+    pub states: Vec<(usize, crate::theme::SemanticToken)>,
+}
+impl PrPreviewPaintV1 {
+    pub fn row_line(
+        &self,
+        original_row: usize,
+        first_segment: bool,
+        text: &str,
+        theme: crate::theme::Theme,
+    ) -> ratatui::text::Line<'static> {
+        use ratatui::text::Line;
+        let actor = self
+            .actors
+            .iter()
+            .find(|actor| actor.row == original_row)
+            .filter(|_| first_segment)
+            .and_then(|actor| text.strip_prefix(actor.prefix).map(|rest| (actor, rest)));
+        if let Some((actor, rest)) = actor {
+            let identity = crate::identity::ActorIdentity::github(&self.host, &actor.actor);
+            return crate::pr_create_v1::actor_chip_line(actor.prefix, &identity, rest, theme);
+        }
+        match self.states.iter().find(|(row, _)| *row == original_row) {
+            Some((_, token)) => Line::from(ratatui::text::Span::styled(
+                text.to_owned(),
+                theme.style(*token),
+            )),
+            None => Line::from(ratatui::text::Span::styled(text.to_owned(), theme.base())),
+        }
+    }
+}
+
+/// The shared semantic token for a GitHub merge/queue state word, matched
+/// case-insensitively (REST `mergeable_state`, GraphQL `mergeStateStatus`
+/// and merge-queue entry states). The state word itself stays in the row.
+pub fn merge_state_token(state: &str) -> crate::theme::SemanticToken {
+    use crate::theme::SemanticToken;
+    match state.to_ascii_lowercase().as_str() {
+        "clean" | "has_hooks" | "mergeable" => SemanticToken::Success,
+        "dirty" => SemanticToken::Conflict,
+        "behind" => SemanticToken::Diverged,
+        "blocked" | "unstable" | "unmergeable" => SemanticToken::Failure,
+        "locked" => SemanticToken::Running,
+        _ => SemanticToken::Pending,
+    }
+}
+
+/// Who an actor row names, or an honest text fallback with no chip when
+/// GitHub did not report a login.
+fn actor_row(
+    preview: &mut Vec<String>,
+    actors: &mut Vec<PrPreviewActorRowV1>,
+    prefix: &'static str,
+    actor: &crate::providers::gh::Actor,
+    rest: &str,
+) {
+    if actor.login.is_empty() {
+        preview.push(format!(
+            "{prefix}unknown actor (GitHub did not report who){rest}"
+        ));
+        return;
+    }
+    actors.push(PrPreviewActorRowV1 {
+        row: preview.len(),
+        prefix,
+        actor: actor.clone(),
+    });
+    preview.push(format!("{prefix}{}{rest}", actor.login));
 }
 impl PrPlan {
     pub fn prepare(
@@ -1615,28 +1704,49 @@ impl PrPlan {
                 return Err("The selected reaction changed or belongs to another account. Refresh its exact catalogue before removing it.".into());
             }
         }
-        let mut preview = vec![
-            format!("{} • no publishing until confirmation", command.label()),
-            format!(
-                "Account: @{} on {} • numeric identity {}",
-                identity.login,
+        let mut paint = PrPreviewPaintV1 {
+            host: identity.host.clone(),
+            ..Default::default()
+        };
+        let mut preview = vec![format!(
+            "{} • no publishing until confirmation",
+            command.label()
+        )];
+        actor_row(
+            &mut preview,
+            &mut paint.actors,
+            "Account: ",
+            &crate::providers::gh::Actor {
+                login: identity.login.clone(),
+                actor_type: "User".into(),
+                ..Default::default()
+            },
+            &format!(
+                " on {} • numeric identity {}",
                 identity.host,
                 identity.account_id.unwrap_or(0)
             ),
-            format!(
-                "Exact PR: {}#{} • {}",
-                target.pr.repository, target.pr.number, target.pr.id
-            ),
-            format!("Observed head: {}", target.head_sha),
-        ];
+        );
+        preview.push(format!(
+            "Exact PR: {}#{} • {}",
+            target.pr.repository, target.pr.number, target.pr.id
+        ));
+        paint
+            .states
+            .push((preview.len(), crate::theme::SemanticToken::Head));
+        preview.push(format!("Observed head: {}", target.head_sha));
         if let Some(selected) = selected_comment {
             preview.push(format!(
-                "Exact comment: {} • node {} • author {} • {:?}",
-                selected.observed.id,
-                selected.observed.node_id,
-                selected.observed.author.label(),
-                selected.kind
+                "Exact comment: {} • node {} • {:?}",
+                selected.observed.id, selected.observed.node_id, selected.kind
             ));
+            actor_row(
+                &mut preview,
+                &mut paint.actors,
+                "Comment author: ",
+                &selected.observed.author,
+                "",
+            );
             preview.push(format!(
                 "Observed updated time: {}",
                 selected.observed.updated_at
@@ -1674,13 +1784,19 @@ impl PrPlan {
                 "Adds this account's {:?} reaction to the exact selected comment.",
                 reaction
             )),
-            PrOperation::RemoveReaction(_, reaction) => preview.push(format!(
-                "Removes only reaction {} ({}) by {} • node {}.",
-                reaction.id,
-                reaction.content,
-                reaction.actor.label(),
-                reaction.node_id
-            )),
+            PrOperation::RemoveReaction(_, reaction) => {
+                preview.push(format!(
+                    "Removes only reaction {} ({}) • node {}.",
+                    reaction.id, reaction.content, reaction.node_id
+                ));
+                actor_row(
+                    &mut preview,
+                    &mut paint.actors,
+                    "Reaction by: ",
+                    &reaction.actor,
+                    "",
+                );
+            }
             PrOperation::Subscription(state) => {
                 let current = fresh_subscription
                     .as_ref()
@@ -1702,6 +1818,14 @@ impl PrPlan {
                     target.head_ref,
                     target.base_ref
                 ));
+                paint.states.push((
+                    preview.len(),
+                    if target.mergeable == Some(false) {
+                        crate::theme::SemanticToken::Conflict
+                    } else {
+                        merge_state_token(&target.mergeable_state)
+                    },
+                ));
                 preview.push(format!(
                     "Mergeable: {} • {}",
                     target
@@ -1721,12 +1845,56 @@ impl PrPlan {
                 }
             }
             PrOperation::State(state) => {
+                if let StateOperation::UpdateBranch { .. } = state {
+                    // Row 1 names the merge state the update starts from.
+                    paint.states.push((
+                        preview.len() + 1,
+                        merge_state_token(&target.mergeable_state),
+                    ));
+                }
                 preview.extend(state.preview(&target));
                 if state.command() == PrCommand::DisableAutoMerge {
-                    preview.extend(auto_merge_enabler_line(context));
+                    if let Some((line, enabler)) = auto_merge_enabler_line(context) {
+                        preview.push(line);
+                        actor_row(
+                            &mut preview,
+                            &mut paint.actors,
+                            "Enabled by: ",
+                            &enabler,
+                            "",
+                        );
+                    }
                 }
             }
-            PrOperation::Governed(governed) => preview.extend(governed.preview(&target, context)),
+            PrOperation::Governed(governed) => {
+                let start = preview.len();
+                preview.extend(governed.preview(&target, context));
+                match governed {
+                    // Row 1 names the merge state GitHub reported.
+                    GovernedOperation::Enqueue => {
+                        if let Some(merge) = context.governance.merge_context.as_ref() {
+                            paint
+                                .states
+                                .push((start + 1, merge_state_token(&merge.merge_state_status)));
+                        }
+                    }
+                    // Row 0 names the entry's queue state; the enqueuer
+                    // follows as its own actor row.
+                    GovernedOperation::Dequeue(entry) => {
+                        paint.states.push((start, merge_state_token(&entry.state)));
+                        let rest = preview.split_off(start + 1);
+                        actor_row(
+                            &mut preview,
+                            &mut paint.actors,
+                            "Enqueued by: ",
+                            &entry.enqueuer,
+                            "",
+                        );
+                        preview.extend(rest);
+                    }
+                    _ => {}
+                }
+            }
             PrOperation::ViewedFile(selected, viewed) => {
                 preview.push(format!(
                     "Exact canonical file: {}",
@@ -1771,6 +1939,7 @@ impl PrPlan {
             context: prepared_context,
             command,
             preview,
+            paint,
             operation,
             intent,
         })
@@ -2639,21 +2808,68 @@ mod governed_tests {
         let request = serde_json::json!({
             "mergeMethod": "SQUASH",
             "enabledAt": "2026-10-20T00:00:00Z",
-            "enabledBy": {"login": "alice", "avatarUrl": "https://avatars.invalid/u/7"}
+            "enabledBy": {"__typename": "User", "login": "alice", "avatarUrl": "https://avatars.invalid/u/7"}
         });
         ctx.governance.merge_context = Some(merge_context(Some(request.clone()), true));
         assert_eq!(PrCommand::DisableAutoMerge.disabled_reason(&ctx), None);
+        let (line, enabler) = auto_merge_enabler_line(&ctx).unwrap();
         assert_eq!(
-            auto_merge_enabler_line(&ctx).unwrap(),
-            "Auto-merge (squash) was enabled by @alice at 2026-10-20T00:00:00Z; disabling cancels it for everyone."
+            line,
+            "Auto-merge (squash) was enabled at 2026-10-20T00:00:00Z; disabling cancels it for everyone."
         );
-        // A missing enabler keeps the honest fallback.
+        assert_eq!(enabler.login, "alice");
+        // TASK-24 AC6: the enabler is an actor row painted with the shared chip.
+        let mut preview = Vec::new();
+        let mut actors = Vec::new();
+        actor_row(&mut preview, &mut actors, "Enabled by: ", &enabler, "");
+        assert_eq!(preview, ["Enabled by: alice"]);
+        let paint = PrPreviewPaintV1 {
+            host: "github.invalid".into(),
+            actors,
+            states: vec![],
+        };
+        let theme = crate::theme::Theme::from_settings(0, false);
+        let painted = paint.row_line(0, true, &preview[0], theme);
+        let identity = crate::identity::ActorIdentity::github("github.invalid", &enabler);
+        assert_eq!(
+            painted
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "Enabled by: AL alice"
+        );
+        assert_eq!(
+            painted.spans[1].style,
+            theme.identity_chip(crate::identity::InitialsChip::slot(&identity))
+        );
+        let mut plain = theme;
+        plain.mode = crate::theme::ColorMode::NoColor;
+        assert_eq!(
+            paint
+                .row_line(0, true, &preview[0], plain)
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "Enabled by: [AL] alice"
+        );
+        // A wrapped continuation is never given a chip.
+        assert_eq!(paint.row_line(0, false, "alice", theme).spans.len(), 1);
+        // A missing enabler keeps the honest fallback: text, no chip.
         let anonymous =
             serde_json::json!({"mergeMethod": "MERGE", "enabledAt": "", "enabledBy": null});
         ctx.governance.merge_context = Some(merge_context(Some(anonymous), true));
-        assert!(auto_merge_enabler_line(&ctx)
-            .unwrap()
-            .contains("enabled by unknown actor at an unreported time"));
+        let (line, enabler) = auto_merge_enabler_line(&ctx).unwrap();
+        assert!(line.contains("was enabled at an unreported time"), "{line}");
+        let mut preview = Vec::new();
+        let mut actors = Vec::new();
+        actor_row(&mut preview, &mut actors, "Enabled by: ", &enabler, "");
+        assert_eq!(
+            preview,
+            ["Enabled by: unknown actor (GitHub did not report who)"]
+        );
+        assert!(actors.is_empty());
         // Fresh state wins over the cached PR flag.
         ctx.governance.merge_context = Some(merge_context(None, true));
         assert!(PrCommand::DisableAutoMerge
@@ -2666,6 +2882,33 @@ mod governed_tests {
             .disabled_reason(&ctx)
             .unwrap()
             .contains("@octocat cannot disable"));
+    }
+
+    #[test]
+    fn merge_workflows_state_rows_use_shared_semantic_tokens_with_their_label() {
+        use crate::theme::SemanticToken;
+        assert_eq!(merge_state_token("clean"), SemanticToken::Success);
+        assert_eq!(merge_state_token("CLEAN"), SemanticToken::Success);
+        assert_eq!(merge_state_token("dirty"), SemanticToken::Conflict);
+        assert_eq!(merge_state_token("behind"), SemanticToken::Diverged);
+        assert_eq!(merge_state_token("BLOCKED"), SemanticToken::Failure);
+        assert_eq!(merge_state_token("QUEUED"), SemanticToken::Pending);
+        assert_eq!(merge_state_token("LOCKED"), SemanticToken::Running);
+        assert_eq!(merge_state_token("unknown"), SemanticToken::Pending);
+        let paint = PrPreviewPaintV1 {
+            host: "github.invalid".into(),
+            actors: vec![],
+            states: vec![(3, SemanticToken::Conflict)],
+        };
+        let theme = crate::theme::Theme::from_settings(0, false);
+        let line = paint.row_line(3, true, "Mergeable: no • dirty", theme);
+        // The state word stays in the text; the ink is the shared token's.
+        assert_eq!(line.spans[0].content, "Mergeable: no • dirty");
+        assert_eq!(line.spans[0].style, theme.style(SemanticToken::Conflict));
+        assert_eq!(
+            paint.row_line(2, true, "Other", theme).spans[0].style,
+            theme.base()
+        );
     }
 
     #[test]

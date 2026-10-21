@@ -288,6 +288,133 @@ fn confirm(session: &mut Session, mouse: bool) {
         session.send_key(b"\r");
     }
 }
+/// Preview rows that name a GitHub user: (prefix, initials, rest, login).
+type ActorRows = &'static [(&'static str, &'static str, &'static str, &'static str)];
+/// Preview state rows: (label text, the shared semantic token of its ink).
+type StateRows = &'static [(&'static str, ghtui::theme::SemanticToken)];
+/// Wait for every actor chip and state ink a PR action preview must show.
+fn wait_preview_paint(session: &mut Session, actors: ActorRows, states: StateRows, no_color: bool) {
+    let mut rows = vec![ACCOUNT_ROW];
+    rows.extend_from_slice(actors);
+    wait_preview_actor_chips(session, &rows, no_color);
+    if !no_color {
+        for (label, token) in states {
+            wait_preview_state_ink(session, label, *token);
+        }
+    }
+}
+/// The account row every PR action preview starts with.
+const ACCOUNT_ROW: (&str, &str, &str, &str) = (
+    "Account: ",
+    "OC",
+    "octocat on github.invalid • numeric identity 42",
+    "octocat",
+);
+
+/// TASK-24/25 AC6: each row shows `prefix`, the login's two-cell initials
+/// chip filled with its identity hue (the same hue as every other GitHub
+/// actor row for that login), one unfilled blank cell, then `rest`. With
+/// colour on, the bracketed `[AB]` form never appears; under NO_COLOR the
+/// chip is the bracketed text form instead.
+fn preview_actor_chips_painted(
+    frame: &vt100::Screen,
+    rows: &[(&str, &str, &str, &str)],
+    no_color: bool,
+) -> bool {
+    use ghtui::identity::{ActorIdentity, InitialsChip};
+    let contents = frame.contents();
+    if no_color {
+        return rows.iter().all(|(prefix, initials, rest, _)| {
+            contents.contains(&format!("{prefix}[{initials}] {rest}"))
+        });
+    }
+    rows.iter().all(|(prefix, initials, rest, login)| {
+        if contents.contains(&format!("{prefix}[{initials}]")) {
+            return false;
+        }
+        let identity = ActorIdentity::github(
+            "github.invalid",
+            &ghtui::providers::gh::Actor {
+                login: (*login).into(),
+                actor_type: "User".into(),
+                ..Default::default()
+            },
+        );
+        let hex = ghtui::theme::CATPPUCCIN_MOCHA.lanes()[InitialsChip::slot(&identity)];
+        let hue = vt100::Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+        let wanted = format!("{prefix}{initials} {rest}");
+        contents.lines().enumerate().any(|(row, line)| {
+            let Some(at) = line.find(&wanted) else {
+                return false;
+            };
+            let chip = (line[..at].chars().count() + prefix.chars().count()) as u16;
+            let filled = initials.chars().enumerate().all(|(offset, letter)| {
+                frame
+                    .cell(row as u16, chip + offset as u16)
+                    .is_some_and(|cell| {
+                        cell.contents() == letter.to_string() && cell.bgcolor() == hue
+                    })
+            });
+            let gap = frame
+                .cell(row as u16, chip + 2)
+                .is_some_and(|cell| cell.contents().trim().is_empty() && cell.bgcolor() != hue);
+            filled && gap
+        })
+    })
+}
+fn wait_preview_actor_chips(
+    session: &mut Session,
+    rows: &[(&str, &str, &str, &str)],
+    no_color: bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(5));
+        if session
+            .completed_cells_screen()
+            .is_some_and(|frame| preview_actor_chips_painted(frame, rows, no_color))
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "PR action preview actor chips not painted: {rows:?}\n{}",
+            session.screen()
+        );
+    }
+}
+/// A Git/merge state row keeps its text label and is drawn in the shared
+/// semantic token's ink, never colour alone (TASK-24/25 AC6).
+fn wait_preview_state_ink(session: &mut Session, label: &str, token: ghtui::theme::SemanticToken) {
+    let wanted = match ghtui::theme::Theme::from_settings(0, false).style(token).fg {
+        Some(ratatui::style::Color::Rgb(r, g, b)) => vt100::Color::Rgb(r, g, b),
+        other => panic!("{token:?} has no truecolor ink: {other:?}"),
+    };
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        session.poll_output(Duration::from_millis(5));
+        let painted = session.completed_cells_screen().is_some_and(|frame| {
+            frame.contents().lines().enumerate().any(|(row, line)| {
+                line.find(label).is_some_and(|at| {
+                    let column = line[..at].chars().count() as u16;
+                    (0..label.chars().count() as u16).all(|offset| {
+                        frame
+                            .cell(row as u16, column + offset)
+                            .is_some_and(|cell| cell.fgcolor() == wanted)
+                    })
+                })
+            })
+        });
+        if painted {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "PR action preview state row {label:?} not drawn in {token:?} ink\n{}",
+            session.screen()
+        );
+    }
+}
 fn records(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value> {
     session.wait_for_command_count(fixture, count);
     let records: Vec<Value> = session

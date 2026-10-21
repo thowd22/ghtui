@@ -3336,6 +3336,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 FormPurpose::Local(intent) => intent.pr_create_v1.clone(),
                 _ => None,
             };
+            // PR action previews (merge, auto-merge, queue, lifecycle) paint
+            // their actor rows with the same chip and their merge-state rows
+            // with the shared semantic ink (TASK-24/25 AC6).
+            let pr_action_paint = match &form.purpose {
+                FormPurpose::PrAction(intent) => {
+                    intent.plan.as_ref().map(|plan| plan.paint.clone())
+                }
+                _ => None,
+            };
             let mut summary_viewport_v7 =
                 crate::prepared_form_text_v1::FormPreviewViewportV1::default();
             let window = document.as_ref().map(|document| {
@@ -3361,9 +3370,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     }
                     form.preview_display_v1.geometry_rejected=false;
                     for (offset,row) in window.rows().enumerate() {
-                        let line = match &pr_create_v1 {
-                            Some(plan) => plan.preview_row_line(row.original_row(), row.first_segment(), row.text(), theme),
-                            None => ratatui::text::Line::raw(row.text()),
+                        let line = match (&pr_create_v1, &pr_action_paint) {
+                            (Some(plan), _) => plan.preview_row_line(row.original_row(), row.first_segment(), row.text(), theme),
+                            (None, Some(paint)) => paint.row_line(row.original_row(), row.first_segment(), row.text(), theme),
+                            (None, None) => ratatui::text::Line::raw(row.text()),
                         };
                         frame.render_widget(Paragraph::new(line).style(theme.base()),
                             Rect::new(body.x,body.y+offset as u16,body.width,1));
