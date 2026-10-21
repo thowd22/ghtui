@@ -555,6 +555,8 @@ fn execute_mode_v63(
                 )
             })?;
     }
+    #[cfg(test)]
+    launch_observer_v1::observe(spec);
     let start = Instant::now();
     let mut command = Command::new(&spec.program);
     command
@@ -905,6 +907,41 @@ pub fn redact(input: &str, secrets: &[String]) -> String {
         }
     }
     result
+}
+
+/// Test-only view of every child this thread is about to launch (TASK-102), so a
+/// test can check shared state, such as SQLite locks, while the child runs.
+#[cfg(test)]
+pub(crate) mod launch_observer_v1 {
+    use super::CommandSpec;
+    use std::cell::RefCell;
+
+    type Observer = Box<dyn FnMut(&CommandSpec)>;
+    thread_local! {
+        static OBSERVER: RefCell<Option<Observer>> = const { RefCell::new(None) };
+    }
+
+    /// Removes the observer when dropped.
+    #[must_use]
+    pub(crate) struct ObserverGuard(());
+    impl Drop for ObserverGuard {
+        fn drop(&mut self) {
+            OBSERVER.with(|slot| slot.borrow_mut().take());
+        }
+    }
+
+    pub(crate) fn install(observer: impl FnMut(&CommandSpec) + 'static) -> ObserverGuard {
+        OBSERVER.with(|slot| *slot.borrow_mut() = Some(Box::new(observer)));
+        ObserverGuard(())
+    }
+
+    pub(super) fn observe(spec: &CommandSpec) {
+        OBSERVER.with(|slot| {
+            if let Some(observer) = slot.borrow_mut().as_mut() {
+                observer(spec);
+            }
+        });
+    }
 }
 
 #[cfg(test)]

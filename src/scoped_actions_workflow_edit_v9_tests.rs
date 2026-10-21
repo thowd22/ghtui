@@ -2088,6 +2088,62 @@ fn task54_workflow_edit_v9_actual_closed_core_matches_git_bytes_and_preserves_al
     f::exact(&fixture, &all);
 }
 
+/// TASK-102: no SQLite transaction stays open while a Git or gh child runs. At
+/// every child launch of the local Open and its later validation, a second
+/// connection must take the write lock at once (no busy wait), so no waiter can
+/// starve behind subprocess or network time.
+#[test]
+fn task54_workflow_edit_v9_no_sqlite_transaction_is_held_across_git_or_gh_children() {
+    use crate::providers::runner::launch_observer_v1;
+    use crate::scoped_actions_workflow_edit_v9::prepare_local_open_v9;
+    use std::{cell::RefCell, rc::Rc};
+    let (fixture, provider, app, all) = local_fixture(r::yaml(), r::yaml());
+    let database = f::database(&fixture);
+    let launches = Rc::new(RefCell::new(Vec::<(String, Result<(), String>)>::new()));
+    let observed = launches.clone();
+    let probe_database = database.clone();
+    let _observer = launch_observer_v1::install(move |spec| {
+        let second = rusqlite::Connection::open_with_flags(
+            &probe_database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .unwrap();
+        second.busy_timeout(std::time::Duration::ZERO).unwrap();
+        let locked = second
+            .execute_batch("BEGIN IMMEDIATE; ROLLBACK;")
+            .map_err(|error| error.to_string());
+        observed
+            .borrow_mut()
+            .push((spec.program.to_string_lossy().into_owned(), locked));
+    });
+    let token = CancellationToken::default();
+    let opened = prepare_local_open_v9(
+        local_intent(&app),
+        &provider,
+        &database,
+        &token,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+    )
+    .unwrap();
+    opened.validate_local(&database, &token).unwrap();
+    let launches = launches.borrow();
+    for program in ["git", "gh"] {
+        assert!(
+            launches.iter().any(|(name, _)| name.ends_with(program)),
+            "the flow launched no {program} child: {launches:?}"
+        );
+    }
+    let held: Vec<_> = launches
+        .iter()
+        .filter(|(_, locked)| locked.is_err())
+        .collect();
+    assert!(
+        held.is_empty(),
+        "a SQLite transaction was open while a child ran: {held:?}"
+    );
+    f::exact(&fixture, &all);
+}
+
 #[test]
 fn task54_workflow_edit_v9_genuine_remote_bytes_do_not_promote_mismatching_local_blob() {
     use crate::scoped_actions_workflow_edit_v9::prepare_local_open_v9;

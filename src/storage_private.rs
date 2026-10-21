@@ -18,7 +18,68 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 /// Linux O_PATH handles do not cancel SQLite's POSIX locks on close.
 #[cfg(target_os = "linux")]
 pub(crate) fn prepare(path: &Path) -> Result<Vec<File>> {
-    prepare_after_open(path, |_, _| {})
+    prepare_with_budget_v3(
+        path,
+        |_: &Path, _: &File| {},
+        |path: &Path, _: NamedPhaseV2| fs::symlink_metadata(path),
+        ValidationBudgetV3::fair(),
+    )
+}
+
+/// How long journal validation may keep discarding a changed tentative set (TASK-102).
+/// Under write load SQLite creates and unlinks `-journal` on every commit, so four
+/// back-to-back passes can all land inside other writers' transactions. The fair
+/// budget makes the first passes at once, then waits 1 ms between fresh passes until
+/// the same 2 s budget a lock wait gets. Every pass still discards the whole set and
+/// repairs nothing; only a fully stable set is accepted.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug)]
+struct ValidationBudgetV3 {
+    immediate_passes: usize,
+    max_passes: usize,
+    deadline: Option<std::time::Instant>,
+}
+
+#[cfg(target_os = "linux")]
+impl ValidationBudgetV3 {
+    const IMMEDIATE_PASSES: usize = 4;
+    /// A hard pass cap so a clock stall can never turn the wait unbounded.
+    const MAX_PASSES: usize = 4096;
+    fn fair() -> Self {
+        Self::until(crate::storage::busy_v1::wait_end_from_now())
+    }
+    fn until(deadline: std::time::Instant) -> Self {
+        Self {
+            immediate_passes: Self::IMMEDIATE_PASSES,
+            max_passes: Self::MAX_PASSES,
+            deadline: Some(deadline),
+        }
+    }
+    /// Exactly four immediate passes and no wait.
+    #[cfg(test)]
+    fn passes_only() -> Self {
+        Self {
+            immediate_passes: Self::IMMEDIATE_PASSES,
+            max_passes: Self::IMMEDIATE_PASSES,
+            deadline: None,
+        }
+    }
+    /// Whether pass `done + 1` may start, waiting briefly first once past the
+    /// immediate passes.
+    fn another_pass(&self, done: usize) -> bool {
+        if done < self.immediate_passes {
+            return true;
+        }
+        let Some(deadline) = self.deadline else {
+            return false;
+        };
+        let now = std::time::Instant::now();
+        if done >= self.max_passes || now >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1).min(deadline - now));
+        true
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -40,7 +101,7 @@ fn target_paths(path: &Path) -> [PathBuf; 4] {
     ]
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", test))]
 fn prepare_after_open(path: &Path, mut after_open: impl FnMut(&Path, &File)) -> Result<Vec<File>> {
     prepare_with_named_metadata_v2(path, &mut after_open, |path, _| fs::symlink_metadata(path))
 }
@@ -61,11 +122,27 @@ fn optional_named_unlinked_v2(index: usize, regular: bool, owned: bool, unlinked
     index > 0 && regular && owned && unlinked
 }
 
-#[cfg(target_os = "linux")]
+/// The former fixed budget: exactly four immediate passes. Tests pin it.
+#[cfg(all(target_os = "linux", test))]
 fn prepare_with_named_metadata_v2(
+    path: &Path,
+    after_open: impl FnMut(&Path, &File),
+    metadata: impl FnMut(&Path, NamedPhaseV2) -> std::io::Result<fs::Metadata>,
+) -> Result<Vec<File>> {
+    prepare_with_budget_v3(
+        path,
+        after_open,
+        metadata,
+        ValidationBudgetV3::passes_only(),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn prepare_with_budget_v3(
     path: &Path,
     mut after_open: impl FnMut(&Path, &File),
     mut metadata: impl FnMut(&Path, NamedPhaseV2) -> std::io::Result<fs::Metadata>,
+    budget: ValidationBudgetV3,
 ) -> Result<Vec<File>> {
     let parent = path
         .parent()
@@ -88,9 +165,11 @@ fn prepare_with_named_metadata_v2(
     let mut original_main = None;
     // SQLite may unlink optional journals during an ordinary commit/last close.
     // Never repair a detached descriptor or relax the current-target policy.
-    // Discard the WHOLE tentative set and inspect fresh names, at most four
-    // times, before any chmod. This performs no SQL or mutation retry.
-    'validation: for _ in 0..4 {
+    // Discard the WHOLE tentative set and inspect fresh names, within the
+    // bounded pass budget, before any chmod. This performs no SQL or mutation retry.
+    let mut passes = 0;
+    'validation: while budget.another_pass(passes) {
+        passes += 1;
         // Validate ALL existing names before even creating an absent main.
         // An unsafe optional alias must not cause any database publication.
         let mut originals = Vec::with_capacity(paths.len());
@@ -496,6 +575,89 @@ mod tests {
         for file in [&path, &journal] {
             assert_eq!(fs::read(file).unwrap(), b"original private bytes");
             assert_eq!(fs::metadata(file).unwrap().mode() & 0o777, 0o644);
+        }
+    }
+
+    /// Replaces the journal while it is held, as a committing writer does, for
+    /// the first `churn` opens of it. Returns the number of churned opens.
+    #[cfg(target_os = "linux")]
+    fn churned_journal_v3(
+        churn: usize,
+        budget: ValidationBudgetV3,
+    ) -> (tempfile::TempDir, Result<Vec<File>>, usize) {
+        let directory = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
+        let path = directory.path().join("cache.sqlite");
+        let journal = directory.path().join("cache.sqlite-journal");
+        for file in [&path, &journal] {
+            fs::write(file, b"original private bytes").unwrap();
+            fs::set_permissions(file, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let mut churned = 0;
+        let result = prepare_with_budget_v3(
+            &path,
+            |opened_path: &Path, _: &File| {
+                if opened_path == journal && churned < churn {
+                    fs::remove_file(&journal).unwrap();
+                    fs::write(&journal, b"original private bytes").unwrap();
+                    fs::set_permissions(&journal, fs::Permissions::from_mode(0o644)).unwrap();
+                    churned += 1;
+                }
+            },
+            |path: &Path, _: NamedPhaseV2| fs::symlink_metadata(path),
+            budget,
+        );
+        (directory, result, churned)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cache_storage_private_fair_budget_v3_waits_out_journal_churn_past_four_passes() {
+        let started = std::time::Instant::now();
+        let budget = ValidationBudgetV3::until(started + std::time::Duration::from_secs(2));
+        let (directory, result, churned) = churned_journal_v3(12, budget);
+        assert_eq!(churned, 12, "the churning writer was not outlasted");
+        let held = result.expect("a set that settles within the budget is accepted");
+        assert_eq!(held.len(), 2);
+        for name in ["cache.sqlite", "cache.sqlite-journal"] {
+            let file = directory.path().join(name);
+            assert_eq!(fs::read(&file).unwrap(), b"original private bytes");
+            assert_eq!(fs::metadata(&file).unwrap().mode() & 0o777, 0o600);
+        }
+        // The extra passes waited about 1 ms each, not busy-spun or slept long.
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= std::time::Duration::from_millis(8),
+            "{elapsed:?}"
+        );
+        assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cache_storage_private_fair_budget_v3_still_refuses_persistent_churn_at_its_deadline() {
+        let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_millis(60);
+        let (directory, result, churned) =
+            churned_journal_v3(usize::MAX, ValidationBudgetV3::until(deadline));
+        let elapsed = started.elapsed();
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("bounded validation"));
+        assert!(churned > 4, "the fair budget made only {churned} passes");
+        assert!(churned <= ValidationBudgetV3::MAX_PASSES);
+        assert!(
+            elapsed >= std::time::Duration::from_millis(60),
+            "{elapsed:?}"
+        );
+        assert!(elapsed < std::time::Duration::from_secs(1), "{elapsed:?}");
+        for name in ["cache.sqlite", "cache.sqlite-journal"] {
+            let file = directory.path().join(name);
+            assert_eq!(fs::read(&file).unwrap(), b"original private bytes");
+            assert_eq!(fs::metadata(&file).unwrap().mode() & 0o777, 0o644);
         }
     }
 

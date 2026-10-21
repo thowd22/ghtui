@@ -32,6 +32,13 @@ fn retry(attempt: i32) -> bool {
     true
 }
 
+/// When a wait starting now must end: the full budget, or sooner while a
+/// [`BusyDeadline`] guard is alive on this thread.
+pub(crate) fn wait_end_from_now() -> Instant {
+    let end = Instant::now() + BUSY_BUDGET;
+    DEADLINE.get().map_or(end, |deadline| deadline.min(end))
+}
+
 /// Uses the fair handler for every lock wait on `connection`.
 pub(crate) fn install(connection: &Connection) -> rusqlite::Result<()> {
     connection.busy_handler(Some(retry))
