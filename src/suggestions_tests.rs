@@ -81,6 +81,7 @@ fn suggestion(start: u32, end: u32, original: &[&str], replacement: &[&str]) -> 
             login: "octocat".into(),
             account_id: Some(42),
         }),
+        original_source: None,
     }
 }
 fn local_state(work: &Path) -> (String, Vec<u8>, Vec<u8>, String) {
@@ -102,6 +103,11 @@ fn request<'a>(f: &'a Fixture, suggestions: &'a [Suggestion], push: bool) -> App
         committer: ("Reviewer", "reviewer@example.invalid"),
         push,
         scratch_in: Some(&f.scratch),
+        cancel: None,
+        deadline: None,
+        date: None,
+        expected_commit: None,
+        push_to: None,
     }
 }
 fn remote_head(f: &Fixture) -> String {
@@ -364,5 +370,84 @@ fn suggestions_outdated_head_conflict_overlap_and_rejection_push_nothing() {
         Err(SuggestionError::Git(_))
     ));
     assert_eq!(local_state(&f.work), before);
+    assert!(scratch_empty(&f));
+}
+
+#[test]
+fn suggestions_posted_original_lines_come_from_their_commit_and_fixed_date_repeats_the_commit() {
+    let f = fixture();
+    // The caller's copy of the original lines is ignored: the engine reads
+    // lines 2–3 from the suggestion's own commit.
+    let mut posted = suggestion(2, 3, &["bogus"], &["fn both() {}"]);
+    posted.original_source = Some(OriginalSource {
+        commit: f.head.clone(),
+        start: 2,
+        end: 3,
+    });
+    let batch = [posted.clone()];
+    let mut preview = request(&f, &batch, false);
+    preview.date = Some("1700000000 +0000");
+    let plan = apply_isolated(&preview).unwrap();
+    assert_eq!(
+        plan.preview,
+        vec![
+            format!("@@ {FILE} lines 2–3"),
+            "-fn two() {}".to_owned(),
+            "-fn three() {}".to_owned(),
+            "+fn both() {}".to_owned()
+        ]
+    );
+    // A different previewed commit is refused before any push.
+    let mut wrong = request(&f, &batch, true);
+    wrong.date = Some("1700000000 +0000");
+    wrong.expected_commit = Some("0000000000000000000000000000000000000000");
+    assert!(matches!(
+        apply_isolated(&wrong),
+        Err(SuggestionError::Git(message)) if message.contains("differs from the previewed")
+    ));
+    assert_eq!(remote_head(&f), f.head);
+    // The confirmed push recreates and pushes exactly the previewed commit.
+    let mut confirmed = request(&f, &batch, true);
+    confirmed.date = Some("1700000000 +0000");
+    confirmed.expected_commit = Some(&plan.commit);
+    let pushed = apply_isolated(&confirmed).unwrap();
+    assert!(pushed.pushed);
+    assert_eq!(pushed.commit, plan.commit);
+    assert_eq!(remote_head(&f), plan.commit);
+    // Original lines that are not at that commit are a range refusal.
+    let mut missing = posted;
+    missing.original_source = Some(OriginalSource {
+        commit: f.head.clone(),
+        start: 9,
+        end: 9,
+    });
+    let mut stale = request(&f, std::slice::from_ref(&missing), false);
+    stale.expected_head = &plan.commit;
+    assert!(matches!(
+        apply_isolated(&stale),
+        Err(SuggestionError::Range(_))
+    ));
+    assert!(scratch_empty(&f));
+}
+
+#[test]
+fn suggestions_cancel_and_deadline_stop_before_any_push() {
+    let f = fixture();
+    let batch = [suggestion(1, 1, &["fn one() {}"], &["fn ONE() {}"])];
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    let mut cancelled = request(&f, &batch, true);
+    cancelled.cancel = Some(&cancel);
+    let error = apply_isolated(&cancelled).unwrap_err();
+    assert_eq!(error, SuggestionError::Cancelled);
+    assert!(error.nothing_written());
+    let mut late = request(&f, &batch, true);
+    late.deadline = Some(Instant::now());
+    assert_eq!(apply_isolated(&late), Err(SuggestionError::TimedOut));
+    assert_eq!(remote_head(&f), f.head);
+    assert!(SuggestionError::Uncertain("x".into())
+        .to_string()
+        .contains("unknown"));
+    assert!(!SuggestionError::Uncertain("x".into()).nothing_written());
     assert!(scratch_empty(&f));
 }

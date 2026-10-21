@@ -2997,6 +2997,7 @@ fn run() -> Result<()> {
                 })
             });
         }
+        ghtui::suggestion_apply_v1::tick(&mut app, &paths.database);
         terminal.draw(|frame| ui::draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(40))? {
             app.handle_event(event::read()?);

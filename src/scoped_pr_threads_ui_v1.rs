@@ -11,6 +11,7 @@ use ratatui::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadUiActionV1 {
     CurrentCode,
+    Suggestions,
     Comments,
     Publication(publication_v1::ThreadPublicationActionV1),
     Select(usize),
@@ -28,6 +29,8 @@ pub struct ThreadBrowserV1 {
     pub(crate) code_notice_v4: Option<String>,
     pub(crate) presentation_epoch_v4: Option<u64>,
     pub comments_v2: Option<comments_v2::ui::ThreadCommentsBrowserV2>,
+    /// TASK-23 suggestion chooser/plan/apply, drawn over this overlay.
+    pub suggestions_v23: Option<crate::suggestion_apply_v1::SuggestionApplyViewV23>,
     pub intent: Arc<ThreadBrowseIntentV1>,
     pub prepared: Option<Arc<PreparedThreadsV1>>,
     pub selected: usize,
@@ -46,6 +49,7 @@ impl ThreadBrowserV1 {
             code_notice_v4: None,
             presentation_epoch_v4: Some(0),
             comments_v2: None,
+            suggestions_v23: None,
             intent,
             prepared: None,
             selected: 0,
@@ -169,6 +173,9 @@ pub fn event(app: &mut App, event: &Event) -> bool {
     {
         return comments_v2::ui::event(app, event);
     }
+    if crate::suggestion_apply_v1::event(app, event) {
+        return true;
+    }
     let action = match event {
         Event::Resize(_, _) => {
             if let Some(view) = &mut app.scoped_threads_v1 {
@@ -195,6 +202,7 @@ pub fn event(app: &mut App, event: &Event) -> bool {
                     KeyCode::Char('i') => Some(ThreadUiActionV1::Source),
                     KeyCode::Char('c') => Some(ThreadUiActionV1::Comments),
                     KeyCode::Char('g') => Some(ThreadUiActionV1::CurrentCode),
+                    KeyCode::Char('s') => Some(ThreadUiActionV1::Suggestions),
                     KeyCode::Char('p') => Some(ThreadUiActionV1::Publication(
                         publication_v1::ThreadPublicationActionV1::Reply,
                     )),
@@ -245,6 +253,10 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
     }
     if action == ThreadUiActionV1::CurrentCode {
         native_v1::open_current_code_v4(app);
+        return;
+    }
+    if action == ThreadUiActionV1::Suggestions {
+        crate::suggestion_apply_v1::open(app);
         return;
     }
     if let ThreadUiActionV1::Publication(action) = action {
@@ -313,6 +325,7 @@ pub fn dispatch(app: &mut App, action: ThreadUiActionV1) {
         ThreadUiActionV1::Publication(_) => unreachable!("handled above"),
         ThreadUiActionV1::Comments => unreachable!("handled above"),
         ThreadUiActionV1::CurrentCode => unreachable!("handled above"),
+        ThreadUiActionV1::Suggestions => unreachable!("handled above"),
     }
     view.hits.clear();
 }
@@ -326,6 +339,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .is_some_and(|view| view.comments_v2.is_some())
     {
         comments_v2::ui::draw(frame, app, area);
+        return;
+    }
+    if app
+        .scoped_threads_v1
+        .as_ref()
+        .is_some_and(|view| view.suggestions_v23.is_some() && view.intent.owns(app))
+    {
+        crate::suggestion_apply_v1::draw(frame, app, area);
         return;
     }
     let theme = app.theme();
@@ -382,6 +403,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ("[i Source]", ThreadUiActionV1::Source),
         ("[c Comments]", ThreadUiActionV1::Comments),
         ("[g Current code]", ThreadUiActionV1::CurrentCode),
+        ("[s Suggestions]", ThreadUiActionV1::Suggestions),
         ("[PgUp]", ThreadUiActionV1::Scroll(-10)),
         ("[PgDn]", ThreadUiActionV1::Scroll(10)),
         ("[Left]", ThreadUiActionV1::Horizontal(-32)),

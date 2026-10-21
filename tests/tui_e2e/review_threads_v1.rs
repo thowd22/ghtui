@@ -5,6 +5,8 @@ use super::*;
 pub(crate) mod file_comments_v75;
 #[path = "review_thread_publication_v1.rs"]
 mod publication_v1;
+#[path = "review_thread_suggestions_v23.rs"]
+mod suggestions_v23;
 use crate::support::owned_pty_processes_v1::{process_identity, OwnedPtySession};
 use ghtui::providers::gh::METRICS_REVIEW_THREADS_QUERY;
 const THREAD_BODY: &str = "PRIVATE_NATIVE_THREAD_BODY 界";

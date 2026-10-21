@@ -523,6 +523,15 @@ impl PrWriteJournal {
     pub fn mark_uncertain(&mut self, permit: &PrWritePermit) -> Result<()> {
         self.finish(permit, PrWriteState::Uncertain, None)
     }
+    /// Closes a claimed attempt whose write is KNOWN not to have happened
+    /// (refused before sending, or read back unchanged). It records no effect
+    /// and stops blocking later writes; any doubt must use `mark_uncertain`.
+    pub fn mark_not_written(&mut self, permit: &PrWritePermit) -> Result<()> {
+        if !permit.claimed.load(Ordering::Acquire) {
+            bail!("Cannot close a PR publication permit that was never used");
+        }
+        self.finish(permit, PrWriteState::Acknowledged, None)
+    }
     pub fn mark_confirmed(
         &mut self,
         permit: &PrWritePermit,

@@ -157,6 +157,7 @@ pub mod search_ui;
 pub(crate) mod state_inbox_sync_v76;
 pub mod storage;
 mod storage_private;
+pub mod suggestion_apply_v1;
 pub mod suggestions;
 pub mod terminal;
 pub mod theme;

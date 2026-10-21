@@ -178,6 +178,17 @@ impl PrResourceParentV1 {
     pub fn changed_files(&self) -> Option<u64> {
         self.changed_files
     }
+    /// The observed head branch name.
+    pub fn head_ref(&self) -> &str {
+        &self.summary.head_ref
+    }
+    /// `owner/name` of the observed head repository; None when GitHub reports
+    /// no head repository (for example a deleted fork).
+    pub fn head_repository_name(&self) -> Option<&str> {
+        self.head_repository
+            .as_ref()
+            .map(|(_, _, name)| name.as_str())
+    }
 }
 /// Intermediate actual provider data. Only the owning original session's closing
 /// repo + local guard + final principal admit a private prepared page.

@@ -8,11 +8,13 @@
 //! single resulting commit is pushed only after an explicit confirmation, with
 //! a lease on the exact head the preview observed. The temporary repository is
 //! removed on every outcome.
+use crate::providers::runner::CancellationToken;
 use std::{
     collections::BTreeMap,
     fmt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    time::{Duration, Instant},
 };
 
 /// Longest replacement accepted for one suggestion (GitHub's own limit is far
@@ -40,6 +42,17 @@ pub struct Suggestion {
     /// Replacement lines (no terminators). Empty deletes the range.
     pub replacement: Vec<String>,
     pub author: Option<SuggestionAuthor>,
+    /// Where the author saw the replaced lines. When set, the apply reads
+    /// `original` from that commit instead of trusting the caller's copy.
+    pub original_source: Option<OriginalSource>,
+}
+
+/// The commit and 1-based inclusive lines a posted suggestion was written on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OriginalSource {
+    pub commit: String,
+    pub start: u32,
+    pub end: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +73,18 @@ pub enum SuggestionError {
     PushRejected(String),
     /// Git failed before any remote write.
     Git(String),
+    /// The user cancelled before any remote write.
+    Cancelled,
+    /// The time limit passed before any remote write.
+    TimedOut,
+    /// The push started but its result could not be read back.
+    Uncertain(String),
+}
+impl SuggestionError {
+    /// True only when the remote branch is known to be unchanged.
+    pub fn nothing_written(&self) -> bool {
+        !matches!(self, Self::Uncertain(_))
+    }
 }
 
 impl fmt::Display for SuggestionError {
@@ -84,6 +109,12 @@ impl fmt::Display for SuggestionError {
                 "The remote refused the push: {message}. The PR branch was not changed."
             ),
             Self::Git(message) => write!(f, "Git failed: {message}. Nothing was pushed."),
+            Self::Cancelled => write!(f, "Cancelled before anything was pushed."),
+            Self::TimedOut => write!(f, "Timed out before anything was pushed."),
+            Self::Uncertain(message) => write!(
+                f,
+                "The push outcome is unknown: {message}. Refresh the PR before trying again."
+            ),
         }
     }
 }
@@ -302,18 +333,54 @@ pub struct ApplyRequest<'a> {
     /// Parent of the private repository; the system temporary directory when
     /// unset.
     pub scratch_in: Option<&'a Path>,
+    /// Stops every Git child; also checked between steps.
+    pub cancel: Option<&'a CancellationToken>,
+    /// Absolute time limit for the whole apply.
+    pub deadline: Option<Instant>,
+    /// Fixed `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE` (`<unix> +0000`) so a
+    /// confirmed push recreates exactly the previewed commit.
+    pub date: Option<&'a str>,
+    /// The previewed commit. A push refuses when the rebuilt commit differs.
+    pub expected_commit: Option<&'a str>,
+    /// Push URL when it differs from `remote` (`pushurl`/`pushInsteadOf`).
+    pub push_to: Option<&'a str>,
+}
+
+/// Cancellation and time bounds shared by every Git child of one apply.
+#[derive(Clone, Copy)]
+struct Bounds<'a> {
+    cancel: Option<&'a CancellationToken>,
+    deadline: Option<Instant>,
+}
+impl Bounds<'_> {
+    fn check(&self) -> Result<(), SuggestionError> {
+        if self.cancel.is_some_and(CancellationToken::is_cancelled) {
+            return Err(SuggestionError::Cancelled);
+        }
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return Err(SuggestionError::TimedOut);
+        }
+        Ok(())
+    }
 }
 
 fn git(
+    bounds: Bounds<'_>,
     dir: &Path,
     args: &[&str],
     env: &[(&str, &str)],
     stdin: Option<&[u8]>,
 ) -> Result<Vec<u8>, SuggestionError> {
+    bounds.check()?;
     let mut command = Command::new("git");
     command
         .arg("--no-pager")
         .arg("--literal-pathspecs")
+        // No background maintenance may outlive the private repository.
+        .args(["-c", "gc.auto=0", "-c", "maintenance.auto=false"])
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -338,19 +405,48 @@ fn git(
     if let Some(input) = stdin {
         use std::io::Write;
         let mut pipe = child.stdin.take().expect("piped stdin");
-        pipe.write_all(input)
-            .map_err(|error| SuggestionError::Git(format!("git stdin: {error}")))?;
+        if let Err(error) = pipe.write_all(input) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(SuggestionError::Git(format!("git stdin: {error}")));
+        }
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| SuggestionError::Git(format!("git: {error}")))?;
-    if output.status.success() {
-        Ok(output.stdout)
+    fn drain(mut pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut bytes = vec![];
+            let _ = pipe.read_to_end(&mut bytes);
+            bytes
+        })
+    }
+    let stdout = drain(child.stdout.take().expect("piped stdout"));
+    let stderr = drain(child.stderr.take().expect("piped stderr"));
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(SuggestionError::Git(format!("git: {error}")));
+            }
+        }
+        if let Err(stop) = bounds.check() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(stop);
+        }
+        // Child polling interval; cancellation and the deadline bound it.
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
+    if status.success() {
+        Ok(stdout)
     } else {
         Err(SuggestionError::Git(format!(
             "git {}: {}",
             args.first().copied().unwrap_or(""),
-            String::from_utf8_lossy(&output.stderr).trim()
+            String::from_utf8_lossy(&stderr).trim()
         )))
     }
 }
@@ -375,9 +471,96 @@ pub fn co_author_trailer(author: &SuggestionAuthor) -> Option<String> {
     })
 }
 
+/// The checkout remote that a suggestion commit is fetched from and pushed to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PushRemote {
+    pub name: String,
+    /// The URL as configured; it names the PR head repository on the host.
+    pub configured_url: String,
+    /// The effective fetch and push URLs after `insteadOf` rewriting.
+    pub fetch_url: String,
+    pub push_url: String,
+}
+
+/// Finds the checkout remote whose configured URL is `head_repository` on
+/// `host`. A remote that only looks plausible (same name, unparseable URL) is
+/// never chosen: the caller explains how to add one instead.
+pub fn resolve_push_remote(
+    repository: &Path,
+    host: &str,
+    head_repository: &str,
+    cancel: Option<&CancellationToken>,
+    deadline: Option<Instant>,
+) -> Result<PushRemote, String> {
+    let bounds = Bounds { cancel, deadline };
+    let listing = git(
+        bounds,
+        repository,
+        &["config", "--null", "--get-regexp", r"^remote\..*\.url$"],
+        &[],
+        None,
+    )
+    .unwrap_or_default();
+    let listing = String::from_utf8_lossy(&listing);
+    let found = listing.split('\0').find_map(|entry| {
+        let (key, url) = entry.split_once('\n')?;
+        let name = key.strip_prefix("remote.")?.strip_suffix(".url")?;
+        crate::origin_repository::parse(url, host)
+            .filter(|repo| repo.eq_ignore_ascii_case(head_repository))
+            .map(|_| (name.to_owned(), url.to_owned()))
+    });
+    let Some((name, configured_url)) = found else {
+        return Err(format!(
+            "No remote of this checkout points at {head_repository} on {host}. Add one (git remote add <name> <url>) and plan again; nothing was written."
+        ));
+    };
+    let url = |push: bool| {
+        let mut args = vec!["remote", "get-url"];
+        if push {
+            args.push("--push");
+        }
+        args.push(&name);
+        git(bounds, repository, &args, &[], None)
+            .map(text)
+            .map_err(|error| error.to_string())
+    };
+    Ok(PushRemote {
+        fetch_url: url(false)?,
+        push_url: url(true)?,
+        name,
+        configured_url,
+    })
+}
+
+/// The checkout's configured `user.name` and `user.email`; never guessed.
+pub fn committer_identity(
+    repository: &Path,
+    cancel: Option<&CancellationToken>,
+    deadline: Option<Instant>,
+) -> Result<(String, String), String> {
+    let bounds = Bounds { cancel, deadline };
+    let read = |key: &str| {
+        git(bounds, repository, &["config", "--get", key], &[], None)
+            .map(text)
+            .ok()
+            .filter(|value| !value.is_empty())
+    };
+    match (read("user.name"), read("user.email")) {
+        (Some(name), Some(email)) => Ok((name, email)),
+        _ => Err(
+            "No commit identity: set git config user.name and user.email in this checkout. Nothing was written."
+                .into(),
+        ),
+    }
+}
+
 /// Builds the suggestion commit in a private repository and, when `push` is
 /// set, pushes it with a lease on `expected_head`.
 pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, SuggestionError> {
+    let bounds = Bounds {
+        cancel: request.cancel,
+        deadline: request.deadline,
+    };
     if request.suggestions.is_empty() {
         return Err(SuggestionError::Range("no suggestions selected".into()));
     }
@@ -387,6 +570,7 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
         ));
     }
     let objects = text(git(
+        bounds,
         request.repository,
         &[
             "rev-parse",
@@ -410,11 +594,12 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
         .keep(),
     );
     let dir = scratch.0.as_path();
-    git(dir, &["init", "--quiet", "--bare", "."], &[], None)?;
+    git(bounds, dir, &["init", "--quiet", "--bare", "."], &[], None)?;
     std::fs::write(dir.join("objects/info/alternates"), format!("{objects}\n"))
         .map_err(|error| SuggestionError::Git(format!("alternates: {error}")))?;
     let refname = format!("refs/heads/{}", request.branch);
-    let fetched = git(
+    git(
+        bounds,
         dir,
         &[
             "fetch",
@@ -426,9 +611,9 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
         ],
         &[],
         None,
-    );
-    fetched?;
+    )?;
     let actual = text(git(
+        bounds,
         dir,
         &[
             "rev-parse",
@@ -444,8 +629,35 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
             actual,
         });
     }
+    // Posted suggestions carry the lines their author saw: read them from
+    // that commit, never from the caller.
+    let mut resolved = request.suggestions.to_vec();
+    for suggestion in &mut resolved {
+        let Some(source) = &suggestion.original_source else {
+            continue;
+        };
+        let spec = format!("{}:{}", source.commit, suggestion.path);
+        let bytes =
+            git(bounds, dir, &["cat-file", "blob", &spec], &[], None).map_err(
+                |error| match error {
+                    SuggestionError::Git(_) => SuggestionError::Range(format!(
+                        "{} is not readable at the suggestion's commit {}",
+                        suggestion.path, source.commit
+                    )),
+                    other => other,
+                },
+            )?;
+        let lines = display_lines(&bytes);
+        if source.start == 0 || source.start > source.end || source.end as usize > lines.len() {
+            return Err(SuggestionError::Range(format!(
+                "{} lines {}–{} are outside the suggestion's commit",
+                suggestion.path, source.start, source.end
+            )));
+        }
+        suggestion.original = lines[source.start as usize - 1..source.end as usize].to_vec();
+    }
     let mut by_path: BTreeMap<&str, Vec<&Suggestion>> = BTreeMap::new();
-    for suggestion in request.suggestions {
+    for suggestion in &resolved {
         by_path
             .entry(&suggestion.path)
             .or_default()
@@ -454,11 +666,17 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
     let index = dir.join("ghtui-index");
     let index_path = index.to_string_lossy().into_owned();
     let index_env = [("GIT_INDEX_FILE", index_path.as_str())];
-    git(dir, &["read-tree", &actual], &index_env, None)?;
+    git(bounds, dir, &["read-tree", &actual], &index_env, None)?;
     let mut files = vec![];
     let mut preview = vec![];
     for (&path, suggestions) in &by_path {
-        let listing = git(dir, &["ls-tree", "-z", &actual, "--", path], &[], None)?;
+        let listing = git(
+            bounds,
+            dir,
+            &["ls-tree", "-z", &actual, "--", path],
+            &[],
+            None,
+        )?;
         let listing = String::from_utf8_lossy(&listing);
         let entry = listing.trim_end_matches('\0');
         let Some((meta, _)) = entry.split_once('\t') else {
@@ -472,15 +690,17 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
                 "{path} is not a regular file at the PR head"
             )));
         }
-        let original = git(dir, &["cat-file", "blob", fields[2]], &[], None)?;
+        let original = git(bounds, dir, &["cat-file", "blob", fields[2]], &[], None)?;
         let change = resulting_change(path, &original, suggestions)?;
         let blob = text(git(
+            bounds,
             dir,
             &["hash-object", "-w", "--stdin"],
             &[],
             Some(change.bytes.as_slice()),
         )?);
         git(
+            bounds,
             dir,
             &[
                 "update-index",
@@ -493,7 +713,7 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
         files.push((path.to_owned(), blob));
         preview.extend(change.preview);
     }
-    let tree = text(git(dir, &["write-tree"], &index_env, None)?);
+    let tree = text(git(bounds, dir, &["write-tree"], &index_env, None)?);
     let mut message = request.subject.trim().to_owned();
     let mut trailers = vec![];
     let mut attribution_limits = vec![];
@@ -519,39 +739,91 @@ pub fn apply_isolated(request: &ApplyRequest<'_>) -> Result<SuggestionPlan, Sugg
     }
     message.push('\n');
     let (name, email) = request.committer;
-    let identity = [
+    let mut identity = vec![
         ("GIT_AUTHOR_NAME", name),
         ("GIT_AUTHOR_EMAIL", email),
         ("GIT_COMMITTER_NAME", name),
         ("GIT_COMMITTER_EMAIL", email),
     ];
+    if let Some(date) = request.date {
+        identity.push(("GIT_AUTHOR_DATE", date));
+        identity.push(("GIT_COMMITTER_DATE", date));
+    }
     let commit = text(git(
+        bounds,
         dir,
         &["commit-tree", &tree, "-p", &actual, "-F", "-"],
         &identity,
         Some(message.as_bytes()),
     )?);
+    if request
+        .expected_commit
+        .is_some_and(|expected| expected != commit)
+    {
+        return Err(SuggestionError::Git(format!(
+            "the rebuilt commit {commit} differs from the previewed one; preview again"
+        )));
+    }
     let mut pushed = false;
     if request.push {
+        let push_to = request.push_to.unwrap_or(request.remote);
         let lease = format!("--force-with-lease={refname}:{actual}");
-        git(
+        let attempt = git(
+            bounds,
             dir,
             &[
                 "push",
                 "--quiet",
                 "--porcelain",
                 &lease,
-                request.remote,
+                push_to,
                 &format!("{commit}:{refname}"),
             ],
             &[],
             None,
+        );
+        // Read the branch back on every outcome. Only this readback decides
+        // whether the write happened; it ignores cancellation so a cancelled
+        // push still gets an answer, within its own short limit.
+        let readback = git(
+            Bounds {
+                cancel: None,
+                deadline: Some(Instant::now() + Duration::from_secs(20)),
+            },
+            dir,
+            &["ls-remote", "--", push_to, &refname],
+            &[],
+            None,
         )
-        .map_err(|error| match error {
-            SuggestionError::Git(message) => SuggestionError::PushRejected(message),
-            other => other,
-        })?;
-        pushed = true;
+        .map(|bytes| {
+            text(bytes)
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        });
+        match (attempt, readback) {
+            (_, Ok(remote)) if remote == commit => pushed = true,
+            (Ok(_), Ok(remote)) => {
+                return Err(SuggestionError::Uncertain(format!(
+                    "the push reported success but the branch reads {remote}"
+                )))
+            }
+            (Err(SuggestionError::Git(message)), Ok(_)) => {
+                return Err(SuggestionError::PushRejected(message))
+            }
+            (Err(stop @ (SuggestionError::Cancelled | SuggestionError::TimedOut)), Ok(remote))
+                if remote == actual =>
+            {
+                return Err(stop)
+            }
+            (Err(error), Ok(_)) => return Err(SuggestionError::PushRejected(error.to_string())),
+            (_, Err(error)) => {
+                return Err(SuggestionError::Uncertain(format!(
+                    "the branch could not be read back ({error})"
+                )))
+            }
+        }
     }
     drop(scratch);
     Ok(SuggestionPlan {
