@@ -2655,6 +2655,8 @@ pub(crate) fn publish(
             app.form = Some(*form);
             app.form_dismissed = false;
             app.overlay = Some(Overlay::Form);
+            // TASK-115: a Quote reply pastes its quote into the empty New comment body.
+            crate::pr_conversation_cards_v115::apply_quote(app);
             app.status = if let Some(command) = issue {
                 format!("Original manual development links • {command} opened • choose actual Issue then fresh Preview")
             } else if let Some(command) = members {

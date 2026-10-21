@@ -5,6 +5,8 @@
 use super::*;
 #[path = "pr_conversation_atomic_v85.rs"]
 pub(super) mod atomic_v85;
+#[path = "pr_conversation_cards_v115.rs"]
+mod cards_v115;
 #[path = "pr_conversation_refresh_retry_v20.rs"]
 mod retry_v20;
 use ghtui::providers::runner::CancellationToken;

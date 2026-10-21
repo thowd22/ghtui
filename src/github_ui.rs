@@ -216,6 +216,8 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
         keys.extend(crate::pr_branch_edit_v27::footer_keys(app));
     }
     keys.extend(crate::pr_metadata_quick_v1::footer_keys(app));
+    // TASK-115: the Conversation action bar and the selected comment's card buttons.
+    keys.extend(crate::pr_conversation_cards_v115::footer_keys(app));
     // While the page is loading, `Esc Cancel` joins the bar and Refresh replaces the read in
     // flight; it outranks the history overlays so a click still reaches the replacement.
     let refresh_priority = if app.loading[crate::app::View::Inbox.index()] {
@@ -389,14 +391,92 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             painter.header(frame.buffer_mut(), y + 1);
             y += 2;
         }
+        // TASK-115: Conversation keeps its PR action bar under the heading and its `Add a
+        // comment` box on the last row; the cards scroll between them.
+        let conversation = page.tab == PrTab::Conversation;
+        let mut bottom = area.bottom();
+        if conversation && area.bottom() > y + 2 {
+            let hits = crate::pr_conversation_cards_v115::draw_bar(
+                frame.buffer_mut(),
+                app,
+                Rect::new(area.x, y, area.width, 1),
+                theme,
+            );
+            app.hits.extend(hits);
+            y += 1;
+            bottom -= 1;
+            let hits = crate::pr_conversation_cards_v115::draw_add_comment(
+                frame.buffer_mut(),
+                app,
+                Rect::new(area.x, bottom, area.width, 1),
+                theme,
+            );
+            app.hits.extend(hits);
+        }
         let mut line = y;
         let mut rendered = 0usize;
         for (offset, row) in page.rows.iter().skip(app.inbox_list.top).enumerate() {
-            if line >= area.bottom() {
+            if line >= bottom {
                 break;
             }
             let index = app.inbox_list.top + offset;
             let selectable = github.pr_row_is_interactive(index);
+            match &row.card {
+                Some(crate::github_workspace::PrCardV115::Markdown(markdown)) => {
+                    // A rendered body line (TASK-114): styled spans, hanging wrapped rows. A
+                    // comment's line stays one list stop: every wrapped row selects it and
+                    // only its first row carries the `▌` bar.
+                    let pieces = markdown.wrap(usize::from(area.width.saturating_sub(2)).max(1));
+                    let room = usize::from(bottom - line);
+                    for (piece_index, piece) in pieces.iter().take(room).enumerate() {
+                        let mut spans = vec![ratatui::text::Span::raw("  ")];
+                        spans.extend(piece.iter().map(|span| {
+                            ratatui::text::Span::styled(
+                                span.text.clone(),
+                                crate::markdown_v114::style(theme, markdown, span.style),
+                            )
+                        }));
+                        let rect = Rect::new(area.x, line, area.width, 1);
+                        frame.render_widget(Paragraph::new(ratatui::text::Line::from(spans)), rect);
+                        if selectable {
+                            if piece_index == 0 && index == app.inbox_list.selected {
+                                crate::ui_table::select_line(
+                                    frame.buffer_mut(),
+                                    rect,
+                                    app.github_content_focused,
+                                    theme,
+                                );
+                            }
+                            app.hits.push(HitRegion {
+                                rect,
+                                action: Action::GithubRow(index),
+                            });
+                        }
+                        line += 1;
+                    }
+                    if pieces.len() <= room || rendered == 0 {
+                        rendered += 1;
+                    }
+                    continue;
+                }
+                Some(card) => {
+                    let rect = Rect::new(area.x, line, area.width, 1);
+                    let hits = crate::pr_conversation_cards_v115::draw_chrome(
+                        frame.buffer_mut(),
+                        app,
+                        rect,
+                        theme,
+                        card,
+                        index,
+                        &row.label,
+                    );
+                    app.hits.extend(hits);
+                    line += 1;
+                    rendered += 1;
+                    continue;
+                }
+                None => {}
+            }
             if wrap_prose && !selectable && row.actor.is_none() {
                 let text = safe_text(&row.label);
                 let pieces = wrap_cells(&text, usize::from(area.width.saturating_sub(2)).max(1));

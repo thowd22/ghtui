@@ -62,6 +62,7 @@ fn reaction_page(size: usize) -> crate::pr_actions::PrReactionPage {
                 created_at: "2026-10-01T00:00:00Z".into(),
                 updated_at: "2026-10-01T00:00:00Z".into(),
                 url: "https://github.invalid/example/repo/pull/7#issuecomment-8".into(),
+                card_v115: None,
             },
         },
         reactions: (0..size)

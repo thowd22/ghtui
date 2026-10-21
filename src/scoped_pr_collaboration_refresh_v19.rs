@@ -263,6 +263,7 @@ impl PreparedConversationPageV19 {
                         comment: None,
                         cells: None,
                         link: None,
+                        card: None,
                     },
                 );
             }

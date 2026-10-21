@@ -20,6 +20,8 @@ mod pr_checks_bridge;
 mod pr_governed_v1;
 #[path = "pr_lifecycle_v1.rs"]
 mod pr_lifecycle_v1;
+#[path = "pr_markdown_v114.rs"]
+mod pr_markdown_v114;
 #[path = "pr_merge_v1.rs"]
 mod pr_merge_v1;
 #[path = "pr_metadata.rs"]

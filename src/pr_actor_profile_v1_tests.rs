@@ -26,6 +26,7 @@ fn comment(id: u64, author: Actor, body: &str) -> ConversationComment {
         created_at: "2026-10-13T00:00:00Z".into(),
         updated_at: "2026-10-13T00:00:00Z".into(),
         url: String::new(),
+        card_v115: None,
     }
 }
 fn app(tab: PrTab) -> App {

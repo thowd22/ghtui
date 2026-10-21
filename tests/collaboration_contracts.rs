@@ -87,6 +87,7 @@ fn details(body: &str) -> PrDetails {
             created_at: "2026-01-03T00:00:00Z".into(),
             updated_at: "2026-01-04T00:00:00Z".into(),
             url: "https://github.invalid/org/app/pull/7#issuecomment-12".into(),
+            card_v115: None,
         }],
         commits: vec![],
         files: vec![],

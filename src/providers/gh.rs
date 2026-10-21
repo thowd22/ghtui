@@ -256,6 +256,33 @@ pub struct ConversationComment {
     pub created_at: String,
     pub updated_at: String,
     pub url: String,
+    /// The comment card's display facts from the same read (TASK-115); None when the read
+    /// reported neither. Boxed so every comment-carrying enum keeps its size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_v115: Option<Box<CommentCardFactsV115>>,
+}
+/// Display-only facts of a Conversation comment card (TASK-115); never permission.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentCardFactsV115 {
+    /// GitHub's `author_association` (OWNER, MEMBER, …) for the role badge.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author_association: String,
+    /// Nonzero reaction counts as `(content, count)` in GitHub's order, from the read's
+    /// `reactions` rollup; the reaction browser reads the actual reactors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<(String, u64)>,
+}
+impl ConversationComment {
+    pub fn author_association(&self) -> &str {
+        self.card_v115
+            .as_ref()
+            .map_or("", |facts| facts.author_association.as_str())
+    }
+    pub fn reactions(&self) -> &[(String, u64)] {
+        self.card_v115
+            .as_ref()
+            .map_or(&[], |facts| facts.reactions.as_slice())
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommitSummary {
@@ -2047,7 +2074,25 @@ fn comment_from_json(v: &Value) -> ConversationComment {
         created_at: text(v, "created_at"),
         updated_at: text(v, "updated_at"),
         url: text(v, "html_url"),
+        card_v115: comment_card_facts_v115(v),
     }
+}
+fn comment_card_facts_v115(v: &Value) -> Option<Box<CommentCardFactsV115>> {
+    let facts = CommentCardFactsV115 {
+        author_association: text(v, "author_association"),
+        reactions: [
+            "+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes",
+        ]
+        .into_iter()
+        .filter_map(|content| {
+            let count = v["reactions"][content]
+                .as_u64()
+                .filter(|count| *count > 0)?;
+            Some((content.to_owned(), count))
+        })
+        .collect(),
+    };
+    (facts != CommentCardFactsV115::default()).then(|| Box::new(facts))
 }
 fn commit_from_json(v: &Value) -> CommitSummary {
     CommitSummary {

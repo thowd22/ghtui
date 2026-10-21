@@ -78,6 +78,7 @@ fn observed() -> ConversationComment {
         created_at: "t0".into(),
         updated_at: "t0".into(),
         url: "https://github.invalid/example/repo/pull/7#issuecomment-9".into(),
+        card_v115: None,
     }
 }
 fn action_context(head: &str, selected: bool) -> PrActionContext {

@@ -2290,6 +2290,8 @@ impl Background {
                         {
                             app.overlay = Some(crate::app::Overlay::Form);
                             app.form = Some(form);
+                            // TASK-115: a Quote reply pastes into the empty New comment body.
+                            crate::pr_conversation_cards_v115::apply_quote(app);
                         }
                     }
                     if app.view == completion.view {

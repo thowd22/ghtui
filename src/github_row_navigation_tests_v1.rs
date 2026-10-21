@@ -62,6 +62,7 @@ fn app(interactive: bool) -> App {
                     created_at: String::new(),
                     updated_at: String::new(),
                     url: String::new(),
+                    card_v115: None,
                 },
             }));
         }

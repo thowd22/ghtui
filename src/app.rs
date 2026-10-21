@@ -92,6 +92,8 @@ pub enum Action {
     LocalMenu,
     LocalCommand(crate::local_actions::LocalCommand),
     LocalQuick(crate::local_actions::QuickLocal),
+    /// Conversation card buttons and the PR action bar (TASK-115).
+    PrCardsV115(crate::pr_conversation_cards_v115::CardsActionV115),
     /// Repository panels (TASK-93): the untracked toggle.
     RepositoryPanelsV93(crate::repository_panels_v93::PanelActionV93),
     /// History commit detail (TASK-99.4): select or open an item, show the SHA to copy.
@@ -453,6 +455,8 @@ pub struct App {
     >,
     pub pr_reactions: Option<crate::pr_actions::PrReactionPage>,
     pub pr_reaction_display: Vec<crate::pr_ui::PrReactionDisplayRow>,
+    /// A Quote reply waiting for its New comment composer to open (TASK-115).
+    pub quote_reply_v115: Option<String>,
     pub pr_reaction_scroll: usize,
     pub pr_reaction_rows: usize,
     pub color_mode: crate::theme::ColorMode,
@@ -697,6 +701,7 @@ impl Default for App {
             pr_line_comment_target_v19: None,
             pr_reactions: None,
             pr_reaction_display: Vec::new(),
+            quote_reply_v115: None,
             pr_reaction_scroll: 0,
             pr_reaction_rows: 8,
             color_mode: crate::theme::ColorMode::TrueColor,
@@ -821,6 +826,11 @@ impl App {
     }
     /// Render-time controls borrow prepared rows only; no large workspace cloning or I/O.
     pub fn pr_controls(&self) -> Vec<(String, Action)> {
+        self.pr_controls_at(self.inbox_list.selected)
+    }
+    /// The PR actions menu as it reads with row `selected` of the PR page selected; a
+    /// Conversation card asks for its own comment's buttons this way (TASK-115).
+    pub fn pr_controls_at(&self, selected: usize) -> Vec<(String, Action)> {
         use crate::pr_actions::PrCommand;
         let unavailable = self
             .github
@@ -1041,7 +1051,7 @@ impl App {
             }
         }
         let comment = page
-            .and_then(|page| page.rows.get(self.inbox_list.selected))
+            .and_then(|page| page.rows.get(selected))
             .and_then(|row| row.comment.as_ref());
         for (command, label) in &PrCommand::ALL {
             if *command == PrCommand::Merge || PrCommand::LIFECYCLE.contains(command) {
@@ -1057,8 +1067,7 @@ impl App {
                     crate::pr_actions::governed_disabled_reason(*command, &page.details.summary)
                 })
             } else if matches!(command, PrCommand::MarkViewed | PrCommand::MarkUnviewed) {
-                let file =
-                    page.and_then(|page| page.selected_progress_file(self.inbox_list.selected));
+                let file = page.and_then(|page| page.selected_progress_file(selected));
                 match (self.github.as_ref(), page, file) {
                     (Some(github), Some(page), Some(file))
                         if page.review_progress.as_ref().is_some_and(|progress| {
@@ -2296,6 +2305,7 @@ impl App {
                 crate::repository_ui::history_filter::dispatch(self, action)
             }
             Action::LocalQuick(quick) => self.local_quick(quick),
+            Action::PrCardsV115(action) => crate::pr_conversation_cards_v115::dispatch(self, action),
             Action::RepositoryPanelsV93(action) => {
                 crate::repository_panels_v93::dispatch(self, action)
             }

@@ -2333,6 +2333,7 @@ fn observed_comment() -> ConversationComment {
         created_at: String::new(),
         updated_at: "t0".into(),
         url: "https://github.invalid/example/repo/pull/7#issuecomment-9".into(),
+        card_v115: None,
     }
 }
 fn comment_value(body: &str, updated: &str) -> Value {

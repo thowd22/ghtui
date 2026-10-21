@@ -276,7 +276,7 @@ fn heading(theme: Theme, text: &str) -> Line<'static> {
 
 /// The cached Inbox summary of the selected pull request. Only fields the queue read already
 /// returned are shown; reviews, checks and the diff load when the PR opens.
-pub fn inbox(github: &GithubWorkspace, theme: Theme) -> Preview {
+pub fn inbox(github: &GithubWorkspace, theme: Theme, width: usize) -> Preview {
     let Some(pr) = selected_pr(github) else {
         return Preview {
             item: String::new(),
@@ -349,17 +349,15 @@ pub fn inbox(github: &GithubWorkspace, theme: Theme) -> Preview {
         Line::default(),
         heading(theme, "Description"),
     ];
-    let body = sanitize_terminal(pr.body.trim());
+    // The description reads as GitHub renders it (TASK-114): no raw HTML or Markdown syntax.
+    let body = crate::markdown_v114::lines(theme, &pr.body, width.max(1));
     if body.is_empty() {
         lines.push(Line::from(Span::styled(
             "No description",
             theme.role(Role::TextMuted),
         )));
     } else {
-        lines.extend(
-            body.lines()
-                .map(|line| Line::from(Span::styled(line.to_string(), theme.role(Role::Text)))),
-        );
+        lines.extend(body);
     }
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
@@ -507,7 +505,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let theme = app.theme();
     let preview = match app.view {
-        View::Inbox => app.github.as_ref().map(|github| inbox(github, theme)),
+        View::Inbox => app.github.as_ref().map(|github| {
+            // The body column inside the borders and the one-cell padding on each side.
+            inbox(github, theme, usize::from(area.width.saturating_sub(4)))
+        }),
         View::Actions => app.actions.as_ref().map(|actions| run(actions, theme)),
         View::Repository => Some(crate::repository_panels_v93::preview(app, theme)),
         _ => None,

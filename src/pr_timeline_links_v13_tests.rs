@@ -71,6 +71,7 @@ fn page() -> PrPage {
         created_at: String::new(),
         updated_at: "2026-10-12T12:00:00Z".into(),
         url: String::new(),
+        card_v115: None,
     };
     let timeline = vec![
         // First, so the initial cursor (row 0) is not on an item.
@@ -215,7 +216,7 @@ fn timeline_links_v13_each_target_tab_finds_the_exact_record_row() {
     let review = page.link_row_v13(&PrRowLinkV13::Review(12)).unwrap();
     assert!(page.rows[review]
         .label
-        .starts_with("review 12 • CHANGES_REQUESTED"));
+        .starts_with("review 12 • requested changes"));
     assert_eq!(page.link_row_v13(&PrRowLinkV13::Commit(OLDER.into())), None);
     page.tab = PrTab::Commits;
     page.prepare_rows().unwrap();

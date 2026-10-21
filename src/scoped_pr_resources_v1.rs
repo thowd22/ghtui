@@ -795,6 +795,7 @@ fn row(label: String, role: SemanticToken) -> PrRow {
         comment: None,
         cells: None,
         link: None,
+        card: None,
     }
 }
 /// The REST list-files endpoint never returns more than this many files.
@@ -1027,6 +1028,7 @@ impl ScopedPrResourceViewV1 {
                             comment: None,
                             cells: None,
                             link: None,
+                            card: None,
                         });
                         self.targets.push(target);
                     }

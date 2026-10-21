@@ -201,6 +201,22 @@ pub struct PrRow {
     /// A Timeline item's own record in another loaded tab (TASK-13). Navigation only:
     /// kept only when that exact comment, review or commit is in this PR's details.
     pub link: Option<PrRowLinkV13>,
+    /// How a Summary/Conversation row is painted (TASK-114/115); None paints `label`.
+    pub card: Option<PrCardV115>,
+}
+/// The painted part of a PR body or Conversation card (TASK-114/115). `label` keeps the
+/// row's plain text for palette, plans and logs.
+#[derive(Clone, Debug)]
+pub enum PrCardV115 {
+    /// One rendered Markdown line of a description, comment or review body.
+    Markdown(std::sync::Arc<crate::markdown_v114::MdLine>),
+    /// The rule that opens a card.
+    Top,
+    /// Reaction counts under a comment body (click: browse its reactions). Chrome rows are
+    /// not list stops and carry no comment: they act on the comment rows just above them.
+    Reactions,
+    /// The per-comment buttons that close a comment card.
+    Buttons,
 }
 /// What a Timeline row points at: a conversation comment, a review or a commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,6 +272,7 @@ impl PrRow {
             comment: None,
             cells: None,
             link: None,
+            card: None,
         }
     }
     fn with_link(mut self, link: Option<PrRowLinkV13>) -> Self {
@@ -267,6 +284,25 @@ impl PrRow {
             actor: Some(actor),
             ..Self::text(label)
         }
+    }
+    /// A card chrome row (rule, reactions, buttons).
+    fn card(card: PrCardV115) -> Self {
+        Self {
+            card: Some(card),
+            ..Self::text("")
+        }
+    }
+    /// The rendered Markdown lines of a body, each one row; a comment's lines carry it.
+    fn markdown(body: &str, selection: Option<&std::sync::Arc<PrCommentSelection>>) -> Vec<Self> {
+        crate::markdown_v114::render(body)
+            .into_iter()
+            .map(|line| Self {
+                label: line.plain(),
+                comment: selection.cloned(),
+                card: Some(PrCardV115::Markdown(std::sync::Arc::new(line))),
+                ..Self::text("")
+            })
+            .collect()
     }
     fn with_cells(mut self, cells: PrCells) -> Self {
         self.cells = Some(cells);
@@ -398,46 +434,52 @@ impl PrPage {
                     PrRow::text(format!("Source: {}", summary.pr.url)),
                     PrRow::text(""),
                 ]);
-                rows.extend(summary.pr.body.lines().map(PrRow::text));
+                // The description reads as GitHub renders it (TASK-114).
+                rows.extend(PrRow::markdown(&summary.pr.body, None));
                 rows
             }
             PrTab::Conversation => {
-                let mut rows = vec![PrRow::actor("PR description", summary.pr.author.clone())];
-                rows.extend(summary.pr.body.lines().map(PrRow::text));
+                // One card per description, comment and review (TASK-115): a rule opens it,
+                // the author header and rendered body follow, and a comment closes with its
+                // reactions and buttons. Only headers and body lines are list stops.
+                let pr_author = summary.pr.author.login.as_str();
+                let mut rows = vec![
+                    PrRow::card(PrCardV115::Top),
+                    PrRow::actor("PR description", summary.pr.author.clone()),
+                ];
+                rows.extend(PrRow::markdown(&summary.pr.body, None));
                 for comment in &self.details.comments {
                     let selection = crate::pr_comment_selection_shared_v1::conversation_selection(comment);
-                    rows.push(PrRow::text(""));
+                    rows.push(PrRow::card(PrCardV115::Top));
                     rows.push(
                         PrRow::actor(
-                            format!("comment #{} • {}", comment.id, comment.updated_at),
+                            crate::pr_conversation_cards_v115::comment_header(comment, pr_author),
                             comment.author.clone(),
                         )
                         .with_comment(&selection),
                     );
-                    rows.extend(
-                        comment
-                            .body
-                            .lines()
-                            .map(|line| PrRow::text(line).with_comment(&selection)),
-                    );
+                    rows.extend(PrRow::markdown(&comment.body, Some(&selection)));
+                    if let Some(reactions) =
+                        crate::pr_conversation_cards_v115::reaction_summary(comment.reactions())
+                    {
+                        rows.push(PrRow {
+                            role: SemanticToken::Muted,
+                            label: reactions,
+                            ..PrRow::card(PrCardV115::Reactions)
+                        });
+                    }
+                    rows.push(PrRow::card(PrCardV115::Buttons));
                 }
                 for review in &self.details.reviews {
-                    rows.push(PrRow::text(""));
+                    rows.push(PrRow::card(PrCardV115::Top));
                     rows.push(PrRow::actor(
-                        format!(
-                            "review {} • {}",
-                            review["id"],
-                            review["state"].as_str().unwrap_or("unknown")
-                        ),
+                        crate::pr_conversation_cards_v115::review_header(review, pr_author),
                         value_actor(&review["user"]),
                     ));
-                    rows.extend(
-                        review["body"]
-                            .as_str()
-                            .unwrap_or_default()
-                            .lines()
-                            .map(PrRow::text),
-                    );
+                    rows.extend(PrRow::markdown(
+                        review["body"].as_str().unwrap_or_default(),
+                        None,
+                    ));
                 }
                 rows
             }
@@ -542,6 +584,7 @@ impl PrPage {
                             comment: None,
                             cells: None,
                             link: None,
+                            card: None,
                         });
                     }
                 }
@@ -577,6 +620,7 @@ impl PrPage {
                                 anchor: None,
                                 comment: None,
                                 link: None,
+                                card: None,
                                 cells: Some(PrCells::Row(vec![
                                     format!("{context} (required)"),
                                     "expected".into(),
@@ -637,6 +681,7 @@ impl PrPage {
                                         crate::ui_table::short_sha(&check.head_sha).to_owned(),
                                     ])),
                                     link: None,
+                                    card: None,
                                 }
                             })
                             .collect();
