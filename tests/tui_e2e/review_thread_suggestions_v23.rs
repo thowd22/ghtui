@@ -36,6 +36,50 @@ fn suggestion_page(h: &GitImagesV1) -> Value {
     serde_json::from_str(&text).unwrap()
 }
 
+/// One posted suggestion for a batch page: RIGHT lines `start..=end` of PATH
+/// at the PR head, replaced by `code`, written by `(databaseId, login)`.
+struct Posted {
+    start: u32,
+    end: u32,
+    code: &'static str,
+    author: (u64, &'static str),
+}
+
+/// A thread page with one unresolved RIGHT thread per posted suggestion. Each
+/// thread and comment has its own node and database ID (9, 10, ...).
+fn batch_page(h: &GitImagesV1, posted: &[Posted]) -> Value {
+    let template = suggestion_page(h);
+    let mut page = template.clone();
+    let mut threads = vec![];
+    for (offset, suggestion) in posted.iter().enumerate() {
+        let number = 9 + offset;
+        let mut thread = template["data"]["node"]["reviewThreads"]["nodes"][0].clone();
+        thread["id"] = json!(format!("NATIVE_THREAD_{number}"));
+        let start = (suggestion.start != suggestion.end).then_some(suggestion.start);
+        thread["line"] = json!(suggestion.end);
+        thread["originalLine"] = json!(suggestion.end);
+        thread["startLine"] = json!(start);
+        thread["originalStartLine"] = json!(start);
+        let comment = &mut thread["comments"]["nodes"][0];
+        comment["id"] = json!(format!("NATIVE_COMMENT_{number}"));
+        comment["fullDatabaseId"] = json!(format!("{}", 9000 + number));
+        comment["body"] = json!(format!(
+            "Batch me:\n```suggestion\n{}\n```",
+            suggestion.code
+        ));
+        comment["line"] = json!(suggestion.end);
+        comment["originalLine"] = json!(suggestion.end);
+        comment["startLine"] = json!(start);
+        comment["originalStartLine"] = json!(start);
+        comment["author"]["databaseId"] = json!(suggestion.author.0);
+        comment["author"]["login"] = json!(suggestion.author.1);
+        threads.push(thread);
+    }
+    page["data"]["node"]["reviewThreads"]["totalCount"] = json!(threads.len());
+    page["data"]["node"]["reviewThreads"]["nodes"] = Value::Array(threads);
+    page
+}
+
 struct Setup {
     fixture: Fixture,
     h: GitImagesV1,
@@ -44,12 +88,16 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with(suggestion_page)
+}
+
+fn setup_with(page: impl FnOnce(&GitImagesV1) -> Value) -> Setup {
     let fixture = resource_configured(&[]);
     let h = GitImagesV1::create(&fixture.repo(), false);
     let mut steps = initial();
     steps.extend(resource_operation(false));
     let mut threads = phase();
-    threads[9].stdout = suggestion_page(&h).to_string().into_bytes();
+    threads[9].stdout = page(&h).to_string().into_bytes();
     steps.extend(threads);
     super::super::immutable_images::bind_steps(&mut steps, &h);
     assert_eq!(steps.len(), 58);
@@ -289,6 +337,345 @@ fn journey(mouse: bool, moved: bool) {
     choose(&mut session, mouse, "[Esc Back]", b"\x1b");
     owned(&mut session, &["[s Suggestions]"]);
     session.quit_and_assert_restored_terminal(mouse);
+}
+
+const FIRST_CODE: &str = "batch-first 界";
+const SECOND_CODE: &str = "batch-second";
+
+fn batch_posted() -> [Posted; 2] {
+    [
+        Posted {
+            start: 1,
+            end: 1,
+            code: FIRST_CODE,
+            author: (77, "native-thread-actor"),
+        },
+        Posted {
+            start: 2,
+            end: 2,
+            code: SECOND_CODE,
+            author: (88, "second-reviewer"),
+        },
+    ]
+}
+
+fn overlap_posted() -> [Posted; 2] {
+    [
+        Posted {
+            start: 1,
+            end: 2,
+            code: "overlap-wide",
+            author: (77, "native-thread-actor"),
+        },
+        Posted {
+            start: 2,
+            end: 2,
+            code: "overlap-narrow",
+            author: (77, "native-thread-actor"),
+        },
+    ]
+}
+
+/// Waits for `expected` as consecutive whole rows of the pane.
+fn wait_rows(session: &mut Session, expected: &[String], what: &str) {
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let screen = frame.contents();
+            let rows: Vec<&str> = screen
+                .lines()
+                .map(|line| line.trim().trim_matches('│').trim())
+                .collect();
+            rows.windows(expected.len())
+                .any(|window| window.iter().zip(expected).all(|(row, want)| row == want))
+        },
+        what,
+        Duration::from_secs(20),
+    );
+}
+
+/// Chooses one suggestion, then `A All` completes the batch: with only part
+/// of the batch chosen, All chooses every admissible suggestion.
+fn choose_all(session: &mut Session, mouse: bool) {
+    if mouse {
+        let (column, row) = session.locate("[ ] ").unwrap();
+        session.click(column, row);
+    } else {
+        session.send_key(b" ");
+    }
+    session.wait_for_cursorless_condition(
+        |frame| frame.contents().matches("[x] ").count() == 1,
+        "Exactly one suggestion chosen",
+        Duration::from_secs(20),
+    );
+    choose(session, mouse, "[A All]", b"A");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            text.matches("[x] ").count() == 2 && !text.contains("[ ] ")
+        },
+        "A All chose both suggestions",
+        Duration::from_secs(20),
+    );
+}
+
+fn open_chooser(session: &mut Session, fixture: &Fixture, mouse: bool, total: usize) {
+    files(session, fixture, mouse);
+    choose(session, mouse, "[T Threads]", b"T");
+    session.wait_for_command_count(fixture, total);
+    owned(session, &["[s Suggestions]", "NATIVE_THREAD_9"]);
+    choose(session, mouse, "[s Suggestions]", b"s");
+    pane(
+        session,
+        &["2 posted suggestion(s), 2 can be applied"],
+        "Chooser lists both posted suggestions",
+    );
+}
+
+/// Two posted suggestions (two authors, two ranges of one file) are chosen
+/// as one batch, previewed as one commit with every range and its resulting
+/// diff, confirmed, and pushed to the PR head of a LOCAL bare remote.
+fn batch_journey(mouse: bool) {
+    let posted = batch_posted();
+    let Setup {
+        fixture,
+        h,
+        bare,
+        steps,
+    } = setup_with(|h| batch_page(h, &posted));
+    let git = git_state(&fixture);
+    let config_bytes = fs::read(fixture.repo().join(".git/config")).unwrap();
+    let mut session = launch(&fixture, mouse);
+    open_chooser(&mut session, &fixture, mouse, steps.len());
+    let screen = session.screen();
+    for expected in [
+        format!("{PATH} lines 1–1 → +{FIRST_CODE}"),
+        format!("{PATH} lines 2–2 → +{SECOND_CODE}"),
+        "second-reviewer".to_owned(),
+    ] {
+        assert!(
+            screen.contains(&expected),
+            "{expected:?} missing:\n{screen}"
+        );
+    }
+    choose_all(&mut session, mouse);
+    choose(&mut session, mouse, "[p Plan]", b"p");
+    pane(
+        &mut session,
+        &["Planned commit", "nothing written yet"],
+        "Batch plan shows one commit with every range",
+    );
+    // The resulting diff lists each range with its old and new lines, in
+    // file order, as consecutive plan rows.
+    let diff = [
+        format!("@@ {PATH} lines 1–1"),
+        "-context".to_owned(),
+        format!("+{FIRST_CODE}"),
+        format!("@@ {PATH} lines 2–2"),
+        "-new-no-newline".to_owned(),
+        format!("+{SECOND_CODE}"),
+    ];
+    // At 80×24 the plan is taller than the pane: PgDn (key or click) shows
+    // its tail, the second range, without losing the controls.
+    if !mouse {
+        session.resize_owned_header(80, 24, PANE, &["[C Commit & push]", "[Esc Back]"]);
+    }
+    choose(&mut session, mouse, "[PgDn]", b"\x1b[6~");
+    wait_rows(
+        &mut session,
+        &diff[3..],
+        "PgDn shows the second range at 80×24",
+    );
+    session.resize_owned_header(120, 40, PANE, &["[C Commit & push]", "[Esc Back]"]);
+    wait_rows(&mut session, &diff, "Whole batch diff at 120×40");
+    let screen = session.screen();
+    // One file row for the one changed file; one credit row per author.
+    assert_eq!(screen.matches(" → blob ").count(), 1, "{screen}");
+    for expected in [
+        format!("Parent {} (PR head)", h.h),
+        format!("Push to contributor {}", bare.display()),
+        "Message: Apply suggestions from code review".to_owned(),
+        "Credit: Co-authored-by: native-thread-actor <77+native-thread-actor@users.noreply.github.com>".to_owned(),
+        "Credit: Co-authored-by: second-reviewer <88+second-reviewer@users.noreply.github.com>".to_owned(),
+    ] {
+        assert!(screen.contains(&expected), "{expected:?} missing:\n{screen}");
+    }
+    let commit = screen
+        .split("Plan commit ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap()
+        .to_owned();
+    assert_eq!(commit.len(), 40, "{screen}");
+    let blob = screen
+        .split(&format!("File {PATH} → blob "))
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        bare_git(&bare, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
+        h.h,
+        "planning pushed nothing"
+    );
+    assert!(attempts(&fixture).is_empty());
+    choose(&mut session, mouse, "[C Commit & push]", b"C");
+    pane(
+        &mut session,
+        &["[y Confirm push]", &format!("to {BRANCH} on contributor")],
+        "Batch push confirmation",
+    );
+    choose(&mut session, mouse, "[y Confirm push]", b"y");
+    pane(
+        &mut session,
+        &[&format!("Pushed {commit} to {BRANCH}"), "confirmed"],
+        "Pushed exactly the previewed batch commit",
+    );
+    // The bare remote independently holds ONE commit on the old head with
+    // both ranges replaced, CRLF and the missing final newline kept.
+    assert_eq!(
+        bare_git(&bare, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
+        commit
+    );
+    assert_eq!(bare_git(&bare, &["rev-parse", &format!("{commit}^")]), h.h);
+    assert_eq!(
+        bare_git(&bare, &["rev-parse", &format!("{commit}:{PATH}")]),
+        blob
+    );
+    let bytes = std::process::Command::new("git")
+        .args(["cat-file", "blob", &blob])
+        .current_dir(&bare)
+        .output()
+        .unwrap()
+        .stdout;
+    assert_eq!(bytes, format!("{FIRST_CODE}\r\n{SECOND_CODE}").into_bytes());
+    assert_eq!(
+        bare_git(
+            &bare,
+            &[
+                "-c",
+                "core.quotepath=false",
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                &commit
+            ]
+        ),
+        PATH,
+        "only the suggested file changed"
+    );
+    let message = bare_git(&bare, &["log", "-1", "--format=%B", &commit]);
+    assert!(
+        message.starts_with("Apply suggestions from code review"),
+        "{message}"
+    );
+    assert!(message.contains(
+        "Co-authored-by: native-thread-actor <77+native-thread-actor@users.noreply.github.com>"
+    ));
+    assert!(message
+        .contains("Co-authored-by: second-reviewer <88+second-reviewer@users.noreply.github.com>"));
+    let rows = attempts(&fixture);
+    assert_eq!(rows.len(), 1, "one journaled write for the whole batch");
+    assert_eq!(
+        (rows[0].0.as_str(), rows[0].1.as_str(), rows[0].2.as_str()),
+        (
+            "suggestion-apply-v23",
+            "NATIVE_COMMENT_9+NATIVE_COMMENT_10",
+            "confirmed"
+        )
+    );
+    let effect: Value = serde_json::from_str(rows[0].3.as_deref().unwrap()).unwrap();
+    assert_eq!(effect["kind"], "branch_content");
+    assert_eq!(effect["resource_id"], commit.as_str());
+    assert_eq!(
+        commands(&session, &fixture).len(),
+        steps.len(),
+        "no gh call"
+    );
+    assert_eq!(git_state(&fixture), git);
+    assert_eq!(
+        fs::read(fixture.repo().join(".git/config")).unwrap(),
+        config_bytes
+    );
+    choose(&mut session, mouse, "[Esc Back]", b"\x1b");
+    owned(&mut session, &["[s Suggestions]"]);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+/// Two posted suggestions whose ranges overlap are refused as a batch while
+/// planning: the explanation names both ranges, no plan exists, Commit &
+/// push stays disabled, and nothing reaches the remote or the journal.
+fn overlap_journey(mouse: bool) {
+    let posted = overlap_posted();
+    let Setup {
+        fixture,
+        h,
+        bare,
+        steps,
+    } = setup_with(|h| batch_page(h, &posted));
+    let git = git_state(&fixture);
+    let mut session = launch(&fixture, mouse);
+    open_chooser(&mut session, &fixture, mouse, steps.len());
+    let screen = session.screen();
+    assert!(
+        screen.contains(&format!("{PATH} lines 1–2 → +overlap-wide")),
+        "{screen}"
+    );
+    assert!(
+        screen.contains(&format!("{PATH} lines 2–2 → +overlap-narrow")),
+        "{screen}"
+    );
+    choose_all(&mut session, mouse);
+    choose(&mut session, mouse, "[p Plan]", b"p");
+    pane(
+        &mut session,
+        &[
+            &format!("Suggestions on {PATH}"),
+            "lines 1–2 and 2–2 overlap.",
+            "Apply them separately; nothing was written.",
+        ],
+        "Overlapping batch refused with both ranges named",
+    );
+    assert!(!session.screen().contains("Plan commit "));
+    choose(&mut session, mouse, "[C Commit & push]", b"C");
+    pane(
+        &mut session,
+        &["Commit & push unavailable • p Plan first"],
+        "No push without a plan",
+    );
+    assert!(!session.screen().contains("[y Confirm push]"));
+    assert_eq!(
+        bare_git(&bare, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
+        h.h,
+        "nothing pushed"
+    );
+    assert!(attempts(&fixture).is_empty(), "nothing journaled");
+    assert_eq!(
+        commands(&session, &fixture).len(),
+        steps.len(),
+        "no gh call"
+    );
+    assert_eq!(git_state(&fixture), git);
+    choose(&mut session, mouse, "[Esc Back]", b"\x1b");
+    owned(&mut session, &["[s Suggestions]"]);
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn suggestions_batch_keyboard_all_plan_confirm_and_push_one_commit() {
+    batch_journey(false)
+}
+#[test]
+fn suggestions_batch_mouse_all_plan_confirm_and_push_one_commit() {
+    batch_journey(true)
+}
+#[test]
+fn suggestions_batch_keyboard_overlap_refused_nothing_written() {
+    overlap_journey(false)
+}
+#[test]
+fn suggestions_batch_mouse_overlap_refused_nothing_written() {
+    overlap_journey(true)
 }
 
 #[test]
