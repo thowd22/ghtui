@@ -456,3 +456,110 @@ fn pr_branch_edit_view_requires_a_plan_and_an_explicit_confirmation() {
         .iter()
         .any(|row| row.text == "+x" && row.role == SemanticToken::Added));
 }
+
+#[test]
+fn pr_branch_edit_push_permission_is_three_state() {
+    use PermissionStateV27::*;
+    let state = |head: Option<&str>, flags: Result<[Option<bool>; 4], String>| {
+        push_permission(head, "owner/repo", flags).state
+    };
+    let same = Some("owner/repo");
+    let fork = Some("contributor/source");
+    assert_eq!(
+        state(same, Ok([Some(true), Some(true), None, None])),
+        Granted
+    );
+    assert_eq!(
+        state(same, Ok([None, Some(false), Some(true), None])),
+        Granted
+    );
+    assert_eq!(state(same, Ok([None, None, None, Some(true)])), Granted);
+    assert_eq!(state(fork, Ok([None, Some(true), None, None])), Granted);
+    // Explicitly no push on the base repository itself: denied.
+    let denied = push_permission(
+        same,
+        "owner/repo",
+        Ok([Some(true), Some(false), None, None]),
+    );
+    assert_eq!(denied.state, Denied);
+    assert!(denied.denied());
+    assert_eq!(denied.verdict(), "Push permission: denied on owner/repo");
+    assert_eq!(denied.role(), SemanticToken::Failure);
+    assert!(denied.reason.contains("y Confirm push is disabled"));
+    // A missing flag is unknown, never denied.
+    let missing = push_permission(same, "owner/repo", Ok([Some(true), None, None, None]));
+    assert_eq!(missing.state, Unknown);
+    assert!(missing.reason.contains("the remote decides"), "{missing:?}");
+    assert_eq!(missing.role(), SemanticToken::Pending);
+    // A fork without push may still allow maintainer edits: unknown.
+    let fork_false = push_permission(
+        fork,
+        "owner/repo",
+        Ok([Some(true), Some(false), None, None]),
+    );
+    assert_eq!(fork_false.state, Unknown);
+    assert!(fork_false.reason.contains("maintainer edits"));
+    // A failed read and a missing head repository are unknown.
+    assert_eq!(state(same, Err("HTTP 502\nbad".into())), Unknown);
+    assert!(
+        push_permission(same, "owner/repo", Err("HTTP 502\nbad".into()))
+            .reason
+            .contains("(HTTP 502 bad)")
+    );
+    assert_eq!(
+        state(None, Ok([Some(true), Some(true), None, None])),
+        Unknown
+    );
+}
+
+#[test]
+fn pr_branch_edit_denied_permission_disables_confirm_and_writes_nothing() {
+    let repos = Repos::new(false);
+    let mut view = PrBranchEditViewV27::new(repos.context(EditModeV27::File(FILE.into())));
+    view.request = None;
+    view.prepared = Some(prepare(&view.context, &repos.data(), &cancel()).unwrap());
+    fs::write(&view.prepared.as_ref().unwrap().files[0].work, b"x\n").unwrap();
+    let mut planned = plan(
+        view.prepared.as_ref().unwrap(),
+        "Edit",
+        ("Editor Person", "editor@example.invalid"),
+        DATE,
+        &cancel(),
+    )
+    .unwrap();
+    assert_eq!(planned.permission.state, PermissionStateV27::Unknown);
+    planned.permission = push_permission(
+        Some("owner/repo"),
+        "owner/repo",
+        Ok([Some(true), Some(false), None, None]),
+    );
+    view.planned = Some(planned.clone());
+    let rows = detail_lines(&view);
+    let verdict = rows
+        .iter()
+        .find(|row| row.text == "Push permission: denied on owner/repo")
+        .unwrap();
+    assert_eq!(verdict.role, SemanticToken::Failure);
+    use BranchEditActionV27::*;
+    assert!(view.enabled(Commit));
+    view.confirming = true;
+    assert!(!view.enabled(Confirm) && view.enabled(KeepPlan));
+    let mut app = App::default();
+    app.pr_branch_edit_v27.replace(view);
+    dispatch(&mut app, Confirm);
+    let view = app.pr_branch_edit_v27.as_ref().unwrap();
+    assert!(
+        view.status.starts_with("Confirm push unavailable"),
+        "{}",
+        view.status
+    );
+    assert!(view.request.is_none(), "nothing is pushed");
+    // The push itself refuses before journaling anything.
+    let database = repos.root.path().join("cache.sqlite3");
+    let context = view.context.clone();
+    let prepared = view.prepared.clone().unwrap();
+    let outcome = push(&database, &context, &prepared, &planned, &cancel());
+    assert!(matches!(outcome, PushOutcomeV27::Refused(_)), "{outcome:?}");
+    assert_eq!(repos.remote_head(), repos.head);
+    assert!(!database.exists(), "no journal was opened");
+}

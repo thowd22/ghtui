@@ -17,6 +17,11 @@
 //! force: the branch must still point at the previewed head, and Git refuses
 //! anything that is not a fast-forward. The push is recorded in the PR write
 //! journal before it starts and closed with its read-back outcome.
+//!
+//! TASK-108: the plan step also reads the head repository's three-state
+//! permission flags (one `gh api repos/{head}` read) and shows push
+//! permission as granted, denied or unknown. Denied disables `y Confirm push`
+//! with the reason; unknown says the remote decides.
 use crate::{
     app::App,
     identity::ActorIdentity,
@@ -119,6 +124,130 @@ pub struct PlanV27 {
     pub message: String,
     pub committer: (String, String),
     pub date: String,
+    /// TASK-108: what GitHub reports about pushing to the head repository.
+    /// `plan` leaves it unknown; the plan step reads it before showing it.
+    pub permission: PushPermissionV27,
+}
+
+/// TASK-108: the three states of push permission on the head repository.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PermissionStateV27 {
+    /// GitHub reports push, maintain or admin access.
+    Granted,
+    /// GitHub reports no push access: Confirm push is disabled.
+    Denied,
+    /// Not reported, not readable or decided elsewhere: the remote decides.
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PushPermissionV27 {
+    pub state: PermissionStateV27,
+    pub repository: String,
+    /// Why, and what happens next.
+    pub reason: String,
+}
+
+const REMOTE_DECIDES: &str =
+    "the remote decides with your Git credentials; a refusal changes nothing";
+
+impl PushPermissionV27 {
+    pub fn unknown(repository: &str, why: &str) -> Self {
+        Self {
+            state: PermissionStateV27::Unknown,
+            repository: repository.to_owned(),
+            reason: format!("{why} • {REMOTE_DECIDES}"),
+        }
+    }
+    /// The plan row: `Push permission: granted|denied|unknown on <repo>`.
+    pub fn verdict(&self) -> String {
+        let state = match self.state {
+            PermissionStateV27::Granted => "granted",
+            PermissionStateV27::Denied => "denied",
+            PermissionStateV27::Unknown => "unknown",
+        };
+        format!("Push permission: {state} on {}", self.repository)
+    }
+    pub fn role(&self) -> SemanticToken {
+        match self.state {
+            PermissionStateV27::Granted => SemanticToken::Success,
+            PermissionStateV27::Denied => SemanticToken::Failure,
+            PermissionStateV27::Unknown => SemanticToken::Pending,
+        }
+    }
+    pub fn denied(&self) -> bool {
+        self.state == PermissionStateV27::Denied
+    }
+}
+
+/// TASK-108: classifies the head repository's three-state flags
+/// (pull, push, maintain, admin). A missing flag is unknown, never denied. A
+/// fork that reports no push access stays unknown too: the PR's "allow edits
+/// by maintainers" setting may still let the push through.
+pub fn push_permission(
+    head_repository: Option<&str>,
+    base_repository: &str,
+    flags: Result<[Option<bool>; 4], String>,
+) -> PushPermissionV27 {
+    let Some(repository) = head_repository else {
+        return PushPermissionV27::unknown(
+            "the head repository",
+            "GitHub reports no head repository",
+        );
+    };
+    let [_, push, maintain, admin] = match flags {
+        Ok(flags) => flags,
+        Err(error) => {
+            let error = error.split_whitespace().collect::<Vec<_>>().join(" ");
+            return PushPermissionV27::unknown(
+                repository,
+                &format!("GitHub could not be read ({error})"),
+            );
+        }
+    };
+    let via = [("admin", admin), ("maintain", maintain), ("push", push)]
+        .into_iter()
+        .find(|(_, flag)| *flag == Some(true))
+        .map(|(name, _)| name);
+    if let Some(via) = via {
+        return PushPermissionV27 {
+            state: PermissionStateV27::Granted,
+            repository: repository.to_owned(),
+            reason: format!(
+                "GitHub reports {via} access for your account • the push still uses your Git credentials"
+            ),
+        };
+    }
+    match push {
+        Some(false) if repository.eq_ignore_ascii_case(base_repository) => PushPermissionV27 {
+            state: PermissionStateV27::Denied,
+            repository: repository.to_owned(),
+            reason: "GitHub reports no push access for your account • y Confirm push is disabled; nothing will be pushed".into(),
+        },
+        Some(false) => PushPermissionV27::unknown(
+            repository,
+            "GitHub reports no push access to this fork, but maintainer edits may allow it",
+        ),
+        _ => PushPermissionV27::unknown(repository, "GitHub did not report push access"),
+    }
+}
+
+/// TASK-108: reads the head repository's permission flags through `gh` (one
+/// read, nothing written).
+pub fn read_push_permission(
+    context: &EditContextV27,
+    cancel: &CancellationToken,
+) -> PushPermissionV27 {
+    let flags = context.head_repository.as_deref().map(|repository| {
+        crate::providers::gh::GithubProvider::new(&context.host)
+            .and_then(|provider| provider.repository_permission_flags_v108(repository, cancel))
+            .map_err(|error| error.to_string())
+    });
+    push_permission(
+        context.head_repository.as_deref(),
+        &context.base_repository,
+        flags.unwrap_or(Ok([None; 4])),
+    )
 }
 
 /// Why a step stopped, the semantic state it shows, and whether the work
@@ -686,6 +815,7 @@ pub fn plan(
         message: body,
         committer: (name.to_owned(), email.to_owned()),
         date: date.to_owned(),
+        permission: PushPermissionV27::unknown("the head repository", "Not read yet"),
     })
 }
 
@@ -830,6 +960,12 @@ pub fn push(
             "The verified account or PR identity is incomplete; nothing was pushed.".into(),
         );
     };
+    if planned.permission.denied() {
+        return PushOutcomeV27::Refused(format!(
+            "{}: GitHub reports no push access; nothing was pushed.",
+            planned.permission.verdict()
+        ));
+    }
     let intent = intent(context, prepared, planned);
     let mut journal = match PrWriteJournal::open(database) {
         Ok(journal) => journal,
@@ -1000,8 +1136,22 @@ impl PrBranchEditViewV27 {
             Edit | Message | Discard => self.prepared.is_some() && !self.confirming,
             Plan => self.prepared.is_some() && !self.confirming && !self.message.trim().is_empty(),
             Commit => self.planned.is_some() && !self.confirming,
-            Confirm | KeepPlan => self.confirming,
+            Confirm => self.confirming && self.denied().is_none(),
+            KeepPlan => self.confirming,
         }
+    }
+    /// TASK-108: why Confirm push is disabled, when GitHub denies the push.
+    fn denied(&self) -> Option<String> {
+        self.planned
+            .as_ref()
+            .map(|planned| &planned.permission)
+            .filter(|permission| permission.denied())
+            .map(|permission| {
+                format!(
+                    "Confirm push unavailable • {}: GitHub reports no push access for your account. Nothing was pushed • n Keep plan",
+                    permission.verdict()
+                )
+            })
     }
     fn invalidate_plan(&mut self, why: &str) {
         if self.planned.take().is_some() {
@@ -1221,6 +1371,10 @@ pub fn dispatch(app: &mut App, action: BranchEditActionV27) {
             "Busy • x Cancel stops the running step".into()
         } else if view.done {
             "This edit is finished • Esc Back".into()
+        } else if let Some(reason) = view.denied().filter(|_| action == Confirm) {
+            view.status = reason;
+            view.status_role = SemanticToken::Failure;
+            return;
         } else if view.confirming {
             "Finish the confirmation first: y Confirm push or n Keep plan".into()
         } else {
@@ -1284,15 +1438,26 @@ pub fn dispatch(app: &mut App, action: BranchEditActionV27) {
             let planned = view.planned.as_ref().expect("enabled only with a plan");
             let prepared = view.prepared.as_ref().expect("planned implies prepared");
             view.confirming = true;
+            let permission = &planned.permission;
+            let next = if permission.denied() {
+                "y Confirm push is disabled • n Keep plan"
+            } else {
+                "y Confirm push • n Keep plan"
+            };
             view.status = format!(
-                "Push commit {} to {} on {} ({}) only if it still points at {}? No force push. y Confirm push • n Keep plan",
+                "Push commit {} to {} on {} ({}) only if it still points at {}? No force push. {}. {next}",
                 short(&planned.commit),
                 view.context.branch,
                 prepared.remote.name,
                 prepared.remote.push_url,
                 short(&prepared.head),
+                permission.verdict(),
             );
-            view.status_role = SemanticToken::Conflict;
+            view.status_role = if permission.denied() {
+                SemanticToken::Failure
+            } else {
+                SemanticToken::Conflict
+            };
         }
         KeepPlan => {
             view.confirming = false;
@@ -1432,10 +1597,15 @@ pub fn tick(app: &mut App, database: &Path) {
             }
             JobResult::Planned(Ok(planned)) => {
                 view.status = format!(
-                    "Planned commit {} • nothing written yet • C Commit & push to confirm",
-                    short(&planned.commit)
+                    "Planned commit {} • nothing written yet • {} • C Commit & push to confirm",
+                    short(&planned.commit),
+                    planned.permission.verdict(),
                 );
-                view.status_role = SemanticToken::Success;
+                view.status_role = if planned.permission.denied() {
+                    SemanticToken::Failure
+                } else {
+                    SemanticToken::Success
+                };
                 view.planned = Some(*planned);
                 view.scroll = 0;
             }
@@ -1519,6 +1689,15 @@ pub fn tick(app: &mut App, database: &Path) {
                             &unix_date(),
                             &worker_cancel,
                         )
+                    })
+                    .and_then(|mut planned| {
+                        // TASK-108: read the head repository's permission
+                        // before the plan (and its Confirm) is shown.
+                        planned.permission = read_push_permission(&context, &worker_cancel);
+                        if worker_cancel.is_cancelled() {
+                            return Err(StepFailureV27::from(SuggestionError::Cancelled));
+                        }
+                        Ok(planned)
                     })
                     .map(Box::new);
                 if let Ok(mut slot) = worker_slot.lock() {
@@ -1640,10 +1819,8 @@ pub fn detail_lines(view: &PrBranchEditViewV27) -> Vec<DetailRowV27> {
         ),
         SemanticToken::Reference,
     ));
-    lines.push(row(
-        "Permission: your Git credentials for that remote; a refusal changes nothing".into(),
-        SemanticToken::Muted,
-    ));
+    lines.push(row(planned.permission.verdict(), planned.permission.role()));
+    lines.push(row(planned.permission.reason.clone(), SemanticToken::Muted));
     lines.push(DetailRowV27 {
         actor: Some(committer),
         ..row(

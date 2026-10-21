@@ -57,12 +57,49 @@ fn git_in(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>)
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
+/// The gh commands the PR open and its Files tab make before any plan.
+const OPEN_STEPS: usize = 41;
+/// After a successful plan: plus its one head-repository permission read.
+const PLANNED_STEPS: usize = OPEN_STEPS + 1;
+/// The base repository of the fixture PR (a same-repository head uses it).
+const BASE_REPO: &str = "example/repo0000";
+const HOOK_REASON: &str = "ghtui-fixture: pushes to feature/scoped-open are not permitted";
+
+/// The PR head repository and the permission flags its read reports.
+struct Head {
+    repository: &'static str,
+    permissions: Value,
+}
+impl Head {
+    fn fork_with_push() -> Self {
+        Self {
+            repository: HEAD_REPO,
+            permissions: json!({"pull":true,"push":true}),
+        }
+    }
+}
+
 fn setup(conflict: bool) -> Setup {
+    setup_with(conflict, Head::fork_with_push())
+}
+
+fn setup_with(conflict: bool, head: Head) -> Setup {
     let fixture = resource_configured(&[]);
     let h = GitImagesV1::create(&fixture.repo(), false);
     let mut steps = initial();
     steps.extend(resource_operation(false));
     super::super::immutable_images::bind_steps(&mut steps, &h);
+    if head.repository != HEAD_REPO {
+        for step in &mut steps {
+            if let Ok(mut value) = serde_json::from_slice::<Value>(&step.stdout) {
+                if value.get("head").is_some() && value.get("base").is_some() {
+                    value["head"]["repo"] = value["base"]["repo"].clone();
+                    assert_eq!(value["head"]["repo"]["full_name"], head.repository);
+                    step.stdout = value.to_string().into_bytes();
+                }
+            }
+        }
+    }
     // A conflicting base: from the merge base, line 2 of PATH changes
     // differently. Only objects are written (a private index, no ref).
     let base = conflict.then(|| {
@@ -110,7 +147,14 @@ fn setup(conflict: bool) -> Setup {
         }
         commit
     });
-    assert_eq!(steps.len(), 41);
+    assert_eq!(steps.len(), OPEN_STEPS);
+    // TASK-108: a successful plan reads the head repository's three-state
+    // permission flags once.
+    steps.push(get(
+        &format!("repos/{}", head.repository),
+        json!({"id":920,"node_id":"HEAD_REPO_920","full_name":head.repository,
+            "permissions":head.permissions}),
+    ));
     fixture.scripted_gh(&steps);
     let bare = fixture.root.join("branch-edit-head-remote.git");
     fixture.git(&["init", "--quiet", "--bare", bare.to_str().unwrap()]);
@@ -120,7 +164,7 @@ fn setup(conflict: bool) -> Setup {
         bare.to_str().unwrap(),
         &format!("{}:refs/heads/{BRANCH}", h.h),
     ]);
-    let url = format!("https://{HOST}/{HEAD_REPO}.git");
+    let url = format!("https://{HOST}/{}.git", head.repository);
     fixture.git(&["remote", "add", "contributor", &url]);
     fixture.git(&["config", &format!("url.{}.insteadOf", bare.display()), &url]);
     // The external editor: copies the scripted output over the file it is
@@ -203,6 +247,18 @@ fn branch_attempts(fixture: &Fixture) -> Vec<(String, String, String, Option<Str
         .unwrap()
         .map(Result::unwrap)
         .collect()
+}
+
+/// TASK-108: the plan made exactly one more gh call, the read-only head
+/// repository read, and the strict fixture matched it.
+fn assert_permission_read(session: &Session, fixture: &Fixture, repository: &str) {
+    let rows = commands(session, fixture);
+    assert_eq!(rows.len(), PLANNED_STEPS, "only the plan's permission read");
+    let last = &rows[PLANNED_STEPS - 1];
+    assert_eq!(last["matched"], true, "{last}");
+    assert_eq!(last["args"][0], "api", "{last}");
+    assert_eq!(last["args"][1], format!("repos/{repository}"), "{last}");
+    assert_eq!(last["args"][5], "GET", "{last}");
 }
 
 fn edits_root(fixture: &Fixture) -> std::path::PathBuf {
@@ -401,6 +457,8 @@ fn edit_journey(mouse: bool, moved: bool) {
         "Committer Immutable fixture <immutable@example.invalid>".to_owned(),
         format!("Message: Edit {PATH} via ghtui"),
         "-new-no-newline".to_owned(),
+        format!("Push permission: granted on {HEAD_REPO}"),
+        "GitHub reports push access for your account".to_owned(),
     ] {
         assert!(
             screen.contains(&expected),
@@ -408,13 +466,13 @@ fn edit_journey(mouse: bool, moved: bool) {
         );
     }
     let commit = plan_commit(&session);
-    // Planning wrote nothing anywhere and called no gh.
+    // Planning wrote nothing anywhere; its only gh call read the permission.
     assert_eq!(
         plain_git(bare, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
         h.h
     );
     assert!(branch_attempts(fixture).is_empty());
-    assert_eq!(commands(&session, fixture).len(), 41, "no gh call");
+    assert_permission_read(&session, fixture, HEAD_REPO);
     let moved_to = moved.then(|| move_head(&setup));
     choose(&mut session, mouse, "[C Commit & push]", b"C");
     pane(
@@ -502,7 +560,11 @@ fn edit_journey(mouse: bool, moved: bool) {
         assert_eq!(effect["resource_id"], commit.as_str());
         assert!(!file.exists(), "a confirmed push removes the work file");
     }
-    assert_eq!(commands(&session, fixture).len(), 41, "no gh call");
+    assert_eq!(
+        commands(&session, fixture).len(),
+        PLANNED_STEPS,
+        "only the plan's permission read"
+    );
     assert_checkout_unchanged(fixture, &snapshot);
     choose(&mut session, mouse, "[Esc Back]", b"\x1b");
     session.wait_for_cursorless_condition(
@@ -638,7 +700,11 @@ fn resolve_journey(mouse: bool) {
             "confirmed"
         )
     );
-    assert_eq!(commands(&session, fixture).len(), 41, "no gh call");
+    assert_eq!(
+        commands(&session, fixture).len(),
+        PLANNED_STEPS,
+        "only the plan's permission read"
+    );
     assert_checkout_unchanged(fixture, &snapshot);
     choose(&mut session, mouse, "[Esc Back]", b"\x1b");
     session.wait_for_cursorless_condition(
@@ -657,4 +723,232 @@ fn pr_branch_edits_resolve_conflicts_keyboard() {
 #[test]
 fn pr_branch_edits_resolve_conflicts_mouse() {
     resolve_journey(true);
+}
+
+/// Opens `E Edit file`, writes `EDITED` through the editor and plans it.
+/// Returns the work file and the planned commit.
+fn edit_and_plan(
+    session: &mut Session,
+    fixture: &Fixture,
+    mouse: bool,
+    permission: &[&str],
+) -> (std::path::PathBuf, String) {
+    files(session, fixture, mouse);
+    open(session, mouse, "[E Edit file]", b"E");
+    pane(
+        session,
+        &["Isolated revision ready", "is ready to edit", "[edit]"],
+        "The isolated revision of the selected file is ready",
+    );
+    if mouse {
+        session.resize_owned_header(120, 40, TITLE, &["[C Commit & push]", "[Esc Back]"]);
+    }
+    script_editor(fixture, EDITED, 0);
+    choose(session, mouse, "[e Edit]", b"e");
+    pane(
+        session,
+        &["Edited", "p Plan shows the resulting diff"],
+        "Edited",
+    );
+    let file = std::path::PathBuf::from(&editor_calls(fixture)[0]);
+    assert_eq!(fs::read(&file).unwrap(), EDITED);
+    choose(session, mouse, "[p Plan]", b"p");
+    let mut words = vec!["Planned commit", "nothing written yet", "+edited-by-editor"];
+    words.extend_from_slice(permission);
+    pane(session, &words, "The plan shows the push permission");
+    (file, plan_commit(session))
+}
+
+/// TASK-108: GitHub does not report push access on the fork (unknown, not
+/// denied), so the plan says the remote decides. The local bare remote then
+/// refuses the push with a pre-receive hook: the branch is unchanged, the
+/// edited file is kept, and the journal closes the attempt as not written.
+fn remote_refusal_journey(mouse: bool) {
+    let setup = setup_with(
+        false,
+        Head {
+            repository: HEAD_REPO,
+            permissions: json!({"pull":true}),
+        },
+    );
+    let Setup {
+        fixture, h, bare, ..
+    } = &setup;
+    let hook = bare.join("hooks/pre-receive");
+    fs::write(
+        &hook,
+        format!("#!/bin/sh\necho '{HOOK_REASON}' >&2\nexit 1\n"),
+    )
+    .unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let snapshot = before(fixture);
+    let mut session = launch_with_editor(fixture, mouse);
+    let (file, commit) = edit_and_plan(
+        &mut session,
+        fixture,
+        mouse,
+        &[
+            &format!("Push permission: unknown on {HEAD_REPO}"),
+            "the remote decides with your Git credentials",
+        ],
+    );
+    let screen = session.screen();
+    assert!(
+        screen.contains("GitHub did not report push access"),
+        "{screen}"
+    );
+    assert_permission_read(&session, fixture, HEAD_REPO);
+    choose(&mut session, mouse, "[C Commit & push]", b"C");
+    pane(
+        &mut session,
+        &[
+            "[y Confirm push]",
+            "No force push",
+            "Push permission: unknown",
+        ],
+        "Unknown permission still lets the remote decide",
+    );
+    assert!(branch_attempts(fixture).is_empty(), "nothing journaled yet");
+    choose(&mut session, mouse, "[y Confirm push]", b"y");
+    pane(
+        &mut session,
+        &[
+            "The remote refused the push",
+            "ghtui-fixture: pushes to",
+            "The PR branch is unchanged",
+            "your edit is kept in",
+        ],
+        "The remote's refusal is explained; the edit is kept",
+    );
+    assert!(
+        session.screen().contains("✗ The remote refused the push"),
+        "{}",
+        session.screen()
+    );
+    assert_eq!(
+        plain_git(bare, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
+        h.h,
+        "the branch is unchanged"
+    );
+    assert_eq!(fs::read(&file).unwrap(), EDITED, "the edited file is kept");
+    let rows = branch_attempts(fixture);
+    assert_eq!(rows.len(), 1, "the attempt was journaled before the push");
+    assert_eq!(
+        (rows[0].0.as_str(), rows[0].1.as_str(), rows[0].2.as_str()),
+        (
+            "branch-edit-v27",
+            format!("edit/{commit}").as_str(),
+            "acknowledged"
+        ),
+        "closed as not written"
+    );
+    assert_eq!(rows[0].3, None, "no confirmed effect");
+    // A refused push leaves no plan to push.
+    choose(&mut session, mouse, "[C Commit & push]", b"C");
+    pane(
+        &mut session,
+        &["Commit & push unavailable • p Plan first"],
+        "No stale plan",
+    );
+    assert_permission_read(&session, fixture, HEAD_REPO);
+    assert_checkout_unchanged(fixture, &snapshot);
+    choose(&mut session, mouse, "[Esc Back]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("[e Edit]") && text.contains("▌ File src/界.rs")
+        },
+        "Back on the PR Files tab",
+        Duration::from_secs(20),
+    );
+    assert_eq!(fs::read(&file).unwrap(), EDITED, "closing keeps the edit");
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn pr_branch_edits_remote_refusal_keeps_edit_keyboard() {
+    remote_refusal_journey(false);
+}
+
+#[test]
+fn pr_branch_edits_remote_refusal_keeps_edit_mouse() {
+    remote_refusal_journey(true);
+}
+
+/// TASK-108: a same-repository head whose read reports `push: false` is
+/// denied: the plan says so, and `y Confirm push` is disabled with the
+/// reason by key and by click. Nothing is journaled or pushed.
+fn denied_journey(mouse: bool) {
+    let setup = setup_with(
+        false,
+        Head {
+            repository: BASE_REPO,
+            permissions: json!({"pull":true,"push":false,"maintain":false,"admin":false}),
+        },
+    );
+    let Setup {
+        fixture, h, bare, ..
+    } = &setup;
+    let snapshot = before(fixture);
+    let mut session = launch_with_editor(fixture, mouse);
+    let (file, _) = edit_and_plan(
+        &mut session,
+        fixture,
+        mouse,
+        &[
+            &format!("Push permission: denied on {BASE_REPO}"),
+            "y Confirm push is disabled",
+        ],
+    );
+    assert_permission_read(&session, fixture, BASE_REPO);
+    choose(&mut session, mouse, "[C Commit & push]", b"C");
+    pane(
+        &mut session,
+        &[
+            "[y Confirm push]",
+            "[n Keep plan]",
+            "Push permission: denied",
+        ],
+        "The confirmation shows the denial",
+    );
+    choose(&mut session, mouse, "[y Confirm push]", b"y");
+    pane(
+        &mut session,
+        &["Confirm push unavailable", "GitHub reports no push access"],
+        "Confirm is disabled with the reason",
+    );
+    assert!(branch_attempts(fixture).is_empty(), "nothing journaled");
+    assert_eq!(
+        plain_git(bare, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
+        h.h
+    );
+    choose(&mut session, mouse, "[n Keep plan]", b"n");
+    pane(
+        &mut session,
+        &["Plan kept • nothing was written"],
+        "Plan kept",
+    );
+    assert_eq!(fs::read(&file).unwrap(), EDITED, "the edit is kept");
+    assert_permission_read(&session, fixture, BASE_REPO);
+    assert_checkout_unchanged(fixture, &snapshot);
+    choose(&mut session, mouse, "[Esc Back]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("[e Edit]") && text.contains("▌ File src/界.rs")
+        },
+        "Back on the PR Files tab",
+        Duration::from_secs(20),
+    );
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn pr_branch_edits_denied_permission_disables_confirm_keyboard() {
+    denied_journey(false);
+}
+
+#[test]
+fn pr_branch_edits_denied_permission_disables_confirm_mouse() {
+    denied_journey(true);
 }

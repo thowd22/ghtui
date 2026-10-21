@@ -584,6 +584,25 @@ impl GithubProvider {
             permission_flags_v13: Some(permission_flags_v13(&raw_repository)),
         })
     }
+    /// TASK-108: the caller's three-state read/write/maintain/admin flags on
+    /// one repository (one read-only `GET repos/{repository}`). A missing flag
+    /// stays unknown; it is never treated as denied.
+    pub fn repository_permission_flags_v108(
+        &self,
+        repository: &str,
+        cancel: &CancellationToken,
+    ) -> GithubResult<[Option<bool>; 4]> {
+        validate_repo(repository)?;
+        let raw = self.api(
+            &format!("repos/{repository}"),
+            "GET",
+            None,
+            None,
+            false,
+            cancel,
+        )?;
+        Ok(permission_flags_v13(&raw))
+    }
     fn ambiguous_pr(&self, target: &PrSummary, message: &str) -> GithubError {
         self.runner
             .mark_ambiguous(&self.resource(&target.pr.repository, target.pr.number));
