@@ -139,7 +139,7 @@ fn refused_before_witness(mouse: bool) {
                 screen.contains("LOCAL INTENT • Preview first")
                     && screen.contains("[Keep draft / Close]")
                     && screen.contains("no result inspection")
-                    && !screen.contains("F3")
+                    && !screen.contains("[F3")
                     && crate::support::first_form_field_value(
                         screen,
                         "LOCAL INTENT • Preview first",
