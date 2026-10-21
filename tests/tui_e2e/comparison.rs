@@ -86,7 +86,23 @@ fn endpoint(session: &mut Session, mouse: bool, index: usize, reference: &str) {
 
 fn comparison_preview(session: &mut Session, mouse: bool) {
     mode(session, mouse, b"\x10", "[Preview]");
-    session.wait_for_screen("Read-only comparison preview ready");
+    // The prepared preview body, not the status line: a late local draft-save ACK
+    // ("Draft saved locally • nothing published") can replace the transient status first.
+    // An opened comparison behind the form shows the same Direction row, so the form's own
+    // endpoint fields must also have given way to the preview.
+    session
+        .try_wait_for_condition(
+            |screen| {
+                screen.contains("Direction: A → B • plus appears in target; minus leaves base")
+                    && !screen.contains("A: from (branch, tag or commit):")
+            },
+            "read-only comparison preview prepared in the form",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| {
+            session.save_artifacts();
+            panic!("{error}; artifacts: {}", session.artifact_dir.display())
+        });
     assert!(!session.screen().contains("[Confirm action]"));
 }
 
@@ -170,7 +186,7 @@ fn endpoints_journey(mouse: bool) {
     endpoint(&mut session, mouse, 0, "refs/heads/main");
     endpoint(&mut session, mouse, 1, "refs/heads/feature");
     comparison_preview(&mut session, mouse);
-    session.wait_for_screen("Target is 1 commits ahead and 1 behind base");
+    session.wait_for_screen("Target is 1 commit ahead and 1 behind base");
     assert_eq!(fs::read(fixture.repo().join(".git/index")).unwrap(), index);
     if mouse {
         session.click_visible_action("[Keep draft / Close]");
@@ -212,7 +228,7 @@ fn endpoints_journey(mouse: bool) {
     comparison_preview(&mut session, mouse);
     comparison_open(&mut session, mouse, 2);
     see_comparison_row(&mut session, mouse, "Proposed branch changes • read-only");
-    see_comparison_row(&mut session, mouse, "1 changed files");
+    see_comparison_row(&mut session, mouse, "1 changed file •");
     see_comparison_row(&mut session, mouse, "+target-only addition");
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]).trim(), base);
     assert_eq!(fixture.git(&["show-ref"]), refs);

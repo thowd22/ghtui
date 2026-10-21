@@ -702,6 +702,28 @@ fn heading(theme: Theme, text: &str, rest: Option<String>, width: usize) -> Vec<
     rows
 }
 
+/// The plain-language meaning of a merge's parents (TASK-67), or `None` for an ordinary
+/// commit. Git records the checked-out branch first, then each branch merged into it.
+pub fn merge_explanation<S: AsRef<str>>(parents: &[S]) -> Option<String> {
+    let short = |sha: &S| safe_text(crate::ui_table::short_sha(sha.as_ref()));
+    let (first, merged) = match parents {
+        [] | [_] => return None,
+        [first, rest @ ..] => (short(first), rest),
+    };
+    let tail = format!(
+        "into {first} (parent 1, the branch that was checked out); \
+         changes below are compared with parent 1"
+    );
+    Some(match merged {
+        [only] => format!("{} (parent 2) was merged {tail}", short(only)),
+        _ => format!(
+            "{} (parents 2–{}) were merged {tail}",
+            merged.iter().map(short).collect::<Vec<_>>().join(", "),
+            parents.len()
+        ),
+    })
+}
+
 fn label(theme: Theme, text: &str) -> Span<'static> {
     Span::styled(format!("{text:<LABEL$} "), theme.role(Role::TextMuted))
 }
@@ -1087,6 +1109,22 @@ fn content(
             LABEL + 1,
             width,
         );
+    }
+    // TASK-67: a merge says in plain words what its parents mean, so "Parents" is not jargon.
+    if let Some(text) = merge_explanation(&commit.parents) {
+        for (index, part) in wrap(&text, width.saturating_sub(LABEL + 1))
+            .into_iter()
+            .enumerate()
+        {
+            rows.push(Row::new(Line::from(vec![
+                if index == 0 {
+                    label(theme, "Merge")
+                } else {
+                    Span::raw(" ".repeat(LABEL + 1))
+                },
+                Span::styled(part, theme.role(Role::TextMuted)),
+            ])));
+        }
     }
     // A followed path chip names the file as it was in this commit (TASK-99.3).
     if let Some(renamed) = workspace

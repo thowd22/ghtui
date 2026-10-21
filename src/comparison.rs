@@ -243,8 +243,8 @@ impl ComparisonPlan {
             ),
             "Direction: A → B • plus appears in target; minus leaves base".into(),
             format!(
-                "Target is {} commits ahead and {} behind base{}.",
-                relationship.ahead,
+                "Target is {} ahead and {} behind base{}.",
+                plural(relationship.ahead, "commit"),
                 relationship.behind,
                 if relationship.shallow {
                     " in available shallow history"
@@ -281,9 +281,10 @@ impl ComparisonPlan {
                 "Proposed answer: what target adds since the selected common start {patch_base}?"
             ),
         });
+        // TASK-67: plain words; "HEAD" read as jargon to a beginner.
         preview.push(format!(
-            "{} changed files • HEAD, working files and next commit remain untouched",
-            result.diff.files.len()
+            "{} • nothing in your checkout changes",
+            plural(result.diff.files.len(), "changed file")
         ));
         let mut rows = preview
             .iter()
@@ -415,4 +416,24 @@ fn safe_label(value: &str) -> String {
         .chars()
         .take(1024)
         .collect()
+}
+
+/// `1 commit`, `2 commits` (TASK-67: "1 commits" read as broken to beginners).
+fn plural(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+#[cfg(test)]
+mod novice_usability_v67_tests {
+    #[test]
+    fn novice_usability_v67_comparison_counts_read_as_plain_english() {
+        assert_eq!(super::plural(0, "changed file"), "0 changed files");
+        assert_eq!(super::plural(1, "changed file"), "1 changed file");
+        assert_eq!(super::plural(2, "commit"), "2 commits");
+        assert_eq!(super::plural(1, "commit"), "1 commit");
+    }
 }

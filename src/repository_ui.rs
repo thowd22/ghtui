@@ -163,6 +163,12 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
             .or(file_back.filter(|_| diff_side.is_none())),
     );
     let mut context = Vec::new();
+    // TASK-67: a saved Tree says how to open its selected file or folder; beginners did not
+    // guess Enter. The token runs the same row action as the click and the Enter key.
+    if let Some(action) = tree_open_action(app, workspace, busy) {
+        context
+            .push(KeyControl::new("Enter", "Open", Action::RepositoryRow(action)).with_priority(6));
+    }
     // Staging applies to the working tree and index, never to a saved comparison.
     if workspace.file_provenance.is_none()
         && workspace.actor_profile.is_none()
@@ -314,6 +320,30 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
         },
     ));
     keys
+}
+
+/// The selected saved-Tree row's own open action (a file, folder or tree navigation row), the
+/// one Enter and a click already run; `None` outside a Tree or while a read is running.
+pub fn tree_open_action(app: &App, workspace: &Workspace, busy: bool) -> Option<RowAction> {
+    // Only while the rows own the keyboard: then Enter already opens the selected row. With a
+    // Tab-focused control, Enter belongs to that control and the bar must not take it.
+    if busy
+        || !app.repository_content_focused
+        || workspace.mode != RepositoryMode::Tree
+        || workspace.file_provenance.is_some()
+    {
+        return None;
+    }
+    workspace
+        .display_rows_v1()
+        .get(app.repository_list.selected)
+        .and_then(|row| row.action.clone())
+        .filter(|action| {
+            matches!(
+                action,
+                RowAction::Tree(_) | RowAction::File(_) | RowAction::Directory(_)
+            )
+        })
 }
 
 fn control_is_graph(control: &KeyControl) -> bool {

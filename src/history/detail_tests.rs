@@ -416,3 +416,42 @@ fn history_detail_actions_runs_key_and_click_open_actions_for_the_exact_commit()
         "ab".repeat(20)
     );
 }
+
+/// TASK-67: a merge explains its parents in plain words; ordinary and root commits do not.
+#[test]
+fn novice_usability_v67_merge_detail_explains_parents_in_plain_words() {
+    let (a, b, c, d) = (
+        "a".repeat(40),
+        "b".repeat(40),
+        "c".repeat(40),
+        "d".repeat(40),
+    );
+    assert_eq!(merge_explanation::<String>(&[]), None);
+    assert_eq!(merge_explanation(std::slice::from_ref(&a)), None);
+    let two = merge_explanation(&[a.clone(), b.clone()]).unwrap();
+    assert_eq!(
+        two,
+        "bbbbbbb (parent 2) was merged into aaaaaaa (parent 1, the branch that was checked \
+         out); changes below are compared with parent 1"
+    );
+    let octopus = merge_explanation(&[a, b, c, d]).unwrap();
+    assert!(
+        octopus.starts_with(
+            "bbbbbbb, ccccccc, ddddddd (parents 2–4) were merged into aaaaaaa (parent 1"
+        ),
+        "{octopus}"
+    );
+    // Terminal control bytes in a parent never reach the screen.
+    let hostile = merge_explanation(&["a\u{1b}[31m".to_owned(), "b".into()]).unwrap();
+    assert!(!hostile.contains('\u{1b}'), "{hostile:?}");
+    // Wrapped at the narrow detail width, every piece fits and no word is split.
+    let width = 80 - LABEL - 1;
+    for part in wrap(&two, width) {
+        assert!(crate::editor::display_width(&part) <= width, "{part}");
+    }
+    let joined = wrap(&two, 30).join(" ");
+    assert_eq!(
+        joined.split_whitespace().collect::<Vec<_>>(),
+        two.split_whitespace().collect::<Vec<_>>()
+    );
+}

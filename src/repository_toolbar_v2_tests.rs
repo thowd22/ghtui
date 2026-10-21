@@ -250,3 +250,88 @@ fn design_help_v97_repository_help_and_commands_cover_every_footer_key() {
     // Preparing Help and Commands leaves the working tree and index untouched.
     assert_eq!(real.snapshot(), before);
 }
+
+/// TASK-67: a saved Tree paints `Enter Open` for its selected file or folder, and that token,
+/// the Enter key and a click on the row run the same row action. Other modes keep their bars.
+#[test]
+fn novice_usability_v67_saved_tree_footer_shows_enter_open_for_the_selected_row() {
+    let real = Real::new("sha1");
+    let before = real.snapshot();
+    let workspace = Workspace::load(&real.root, RepositoryMode::Tree, "HEAD", None)
+        .unwrap()
+        .unwrap();
+    let rows = workspace.display_rows_v1();
+    let index = rows
+        .iter()
+        .position(|row| {
+            matches!(
+                row.action,
+                Some(RowAction::File(_) | RowAction::Directory(_) | RowAction::Tree(_))
+            )
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "a saved Tree lists an openable row: {:?}",
+                rows.iter().map(|row| &row.label).collect::<Vec<_>>()
+            )
+        });
+    let expected = Action::RepositoryRow(rows[index].action.clone().unwrap());
+    let mut app = App {
+        view: View::Repository,
+        workspace: Some(workspace.clone()),
+        ..Default::default()
+    };
+    app.repository_list.selected = index;
+    // While a Tab-focused control owns Enter, the bar does not offer Open.
+    app.repository_content_focused = false;
+    assert!(super::footer_keys(&app)
+        .iter()
+        .all(|control| control.key != "Enter"));
+    app.repository_content_focused = true;
+    let mut keys = super::footer_keys(&app);
+    let open = keys
+        .iter()
+        .find(|control| control.key == "Enter")
+        .expect("Enter Open in a saved Tree");
+    assert_eq!(open.label, "Open");
+    assert_eq!(open.action, expected);
+    keys.extend(crate::footer::global_tail(&app));
+    let narrow = crate::footer::layout(&keys, 80)
+        .into_iter()
+        .map(|placed| keys[placed.index].token(placed.compact))
+        .collect::<Vec<_>>();
+    assert!(
+        narrow.iter().any(|token| token == "Enter Open"),
+        "{narrow:?}"
+    );
+    assert!(
+        narrow.iter().any(|token| token == "r Refresh"),
+        "{narrow:?}"
+    );
+    assert_eq!(
+        crate::footer::resolve_key(&keys, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Some(expected)
+    );
+    // A heading row has no action, so the bar does not offer Open for it.
+    if let Some(heading) = rows.iter().position(|row| row.action.is_none()) {
+        app.repository_list.selected = heading;
+        assert!(super::footer_keys(&app)
+            .iter()
+            .all(|control| control.key != "Enter"));
+    }
+    // Working mode is unchanged: no Enter Open token.
+    let working = App {
+        view: View::Repository,
+        workspace: Some(
+            Workspace::load(&real.root, RepositoryMode::Working, "HEAD", None)
+                .unwrap()
+                .unwrap(),
+        ),
+        repository_content_focused: true,
+        ..Default::default()
+    };
+    assert!(super::footer_keys(&working)
+        .iter()
+        .all(|control| control.label != "Open"));
+    assert_eq!(real.snapshot(), before);
+}

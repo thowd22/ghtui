@@ -74,6 +74,8 @@ mod native_external_tools_v4;
 mod navigation_local_palette;
 #[path = "tui_e2e/notifications_v63.rs"]
 mod notifications_v63;
+#[path = "tui_e2e/novice_usability_v67.rs"]
+mod novice_usability_v67;
 #[path = "support/owned_form_prose_v120.rs"]
 mod owned_form_prose_v120;
 #[path = "tui_e2e/owned_pty_cleanup_v1.rs"]

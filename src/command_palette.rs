@@ -610,7 +610,7 @@ impl CommandPalette {
                 self.focus = Focus::Query;
                 self.filter();
                 self.message =
-                    "Filtered prepared commands; current workflow guards still apply.".into();
+                    "Filtered; each command still checks its target before it runs.".into();
             }
             Backspace | Delete | ClearQuery => {
                 match action {
@@ -788,7 +788,7 @@ impl CommandPalette {
         let line = |text: &str| display_line(text, 0, usize::from(inner.width));
         frame.render_widget(
             Paragraph::new(line(
-                "Prepared commands · not current permission/target authority",
+                "Type to filter · Enter runs the selected command · writes ask first",
             ))
             .style(theme.style(SemanticToken::Muted)),
             Rect::new(inner.x, inner.y, inner.width, 1),
