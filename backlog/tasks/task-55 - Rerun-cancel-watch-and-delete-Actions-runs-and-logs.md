@@ -1,12 +1,12 @@
 ---
 id: TASK-55
 title: Rerun cancel watch and delete Actions runs and logs
-status: In Progress
+status: Done
 assignee:
   - '@foundation'
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 08:55'
 labels:
   - actions
   - e2e
@@ -444,4 +444,6 @@ V144 actual final Controls54code16PTY andHistory40code18PTY ALLGREEN/bothinputs/
 2026-10-20 final push (verified at 60167066, 6107/0): Untouched in this push.
 
 2026-10-20 round: All ACs were already met (audit 5/5). No change and not re-run in this pass. Only the DoD full-suite, fmt and clippy gates remain, which belong to the coordinator. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+Close-out audit: every AC has current lib + keyboard/mouse PTY evidence (25 module filters 128/0; actions lib 862/0; provider/actions contracts 123/0). Fixed: Actions write journal open no longer queues for the write lock (ecad9483). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

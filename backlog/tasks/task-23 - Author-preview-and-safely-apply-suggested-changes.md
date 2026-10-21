@@ -1,10 +1,10 @@
 ---
 id: TASK-23
 title: Author preview and safely apply suggested changes
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - review
   - e2e
@@ -62,4 +62,6 @@ Read-only current native prerequisite audit after Timeline freeze (2026-10-15): 
 Posted suggestions apply from the threads overlay with preview + journaled push (92e6eeb9). suggestion 11/0; threads PTY 132/0. Missing: PTY journey choosing 2+ suggestions in one batch.
 
 Batched suggestion apply (A All) and overlap refusal PTY journeys, keyboard + mouse (88b00824); suggestions 10/0. Open: permission-denied push and attribution-limit journeys; AC5/AC6 whole-flow audit. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+Conflict, refused push (pre-receive hook), attribution limit PTY by key and click; plan rows about people start with actor chips (8e6ab67c). suggestions_v23 14/0. Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

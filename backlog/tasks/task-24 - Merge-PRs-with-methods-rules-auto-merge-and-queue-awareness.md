@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - review
   - e2e
@@ -114,4 +114,6 @@ V68 read-only current-source proposal frozen: manifest target/build/provider-pr-
 c09e4691: merge provider scenarios. Missing AC6: Disable auto-merge enabler / queue enqueuer show plain @login, no actor chip.
 
 PrAction previews paint Account/Enabled by/Enqueued by actors with the shared chip, merge states in semantic ink (012eefaf). pr_actions + pr_create PTY 178/0. Open: AC4 re-audit. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+Provider tests for denied methods, read-only permission, draft refusal, queue races, merge-context provenance (6bbe3583). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean. Open: AC6 actor/colour audit across all merge surfaces.
 <!-- SECTION:NOTES:END -->

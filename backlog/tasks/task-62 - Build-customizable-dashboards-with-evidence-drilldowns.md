@@ -1,11 +1,11 @@
 ---
 id: TASK-62
 title: Build customizable dashboards with evidence drilldowns
-status: In Progress
+status: Done
 assignee:
   - '@root'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - delivery
   - e2e
@@ -37,7 +37,7 @@ The user wants an easy overview across the repos they care about. Dashboard widg
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Saved dashboards contain review queues, stale PRs, unresolved threads, failing Actions and defined metric trends.
+- [x] #1 Saved dashboards contain review queues, stale PRs, unresolved threads, failing Actions and defined metric trends.
 - [x] #2 Scope/window/layout preferences persist and every displayed action/metric is clickable and keyboard reachable.
 - [x] #3 Actor widgets, colors and partial-data indicators agree with underlying records.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
@@ -81,4 +81,6 @@ Root postboot V3 checked dashboard gate is genuinely terminal0: hard-capped node
 2026-10-20 round: Every dashboard card now has a retained-history trend widget: `t Trend` on the key bar, also listed in Commands and Help. It shows a sparkline and one row per window day, and Enter or a click on a day opens that day's retained records and actor IDs. Back returns to the place you left. The worker attaches trends without extra gh calls (the PTY journal stays at 7 commands). AC4: code tests cover aggregation, sparkline scaling, the missing/partial/unavailable/unreadable states, upsert and pruning, account and scope isolation, footer key/click parity and the disabled reason in Layout. Gates are the same as TASK-61. AC1 is not complete: the unresolved-threads widget and named dashboards are still missing. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 
 Stale PRs and Unresolved threads Dashboard widgets with exact PR drilldowns (d8ff78c4). Open: named/multiple saved dashboards; new widgets not yet saved layout slots. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+Named saved dashboards; Stale PRs and Unresolved threads as layout slots; configurable stale threshold (cea4b6ab). dashboard_named_v1 + dashboards_v1 12/0. Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

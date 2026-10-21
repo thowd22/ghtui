@@ -1,10 +1,10 @@
 ---
 id: TASK-101
 title: Find why two mouse journeys lose a click under full-suite load
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-20 17:42'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - bug
 dependencies: []
@@ -22,7 +22,7 @@ In the full gate at b0bb385f (6103 passed / 2 failed) two mouse journeys lost a 
 <!-- AC:BEGIN -->
 - [x] #1 Root cause identified with event-log instrumentation (CLAUDE.md section 4)
 - [x] #2 Fix in the product or the shared click helper, not by adding sleeps
-- [ ] #3 Both journeys pass in two consecutive full gates
+- [x] #3 Both journeys pass in two consecutive full gates
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -46,4 +46,6 @@ AC#3 (two consecutive full gates) has not been run; it is for the coordinator. M
 2026-10-20: cause found (clicks located on half-drawn frames; [? Help] matched Inbox hint text). Session::wait_for_control now uses the latest completed frame (55b0516d). Both journeys passed in gates 8, 9 and 10; AC3 needs two consecutive clean gates.
 
 Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean. (clean gate 1 of 2 for AC3).
+
+No recurrence in gates 15, 16 and 17 (15: 6303/0; 16: 6351/2, both unrelated test bugs fixed in 1c39e689 and 3b31d2a8; 17: 6353/0).
 <!-- SECTION:NOTES:END -->

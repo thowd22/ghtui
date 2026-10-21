@@ -4,7 +4,7 @@ title: Verify complete cross-feature journeys and failure recovery
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-16 08:34'
+updated_date: '2026-10-21 08:55'
 labels:
   - delivery
   - e2e
@@ -237,4 +237,6 @@ V166 actualcheckedDispatch again81code38realPTY ALLPASS/0ignored/bothinputs/38un
 V166 original73982 TERMINAL1 at2026-10-16T08:14:08.176Z; scopeinactive/dead VERIFIED, reportSHA959587721be5abd141991d8f10d55ac12b5bb9989ecce788a2625e7f7e2cf281. REQUIRED actual node scripts/test-all.mjs unfiltered: ALL3532code/provider PASS(including2841library+346providercontracts), native1330PASS18FAIL/1348/0ignored0filtered, total4862PASS18FAIL. Exactfinalfailurefamilies blended2/metrics2/oldMetadata10/project2/CancelACK2, aggregate diagnostics match priorcausalaudits; no extra failure family. Allpositive1330unique independent session coverage1916rows,20negativeunique includes18failed+deliberatepanics, ALL ownedcleanup true; code/fmt/strictalltargetClippy/dependency audit0, checkedDispatch81/38green. Peak727908352B/tasks69/ALLmemory+pids events0, no resourcecapraise. Current1294/Main1148 unchanged. NextSOLEheavy W9earlyV167 separatecopysession12409 active/capsverified, compile+41code diagnosticonly/no nativeacceptance; no anotherfullrun or sourceadmission whilelive. Allfailures remain mandatory, no taskDone/product/Mac claim.
 
 2026-10-16 08:35 UTC actual V170 terminal0/inactive-dead confirmed: report root-current-followups-v170-private-20261016.json SHA25f8e028b834b6cd5f2612777ef1a3aae346c3db682a57cebc595a2f972dd8eb; immutable1294 current freeze b773e796/private1cc23a7/Main1148 unchanged. Actual compile/list2843lib1348native retained all old names; direct3 prose PASS; checked metrics107code20PTY/project_git_init1code2PTY/scoped_actions_publication_v353code16PTY ALLPASS, both keyboard/mouse, exact positive unique20/2/16, all cleanup,0ignored. cargo fmt --check/strict all-target Clippy/dependency audit PASS. Bound scope peak4295229440B/tasks42/memory.high1034; max/oom/kill/pids events0, no capraise. Four reviewed task-test corrections address six V166 failures; full unfiltered NOT rerun or claimed. Actual prior V166 full3532codePASS/1330nativePASS18FAIL still authoritative; twelve Metadata/blended failures require genuine current Metadata-tab vertical/strict canonical fixtures, GraphV51 approved and exact current capture complete. Separate private workers/no direct overwrite established; integration drift and inadequate legacy fixture migration contributed. Whole-current unfiltered remains required after real fixes and before acceptance.
+
+First cross-feature PTY journeys in tests/tui_e2e/cross_feature_v65.rs: PR review (Inbox -> PR -> approve, offline refusal kept draft), edit-to-PR, History -> tree -> search (ffb88082, 1c39e689). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean. Open: Files/inline/pending in the review journey; Actions -> log/artifact/approval journey.
 <!-- SECTION:NOTES:END -->

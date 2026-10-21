@@ -1,10 +1,10 @@
 ---
 id: TASK-63
 title: Add a readable activity and notification inbox
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - delivery
   - e2e
@@ -35,8 +35,8 @@ Users need to know who changed a PR or workflow without repeatedly reopening eac
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Activity and GitHub notifications show actor/login/avatar, reason, repo/resource and freshness.
-- [ ] #2 Read/unread/subscription controls use verified gh/API capabilities and update related queues.
-- [ ] #3 Polling is bounded and deduplicates changes without claiming push realtime.
+- [x] #2 Read/unread/subscription controls use verified gh/API capabilities and update related queues.
+- [x] #3 Polling is bounded and deduplicates changes without claiming push realtime.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -212,4 +212,6 @@ V145 ACTUALfullnotifications87code36realbinaryPTY ALLGREEN,0ignored/bothinputs/3
 Notification Details shows the latest commenter (d42efdd3). notification lib 99/0; notifications_v63 PTY 38/0. Missing: actor in list rows (needs batch read), Mark unread.
 
 Notification list rows show the latest actor from one batched read (ae859a56). notifications PTY 44/0. Open: AC2 queue update after mark read/ignore, AC3 bounded polling. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+Queue re-read after a confirmed write; bounded 304 polling honouring the poll interval (6c1e1f6f). notification lib 107/0, notifications_v63 PTY 38/0. Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

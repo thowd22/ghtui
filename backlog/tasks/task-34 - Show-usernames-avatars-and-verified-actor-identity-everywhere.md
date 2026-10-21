@@ -1,10 +1,10 @@
 ---
 id: TASK-34
 title: Show usernames avatars and verified actor identity everywhere
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - foundation
   - e2e
@@ -229,4 +229,6 @@ Root-approved next SOURCE-ONLY Task20 native review avatar successor (after immu
 Read-only actor profiles open from PR author and comment/review-comment authors (f10bc6db) without changing row targets. Missing: commit author/committer and Actions run actor profiles.
 
 Commit author/committer and Actions run actor profiles by key and click (c12fc688), honest 'No GitHub account' fallback. Open: one cross-surface identity journey. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+One actor shown identically across PR, comment, commit and run profiles, plus bot, ghost and unlinked committer (16ed1129). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

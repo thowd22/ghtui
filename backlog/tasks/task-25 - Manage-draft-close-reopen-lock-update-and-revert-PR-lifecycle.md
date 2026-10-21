@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - review
   - e2e
@@ -282,4 +282,6 @@ READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/bu
 c09e4691: unconfirmed lifecycle writes name re-fetched state. Missing AC6: actor chips + semantic colours on lifecycle forms.
 
 Lifecycle previews share the chip painter; update-branch state ink (012eefaf). Open: AC3 re-fetched partial outcomes. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+Status names the re-read state and a moved head after lifecycle writes; unconfirmed lock names the re-read state; State composer account chip (6bbe3583). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean. Open: AC6 audit (e.g. State history v74).
 <!-- SECTION:NOTES:END -->

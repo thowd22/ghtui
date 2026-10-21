@@ -3,10 +3,10 @@ id: TASK-102
 title: >-
   Find why a SQLite WAL writer and a catalogue filter keystroke fail only under
   full-suite load
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-20 23:44'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - bug
 dependencies: []
@@ -24,7 +24,7 @@ Gate 10 (11eb1ced, 6206 passed / 2 failed) failed two tests that pass when their
 <!-- AC:BEGIN -->
 - [x] #1 Root cause of the SQLITE_BUSY under load is identified and fixed in product or harness
 - [x] #2 Root cause of the lost filter keystroke after restart is identified and fixed
-- [ ] #3 Both pass in two consecutive full gates
+- [x] #3 Both pass in two consecutive full gates
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -37,4 +37,6 @@ Gate 10 (11eb1ced, 6206 passed / 2 failed) failed two tests that pass when their
 Keystroke half: harness typed before the discovered workspace was installed (busy modal drops keys by contract). filter() now waits for the painted [/ Filter] (97acd232). repo_catalog_dialogs + workflow_v6 27/0. AC3 pending clean gates.
 
 Lock follow-up: no transaction spans a child; slow commits under ionice -c3 exceed the 2 s budget. d8cc3c2a gives journal validation a fair bounded wait; 41672d74 lets a current cache open skip BEGIN IMMEDIATE. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean. (clean gate 1 of 2 for AC3).
+
+No recurrence in gates 15, 16 and 17 (15: 6303/0; 16: 6351/2, both unrelated test bugs fixed in 1c39e689 and 3b31d2a8; 17: 6353/0).
 <!-- SECTION:NOTES:END -->

@@ -3,10 +3,10 @@ id: TASK-103
 title: >-
   Find why the Conversation held-post replacement test fails about half the time
   since 2026-10-21
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 01:44'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 08:55'
 labels:
   - bug
 dependencies: []
@@ -24,7 +24,7 @@ conversation_comments_v17_runtime_held_post_success_err_actual_panic_replacement
 <!-- AC:BEGIN -->
 - [x] #1 The failing fence step (cache open, source validate, journal open or history compare) is identified
 - [x] #2 The root cause is fixed without sleeps or loosened fence checks
-- [ ] #3 The module passes 10 consecutive runs and a full gate
+- [x] #3 The module passes 10 consecutive runs and a full gate
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -33,4 +33,6 @@ conversation_comments_v17_runtime_held_post_success_err_actual_panic_replacement
 Cause: the test released the replacement once the held gh child was reaped, before the original worker's mark_uncertain + fence_reservations. Test now waits for those durable effects (6313a106). collaboration_v17 300/0; runtime module 10x 17/0. AC3 pending clean gates.
 
 Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean. (clean gate 1 of 2 for AC3).
+
+No recurrence in gates 15, 16 and 17 (15: 6303/0; 16: 6351/2, both unrelated test bugs fixed in 1c39e689 and 3b31d2a8; 17: 6353/0).
 <!-- SECTION:NOTES:END -->

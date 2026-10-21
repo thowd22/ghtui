@@ -1,11 +1,11 @@
 ---
 id: TASK-54
 title: Inspect edit enable disable and dispatch workflows
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-21 08:55'
 labels:
   - actions
   - e2e
@@ -502,4 +502,6 @@ V290 nowauthoritativelyTERMINAL original30192closedexit1 reportSHA06e8cfcd0c66e4
 2026-10-18 a02 5bd99ae7: Workflow page D dispatch/X enable-disable/V revision keys matching clickable buttons, plain dispatch/state previews and outcome lines, readable input/job summary. node scripts/test-task.mjs v1_actions_workflows: 3 code + 2 PTY (keyboard+mouse) PASS; actions_workflow_controls PTY 2 PASS; lib actions 803 PASS; scoped_actions_workflow_v6 24 + scoped_actions_dispatch_v7 40 PTY PASS; fmt/clippy clean.
 
 2026-10-20 audit at 74360e48 (5/5 ACs met): Workflow definition browsing at a revision, typed dispatch, enable/disable, and local edit through commit, push and PR are all built and tested by keyboard and mouse. Ready to mark Done after review. Remaining: None for the ACs. The unsupported-trigger explanation has only a unit test, not a PTY journey. The macOS/DoD bookkeeping is still open. Independent check: AC2, AC3 and AC4 are met. Dispatch with typed inputs and enable/disable are tested by keyboard and mouse, including required string/boolean/number/choice/environment inputs (scoped_actions_dispatch_typed_v7). Edit through commit, push and PR is covered by the v9 PTY journeys. provider_contracts.rs:802 fetches YAML at a chosen ref (feature/fix). AC1 and AC5 are not proven. The only PTY coverage of
+
+Close-out audit: every AC has current lib + keyboard/mouse PTY evidence (25 module filters 128/0; actions lib 862/0; provider/actions contracts 123/0). Fixed: Actions write journal open no longer queues for the write lock (ecad9483). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->
