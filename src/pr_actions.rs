@@ -594,7 +594,7 @@ pub fn governed_disabled_reason(command: PrCommand, target: &PrSummary) -> Optio
 }
 fn no_write_permission(context: &PrActionContext) -> String {
     format!(
-        "GitHub reports that @{} has no write permission on {}.",
+        "GitHub reports that {} has no write permission on {}.",
         context.identity.login, context.target.pr.repository
     )
 }
@@ -636,7 +636,7 @@ fn loaded_governed_reason(command: PrCommand, context: &PrActionContext) -> Opti
                 Some("GitHub reports no pending auto-merge request on this PR.".into())
             } else if !merge.viewer_can_disable_auto_merge {
                 Some(format!(
-                    "GitHub reports that @{} cannot disable this auto-merge request.",
+                    "GitHub reports that {} cannot disable this auto-merge request.",
                     context.identity.login
                 ))
             } else {
@@ -1508,6 +1508,40 @@ pub fn merge_state_token(state: &str) -> crate::theme::SemanticToken {
     }
 }
 
+/// The shared semantic token for a PR's lifecycle state, matching the PR
+/// timeline's event inks: merged is Success, closed is Removed, a draft is
+/// Muted and open is Added. Unknown states stay Pending. The label from
+/// [`pr_lifecycle_state_label`] always names the state in text too.
+pub fn pr_lifecycle_state_token(
+    state: &str,
+    draft: bool,
+    merged: bool,
+) -> crate::theme::SemanticToken {
+    use crate::theme::SemanticToken;
+    if merged {
+        return SemanticToken::Success;
+    }
+    match state.to_ascii_lowercase().as_str() {
+        "closed" => SemanticToken::Removed,
+        "open" if draft => SemanticToken::Muted,
+        "open" => SemanticToken::Added,
+        _ => SemanticToken::Pending,
+    }
+}
+/// The text label that always accompanies [`pr_lifecycle_state_token`].
+pub fn pr_lifecycle_state_label(state: &str, draft: bool, merged: bool) -> String {
+    if merged {
+        return "merged".into();
+    }
+    let state = if state.is_empty() { "unknown" } else { state };
+    let state = state.to_ascii_lowercase();
+    if draft {
+        format!("{state} (draft)")
+    } else {
+        state
+    }
+}
+
 /// Who an actor row names, or an honest text fallback with no chip when
 /// GitHub did not report a login.
 fn actor_row(
@@ -1735,6 +1769,41 @@ impl PrPlan {
             .states
             .push((preview.len(), crate::theme::SemanticToken::Head));
         preview.push(format!("Observed head: {}", target.head_sha));
+        // Lifecycle actions (ready/draft, close/reopen, lock/unlock, revert and
+        // head-branch deletion) name the PR state they start from, in text and
+        // in the shared lifecycle ink (TASK-25 AC6).
+        let lifecycle_row = match &operation {
+            PrOperation::State(StateOperation::Lifecycle(..)) => true,
+            PrOperation::Governed(governed) => matches!(
+                governed,
+                GovernedOperation::Lock(_)
+                    | GovernedOperation::Unlock
+                    | GovernedOperation::Revert { .. }
+                    | GovernedOperation::DeleteHeadBranch { .. }
+            ),
+            _ => false,
+        };
+        if lifecycle_row {
+            paint.states.push((
+                preview.len(),
+                pr_lifecycle_state_token(&target.pr.state, target.pr.draft, target.merged),
+            ));
+            let conversation = match (&operation, context.governance.issue_locked) {
+                (
+                    PrOperation::Governed(GovernedOperation::Lock(_) | GovernedOperation::Unlock),
+                    Some(true),
+                ) => " • conversation locked",
+                (
+                    PrOperation::Governed(GovernedOperation::Lock(_) | GovernedOperation::Unlock),
+                    Some(false),
+                ) => " • conversation unlocked",
+                _ => "",
+            };
+            preview.push(format!(
+                "PR state: {}{conversation}",
+                pr_lifecycle_state_label(&target.pr.state, target.pr.draft, target.merged)
+            ));
+        }
         if let Some(selected) = selected_comment {
             preview.push(format!(
                 "Exact comment: {} • node {} • {:?}",
@@ -2939,7 +3008,7 @@ mod governed_tests {
         assert!(PrCommand::DisableAutoMerge
             .disabled_reason(&ctx)
             .unwrap()
-            .contains("@octocat cannot disable"));
+            .contains("that octocat cannot disable"));
     }
 
     #[test]
@@ -2967,6 +3036,42 @@ mod governed_tests {
             paint.row_line(2, true, "Other", theme).spans[0].style,
             theme.base()
         );
+    }
+
+    #[test]
+    fn pr_lifecycle_state_rows_name_the_state_in_text_and_shared_ink() {
+        use crate::theme::SemanticToken;
+        let cases = [
+            ("open", false, false, "open", SemanticToken::Added),
+            ("open", true, false, "open (draft)", SemanticToken::Muted),
+            ("closed", false, false, "closed", SemanticToken::Removed),
+            ("CLOSED", false, false, "closed", SemanticToken::Removed),
+            ("closed", false, true, "merged", SemanticToken::Success),
+            ("", false, false, "unknown", SemanticToken::Pending),
+        ];
+        for (state, draft, merged, label, token) in cases {
+            assert_eq!(pr_lifecycle_state_label(state, draft, merged), label);
+            assert_eq!(pr_lifecycle_state_token(state, draft, merged), token);
+        }
+        // Every lifecycle ink is distinct from its neighbours, so a merged
+        // PR never reads as a closed one by colour, and the label stays.
+        let theme = crate::theme::Theme::from_settings(0, false);
+        let paint = PrPreviewPaintV1 {
+            host: "github.invalid".into(),
+            actors: vec![],
+            states: vec![(4, SemanticToken::Success)],
+        };
+        let line = paint.row_line(4, true, "PR state: merged", theme);
+        assert_eq!(line.spans[0].content, "PR state: merged");
+        assert_eq!(line.spans[0].style, theme.style(SemanticToken::Success));
+        assert_ne!(
+            theme.style(SemanticToken::Success).fg,
+            theme.style(SemanticToken::Removed).fg
+        );
+        // Refusals name the account by its login, never as a bare @login.
+        let ctx = context(v1_pr_lifecycle_tests::target());
+        assert!(!no_write_permission(&ctx).contains('@'));
+        assert!(no_write_permission(&ctx).contains(&ctx.identity.login));
     }
 
     #[test]

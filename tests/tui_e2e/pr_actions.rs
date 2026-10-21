@@ -298,11 +298,36 @@ fn wait_preview_paint(session: &mut Session, actors: ActorRows, states: StateRow
     let mut rows = vec![ACCOUNT_ROW];
     rows.extend_from_slice(actors);
     wait_preview_actor_chips(session, &rows, no_color);
+    wait_requester_avatar(session);
     if !no_color {
         for (label, token) in states {
             wait_preview_state_ink(session, label, *token);
         }
     }
+}
+/// TASK-24/25 AC6: a PR action form's context row starts with the
+/// requester's shared avatar in its four cells (an image, or the honest `[?]`
+/// fallback because the account DTO names no actor kind, with no stray
+/// cell beside it) followed by the plain login, never a bare `@octocat`.
+fn wait_requester_avatar(session: &mut Session) {
+    const CONTEXT: &str = "octocat on github.invalid • example/repo#7 • head ";
+    session
+        .try_wait_for_condition(
+            |screen| {
+                !screen.contains("@octocat on")
+                    && screen.lines().any(|line| {
+                        line.find(CONTEXT).is_some_and(|at| {
+                            let avatar = &line[..at];
+                            avatar.ends_with("│ [?] ")
+                                || avatar.ends_with("[OC]")
+                                || avatar.chars().rev().take(4).all(|cell| cell == '▀')
+                        })
+                    })
+            },
+            "PR action context row with the requester avatar and plain login",
+            Duration::from_secs(8),
+        )
+        .unwrap();
 }
 /// The account row every PR action preview starts with.
 pub(crate) const ACCOUNT_ROW: (&str, &str, &str, &str) = (
@@ -386,7 +411,11 @@ pub(crate) fn wait_preview_actor_chips(
 }
 /// A Git/merge state row keeps its text label and is drawn in the shared
 /// semantic token's ink, never colour alone (TASK-24/25 AC6).
-fn wait_preview_state_ink(session: &mut Session, label: &str, token: ghtui::theme::SemanticToken) {
+pub(crate) fn wait_preview_state_ink(
+    session: &mut Session,
+    label: &str,
+    token: ghtui::theme::SemanticToken,
+) {
     let wanted = match ghtui::theme::Theme::from_settings(0, false).style(token).fg {
         Some(ratatui::style::Color::Rgb(r, g, b)) => vt100::Color::Rgb(r, g, b),
         other => panic!("{token:?} has no truecolor ink: {other:?}"),

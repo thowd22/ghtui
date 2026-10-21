@@ -2937,8 +2937,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             "@{} on {} • head {}",
             intent.identity.login, intent.identity.host, intent.target.head_sha
         ),
+        // The requester's shared avatar (or its honest `[?]` fallback) is
+        // drawn in the first four cells; the login follows it as plain
+        // text, never as a bare `@login` (TASK-24/25 AC6).
         FormPurpose::PrAction(intent) => format!(
-            "@{} on {} • {}#{} • head {}",
+            "{} on {} • {}#{} • head {}",
             intent.context.identity.login,
             intent.context.identity.host,
             intent.context.target.pr.repository,
@@ -3015,6 +3018,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             &app.avatar_states,
             theme,
         ) {
+            // The avatar cells are cleared first, so a fallback shorter than
+            // four cells never leaves a stray context character beside it.
+            frame.render_widget(
+                Paragraph::new("    ").style(theme.base()),
+                Rect::new(inner.x, y, 4.min(inner.width), 1),
+            );
             let actor = crate::providers::gh::Actor {
                 login: identity.login.clone(),
                 ..Default::default()
@@ -3347,6 +3356,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 // Conversation) paints its account row the same way.
                 FormPurpose::PrCollaborationV17(_) => {
                     crate::scoped_pr_collaboration_ui_v17::state_v68::account_paint_v25(form)
+                        .or_else(|| {
+                            crate::scoped_pr_collaboration_ui_v17::state_v68::history_v74::paint_v25(
+                                form,
+                            )
+                        })
                 }
                 _ => None,
             };

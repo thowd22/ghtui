@@ -173,7 +173,7 @@ fn ready_case() -> Case {
         after: pr(),
         done: "Native collaboration • open",
         actors: &[],
-        states: &[],
+        states: &[("PR state: open (draft)", ghtui::theme::SemanticToken::Muted)],
         tab: None,
         opening: vec![],
     }
@@ -336,7 +336,7 @@ fn draft_case() -> Case {
         after: pr_with(|v| v["draft"] = json!(true)),
         done: "Native collaboration • open [draft]",
         actors: &[],
-        states: &[],
+        states: &[("PR state: open", ghtui::theme::SemanticToken::Added)],
         tab: COMMITS,
         opening: vec![],
     }
@@ -351,7 +351,7 @@ fn close_case() -> Case {
         after: pr_with(|v| v["state"] = json!("closed")),
         done: "Native collaboration • closed",
         actors: &[],
-        states: &[],
+        states: &[("PR state: open", ghtui::theme::SemanticToken::Added)],
         tab: COMMITS,
         opening: vec![],
     }
@@ -368,7 +368,7 @@ fn reopen_case() -> Case {
         // Summary and Conversation route Close/Reopen through the native
         // State composer (pr_lifecycle_v68); other tabs use this menu path.
         actors: &[],
-        states: &[],
+        states: &[("PR state: closed", ghtui::theme::SemanticToken::Removed)],
         tab: COMMITS,
         opening: vec![],
     }

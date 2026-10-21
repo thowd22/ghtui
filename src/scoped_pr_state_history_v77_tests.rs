@@ -553,6 +553,58 @@ fn pr_lifecycle_v68_legacy_ack_requires_actual_stamp_and_exact_checkpoint_and_ne
         assert!(blocker.confirmed.is_none());
     }
 }
+/// TASK-25 AC6: the real State history form keeps every state's text label
+/// and draws it in the shared semantic ink: the fresh PR state in lifecycle
+/// ink, the uncertain attempt in Conflict ink and its head in Head ink.
+#[test]
+fn pr_lifecycle_v68_state_history_rows_keep_labels_in_shared_semantic_ink() {
+    use crate::theme::SemanticToken;
+    let mut unknown = unknown();
+    let _background = history_ready(&mut unknown);
+    unknown.s.app.no_color = false;
+    unknown.s.app.color_mode = crate::theme::ColorMode::TrueColor;
+    let theme = unknown.s.app.theme();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::ui::draw(frame, &mut unknown.s.app))
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let ink = |label: &str| {
+        (0..buffer.area.height)
+            .find_map(|y| {
+                let row: String = (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol().to_owned())
+                    .collect();
+                let at = row.find(label)?;
+                let x = row[..at].chars().count() as u16;
+                Some(
+                    (0..label.chars().count() as u16)
+                        .map(|offset| buffer[(x + offset, y)].fg)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .unwrap_or_else(|| panic!("{label:?} not drawn"))
+    };
+    for (label, token) in [
+        ("Fresh observed state open", SemanticToken::Added),
+        ("Attempt #", SemanticToken::Conflict),
+        (" • Uncertain • ", SemanticToken::Conflict),
+        ("Historical head ", SemanticToken::Head),
+    ] {
+        let wanted = theme.style(token).fg.unwrap();
+        assert!(
+            ink(label).iter().all(|fg| *fg == wanted),
+            "{label:?} is not drawn in {token:?} ink"
+        );
+    }
+    // Rows that name no state keep the plain base ink.
+    assert_ne!(
+        ink("Current observation is not exclusive")[0],
+        theme.style(SemanticToken::Conflict).fg.unwrap()
+    );
+    // Painting reads nothing: still only the history-open reads, no write.
+    assert_effects(&unknown, unknown.s.steps.len() - 10);
+}
 #[test]
 fn pr_lifecycle_v68_real_unknown_then_fresh_inspect_local_ack_changes_only_exact_rows_without_source_or_hydration(
 ) {

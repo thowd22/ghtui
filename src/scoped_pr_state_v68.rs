@@ -36,6 +36,8 @@ pub(crate) struct StateIntentV68 {
     base: Option<StateActionBaseV68>,
     capability: StateCapabilityV68,
     blocked: bool,
+    /// Shared lifecycle ink for the observed-state row (TASK-25 AC6).
+    observed_v25: crate::theme::SemanticToken,
 }
 #[derive(Clone)]
 pub(crate) struct StateComposerStateV68 {
@@ -135,6 +137,10 @@ impl StatePreviewSaveV78<'_> {
 }
 const ACCOUNT_PREFIX_V25: &str = "Account: ";
 const ACCOUNT_ROW_V25: usize = 1;
+const OBSERVED_PREFIX_V25: &str = "Observed ";
+const OBSERVED_ROW_V25: usize = 4;
+const HEAD_PREFIX_V25: &str = "Current H ";
+const HEAD_ROW_V25: usize = 5;
 /// TASK-25 AC6: the State composer names the requesting account on its own
 /// preview row with the same filled initials chip as the PR action previews
 /// (`[AB] login` under NO_COLOR). Display only; it grants nothing.
@@ -151,7 +157,30 @@ pub(crate) fn account_paint_v25(form: &Form) -> Option<crate::pr_actions::PrPrev
                 ..Default::default()
             },
         }],
-        states: Vec::new(),
+        // The observed PR state keeps its text label and takes the shared
+        // lifecycle ink; the current head takes the Head ink. A NEEDS NEW
+        // ACTION notice has other rows, so only matching rows are painted.
+        states: [
+            (
+                OBSERVED_ROW_V25,
+                OBSERVED_PREFIX_V25,
+                state.intent.observed_v25,
+            ),
+            (
+                HEAD_ROW_V25,
+                HEAD_PREFIX_V25,
+                crate::theme::SemanticToken::Head,
+            ),
+        ]
+        .into_iter()
+        .filter(|(row, prefix, _)| {
+            state
+                .lines()
+                .get(*row)
+                .is_some_and(|line| line.starts_with(prefix))
+        })
+        .map(|(row, _, token)| (row, token))
+        .collect(),
     })
 }
 pub(crate) fn state(form: &Form) -> Option<&StateComposerStateV68> {
@@ -210,61 +239,64 @@ pub(crate) fn open(
             None,
         );
     }
-    let (source, _, (key, base, capability, publication, restored, blocked, title, lines, author)) =
-        source::state_v68::open_state_v68(
-            source::state_v68::StateOpenRequestV68 {
-                opening: Arc::clone(&opening),
-                command,
-            },
-            provider,
-            database,
-            cancel,
-            deadline,
-            |actual, local_guard, base| {
-                let parent = actual.observed().parent();
-                let key =
-                    state_draft_key_v68(opening.scope(), parent, command).map_err(|_| failure())?;
-                let saved = Cache::open(database)
-                    .map_err(|_| failure())?
-                    .bounded_draft(opening.scope(), &key, 128 * 1024)
-                    .map_err(|_| failure())?;
-                let journal = PrWriteJournal::open(database).map_err(|_| failure())?;
-                let blocked = journal
-                    .blocking(local_guard.target_v17())
-                    .map_err(|_| failure())?
-                    .is_some();
-                let publication = if let Some(saved) = &saved {
-                    #[derive(serde::Deserialize)]
-                    #[serde(deny_unknown_fields)]
-                    struct Envelope {
-                        version: u8,
-                        values: BTreeMap<String, String>,
-                        publication: Option<PrPublicationReference>,
-                    }
-                    let saved: Envelope = serde_json::from_str(saved).map_err(|_| failure())?;
-                    if saved.version != 17 || !saved.values.is_empty() {
-                        return Err(failure());
-                    }
-                    if let Some(reference) = &saved.publication {
-                        let marker = journal
-                            .original_publication(local_guard.target_v17(), reference)
-                            .map_err(|_| failure())?
-                            .ok_or_else(failure)?;
-                        journal
-                            .state_origin_v68(local_guard.target_v17(), &marker)
-                            .map_err(|_| failure())?;
-                    }
-                    saved.publication
-                } else {
-                    None
-                };
-                let title = format!(
-                    "{} PR • {}#{}",
-                    command.label(),
-                    parent.repository(),
-                    parent.number()
-                );
-                let lines:Arc<[String]>=vec![
+    let (
+        source,
+        _,
+        (key, base, capability, publication, restored, blocked, title, lines, author, observed_v25),
+    ) = source::state_v68::open_state_v68(
+        source::state_v68::StateOpenRequestV68 {
+            opening: Arc::clone(&opening),
+            command,
+        },
+        provider,
+        database,
+        cancel,
+        deadline,
+        |actual, local_guard, base| {
+            let parent = actual.observed().parent();
+            let key =
+                state_draft_key_v68(opening.scope(), parent, command).map_err(|_| failure())?;
+            let saved = Cache::open(database)
+                .map_err(|_| failure())?
+                .bounded_draft(opening.scope(), &key, 128 * 1024)
+                .map_err(|_| failure())?;
+            let journal = PrWriteJournal::open(database).map_err(|_| failure())?;
+            let blocked = journal
+                .blocking(local_guard.target_v17())
+                .map_err(|_| failure())?
+                .is_some();
+            let publication = if let Some(saved) = &saved {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Envelope {
+                    version: u8,
+                    values: BTreeMap<String, String>,
+                    publication: Option<PrPublicationReference>,
+                }
+                let saved: Envelope = serde_json::from_str(saved).map_err(|_| failure())?;
+                if saved.version != 17 || !saved.values.is_empty() {
+                    return Err(failure());
+                }
+                if let Some(reference) = &saved.publication {
+                    let marker = journal
+                        .original_publication(local_guard.target_v17(), reference)
+                        .map_err(|_| failure())?
+                        .ok_or_else(failure)?;
+                    journal
+                        .state_origin_v68(local_guard.target_v17(), &marker)
+                        .map_err(|_| failure())?;
+                }
+                saved.publication
+            } else {
+                None
+            };
+            let title = format!(
+                "{} PR • {}#{}",
+                command.label(),
+                parent.repository(),
+                parent.number()
+            );
+            let lines:Arc<[String]>=vec![
                 format!("{} • exact one PR lifecycle effect",command.label()),
                 // Row ACCOUNT_ROW_V25: painted with the shared actor chip.
                 format!("{ACCOUNT_PREFIX_V25}{} on {} • numeric identity {}",
@@ -280,27 +312,32 @@ pub(crate) fn open(
                 "Preview is read only. Confirm rechecks current access and sends one attempt; no expected-head CAS is claimed.".into(),
                 "Protected old refs are inspect-only; local ACK never proves remote success.".into(),
             ].into();
-                let author = crate::scoped_pr_collaboration_draft_v17::prepare_actor_v17(
-                    &actual.identity().host,
-                    &parent.summary().pr.author,
-                    parent.author_account_id(),
-                    cancel,
-                    actual.publication_cutoff_v68(),
-                )?;
-                Ok((
-                    Arc::<str>::from(key),
-                    base.cloned(),
-                    actual.capability(),
-                    publication,
-                    saved.is_some(),
-                    blocked,
-                    title,
-                    lines,
-                    author,
-                ))
-            },
-            |_| Ok(()),
-        )?;
+            let author = crate::scoped_pr_collaboration_draft_v17::prepare_actor_v17(
+                &actual.identity().host,
+                &parent.summary().pr.author,
+                parent.author_account_id(),
+                cancel,
+                actual.publication_cutoff_v68(),
+            )?;
+            Ok((
+                Arc::<str>::from(key),
+                base.cloned(),
+                actual.capability(),
+                publication,
+                saved.is_some(),
+                blocked,
+                title,
+                lines,
+                author,
+                crate::pr_actions::pr_lifecycle_state_token(
+                    &parent.summary().pr.state,
+                    parent.summary().pr.draft,
+                    parent.summary().merged,
+                ),
+            ))
+        },
+        |_| Ok(()),
+    )?;
     let identity = source.identity().clone();
     let eligible = base.is_some();
     let intent = Arc::new(StateIntentV68 {
@@ -312,6 +349,7 @@ pub(crate) fn open(
         base,
         capability,
         blocked,
+        observed_v25,
     });
     let mut form = Form::pr_state_v68(StateComposerStateV68 {
         intent,

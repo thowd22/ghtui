@@ -21,6 +21,44 @@ pub(crate) struct StateHistoryViewV74 {
     pub(crate) lines: Arc<[String]>,
     pub(crate) display: Arc<crate::prepared_form_text_v1::PreparedFormTextV1>,
     pub(crate) current: Option<Arc<StateInspectionV74>>,
+    /// Display-only shared semantic ink per history row (TASK-25 AC6).
+    pub(crate) states_v25: Arc<[(usize, crate::theme::SemanticToken)]>,
+}
+/// The shared ink for a recorded State attempt; its text label stays in the row.
+pub(crate) fn attempt_token_v25(state: PrWriteState) -> crate::theme::SemanticToken {
+    use crate::theme::SemanticToken;
+    match state {
+        PrWriteState::Pending => SemanticToken::Pending,
+        PrWriteState::Uncertain => SemanticToken::Conflict,
+        PrWriteState::Confirmed => SemanticToken::Success,
+        PrWriteState::Acknowledged => SemanticToken::Muted,
+    }
+}
+/// Rows of [`visit_lines`] that name a PR or commit state: the fresh
+/// observed state (lifecycle ink), each attempt's status and its historical
+/// head.
+fn states_v25(
+    snapshot: &StateHistoryV74,
+    fresh: crate::theme::SemanticToken,
+) -> Arc<[(usize, crate::theme::SemanticToken)]> {
+    let mut states = vec![(2, fresh)];
+    let mut row = 5;
+    for attempt in &snapshot.rows {
+        states.push((row, attempt_token_v25(attempt.marker.state)));
+        states.push((row + 1, crate::theme::SemanticToken::Head));
+        row += 3 + usize::from(attempt.marker.confirmed.is_some());
+    }
+    states.into()
+}
+/// TASK-25 AC6: State history rows keep their text labels and take the
+/// shared semantic ink. Display only; it grants nothing.
+pub(crate) fn paint_v25(form: &Form) -> Option<crate::pr_actions::PrPreviewPaintV1> {
+    let view = &state(form)?.view;
+    Some(crate::pr_actions::PrPreviewPaintV1 {
+        host: view.identity.host.clone(),
+        actors: Vec::new(),
+        states: view.states_v25.to_vec(),
+    })
 }
 pub(crate) struct StateInspectionV74 {
     pub(crate) cancel: CancellationToken,
@@ -369,6 +407,14 @@ pub(crate) fn open(
                 })
                 .transpose()?;
             let lines = prepare_lines(&snapshot, &current)?;
+            let states_v25 = states_v25(
+                &snapshot,
+                crate::pr_actions::pr_lifecycle_state_token(
+                    &parent.summary().pr.state,
+                    parent.summary().pr.draft,
+                    parent.summary().merged,
+                ),
+            );
             let deadline = deadline.min(current.deadline());
             let display =
                 crate::prepared_form_text_v1::PreparedFormTextV1::prepare(&lines, cancel, deadline)
@@ -406,6 +452,7 @@ pub(crate) fn open(
                 lines,
                 display,
                 current,
+                states_v25,
             });
             let form = Form::pr_state_history_v74(StateHistoryStateV74 {
                 view: Arc::clone(&view),

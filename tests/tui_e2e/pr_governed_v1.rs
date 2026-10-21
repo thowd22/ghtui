@@ -275,7 +275,7 @@ fn no_permission() -> Flow {
             settings["permissions"]["push"] = json!(false);
             settings
         })],
-        refused: Some("GitHub reports that @octocat has no write permission on example/repo"),
+        refused: Some("GitHub reports that octocat has no write permission on example/repo"),
         ..squash_only()
     }
 }
@@ -549,7 +549,10 @@ fn lock() -> Flow {
         after: pr(),
         done: "conversation locked",
         actors: &[],
-        states: &[],
+        states: &[(
+            "PR state: open • conversation unlocked",
+            SemanticToken::Added,
+        )],
         cancel: false,
     }
 }
@@ -575,7 +578,7 @@ fn unlock() -> Flow {
         after: pr(),
         done: "conversation unlocked",
         actors: &[],
-        states: &[],
+        states: &[("PR state: open • conversation locked", SemanticToken::Added)],
         cancel: false,
     }
 }
@@ -700,7 +703,7 @@ fn revert() -> Flow {
         after: merged(),
         done: "revert PR #8 opened",
         actors: &[],
-        states: &[],
+        states: &[("PR state: merged", SemanticToken::Success)],
         cancel: false,
     }
 }
@@ -736,7 +739,7 @@ fn delete_branch() -> Flow {
         after: merged(),
         done: "remote branch feature deleted",
         actors: &[],
-        states: &[],
+        states: &[("PR state: merged", SemanticToken::Success)],
         cancel: false,
     }
 }

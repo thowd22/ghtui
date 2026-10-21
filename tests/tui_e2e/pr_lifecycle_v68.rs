@@ -239,6 +239,22 @@ fn state_preview_cancel(mouse: bool) {
             &[crate::pr_actions::ACCOUNT_ROW],
             mouse,
         );
+        // The observed PR state keeps its text label in the shared
+        // lifecycle ink, and the current head takes the Head ink. The mouse
+        // launch is NO_COLOR, where the labels alone carry the state.
+        assert!(body.contains("Observed open • requested closed"));
+        if !mouse {
+            crate::pr_actions::wait_preview_state_ink(
+                &mut s,
+                "Observed open • requested closed",
+                ghtui::theme::SemanticToken::Added,
+            );
+            crate::pr_actions::wait_preview_state_ink(
+                &mut s,
+                "Current H ",
+                ghtui::theme::SemanticToken::Head,
+            );
+        }
         assert_eq!(
             all_rows(&f),
             stable,
