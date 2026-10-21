@@ -91,6 +91,29 @@ fingerprint and the next query collects as well. Cached discussions and commit m
 `rev:` filters, always collect. The journey also checks the storage effect: the warm query
 leaves every `search-index:` checkpoint and reservation generation unchanged.
 
+### Cached comparison reuse (TASK-110)
+
+Opening a commit's diff (History `Enter` or `enter diff`, Compare parent) keeps the prepared
+comparison in a process-wide cache, so reopening the same diff skips both `git diff` runs
+(the patch and its changed paths) and the patch parse. The cache key is the comparison's
+exact inputs: the repository (common directory and worktree root), the full `git diff` argv
+with the resolved commit ids, rename detection and the other options, the capture limit, the
+effective configuration (`git config --list -z`, which carries `diff.*` settings such as the
+algorithm, context and rename limit, diff drivers and the attributes file), and
+`GIT_DIFF_OPTS`. Each hit also asks `git check-attr -a` about every changed path and must get
+the answer recorded with the comparison, so a new `.gitattributes` rule (binary, a diff
+driver) recomputes. A reopen therefore costs the commit's resolve and log reads plus these two
+small reads. Only saved-version comparisons are cached; working-tree, index and staged diffs
+are always computed. The cache holds at most 16 comparisons within an estimated 64 MiB (the
+raw patch plus every parsed line) and evicts the least recently used one first; a comparison
+larger than the whole budget is not kept.
+
+The performance journey checks the effect as well as the time: the first open starts the two
+comparison `git diff` runs, the reopen starts none (from the trace2 journal), and the reopen
+is faster than the first open. Lib tests in `src/git/comparison_cache_v110_tests.rs` cover a
+hit, a miss on a changed configuration, attribute or commit, eviction by the memory budget
+and the entry count, and recompute after eviction.
+
 ## Bounded work while it runs (TASK-66 AC3)
 
 `tests/tui_e2e/performance_bounded_v66.rs` holds two more journeys, each run by keyboard and by
@@ -142,7 +165,7 @@ Interactive budgets (keyboard / mouse journey):
 | Keypress while the ranked index builds | 50 | 2 | 4 | met |
 | Exact search first page (matches all 5,000 files) | 100 | 123 | 125 | **over** |
 | 50k-file tree path search first page | 100 | 42 | 42 | met |
-| Cached 5 MB diff reopen | 150 | 554 | 516 | **over** (known gap) |
+| Cached 5 MB diff reopen | 150 | 214 (TASK-110; was 554) | 219 (TASK-110; was 516) | **over** (known gap) |
 | Warmed Ranked first page | 100 | 1,376 | 1,622 | **over** before TASK-106 reuse landed; not yet re-measured in release |
 
 Bounded-work journeys (keyboard / mouse):
@@ -170,7 +193,7 @@ Separate (non-budget) timings, measured apart from the interactive budgets:
 | Measurement | Keyboard | Mouse | Ceiling |
 | --- | --- | --- | --- |
 | Initial ranked indexing of the 5,000-file tree | 7,030 | 1,711 | 120,000 |
-| First open of the 5 MB diff | 555 | 520 | 20,000 |
+| First open of the 5 MB diff | 338 (TASK-110; was 555) | 345 (TASK-110; was 520) | 20,000 |
 | Open the 50k-file saved tree | 170 | 182 | 20,000 |
 | Build its Jump path index | 179 | 206 | 20,000 |
 | Fake network: avatar fetch (held by the fixture) | 1,000 each | 1,000 each | n/a |
@@ -202,10 +225,17 @@ change passed in debug but has not been run against the release binary yet.
   the 2 s lock wait instead of waiting for it or queueing behind it. The Inbox storage owner
   should follow up.
 
-- **Cached diff reopen** is within its debug ceiling (about 0.9 s against 1.5 s). However,
-  reopening the 5 MB commit diff costs the same as the first open: the comparison is computed
-  again and not cached. The release build misses the budget too: 516 to 554 ms against
-  150 ms, the same as its first open (520 to 555 ms). Meeting it needs a cached comparison.
+- **Cached diff reopen** still misses its release budget after TASK-110: 214 to 219 ms
+  against 150 ms (down from 516 to 554 ms). The reopen now reuses the cached comparison and
+  starts no `git diff`. One-commit header reads no longer walk the whole history with
+  `--topo-order`, which also brought the first open down from 520-555 ms to 338-345 ms. The
+  journey records every Git process the reopen starts (`diff_5mb_cached_reopen_git`): 15
+  small reads (rev-parse, cat-file, log, config, check-attr) that together run for about
+  11 ms. Most of the remaining time is therefore in ghtui itself. The likely costs are
+  cloning the 80,000-line cached comparison, rebuilding the 80,000 display rows
+  (`diff_rows`), moving the workspace between the worker and the UI, and starting those 15
+  processes. The next step is to profile that path and to keep the prepared display rows
+  (or an `Arc` of the comparison) instead of copying them.
 
 ## Running
 

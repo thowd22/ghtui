@@ -981,8 +981,9 @@ impl Workspace {
             .into_iter()
             .next()
             .ok_or("Selected saved version is unavailable")?;
+        // Reopening the same commit's diff reuses its prepared comparison (TASK-110).
         let result = repo
-            .compare(&Comparison::CommitChanges {
+            .compare_reusing_v110(&Comparison::CommitChanges {
                 commit: selected.id.clone(),
                 parent,
             })

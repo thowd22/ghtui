@@ -356,6 +356,70 @@ pub(crate) fn git_starts(trace: &Path) -> usize {
         .count()
 }
 
+/// `git diff` runs that compute a comparison (the patch or its changed paths) started so far.
+/// History's commit detail reads `diff-tree` and the working-tree status reads
+/// `diff --binary`; neither is counted.
+pub(crate) fn comparison_diffs(trace: &Path) -> usize {
+    fs::read_to_string(trace)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains("\"event\":\"start\""))
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|event| {
+            event["argv"].as_array().is_some_and(|argv| {
+                let args: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
+                args.windows(2).any(|pair| {
+                    pair[0] == "diff" && matches!(pair[1], "--no-ext-diff" | "--name-status")
+                })
+            })
+        })
+        .count()
+}
+
+/// Lines in the trace2 journal so far (a mark for [`git_runs_since`]).
+pub(crate) fn trace_mark(trace: &Path) -> usize {
+    fs::read_to_string(trace)
+        .unwrap_or_default()
+        .lines()
+        .count()
+}
+
+/// Each Git process started after `mark`: its subcommand and its own run time (the trace2
+/// `exit` event's `t_abs`), so a report shows where a step's Git time went.
+pub(crate) fn git_runs_since(trace: &Path, mark: usize) -> Value {
+    let events: Vec<Value> = fs::read_to_string(trace)
+        .unwrap_or_default()
+        .lines()
+        .skip(mark)
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let mut total_ms = 0.0;
+    let runs: Vec<Value> = events
+        .iter()
+        .filter(|event| event["event"] == "start")
+        .map(|start| {
+            let argv: Vec<&str> = start["argv"]
+                .as_array()
+                .map(|argv| argv.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            let command = argv
+                .iter()
+                .skip(1)
+                .find(|arg| !arg.starts_with('-') && !arg.contains('=') && !arg.contains('/'))
+                .copied()
+                .unwrap_or("?");
+            let ms = events
+                .iter()
+                .find(|event| event["event"] == "exit" && event["sid"] == start["sid"])
+                .and_then(|exit| exit["t_abs"].as_f64())
+                .map(|seconds| seconds * 1000.0);
+            total_ms += ms.unwrap_or(0.0);
+            json!({"command": command, "ms": ms})
+        })
+        .collect();
+    json!({"count": runs.len(), "total_ms": total_ms, "runs": runs})
+}
+
 pub(crate) fn tree_bytes(path: &Path) -> u64 {
     let Ok(entries) = fs::read_dir(path) else {
         return fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
@@ -868,14 +932,39 @@ fn history_journey(mouse: bool) {
     wait_history_at(&mut s, &repo.shas[0]);
 
     // The 5 MB diff: first open, then the cached reopen.
+    // The reopen reuses the prepared comparison (TASK-110): it starts no `git diff` at all,
+    // while the first open computes the patch and its changed paths.
     wait_head_detail(&mut s);
+    let diffs_before = comparison_diffs(&trace);
     let cold = open_diff(&mut s, mouse, "first 5 MB diff open");
     report.separate("diff_5mb_first_open", cold, COLD_LARGE_LOAD_CEILING_MS);
     s.wait_for_screen("big/huge.txt");
+    let diffs_first = comparison_diffs(&trace) - diffs_before;
+    report.require(
+        "diff_5mb_first_open_computes",
+        diffs_first >= 2,
+        format!("{diffs_first} comparison git diff runs on the first open"),
+    );
     back_to_history(&mut s, mouse, &repo.shas[0]);
     wait_head_detail(&mut s);
+    let diffs_before = comparison_diffs(&trace);
+    let mark = trace_mark(&trace);
     let cached = open_diff(&mut s, mouse, "cached 5 MB diff reopen");
     report.budget("diff_5mb_cached_reopen", cached, CACHED_DIFF_MS);
+    report.record("diff_5mb_cached_reopen_git", git_runs_since(&trace, mark));
+    let diffs_reopen = comparison_diffs(&trace) - diffs_before;
+    report.require(
+        "diff_5mb_cached_reopen_reuses",
+        diffs_reopen == 0,
+        format!("{diffs_reopen} comparison git diff runs on the reopen"),
+    );
+    report.require(
+        "diff_5mb_cached_reopen_faster",
+        cached < cold,
+        format!("reopen {cached:?} against first open {cold:?}"),
+    );
+    // The reopened diff shows the same rewrite.
+    s.wait_for_screen("big/huge.txt");
     back_to_history(&mut s, mouse, &repo.shas[0]);
 
     // 80x24: the same History, the same inputs.

@@ -29,6 +29,7 @@ pub use original_tree_inventory_v1::{
 mod remote_handoff_read_v1;
 pub(crate) mod workflow_edit_v9;
 use remote_handoff_read_v1::{run_git_with_window_v1, GitReadPolicyV1};
+mod comparison_cache_v110;
 mod local_commit_actor_origin_v1;
 mod local_saved_navigation_origin_v1;
 mod native_full_side_v3;
@@ -909,21 +910,28 @@ impl GitRepository {
             Err(_) if revision == "HEAD" && self.status()?.head.is_none() => return Ok(Vec::new()),
             Err(error) => return Err(error),
         };
+        // The first commit of any walk is the starting commit itself, so a one-commit read
+        // needs no ordering. Without a commit-graph, `--topo-order` walks every reachable
+        // commit first, which made reading one commit's header cost a whole-history walk
+        // (TASK-110: twice per commit diff open on a 20,000-commit history).
+        let ordered = offset > 0 || limit > 1;
         let limit = format!("--max-count={}", limit.min(10_000));
         let offset = format!("--skip={offset}");
-        let bytes = self.original_bytes_with_capture_limit_v1(
-            [
+        let format = "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%s%x00%D%x00";
+        let args: Vec<&str> = if ordered {
+            vec![
                 "log",
                 "--topo-order",
                 &limit,
                 &offset,
-                "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%s%x00%D%x00",
+                format,
                 &revision,
                 "--",
-            ],
-            None,
-            capture_limit,
-        )?;
+            ]
+        } else {
+            vec!["log", &limit, &offset, format, &revision, "--"]
+        };
+        let bytes = self.original_bytes_with_capture_limit_v1(args, None, capture_limit)?;
         self.canonical_parents(parse_commits(&bytes)?)
     }
 
@@ -1264,10 +1272,25 @@ impl GitRepository {
     pub fn compare(&self, comparison: &Comparison) -> GitResult<ComparisonResult> {
         self.compare_with_capture_limit_v1(comparison, MAX_OUTPUT)
     }
+    /// Like [`Self::compare`], but a saved-version comparison is kept in the bounded shared
+    /// cache and reused while its exact inputs still match (TASK-110). Reading those inputs
+    /// costs two small Git reads (`config --list`, `check-attr`); a reuse skips both
+    /// `git diff` runs and the patch parse. Working-tree comparisons are always computed.
+    pub fn compare_reusing_v110(&self, comparison: &Comparison) -> GitResult<ComparisonResult> {
+        self.compare_v110(comparison, MAX_OUTPUT, true)
+    }
     pub(crate) fn compare_with_capture_limit_v1(
         &self,
         comparison: &Comparison,
         capture_limit: usize,
+    ) -> GitResult<ComparisonResult> {
+        self.compare_v110(comparison, capture_limit, false)
+    }
+    fn compare_v110(
+        &self,
+        comparison: &Comparison,
+        capture_limit: usize,
+        reuse: bool,
     ) -> GitResult<ComparisonResult> {
         if capture_limit == 0 || capture_limit > MAX_OUTPUT {
             return Err(GitError("Invalid original comparison capture limit".into()));
@@ -1393,6 +1416,24 @@ impl GitRepository {
                 | Comparison::BranchChanges { .. }
                 | Comparison::CommitChanges { .. }
         );
+        // Saved-version comparisons are fixed by their resolved ids: reuse a prepared one whose
+        // exact inputs (argv, configuration, environment, attributes) still match (TASK-110).
+        let cache_key = if original && reuse {
+            self.comparison_cache_key_v110(
+                &args,
+                capture_limit,
+                &description,
+                (&base, &head, &common_ancestor),
+            )
+        } else {
+            None
+        };
+        if let Some(key) = &cache_key {
+            if let Some(mut result) = self.cached_comparison_v110(key, capture_limit) {
+                result.comparison = comparison.clone();
+                return Ok(result);
+            }
+        }
         let patch = if original {
             self.original_bytes_with_capture_limit_v1(
                 args.iter().map(OsStr::new),
@@ -1435,7 +1476,7 @@ impl GitRepository {
                 ));
             }
         }
-        Ok(ComparisonResult {
+        let result = ComparisonResult {
             comparison: comparison.clone(),
             description,
             base,
@@ -1444,7 +1485,105 @@ impl GitRepository {
             diff,
             patch,
             observed,
+        };
+        if let Some(key) = cache_key {
+            self.keep_comparison_v110(key, &result, capture_limit);
+        }
+        Ok(result)
+    }
+
+    /// The exact inputs of a saved-version comparison, or None when the configuration cannot
+    /// be read (the comparison is then computed and not cached).
+    fn comparison_cache_key_v110(
+        &self,
+        args: &[String],
+        capture_limit: usize,
+        description: &str,
+        (base, head, common_ancestor): (&Option<String>, &Option<String>, &Option<String>),
+    ) -> Option<comparison_cache_v110::ComparisonKeyV110> {
+        let config = self
+            .original_bytes_with_capture_limit_v1(["config", "--list", "-z"], None, capture_limit)
+            .ok()?;
+        Some(comparison_cache_v110::ComparisonKeyV110 {
+            common_dir: self.common_dir.clone(),
+            root: self.root.clone(),
+            args: args.to_vec(),
+            capture_limit,
+            description: description.to_owned(),
+            base: base.clone(),
+            head: head.clone(),
+            common_ancestor: common_ancestor.clone(),
+            config,
+            diff_opts: std::env::var_os("GIT_DIFF_OPTS"),
         })
+    }
+
+    /// `git check-attr -a` for the given NUL-separated paths (none: no query, empty answer).
+    fn comparison_attributes_v110(&self, paths: &[u8], capture_limit: usize) -> GitResult<Vec<u8>> {
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.original_bytes_with_capture_limit_v1(
+            ["check-attr", "-a", "-z", "--stdin"],
+            Some(paths),
+            capture_limit,
+        )
+    }
+
+    fn cached_comparison_v110(
+        &self,
+        key: &comparison_cache_v110::ComparisonKeyV110,
+        capture_limit: usize,
+    ) -> Option<ComparisonResult> {
+        let cache = comparison_cache_v110::shared_comparison_cache_v110();
+        let candidate = cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .candidate(key)?;
+        let attributes = self
+            .comparison_attributes_v110(&candidate.attribute_paths, capture_limit)
+            .ok();
+        let mut cache = cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if attributes.as_deref() != Some(candidate.attributes.as_slice()) {
+            cache.remove(key);
+            return None;
+        }
+        cache.hit(key).then(|| candidate.result.as_ref().clone())
+    }
+
+    fn keep_comparison_v110(
+        &self,
+        key: comparison_cache_v110::ComparisonKeyV110,
+        result: &ComparisonResult,
+        capture_limit: usize,
+    ) {
+        let attribute_paths = comparison_cache_v110::attribute_paths_v110(result);
+        let Ok(attributes) = self.comparison_attributes_v110(&attribute_paths, capture_limit)
+        else {
+            return;
+        };
+        comparison_cache_v110::shared_comparison_cache_v110()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(
+                key,
+                comparison_cache_v110::CachedComparisonV110 {
+                    result: std::sync::Arc::new(result.clone()),
+                    attribute_paths,
+                    attributes,
+                },
+            );
+    }
+
+    /// Cache hits counted for this repository's saved-version comparisons.
+    #[cfg(test)]
+    pub(crate) fn comparison_cache_hits_v110(&self) -> u64 {
+        comparison_cache_v110::shared_comparison_cache_v110()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .hits_for(&self.common_dir)
     }
 
     /// Preview a canonical line selection only against the state shown in its original diff.
