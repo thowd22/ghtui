@@ -4,6 +4,8 @@ use super::*;
 use crate::scoped_pr_collaboration_native_v17 as native;
 const VERIFYING_ORIGINAL_V70: &str =
     "Verifying original Conversation • Esc Cancel • nothing resent";
+/// TASK-13: the visible loading state of the read-only Metadata section read.
+pub(crate) const LOADING_METADATA_V13: &str = "Loading PR Metadata • Esc Cancel • nothing resent";
 #[cfg(test)]
 #[path = "scoped_pr_collaboration_close_v20_tests.rs"]
 mod close_v20_tests;
@@ -245,6 +247,8 @@ impl Background {
                 );
                 self.current_collaboration_v17 = Some((generation, owner.clone()));
                 let waiting_drafts = owner.waiting_open_drafts_v20();
+                let metadata_section =
+                    owner.work().phase() == native::ConversationPhaseKindV17::MetadataSectionV51;
                 let state_source = matches!(
                     owner.original(),
                     native::CollaborationWorkOriginV78::StateInbox(_)
@@ -261,6 +265,8 @@ impl Background {
                 }
                 app.status = if state_source {
                     "Reading actual State queue source • membership unavailable until identity closes".into()
+                } else if metadata_section && !waiting_drafts {
+                    LOADING_METADATA_V13.into()
                 } else if waiting_drafts {
                     "Queued behind accepted local draft saves • original Conversation read".into()
                 } else {
@@ -416,7 +422,7 @@ impl Background {
             && app.overlay.is_none()
             && !native::pending_intent(app)
             && !native::newer_intent(app)
-            && app.status == VERIFYING_ORIGINAL_V70;
+            && (app.status == VERIFYING_ORIGINAL_V70 || app.status == LOADING_METADATA_V13);
         owner.cancellation().cancel();
         self.current.remove(&View::Inbox.index());
         self.current_collaboration_v17 = None;

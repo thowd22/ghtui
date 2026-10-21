@@ -177,7 +177,7 @@ fn journey(mouse: bool, mode: u8) {
     choose(&mut s, mouse, "[u Metadata]", b"u");
     let old = held(&mut s, &f, first_end - 1);
     s.wait_for_owned_completed_action("Inbox • focused view ─", " u Metadata ", &[]);
-    s.wait_for_screen("Verifying original Conversation");
+    s.wait_for_screen("Loading PR Metadata");
     s.wait_for_control("[Esc Cancel]");
     match mode {
         0 => {
@@ -201,7 +201,7 @@ fn journey(mouse: bool, mode: u8) {
                 Duration::from_secs(8),
             );
             reaped(&mut s, &old);
-            assert!(!s.screen().contains("Verifying original Conversation"));
+            assert!(!s.screen().contains("Loading PR Metadata"));
             // Real other-view navigation stays usable after retiring Inbox.
             choose(&mut s, mouse, "2 Repository", b"2");
             s.wait_for_cursorless_condition(

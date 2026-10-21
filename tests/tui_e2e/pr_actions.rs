@@ -192,6 +192,7 @@ fn open(session: &mut Session, mouse: bool) {
                 && text.contains("@octocat PR description")
                 && text.contains("Existing starter comment")
                 && !text.contains("Verifying original Conversation")
+                && !text.contains("Loading PR Metadata")
                 && !text.contains("[Esc Cancel]")
         },
         "NEW completed idle Conversation after one input, not starter text on prior Summary",

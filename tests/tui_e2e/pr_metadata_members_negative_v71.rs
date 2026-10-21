@@ -329,7 +329,7 @@ fn newer_view(mouse: bool) {
                         || crate::support::controls::control_painted(screen, "[m Git ops]"))
                     && !text.contains(&members_title(Cmd::AddLabel))
                     && !text.contains(DETAIL_BODY)
-                    && !text.contains("Verifying original Conversation")
+                    && !text.contains("Verifying original Conversation") && !text.contains("Loading PR Metadata")
                     && !crate::support::controls::control_painted(screen, "[Esc Cancel]")
             },
             "NEW actual newer Repository owns its content/loading/status",

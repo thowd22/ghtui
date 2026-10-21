@@ -368,3 +368,47 @@ fn timeline_links_v13_refuses_unlinked_scoped_and_loading_without_a_tab_switch()
     after_install(&mut app);
     assert!(app.pr_timeline_return_v13.is_none());
 }
+
+#[test]
+fn v13_summary_shows_full_base_and_head_and_closing_keyword_issues() {
+    let mut page = page();
+    page.details.summary.pr.body = "Fixes #12 and closes org/beta#3\nSecond paragraph".into();
+    page.tab = PrTab::Summary;
+    page.prepare_rows().unwrap();
+    let labels: Vec<&str> = page.rows.iter().map(|row| row.label.as_str()).collect();
+    assert!(
+        labels.contains(&format!("Head {HEAD}").as_str()),
+        "{labels:?}"
+    );
+    assert!(labels.contains(&format!("Base {}", "b".repeat(40)).as_str()));
+    let linked = labels
+        .iter()
+        .position(|label| label.starts_with("Linked issues: #12, org/beta#3 • "))
+        .expect("linked issues row");
+    let source = labels
+        .iter()
+        .position(|label| label.starts_with("Source: "))
+        .unwrap();
+    assert!(linked < source, "{labels:?}");
+    // Without closing keywords the Summary adds no linked-issues row.
+    page.details.summary.pr.body = "Mentions #12 only".into();
+    page.prepare_rows().unwrap();
+    assert!(!page
+        .rows
+        .iter()
+        .any(|row| row.label.starts_with("Linked issues")));
+    // Many references are capped here; Metadata lists them all.
+    page.details.summary.pr.body = (1..=8).map(|n| format!("fixes #{n} ")).collect();
+    page.prepare_rows().unwrap();
+    let row = page
+        .rows
+        .iter()
+        .find(|row| row.label.starts_with("Linked issues"))
+        .unwrap();
+    assert!(
+        row.label
+            .starts_with("Linked issues: #1, #2, #3, #4, #5, +3 more in u Metadata • "),
+        "{}",
+        row.label
+    );
+}

@@ -151,6 +151,7 @@ fn journey(mouse: bool) {
         crate::support::main_footer_visible(frame)
             && frame.contents().contains("Summary original line 00")
             && !frame.contents().contains("Verifying original")
+            && !frame.contents().contains("Loading PR Metadata")
             && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
     };
     // The app redraws on every 40ms tick, so a NEW completed frame alone does

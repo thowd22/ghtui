@@ -373,9 +373,24 @@ impl PrPage {
                         self.details.commits.len()
                     )),
                     PrRow::text(review_decisions(&self.details.reviews)),
+                ];
+                // TASK-13: closing-keyword issues from the loaded Description;
+                // Metadata (u) lists them all with permissions, requested reviewers
+                // and fork origin. At most five here, so the row stays inside the
+                // fixed per-row slack the Summary presentation preflight charges.
+                let mut closing = closing_keyword_issues_v1(&summary.pr.body);
+                if closing.len() > 5 {
+                    let more = closing.len() - 5;
+                    closing.truncate(5);
+                    closing.push(format!("+{more} more in u Metadata"));
+                }
+                if !closing.is_empty() {
+                    rows.push(PrRow::text(linked_issues_row_v13(&closing)));
+                }
+                rows.extend([
                     PrRow::text(format!("Source: {}", summary.pr.url)),
                     PrRow::text(""),
-                ];
+                ]);
                 rows.extend(summary.pr.body.lines().map(PrRow::text));
                 rows
             }
@@ -813,7 +828,11 @@ pub(crate) fn metadata_rows_v51(
         Some(false) => "false",
         None => "unavailable",
     };
-    let permission_flags = observed.map(|facts| facts.permissions());
+    // Three-state: observed facts first, then the raw repository flags; only
+    // an old context without either falls back to its boolean permissions.
+    let permission_flags = observed
+        .map(|facts| facts.permissions())
+        .or(context.permission_flags_v13);
     let mut rows = vec![
         PrRow::text(format!(
             "Your repository permissions: read {} • write {} • maintain {} • admin {}",
@@ -822,13 +841,7 @@ pub(crate) fn metadata_rows_v51(
             flag(permission_flags.map_or(Some(permissions.maintain), |v| v[2])),
             flag(permission_flags.map_or(Some(permissions.admin), |v| v[3])),
         )),
-        PrRow::text(format!(
-            "Fork origin: {}",
-            context
-                .head_repository
-                .as_ref()
-                .map_or("deleted or unavailable", |repo| repo.full_name.as_str())
-        )),
+        PrRow::text(fork_origin_v13(context)),
         PrRow::text(format!(
             "Base repository: {} • cross-repository {} • maintainer edits {}",
             context.base_repository.full_name,
@@ -906,11 +919,23 @@ pub(crate) fn metadata_rows_v51(
     for reviewer in &context.requested_reviewers {
         rows.push(PrRow::actor("review requested", reviewer.clone()));
     }
+    // A team has no avatar: its row names the team and its @org/slug mention.
+    let organization = context
+        .base_repository
+        .full_name
+        .split_once('/')
+        .map_or("", |(owner, _)| owner);
     for team in &context.requested_teams {
-        rows.push(PrRow::text(format!(
-            "Review team: {} ({})",
-            team.name, team.slug
-        )));
+        rows.push(PrRow::text(
+            if organization.is_empty() || team.slug.is_empty() {
+                format!("Review team: {} ({})", team.name, team.slug)
+            } else {
+                format!(
+                    "Review team: {} ({}) • @{organization}/{}",
+                    team.name, team.slug, team.slug
+                )
+            },
+        ));
     }
     let closing = closing_keyword_issues_v1(context.issue_metadata["body"].as_str().unwrap_or(""));
     rows.push(PrRow::text(if context.issue_metadata.get("body").is_none() {
@@ -918,10 +943,7 @@ pub(crate) fn metadata_rows_v51(
     } else if closing.is_empty() {
         "Linked issues: none via closing keywords in Description (issues linked in GitHub's sidebar are not listed here).".to_owned()
     } else {
-        format!(
-            "Linked issues (closing keywords in Description; closed on merge to the default branch): {}",
-            closing.join(", ")
-        )
+        linked_issues_row_v13(&closing)
     }));
     for url in &context.source_urls {
         rows.push(PrRow::text(format!("Source: {url}")));
@@ -935,6 +957,27 @@ pub(crate) fn metadata_rows_v51(
         ],
     ))));
     rows
+}
+/// TASK-13: the closing-keyword issues first, so a narrow pane still shows them.
+pub(crate) fn linked_issues_row_v13(closing: &[String]) -> String {
+    format!(
+        "Linked issues: {} • closing keywords in Description; closed on merge to the default branch",
+        closing.join(", ")
+    )
+}
+/// TASK-13: where the head branch lives. A fork names its repository and the
+/// base it targets; a same-repository PR says it is not from a fork.
+pub(crate) fn fork_origin_v13(context: &crate::providers::gh::PrContext) -> String {
+    match &context.head_repository {
+        None => {
+            "Fork origin: deleted or unavailable • the head repository is gone or hidden".into()
+        }
+        Some(head) if context.is_cross_repository => format!(
+            "Fork origin: {} • fork of {}",
+            head.full_name, context.base_repository.full_name
+        ),
+        Some(head) => format!("Fork origin: none • head branch is in {}", head.full_name),
+    }
 }
 /// Plain-language summary of what the observed repository permissions allow
 /// for PR metadata. GitHub still checks access when a change is previewed.

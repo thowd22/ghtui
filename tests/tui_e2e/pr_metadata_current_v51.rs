@@ -919,6 +919,7 @@ fn enter_metadata_from_conversation(s: &mut Session, mouse: bool, opening: usize
                     && text.contains("Existing starter comment")
                     && !text.contains("[Esc Cancel]")
                     && !text.contains("Verifying original Conversation")
+                    && !text.contains("Loading PR Metadata")
             })
         {
             break;
@@ -1027,6 +1028,7 @@ fn reopened_metadata_v70(s: &mut Session, before: usize, expected: &Value) {
                 && crate::support::controls::control_painted(frame, "[p PR actions]")
                 && !text.contains("[Esc Cancel]")
                 && !text.contains("Verifying original Conversation")
+                && !text.contains("Loading PR Metadata")
                 && crate::support::overlay_body(frame, "Inbox • focused view ─").is_some_and(
                     |body| {
                         body.contains("example/repo#7")

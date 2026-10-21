@@ -158,7 +158,7 @@ fn conversation_comments_metadata_read_retirement_v70_held_scroll_clears_only_ex
     assert!(!old.owns(&s.app));
     assert_eq!(
         s.app.status,
-        "Verifying original Conversation • Esc Cancel • nothing resent"
+        "Loading PR Metadata • Esc Cancel • nothing resent"
     );
     let context = s.app.context.clone();
     bg.retire_stale_scoped_pr_collaboration_v17(&mut s.app);

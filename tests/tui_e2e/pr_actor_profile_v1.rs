@@ -40,6 +40,7 @@ fn open_conversation(session: &mut Session, mouse: bool) {
                 && text.contains("@octocat PR description")
                 && text.contains("Removed account note")
                 && !text.contains("Verifying original Conversation")
+                && !text.contains("Loading PR Metadata")
         },
         "completed idle Conversation with all three comments",
         Duration::from_secs(8),

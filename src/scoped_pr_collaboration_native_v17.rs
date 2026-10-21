@@ -2812,7 +2812,15 @@ pub(crate) fn publish(
                 };
                 return;
             }
-            let caption = if permission {
+            // TASK-13: a failed read-only Metadata section read says so; the
+            // shown tab stays, and u Metadata reads again.
+            let metadata_section =
+                owner.work.phase() == ConversationPhaseKindV17::MetadataSectionV51 && !account;
+            let caption = if metadata_section && permission {
+                METADATA_REFUSED_V13
+            } else if metadata_section {
+                METADATA_UNAVAILABLE_V13
+            } else if permission {
                 "Actual capability refused • nothing sent • original draft retained"
             } else {
                 "Original Conversation unavailable • nothing resent • draft/journal retained"
@@ -2838,6 +2846,11 @@ pub(crate) fn publish(
         }
     }
 }
+/// TASK-13: visible error states of the read-only Metadata section read.
+pub(crate) const METADATA_UNAVAILABLE_V13: &str =
+    "Metadata unavailable • GitHub read failed • u Metadata reads again";
+pub(crate) const METADATA_REFUSED_V13: &str =
+    "Metadata unavailable • GitHub refused the read • u Metadata reads again";
 pub(crate) fn newer_intent(app: &App) -> bool {
     app.pr_action.is_some() || newer_intent_without_pr_v20(app)
 }

@@ -50,6 +50,17 @@ pub struct PrContext {
     pub head_sha: String,
     pub base_sha: String,
     pub source_urls: Vec<String>,
+    /// TASK-13: the caller's read/write/maintain/admin flags exactly as the
+    /// repository document reported them. A missing flag is unknown (`None`),
+    /// never denied. `None` overall means only the boolean `repository`
+    /// permissions were observed (older cached contexts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_flags_v13: Option<[Option<bool>; 4]>,
+}
+/// TASK-13: three-state repository permission flags from a raw repository
+/// document; an absent or non-boolean flag stays unknown.
+pub(crate) fn permission_flags_v13(repository: &Value) -> [Option<bool>; 4] {
+    ["pull", "push", "maintain", "admin"].map(|key| repository["permissions"][key].as_bool())
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MergeQueueEntry {
@@ -509,7 +520,16 @@ impl GithubProvider {
             ));
         }
         let issue_metadata = self.issue_metadata(target, cancel)?;
-        let repository = self.repository(&target.pr.repository, cancel)?;
+        validate_repo(&target.pr.repository)?;
+        let raw_repository = self.api(
+            &format!("repos/{}", target.pr.repository),
+            "GET",
+            None,
+            None,
+            false,
+            cancel,
+        )?;
+        let repository = self.repo_from_json(&raw_repository)?;
         let head_repository = if raw["head"]["repo"].is_null() {
             None
         } else {
@@ -561,6 +581,7 @@ impl GithubProvider {
                 target.pr.url.clone(),
                 format!("https://{}/{}", self.host, target.pr.repository),
             ],
+            permission_flags_v13: Some(permission_flags_v13(&raw_repository)),
         })
     }
     fn ambiguous_pr(&self, target: &PrSummary, message: &str) -> GithubError {

@@ -65,6 +65,7 @@ fn enter_metadata(s: &mut Session, f: &Fixture, mouse: bool, end: usize) {
             && !crate::support::controls::control_painted(frame, "[Esc Cancel]")
             && !frame.contents().contains("[Confirm action]")
             && !frame.contents().contains("Verifying original Conversation")
+            && !frame.contents().contains("Loading PR Metadata")
     };
     if original != (40, 120) {
         s.resize(120, 40);

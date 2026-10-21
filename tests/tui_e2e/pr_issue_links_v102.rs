@@ -250,6 +250,7 @@ fn original_conversation(s: &mut Session, mouse: bool) {
             && text.contains(&format!("{FIRST}#7"))
             && text.contains(&"a".repeat(40))
             && !text.contains("Verifying original Conversation")
+            && !text.contains("Loading PR Metadata")
             && !text.contains("[Esc Cancel]")
     };
     let ready = |frame: &vt100::Screen| {
@@ -314,6 +315,7 @@ fn original_summary(s: &mut Session, mouse: bool) {
                 && text.contains(&"a".repeat(40))
                 && !text.contains(OLD)
                 && !text.contains("Verifying original Conversation")
+                && !text.contains("Loading PR Metadata")
                 && !text.contains("[Esc Cancel]")
         },
         "NEW actual Summary after distinct cached Conversation",
@@ -354,6 +356,7 @@ fn journey(mouse: bool) {
                                     .contents()
                                     .contains(&format!("https://{HOST}/{FIRST}/pull/7"))
                                 && !frame.contents().contains("Verifying original Conversation")
+                                && !frame.contents().contains("Loading PR Metadata")
                         },
                         "NEW genuine Metadata context before Issue action",
                         Duration::from_secs(8),

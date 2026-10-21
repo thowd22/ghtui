@@ -16,6 +16,8 @@ mod navigation_inbox_v1;
 mod personal_pr_entry_v13;
 #[path = "pr_body_wrap_v1.rs"]
 mod pr_body_wrap_v1;
+#[path = "pr_summary_context_v13.rs"]
+mod pr_summary_context_v13;
 #[path = "pr_timeline_links_v13.rs"]
 mod pr_timeline_links_v13;
 #[path = "sqlite_dependency.rs"]

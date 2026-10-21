@@ -566,6 +566,7 @@ fn enter_metadata_from_conversation(s: &mut Session, mouse: bool, opening: usize
                     && text.contains("Existing starter comment")
                     && !text.contains("[Esc Cancel]")
                     && !text.contains("Verifying original Conversation")
+                    && !text.contains("Loading PR Metadata")
             })
         {
             break;
@@ -1689,6 +1690,7 @@ fn failed_base_open_v279(s: &mut Session, after: usize) {
                         "[Confirm action]",
                         "[Esc Cancel]",
                         "Verifying original Conversation",
+                        "Loading PR Metadata",
                         "Complete catalogue:",
                         "Branch: release/october",
                     ]

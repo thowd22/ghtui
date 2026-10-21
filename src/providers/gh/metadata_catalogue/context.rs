@@ -278,6 +278,7 @@ pub(in crate::providers::gh) fn observed_context(
         head_sha: original.head_sha.clone(),
         base_sha: original.base_sha.clone(),
         source_urls: vec![text(parent, "html_url")],
+        permission_flags_v13: None,
     };
     Ok((target, context, reasons))
 }

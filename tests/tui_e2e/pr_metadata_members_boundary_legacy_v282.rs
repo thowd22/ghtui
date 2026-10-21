@@ -238,7 +238,7 @@ fn enter_metadata_v282(s: &mut Session, mouse: bool) {
                     )
                     && crate::support::controls::control_painted(frame, "[u Metadata]")
                     && !text.contains("[Esc Cancel]")
-                    && !text.contains("Verifying original Conversation")
+                    && !text.contains("Verifying original Conversation") && !text.contains("Loading PR Metadata")
             })
         {
             break;

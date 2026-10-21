@@ -876,7 +876,7 @@ fn enter(s: &mut Session, mouse: bool) {
     }
     let before = s.completed_cursorless_end();
     choose(s, mouse, "[c Conversation]", b"c");
-    s.wait_for_new_cursorless_condition(before,|frame|{let text=frame.contents();crate::support::main_footer_visible(frame)&&text.contains("example/repo#7")&&text.contains(&"a".repeat(40))&&text.contains("@requester PR description")&&text.contains("Private description must never be in a receipt")&&text.contains("@octocat comment #9 • 2026-10-13T00:00:00Z")&&text.contains("Existing starter comment")&&!text.contains("Verifying original Conversation")&&!text.contains("[Esc Cancel]")},"NEW completed idle genuine Conversation/fullPR+H+actual description/comment rows before ONE u",Duration::from_secs(8));
+    s.wait_for_new_cursorless_condition(before,|frame|{let text=frame.contents();crate::support::main_footer_visible(frame)&&text.contains("example/repo#7")&&text.contains(&"a".repeat(40))&&text.contains("@requester PR description")&&text.contains("Private description must never be in a receipt")&&text.contains("@octocat comment #9 • 2026-10-13T00:00:00Z")&&text.contains("Existing starter comment")&&!text.contains("Verifying original Conversation") && !text.contains("Loading PR Metadata")&&!text.contains("[Esc Cancel]")},"NEW completed idle genuine Conversation/fullPR+H+actual description/comment rows before ONE u",Duration::from_secs(8));
     let before = s.completed_cursorless_end();
     choose(s, mouse, "[u Metadata]", b"u");
     metadata_frame(s, before);
