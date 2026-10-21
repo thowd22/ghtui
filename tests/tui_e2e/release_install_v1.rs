@@ -173,6 +173,390 @@ fn release_fixture() -> Fixture {
     fixture
 }
 
+/// Save a configuration file where the installed binary reads it, so a
+/// journey can check its exact bytes stay unchanged.
+fn seed_config(directory: &Path) -> Vec<u8> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(directory)
+        .unwrap();
+    let path = directory.join("config.toml");
+    ghtui::config::Config::load(&path)
+        .unwrap()
+        .save(&path)
+        .unwrap();
+    let bytes = fs::read(&path).unwrap();
+    assert!(!bytes.is_empty(), "the seeded configuration is empty");
+    bytes
+}
+
+/// Every regular file below `root` with its exact bytes.
+fn tree_bytes(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut files = std::collections::BTreeMap::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).unwrap() {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                pending.push(entry.path());
+            } else {
+                files.insert(entry.path(), fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    files
+}
+
+/// Every strict fake-gh record matched its scripted read; none is a write.
+fn assert_read_only_journal(session: &Session, fixture: &Fixture, count: usize) {
+    let journal = session.inspect_command_journal(fixture);
+    let records: Vec<serde_json::Value> = journal
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(records.len(), count, "{journal}");
+    for record in &records {
+        assert_eq!(record["matched"], true, "{record}");
+        let args: Vec<&str> = record["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|arg| arg.as_str().unwrap())
+            .collect();
+        assert!(
+            args == ["--version"] || args.windows(2).any(|pair| pair == ["--method", "GET"]),
+            "an installed binary sent a non-read gh command: {args:?}"
+        );
+    }
+}
+
+/// The empty personal Inbox load, with the first queue read held so the
+/// loading state is on screen before the load completes.
+fn delayed_inbox_steps() -> Vec<GhStep> {
+    let mut steps = empty_inbox_steps("octocat");
+    assert_eq!(steps.len(), 7);
+    steps[4].delay_ms = 1_500;
+    steps
+}
+
+/// Each top-level view: its header control, its key, and text only that
+/// view paints for this fixture (no GitHub scope, a local checkout).
+const VIEWS: [(&str, &str, &[u8], &str); 5] = [
+    (
+        "Inbox",
+        "1 Inbox",
+        b"1",
+        "Use Refresh to load your authenticated GitHub inbox.",
+    ),
+    ("Search", "3 Search", b"3", "Exact mode"),
+    (
+        "Actions",
+        "4 Actions",
+        b"4",
+        "Choose a repository scope before loading Actions.",
+    ),
+    ("Dashboard", "5 Dashboard", b"5", "Dashboard scope needed"),
+    (
+        "Repository",
+        "2 Repository",
+        b"2",
+        "Installed release history",
+    ),
+];
+
+#[test]
+fn v1_release_keyboard_installed_binary_tours_every_view_resize_focus_and_loading() {
+    installed_tour(false);
+}
+
+#[test]
+fn v1_release_mouse_installed_binary_tours_every_view_resize_focus_and_loading() {
+    installed_tour(true);
+}
+
+/// The installed binary, at 140x42 and 80x24: every top-level view by key
+/// or by header click, the Inbox loading state, a pane focus change and
+/// back. GitHub sees only matched reads, and Git and the configuration
+/// are unchanged.
+fn installed_tour(mouse: bool) {
+    let fixture = release_fixture();
+    let installed = install_real_binary(&fixture);
+    let config = seed_config(&fixture.root.join("config/ghtui"));
+    fixture.scripted_gh(&delayed_inbox_steps());
+    let before = git_state(&fixture);
+    let mut session = Session::launch_binary(&installed.path, &fixture, 140, 42, &[]);
+    session.assert_focused_view("Repository");
+    session.wait_for_screen("Installed release history");
+    for (view, label, key, text) in VIEWS {
+        session.choose(mouse, label, key);
+        session.assert_focused_view(view);
+        session.wait_for_screen(text);
+        session.resize(80, 24);
+        assert_eq!(session.size(), (80, 24));
+        session.assert_focused_view(view);
+        session.wait_for_screen(text);
+        session.resize(140, 42);
+        assert_eq!(session.size(), (140, 42));
+        session.assert_focused_view(view);
+        session.wait_for_screen(text);
+    }
+    assert!(
+        session.inspect_command_journal(&fixture).is_empty(),
+        "browsing the views sent a gh command"
+    );
+
+    // Focus moves from the Repository list to its Details preview and back.
+    session.wait_for_settled_footer();
+    if mouse {
+        let (column, row) = session.locate("Details").expect("Details preview pane");
+        session.click(column, row + 6);
+    } else {
+        session.send_key(b"\t");
+    }
+    session.wait_for_screen("Preview focused");
+    session.wait_for_screen("▶ Details");
+    if mouse {
+        let (column, row) = session
+            .locate("Recent commits — saved versions")
+            .expect("Repository list pane");
+        session.click(column, row + 8);
+    } else {
+        session.send_key(b"\x1b[Z");
+        session.wait_for_screen("Repository list focused");
+    }
+    if let Err(error) = session.try_wait_for_condition(
+        |screen| !screen.contains("▶ Details") && screen.contains("Installed release history"),
+        "focus returned to the Repository list",
+        std::time::Duration::from_secs(8),
+    ) {
+        session.save_artifacts();
+        panic!("{error}");
+    }
+
+    // Loading state: the held queue read keeps the Inbox load visible.
+    session.choose(mouse, "1 Inbox", b"1");
+    session.assert_focused_view("Inbox");
+    session.wait_for_settled_footer();
+    session.choose(mouse, "[r Refresh]", b"r");
+    session.wait_for_screen("Loading Inbox");
+    session.wait_for_command_count(&fixture, 7);
+    session.wait_for_screen("0 unique PRs across 0 queue matches");
+    session.wait_for_settled_footer();
+    assert_read_only_journal(&session, &fixture, 7);
+    session.quit_and_assert_restored_terminal(mouse);
+    assert_eq!(
+        git_state(&fixture),
+        before,
+        "touring the installed binary changed Git state"
+    );
+    assert_eq!(
+        fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap(),
+        config,
+        "touring the installed binary rewrote its configuration"
+    );
+    assert!(
+        fixture.root.join("config/ghtui/cache.sqlite3").is_file(),
+        "the completed Inbox load stored nothing in the private cache"
+    );
+}
+
+#[test]
+fn v1_release_keyboard_installed_binary_reports_missing_gh_and_missing_git() {
+    missing_tools(false);
+}
+
+#[test]
+fn v1_release_mouse_installed_binary_reports_missing_gh_and_missing_git() {
+    missing_tools(true);
+}
+
+/// Error states of the installed binary with a dependency missing from
+/// PATH. Without gh, local Git keeps working and the Inbox refresh says
+/// how to install gh; without git, the Repository view says Git could not
+/// start. Neither run touches the repository or the configuration.
+fn missing_tools(mouse: bool) {
+    let fixture = release_fixture();
+    let installed = install_real_binary(&fixture);
+    let config = seed_config(&fixture.root.join("config/ghtui"));
+    let before = git_state(&fixture);
+    let host_git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|directory| directory.join("git"))
+        .find(|path| path.is_file())
+        .expect("installed git");
+
+    // gh missing: a PATH that holds only git, never a developer's real gh.
+    let only_git = fixture.root.join("only-git");
+    fs::create_dir(&only_git).unwrap();
+    std::os::unix::fs::symlink(&host_git, only_git.join("git")).unwrap();
+    let path = only_git.display().to_string();
+    let mut session = Session::launch_binary(
+        &installed.path,
+        &fixture,
+        80,
+        24,
+        &[("PATH", path.as_str())],
+    );
+    session.assert_focused_view("Repository");
+    session.wait_for_screen("Installed release history");
+    session.choose(mouse, "1 Inbox", b"1");
+    session.assert_focused_view("Inbox");
+    session.wait_for_settled_footer();
+    session.choose(mouse, "[r Refresh]", b"r");
+    session.wait_for_screen("GitHub CLI is missing");
+    session.resize(140, 42);
+    session.wait_for_screen("Install gh and run gh auth login");
+    session.choose(mouse, "2 Repository", b"2");
+    session.assert_focused_view("Repository");
+    session.wait_for_screen("Installed release history");
+    session.quit_and_assert_restored_terminal(mouse);
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+
+    // git missing: a PATH that holds only the strict fake gh.
+    let only_gh = fixture.root.join("only-gh");
+    fs::create_dir(&only_gh).unwrap();
+    std::os::unix::fs::symlink(
+        fs::read_link(fixture.root.join("bin/gh")).unwrap(),
+        only_gh.join("gh"),
+    )
+    .unwrap();
+    let path = only_gh.display().to_string();
+    let mut session = Session::launch_binary(
+        &installed.path,
+        &fixture,
+        140,
+        42,
+        &[("PATH", path.as_str())],
+    );
+    session.assert_focused_view("Inbox");
+    session.choose(mouse, "2 Repository", b"2");
+    session.assert_focused_view("Repository");
+    session.wait_for_screen("Could not start git");
+    session.resize(80, 24);
+    session.wait_for_screen("Could not start git");
+    assert!(!session.screen().contains("Installed release history"));
+    session.quit_and_assert_restored_terminal(mouse);
+    assert!(
+        session.inspect_command_journal(&fixture).is_empty(),
+        "the missing-tool runs sent a gh command"
+    );
+
+    assert_eq!(
+        git_state(&fixture),
+        before,
+        "a missing-tool run changed Git"
+    );
+    assert_eq!(
+        fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap(),
+        config,
+        "a missing-tool run rewrote the configuration"
+    );
+}
+
+/// Upgrade from a previous release (a stand-in reporting 0.0.1) to the
+/// real one, use it so it writes its own configuration and cache in the
+/// default per-user location, then uninstall: only the owned executable
+/// goes; configuration, cache, drafts, other tools and the repository stay.
+#[test]
+fn v1_release_upgrade_from_previous_version_then_owned_uninstall_keeps_config_and_cache() {
+    use ghtui::storage::{Cache, Scope};
+    let fixture = release_fixture();
+    let host = stand_in::Arch::host();
+    let previous = fixture.root.join("stand-in-previous");
+    fs::write(
+        &previous,
+        stand_in::elf(
+            host,
+            &stand_in::Program {
+                message: "ghtui 0.0.1\n",
+                ..Default::default()
+            },
+        ),
+    )
+    .unwrap();
+    let previous_dist = fixture.root.join("dist-previous");
+    package("v0.0.1", host.linux_target(), &previous, &previous_dist);
+    let release = fixture.root.join("release");
+    publish(&release, "v0.0.1", &previous_dist, true);
+    let first = installer(&fixture, &release, &[]);
+    assert!(first.status.success(), "{}", output_text(&first));
+    assert!(output_text(&first).contains("installed ghtui v0.0.1"));
+    let path = fixture.root.join("home/.local/bin/ghtui");
+    assert_eq!(fs::read(&path).unwrap(), fs::read(&previous).unwrap());
+    assert_eq!(
+        run(Command::new(&path).arg("--version")).trim(),
+        "ghtui 0.0.1"
+    );
+
+    // The upgrade: the real release becomes latest and replaces it.
+    let installed = install_real_binary(&fixture);
+    assert_eq!(installed.path, path);
+
+    // Use the upgraded binary with its default per-user configuration.
+    let home = fixture.root.join("home");
+    let data = home.join(".config/ghtui");
+    let config = seed_config(&data);
+    fixture.scripted_gh(&empty_inbox_steps("octocat"));
+    let before = git_state(&fixture);
+    let data_env = data.display().to_string();
+    let xdg = home.join(".config").display().to_string();
+    let mut session = Session::launch_binary(
+        &installed.path,
+        &fixture,
+        100,
+        30,
+        &[
+            ("GHTUI_CONFIG_DIR", data_env.as_str()),
+            ("XDG_CONFIG_HOME", xdg.as_str()),
+        ],
+    );
+    session.assert_focused_view("Repository");
+    session.send_key(b"1");
+    session.assert_focused_view("Inbox");
+    session.wait_for_settled_footer();
+    session.send_key(b"r");
+    session.wait_for_command_count(&fixture, 7);
+    session.wait_for_screen("0 unique PRs across 0 queue matches");
+    assert_read_only_journal(&session, &fixture, 7);
+    session.quit_and_assert_restored_terminal(false);
+    assert_eq!(fs::read(data.join("config.toml")).unwrap(), config);
+    let scope = Scope::github("github.com", Some(42)).unwrap();
+    {
+        let cache = Cache::open(&data.join("cache.sqlite3")).unwrap();
+        cache
+            .put_draft(&scope, "release-draft", "Keep this draft across uninstall")
+            .unwrap();
+    }
+    let other_tool = home.join(".local/bin/other-tool");
+    fs::write(&other_tool, b"#!/bin/sh\nexit 0\n").unwrap();
+    let kept = tree_bytes(&data);
+    assert!(kept.contains_key(&data.join("config.toml")));
+    assert!(kept.contains_key(&data.join("cache.sqlite3")));
+
+    let uninstall = installer(&fixture, &release, &["--uninstall"]);
+    let log = output_text(&uninstall);
+    assert!(uninstall.status.success(), "{log}");
+    assert!(
+        log.contains("configuration, cache, drafts and repositories were kept"),
+        "{log}"
+    );
+    assert!(!path.exists(), "uninstall left the executable");
+    assert_eq!(fs::read(&other_tool).unwrap(), b"#!/bin/sh\nexit 0\n");
+    assert_eq!(tree_bytes(&data), kept, "uninstall changed ghtui data");
+    assert_eq!(
+        git_state(&fixture),
+        before,
+        "uninstall changed the repository"
+    );
+    let cache = Cache::open(&data.join("cache.sqlite3")).unwrap();
+    assert_eq!(
+        cache.draft(&scope, "release-draft").unwrap().as_deref(),
+        Some("Keep this draft across uninstall")
+    );
+}
+
 fn git_state(fixture: &Fixture) -> (String, String, String, Vec<u8>, Vec<u8>) {
     (
         fixture.git(&["rev-parse", "HEAD"]),
