@@ -669,8 +669,13 @@ impl StoppedRead {
     fn reaped(&mut self, session: &mut Session) {
         // Cancellation may already have killed the stopped child; never signal
         // a group or infer successful completion from command-entry count.
-        if unsafe { libc::kill(self.pid, 0) } == 0 {
-            assert_eq!(unsafe { libc::kill(self.pid, libc::SIGCONT) }, 0);
+        // The child may be reaped between any liveness probe and SIGCONT, so only a
+        // failure other than "no such process" is an error.
+        if unsafe { libc::kill(self.pid, libc::SIGCONT) } != 0 {
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
         }
         self.stopped = false;
         session.try_wait_for_condition(|_| unsafe {libc::kill(self.pid,0)}==-1 && std::io::Error::last_os_error().raw_os_error()==Some(libc::ESRCH),

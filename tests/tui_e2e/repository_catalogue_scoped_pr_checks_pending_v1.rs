@@ -42,8 +42,13 @@ impl HeldOriginalRepository {
         guard
     }
     fn reaped(&mut self, session: &mut Session) {
-        if unsafe { libc::kill(self.pid, 0) } == 0 {
-            assert_eq!(unsafe { libc::kill(self.pid, libc::SIGCONT) }, 0);
+        // The child may be reaped between any liveness probe and SIGCONT, so only a
+        // failure other than "no such process" is an error.
+        if unsafe { libc::kill(self.pid, libc::SIGCONT) } != 0 {
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
         }
         self.stopped = false;
         session
