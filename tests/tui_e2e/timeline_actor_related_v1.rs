@@ -185,7 +185,7 @@ fn journey(mouse: bool, case: CaseV1) {
         &mut session,
         &[
             "Actor profile — Git author",
-            &format!("Saved: {}", source.original),
+            &format!("Viewed: {}", source.original),
         ],
         &[TITLE, PRIVATE, "Exact timeline comment body", "▀"],
     );

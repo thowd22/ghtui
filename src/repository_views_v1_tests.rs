@@ -341,7 +341,7 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         // The UTC date leaves the narrow panel first; the full id stays in the Saved detail
         // row, and at 140 the preview shows the full id with the authored UTC time.
         assert!(!selected.contains(&date), "{screen}");
-        assert!(screen.contains(&format!("Saved: {head}")), "{screen}");
+        assert!(screen.contains(&format!("Viewed: {head}")), "{screen}");
         assert_eq!(
             screen.contains(&format!("Commit    {head}")),
             width == 140,

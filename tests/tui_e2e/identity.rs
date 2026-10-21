@@ -40,7 +40,7 @@ fn select_graph_subject(session: &mut Session, mouse: bool, subject: &str) -> St
         );
         session.poll_output(std::time::Duration::from_millis(50));
     }
-    let saved = format!("Saved: {sha}");
+    let saved = format!("Viewed: {sha}");
     session.wait_for_cursorless_condition(
         |frame| {
             let text = frame.contents();

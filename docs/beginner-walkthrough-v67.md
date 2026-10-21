@@ -67,7 +67,16 @@ Wrong turns:
 - Expecting the old bytes to replace the working file: the Tree heading says browsing never
   checks out or changes working files, and the journey checks the working file is unchanged.
 
-Terms changed: new `Enter Open` key bar token in the saved Tree (`src/repository_ui.rs`).
+- Reading the History identity rows: they said `Saved: <sha>` and `HEAD: <sha>`. Fixed:
+  they now say `Viewed: <full sha>` (the selected saved version) and `In use: <full sha>`
+  (the commit your working files are on, Git's HEAD). Both full IDs stay visible; the
+  details pane still names HEAD for people who know Git's word. The labels are short on
+  purpose: with a 64-character SHA-256 ID the row must still fit 72 cells unsplit, which
+  ruled out "Current commit" or "Checked out".
+
+Terms changed: new `Enter Open` key bar token in the saved Tree (`src/repository_ui.rs`);
+`Saved:`/`HEAD:` became `Viewed:`/`In use:` in every Repository identity header
+(`src/repository_source_identity.rs`, `src/repository_ui.rs`).
 
 ## 5. Resolve a conflict
 
@@ -84,6 +93,13 @@ Wrong turns:
   later page. The palette finds it by its words.
 - The conflict view shows "Stage 1: saved object <id>" (index stage numbers) beside the
   plain "Base / Ours / Theirs" captions. Left as is: tests and recovery docs use them.
+- The Resolve preview captioned the sides `Ours (HEAD):` and `Theirs (feature):`, Git's
+  marker names only. Fixed: `Ours — current branch content (marked HEAD):` and `Theirs —
+  incoming branch content (marked feature):`, the conflict view's words plus the marker
+  label so the side is still named.
+- The preview wrapped mid-word at 80 columns ("other bl / ocks", "in / dex"). Fixed: form
+  previews break after the last space that fits; a word wider than the row still breaks
+  by character, and no byte is dropped (`src/prepared_form_text_v1.rs`).
 
 Terms changed: the palette header no longer says "Prepared commands · not current
 permission/target authority"; it says "Type to filter · Enter runs the selected command ·
@@ -92,21 +108,22 @@ target before it runs." (`src/command_palette.rs`).
 
 ## 6. Find the failing CI step
 
-Steps: `4 Actions` tab -> `? Help` (workflow, run, attempt and step are defined) -> click
-the failed run, or arrows plus Enter -> click the failed job, or arrows plus Enter -> the
-failing step "3 Run tests" is listed -> `l Logs` (bar or `: Cmds`) -> the error line.
+Steps: `4 Actions` tab -> `? Help` (workflow, run, attempt and step are defined) -> select
+the failed run -> `Enter Open` (key or click) -> click the failed job, or arrows plus Enter
+-> the failing step "3 Run tests" is listed -> `l Logs` (bar or `: Cmds`) -> the error line.
 
 Wrong turns:
-- The Actions key bar has no `Enter Open` token, so Enter on a run or job row must be
-  guessed (clicks work). Not changed in this pass.
+- The Actions key bar had no `Enter Open` token, so Enter on a run or job row had to be
+  guessed. Fixed: while a run or job row is selected the bar paints `Enter Open` right
+  after Refresh. It runs the same row action as Enter and a click. At 80 columns it gives
+  way before every run command, Refresh and Stop watch; Commands lists it as "Open selected
+  Actions record" with its Enter key.
 - Opening the run's Logs before choosing a job: the job is the unit that has steps and logs.
 
-Terms changed: none.
+Terms changed: new `Enter Open` key bar token for Actions runs and jobs (`src/actions_ui.rs`).
 
-## Remaining findings (not fixed here)
+## Remaining findings
 
-- Form previews wrap mid-word at 80 columns ("in / dex", "Insp / ect").
-- Repository headers show `HEAD:` and `Saved:` full SHAs to beginners; many journeys match
-  these rows, so a relabel needs its own migration.
-- The `Ours (HEAD)` caption in conflict previews keeps Git's marker name.
-- The Actions bar lacks an `Enter Open` token for runs and jobs.
+- Notices (72×16 overlays) keep the old character wrap; only form previews changed, because
+  many journeys match wrapped notice fragments.
+- AC2 still needs real participants, timings and wrong-turn counts.

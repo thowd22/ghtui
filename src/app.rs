@@ -3866,7 +3866,7 @@ impl App {
     }
 
     /// History (TASK-99): moving the `▌` bar onto a commit by keyboard chooses it exactly as a
-    /// click on its row does, so the saved version (`Saved:`, actor rows, `a`/`c`, Tree,
+    /// click on its row does, so the saved version (`Viewed:`, actor rows, `a`/`c`, Tree,
     /// Working and the Source identity) follows the bar. Read-only and in memory for a loaded
     /// commit; nothing changes when the bar stays on the saved commit, and a running read (a
     /// page of older commits) is not replaced by mere cursor movement.

@@ -266,8 +266,8 @@ fn source_journey(mouse: bool) {
         command(&mut session, mouse, "Show History");
         session.wait_for_history_ready();
         session.open_saved_graph_subject(mouse, "Original navigation ancestry", &local.original);
-        session.wait_for_screen(&format!("Saved: {}", local.original));
-        session.wait_for_screen(&format!("HEAD: {}", local.before.head.trim()));
+        session.wait_for_screen(&format!("Viewed: {}", local.original));
+        session.wait_for_screen(&format!("In use: {}", local.before.head.trim()));
         session.wait_for_screen("Original Source Writer");
         session.wait_for_screen("Source Integrator");
         let selected = crate::support::history_fixture::selected_history_row(
@@ -330,8 +330,8 @@ fn source_journey(mouse: bool) {
         // HEAD rows, never accepted only as a truncated long-path context line.
         assert_pure_source(&local, &session, reads, &saved);
         close_source(&mut session, mouse);
-        session.wait_for_screen(&format!("Saved: {}", local.original));
-        session.wait_for_screen(&format!("HEAD: {}", local.before.head.trim()));
+        session.wait_for_screen(&format!("Viewed: {}", local.original));
+        session.wait_for_screen(&format!("In use: {}", local.before.head.trim()));
         assert!(
             crate::support::history_fixture::selected_history_row(
                 session.completed_cursorless_screen().unwrap()
@@ -354,7 +354,7 @@ fn source_journey(mouse: bool) {
         ] {
             command(&mut session, mouse, command_label);
             session.wait_for_screen(content);
-            session.wait_for_screen(&format!("Saved: {}", local.before.head.trim()));
+            session.wait_for_screen(&format!("Viewed: {}", local.before.head.trim()));
             let reads = starts(&local.fixture);
             let saved = persisted_files(&local.fixture);
             choose(&mut session, mouse, SOURCE_CONTROL, SOURCE_KEY);

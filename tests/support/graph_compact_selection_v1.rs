@@ -62,7 +62,7 @@ pub fn first_page_down_batch(
     let mut saved = screen.lines().filter_map(|line| {
         line.trim_start_matches('│')
             .trim_start()
-            .strip_prefix("Saved: ")
+            .strip_prefix("Viewed: ")
             .map(|tail| tail.split_whitespace().next().unwrap_or_default())
     });
     let exact_saved = saved.next() == Some(actual_saved_sha) && saved.next().is_none();

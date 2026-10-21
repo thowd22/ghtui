@@ -238,7 +238,7 @@ fn happy(mouse: bool) {
     session.wait_for_screen("Read-only · 16 commits loaded");
     select_history(&mut session, mouse, &chosen);
     tree_file(&mut session, mouse, "new name.txt");
-    session.wait_for_screen(&format!("Saved: {chosen}"));
+    session.wait_for_screen(&format!("Viewed: {chosen}"));
     session.wait_for_screen("responsible second line");
     assert!(!session.screen().contains("future source line outside"));
     // Saved-file line actions use exact immutable BlameAt coordinates too.

@@ -2077,7 +2077,9 @@ fn v42_conflict_blocks_resolve_one_block_at_a_time_refuse_stale_bytes_and_keep_t
     );
     for expected in [
         "Block 2 of 2 (lines 13–19): ours 1 line • theirs 1 line • base 1 line",
+        "Ours — current branch content (marked HEAD):",
         "  ours │ two ours",
+        "Theirs — incoming branch content (marked feature):",
         "  theirs │ two theirs",
         "  result │ two",
         "1 conflict block remain unresolved after this.",

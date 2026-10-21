@@ -524,8 +524,8 @@ fn journey_related(mouse: bool, case: RelatedCase) {
         &mut session,
         &[
             "Actor profile — Git author",
-            &format!("Saved: {}", source.original),
-            &format!("HEAD: {}", source.head),
+            &format!("Viewed: {}", source.original),
+            &format!("In use: {}", source.head),
         ],
         &[PRIVATE, TITLE],
     );
@@ -575,7 +575,7 @@ fn journey_related(mouse: bool, case: RelatedCase) {
             &mut session,
             &[
                 "Actor profile — Git author",
-                &format!("Saved: {}", source.original),
+                &format!("Viewed: {}", source.original),
             ],
             &[CHOOSER, ROW, PRIVATE],
         );

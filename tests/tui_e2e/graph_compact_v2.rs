@@ -209,7 +209,7 @@ fn full_back(mouse: bool) {
     session.wait_for_settled_footer();
     choose(&mut session, mouse, "[t Tree]", b"t");
     session.wait_for_screen("Saved file tree");
-    session.wait_for_screen(&format!("Saved: {selected}"));
+    session.wait_for_screen(&format!("Viewed: {selected}"));
     let before_back = trace(&native).len();
     session.wait_for_settled_footer();
     choose(&mut session, mouse, "Alt-← Back", b"\x1b[1;3D");

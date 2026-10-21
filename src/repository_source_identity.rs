@@ -184,6 +184,12 @@ impl Rows {
         }
     }
 }
+/// Compact header label for the checked-out commit (Git's HEAD): the commit your
+/// working files are on. Both labels stay at most 6 cells, so `label: <64-hex id>`
+/// fits one WRAP_CELLS row and a SHA-256 ID is never split.
+pub(crate) const CHECKED_OUT_LABEL: &str = "In use";
+/// Compact header label for the saved version being viewed or selected.
+pub(crate) const VIEWING_LABEL: &str = "Viewed";
 fn preflight(workspace: &MetadataViewV1<'_>, rows: &mut Rows) -> Result<(), String> {
     rows.raw(workspace.directory.as_os_str().as_bytes())?;
     rows.raw(workspace.revision.as_bytes())?;
@@ -314,10 +320,14 @@ impl PreparedRepositorySourceIdentity {
                 )
             });
         let mut compact = Rows::default();
-        compact.object("HEAD", checkout_head, SemanticToken::Head)?;
+        // Plain-language labels (TASK-67): beginners read "Viewed" (the
+        // selected saved version) and "In use" (the commit the working files
+        // are on), and the full IDs stay visible. The details pane still
+        // names HEAD for people who know Git's word.
+        compact.object(CHECKED_OUT_LABEL, checkout_head, SemanticToken::Head)?;
         // Preserve the original genuine selected-commit selector. It describes
         // the displayed saved actor basis, not ownership of mutable edits.
-        compact.object("Saved", actor_commit, SemanticToken::Reference)?;
+        compact.object(VIEWING_LABEL, actor_commit, SemanticToken::Reference)?;
         let content = if working_preview {
             "working file; mutable"
         } else if let Some(comparison) = workspace.comparison_v1() {

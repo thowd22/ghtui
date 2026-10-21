@@ -277,3 +277,63 @@ fn design_footer_v90_actions_scope_filter_rerun_and_acknowledge_have_keys() {
         }
     }
 }
+
+#[test]
+fn task67_actions_enter_open_token_on_run_and_job_rows_runs_the_row_action() {
+    let open_run = ActionsAction::OpenRun {
+        repository: "example/repo".into(),
+        id: 123,
+        attempt: 2,
+    };
+    let row = |action: Option<ActionsAction>| crate::actions_workspace::ActionsRow {
+        cells: Default::default(),
+        label: "row".into(),
+        role: crate::theme::SemanticToken::Normal,
+        actor: None,
+        action,
+    };
+    for action in [open_run.clone(), ActionsAction::OpenJob(501)] {
+        let mut page = workspace(Some(42));
+        page.rows = vec![row(Some(action.clone()))];
+        page.selected = 0;
+        let keys = footer_keys(&page);
+        let open = keys
+            .iter()
+            .find(|control| control.key == "Enter")
+            .expect("Enter Open on a run or job row");
+        assert_eq!(open.label, "Open");
+        assert_eq!(open.action, Action::Actions(action.clone()));
+        // It sits right after Refresh, and Refresh still leads the bar.
+        let refresh = keys
+            .iter()
+            .position(|control| control.action == Action::Refresh)
+            .unwrap();
+        assert_eq!(keys[refresh + 1].key, "Enter");
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            resolve_key(&keys, enter),
+            Some(Action::Actions(action.clone())),
+            "the Enter key does exactly what the painted token and a click on the row do"
+        );
+        assert_eq!(keyboard_action(enter, &page), Some(action.clone()));
+        // Painted at 80x24 beside Refresh, and a click target.
+        let mut app = App {
+            view: crate::app::View::Actions,
+            actions: Some(page),
+            ..Default::default()
+        };
+        let rows = screen(&mut app, 80, 24);
+        let footer = &rows[23];
+        assert!(footer.starts_with(" r Refresh  Enter Open  "), "{footer:?}");
+        assert!(app
+            .hits
+            .iter()
+            .any(|hit| hit.rect.y == 23 && hit.action == Action::Actions(action.clone())));
+    }
+    // An information row has nothing to open, so no token is painted.
+    let mut page = workspace(Some(42));
+    page.rows = vec![row(None)];
+    assert!(footer_keys(&page)
+        .iter()
+        .all(|control| control.key != "Enter"));
+}

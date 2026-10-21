@@ -163,6 +163,64 @@ fn all_rows(doc: &Arc<PreparedFormTextV1>, column: u16) -> Vec<(usize, bool, Str
         })
         .collect()
 }
+#[test]
+fn task67_form_preview_wraps_on_word_boundaries_and_keeps_every_byte() {
+    // At 80 columns the preview body is 64 cells; the beginner walkthrough saw
+    // "in / dex" and "Insp / ect" split across rows.
+    let line = "Stage the selected file so the next commit includes it; the in\
+                dex keeps the rest. Inspect the preview before you confirm anything here."
+        .to_owned();
+    let long_word = format!("short {} tail", "y".repeat(70));
+    let lines = vec![line.clone(), long_word.clone()];
+    let doc = prepared(&lines);
+    for column in FORM_COLUMNS_V1 {
+        let rows = all_rows(&doc, column);
+        for (source, original) in lines.iter().enumerate() {
+            let parts: Vec<&str> = rows
+                .iter()
+                .filter(|row| row.0 == source)
+                .map(|row| row.2.as_str())
+                .collect();
+            assert_eq!(parts.concat(), *original, "no byte is dropped or reordered");
+            assert!(parts
+                .iter()
+                .all(|part| crate::editor::display_width(part) <= usize::from(column)));
+        }
+        let first: Vec<&str> = rows
+            .iter()
+            .filter(|row| row.0 == 0)
+            .map(|row| row.2.as_str())
+            .collect();
+        for word in ["index", "Inspect", "preview", "confirm"] {
+            assert!(
+                first.iter().any(|part| part.contains(word)),
+                "{word} stays whole at {column} columns: {first:?}"
+            );
+        }
+        // Every row but the last ends after a space: breaks fall between words.
+        assert!(first[..first.len() - 1]
+            .iter()
+            .all(|part| part.ends_with(' ')));
+    }
+    // A long token (a path, a ref spec, an ID) still fills the row and breaks by grapheme.
+    let rows = all_rows(&doc, 64);
+    let long: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.0 == 1)
+        .map(|row| row.2.as_str())
+        .collect();
+    assert_eq!(long[0], format!("short {}", "y".repeat(58)));
+    assert_eq!(long[1], format!("{} tail", "y".repeat(12)));
+    assert_eq!(long.concat(), long_word);
+    // Notices keep the legacy grapheme wrap.
+    assert_eq!(
+        crate::ui::notice_lines("aaa bbb", 5)
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>(),
+        vec!["aaa b".to_owned(), "bb".to_owned()]
+    );
+}
 fn original_reference(input: &str, width: u16) -> Vec<String> {
     let mut output = vec![];
     for line in input.lines() {

@@ -5,7 +5,7 @@ const SHA: &str = "1234567890123456789012345678901234567890";
 fn frame(subject: &str) -> vt100::Screen {
     let mut parser = vt100::Parser::new(40, 120, 0);
     parser.process(
-        format!("Saved: {SHA}\r\n[Home First loaded]\r\n│\x1b[7m{subject}\x1b[0m\r\n\x1b[?25l")
+        format!("Viewed: {SHA}\r\n[Home First loaded]\r\n│\x1b[7m{subject}\x1b[0m\r\n\x1b[?25l")
             .as_bytes(),
     );
     parser.screen().clone()
@@ -134,7 +134,7 @@ fn commit_graph_v2_selection_refuses_busy_wrong_original_sha_and_controls_withou
     )
     .is_err());
     let mut longer = vt100::Parser::new(40, 120, 0);
-    longer.process(format!("Saved: {SHA}{}\r\n[Home First loaded]\r\n│\x1b[7mOrdinary graph version 09999 • actor\x1b[0m\r\n", "a".repeat(24)).as_bytes());
+    longer.process(format!("Viewed: {SHA}{}\r\n[Home First loaded]\r\n│\x1b[7mOrdinary graph version 09999 • actor\x1b[0m\r\n", "a".repeat(24)).as_bytes());
     assert!(
         selection::first_page_down_batch(longer.screen(), "Ordinary graph version 09800", SHA)
             .is_err(),

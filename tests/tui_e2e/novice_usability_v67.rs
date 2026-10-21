@@ -342,6 +342,7 @@ fn browse_old_file(mouse: bool) {
     fixture.commit_file("notes.txt", b"the old wording\n", "Old notes");
     let old = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
     fixture.commit_file("notes.txt", b"the new wording\n", "New notes");
+    let new = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
     fs::write(fixture.repo().join("notes.txt"), b"my unsaved wording\n").unwrap();
     let before = git_state(&fixture);
 
@@ -350,6 +351,12 @@ fn browse_old_file(mouse: bool) {
     step(&mut session, mouse, "[g History]");
     session.wait_for_screen("commits loaded");
     session.open_saved_graph_subject(mouse, "Old notes", &old);
+    // History's identity rows use plain words and keep both full IDs visible.
+    session.wait_for_screen(&format!("Viewed: {old}"));
+    session.wait_for_screen(&format!("In use: {new}"));
+    let screen = session.screen();
+    assert!(!screen.contains(&format!("HEAD: {new}")), "{screen}");
+    assert!(!screen.contains(&format!("Saved: {old}")), "{screen}");
     step(&mut session, mouse, "[t Tree]");
     session.wait_for_screen("Saved file tree");
     session.wait_for_screen("notes.txt");
@@ -463,6 +470,12 @@ fn resolve_conflict(mouse: bool) {
     }
     preview(&mut session, mouse, "READ-ONLY PREVIEW • Confirm action");
     session.wait_for_screen("Git effect: block 1 → theirs in notes.txt");
+    // A plain caption that still names the side's marker label (Theirs is below the fold
+    // at 80x24; local_actions_contracts checks both captions).
+    session.wait_for_screen("Ours — current branch content (marked HEAD):");
+    // The 64-cell preview wraps between words: "other bl / ocks and …" became
+    // "other / blocks and …", so the whole word starts the second row.
+    session.wait_for_screen("blocks and the index stay as they are.");
     assert!(
         fs::read_to_string(fixture.repo().join("notes.txt"))
             .unwrap()
@@ -615,16 +628,14 @@ fn find_failing_step(mouse: bool) {
     session.wait_for_screen("123 #2");
     journal(&mut session, &fixture, 3);
     help(&mut session, mouse, "Actions • help for this view");
-    // The failed run: clicked, or selected and opened with Enter.
-    if mouse {
-        session.click_visible_action("123 #2");
-    } else {
-        arrow_to(&mut session, "123 #2");
-        session.send_key(b"\r");
-    }
+    // The failed run: a selected run row paints `Enter Open` on the bar. The mouse journey
+    // clicks that token, the keyboard one presses Enter; both open the same run.
+    arrow_to(&mut session, "123 #2");
+    step(&mut session, mouse, "[Enter Open]");
     session.wait_for_screen("matrix test linux");
     journal(&mut session, &fixture, 5);
-    // The failed job, then its steps: the failing step is named.
+    // The failed job, then its steps: the failing step is named. The job row is clicked, or
+    // selected and opened with Enter (the same row action as the token).
     if mouse {
         session.click_visible_action("matrix test linux");
     } else {

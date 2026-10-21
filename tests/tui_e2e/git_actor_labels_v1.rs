@@ -242,8 +242,8 @@ pub(crate) fn choose_key_bar_or_command(
     }
 }
 fn saved_ready(session: &mut Session, selected: &str, head: &str, labels: &[&str]) {
-    let saved = format!("Saved: {selected}");
-    let checkout = format!("HEAD: {head}");
+    let saved = format!("Viewed: {selected}");
+    let checkout = format!("In use: {head}");
     let mut expected = vec![saved.as_str(), checkout.as_str()];
     expected.extend_from_slice(labels);
     ready(session, &expected);
@@ -389,7 +389,9 @@ fn journey(mouse: bool) {
             &[AUTHORLESS, "author u"],
         );
         if format == "sha1" || !mouse {
-            ready(&mut session, &["author unknown name [e", "Exact Recorder"]);
+            // At 80 columns `In use: <sha>` leaves room for the start of the committer name;
+            // the profile below checks its complete text.
+            ready(&mut session, &["author unknown name [e", "Exact Recor"]);
         }
         // A clicked History row is saved by a background read that can still be starting
         // when the frame already names it; the profile's no-Git check begins after it.

@@ -326,7 +326,7 @@ fn exact_blame_back(native: &Native, session: &mut Session, mouse: bool) {
         );
     }
     let label = "│ saved nested line 102";
-    let saved = format!("Saved: {}", native.chosen);
+    let saved = format!("Viewed: {}", native.chosen);
     session.wait_for_cursorless_condition(
         |frame| {
             let text = frame.contents();

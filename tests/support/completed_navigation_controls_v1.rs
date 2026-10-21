@@ -117,7 +117,7 @@ pub fn saved_graph_position(
     let mut saved = text.lines().filter_map(|line| {
         line.trim_start_matches('│')
             .trim_start()
-            .strip_prefix("Saved: ")
+            .strip_prefix("Viewed: ")
             .map(|tail| tail.split_whitespace().next().unwrap_or_default())
     });
     if saved.next() != Some(sha) || saved.next().is_some() {

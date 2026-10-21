@@ -384,6 +384,26 @@ pub fn footer_keys(workspace: &ActionsWorkspace) -> Vec<KeyControl> {
             key_control
         })
         .collect::<Vec<_>>();
+    // TASK-67: beginners did not guess Enter on a run or job row. While one is selected the
+    // bar says so; the token runs the same row action as Enter and a click on the row.
+    // Priority 29 gives way before every run command, Refresh and Stop watch at 80 columns.
+    if let Some(action) = workspace.selected_action().filter(|action| {
+        matches!(
+            action,
+            ActionsAction::OpenRun { .. } | ActionsAction::OpenJob(_)
+        )
+    }) {
+        let at = keys
+            .iter()
+            .position(|key| key.action == Action::Refresh)
+            .map_or(keys.len(), |refresh| refresh + 1);
+        keys.insert(
+            at,
+            KeyControl::new("Enter", "Open", Action::Actions(action))
+                .with_priority(29)
+                .in_group(ControlGroup::Navigate),
+        );
+    }
     let len = workspace.repositories.len();
     if len > 1 {
         for (key, label, compact, index) in [

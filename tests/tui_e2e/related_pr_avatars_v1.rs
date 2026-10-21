@@ -433,7 +433,7 @@ fn journey(mouse: bool, mode: Mode) {
         &mut session,
         &[
             "Actor profile — Git author",
-            &format!("Saved: {}", source.original),
+            &format!("Viewed: {}", source.original),
         ],
         &[TITLE, PRIVATE, "▀"],
     );

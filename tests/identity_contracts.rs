@@ -897,8 +897,8 @@ fn semantic_colors_repository_testbackend_preserves_identity_hits_selection_and_
         .draw(|frame| repository_ui::draw(frame, &mut app, frame.area()))
         .unwrap();
     let text = buffer_text(terminal.backend().buffer());
-    // History pairs the author with the `Saved:` row and the committer with the `HEAD:` row
-    // (TASK-99); this bare App has no source identity, so only the `Saved:` row and its
+    // History pairs the author with the `Viewed:` row and the committer with the `In use:` row
+    // (TASK-99); this bare App has no source identity, so only the `Viewed:` row and its
     // author are painted.
     // In colour the actor row draws the filled initials chip (`FA author …`); the bracketed
     // `[FA]` form is reserved for NO_COLOR and is asserted in the monochrome half below.
@@ -1051,7 +1051,7 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                 // The merged header and rounded content frame place the identity line below the
                 // repository controls; it is located by its complete text, never a fixed row.
                 let saved_row = (0..24)
-                    .find(|y| row(*y).contains(&format!("Saved: {saved}")))
+                    .find(|y| row(*y).contains(&format!("Viewed: {saved}")))
                     .expect(
                         "The complete immutable identity fits independently of the long breadcrumb",
                     );
@@ -1060,8 +1060,8 @@ fn git_provider_repository_full_saved_identity_narrow_layout_retains_override_no
                     "The long breadcrumb is bounded rather than painted in full"
                 );
                 if override_count != 0 {
-                    // The notice follows the identity block: directly below `Saved:`, or in
-                    // History below its two-row `Saved:`/`HEAD:` block (TASK-99).
+                    // The notice follows the identity block: directly below `Viewed:`, or in
+                    // History below its two-row `Viewed:`/`In use:` block (TASK-99).
                     let below = if genuine { 2 } else { 1 };
                     assert!(row(saved_row + below)
                         .contains("Original snapshots • replacements: 2 • legacy grafts: present"));

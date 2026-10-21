@@ -185,7 +185,7 @@ fn design_panels_v93_draw_files_and_commits_panels_with_preview_at_140_and_stack
         assert_eq!(buffer[(hit.rect.x + 3, hit.rect.y)].bg, selection);
         assert!(lines[usize::from(hit.rect.y)].contains(&head[..7]));
         // The full id stays in the Saved detail row at every width.
-        assert!(screen.contains(&format!("Saved: {head}")), "{screen}");
+        assert!(screen.contains(&format!("Viewed: {head}")), "{screen}");
         // Every visible file and commit row is a click target, plus the toggle.
         for action in [
             file("a.txt"),

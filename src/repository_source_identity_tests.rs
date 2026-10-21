@@ -147,8 +147,8 @@ fn repository_source_identity_all_eight_real_modes_distinguish_checkout_and_chos
         };
         assert_eq!(source.viewed_revision(), Some(expected));
         assert_eq!(source.actor_commit(), Some(expected));
-        assert!(compact(&source).contains(&format!("HEAD: {}", real.head)));
-        assert!(compact(&source).contains(&format!("Saved: {expected}")));
+        assert!(compact(&source).contains(&format!("In use: {}", real.head)));
+        assert!(compact(&source).contains(&format!("Viewed: {expected}")));
         assert_eq!(
             source.mutable(),
             matches!(
@@ -201,8 +201,8 @@ fn repository_source_identity_real_sha256_full_head_and_chosen_ids_fit_narrow_ro
     assert_eq!(real.head.len(), 64);
     let workspace = load(&real, RepositoryMode::Graph, &real.old);
     let source = PreparedRepositorySourceIdentity::prepare(&workspace).unwrap();
-    assert_eq!(source.compact()[0].text, format!("HEAD: {}", real.head));
-    assert_eq!(source.compact()[1].text, format!("Saved: {}", real.old));
+    assert_eq!(source.compact()[0].text, format!("In use: {}", real.head));
+    assert_eq!(source.compact()[1].text, format!("Viewed: {}", real.old));
     assert!(source
         .compact()
         .iter()
@@ -421,8 +421,8 @@ fn repository_source_identity_invalid_short_and_zero_sha_do_not_resolve_or_subst
     assert!(source.checkout_head().is_none() && source.actor_commit().is_none());
     assert_eq!(source.viewed_revision(), Some("a".repeat(40).as_str()));
     assert!(
-        compact(&source).contains("HEAD: unavailable")
-            && compact(&source).contains("Saved: unavailable")
+        compact(&source).contains("In use: unavailable")
+            && compact(&source).contains("Viewed: unavailable")
     );
     unchanged(&real);
 }
@@ -503,8 +503,8 @@ fn repository_source_identity_no_color_labels_full_sha_and_arc_clone_are_prepare
         crate::theme::ColorMode::NoColor,
     );
     assert!(theme.style(source.compact()[0].role).fg.is_none());
-    assert!(source.compact()[0].text.starts_with("HEAD:"));
-    assert!(source.compact()[1].text.starts_with("Saved:"));
+    assert!(source.compact()[0].text.starts_with("In use:"));
+    assert!(source.compact()[1].text.starts_with("Viewed:"));
     for row in source.compact().iter().chain(source.details()) {
         assert!(crate::editor::display_width(&row.text) <= 72 && row.text.len() <= MAX_ROW_BYTES);
     }

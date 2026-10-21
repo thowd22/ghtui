@@ -1914,7 +1914,12 @@ fn conflict_block_preview_v42(
             path.display()
         ),
         chosen.summary(block, blocks.len()),
-        format!("Ours ({}):", sanitize_terminal(&chosen.ours_label)),
+        // Plain captions that still name each side's marker label (TASK-67),
+        // matching the conflict view's "Ours — current branch content".
+        format!(
+            "Ours — current branch content (marked {}):",
+            sanitize_terminal(&chosen.ours_label)
+        ),
     ];
     preview.extend(lines(&chosen.ours, "  ours │ "));
     if let Some(base) = &chosen.base {
@@ -1922,7 +1927,7 @@ fn conflict_block_preview_v42(
         preview.extend(lines(base, "  base │ "));
     }
     preview.push(format!(
-        "Theirs ({}):",
+        "Theirs — incoming branch content (marked {}):",
         sanitize_terminal(&chosen.theirs_label)
     ));
     preview.extend(lines(&chosen.theirs, "  theirs │ "));

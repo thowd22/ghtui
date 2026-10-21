@@ -383,7 +383,7 @@ fn journey(mouse: bool) {
         .sha;
     // The match becomes the saved version before the bar settles; a click taken earlier can
     // land on a transient `Esc Cancel` token.
-    wait_texts(&mut s, &[&format!("Saved: {}", full_sha(&repo, &matched))]);
+    wait_texts(&mut s, &[&format!("Viewed: {}", full_sha(&repo, &matched))]);
     s.wait_for_settled_footer();
     s.choose(mouse, "[D Details]", b"D");
     wait_texts(

@@ -287,7 +287,7 @@ fn overview_table(mouse: bool) {
     // The opened commit is the saved version, by its full id, and its explanation names the
     // parent it follows.
     let first = fixture.git(&["rev-parse", "HEAD~2"]).trim().to_owned();
-    session.wait_for_screen(&format!("Saved: {middle}"));
+    session.wait_for_screen(&format!("Viewed: {middle}"));
     session.wait_for_screen(&format!(
         "This saved version follows parent {}",
         &first[..8]

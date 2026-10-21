@@ -353,7 +353,7 @@ fn control_is_graph(control: &KeyControl) -> bool {
     )
 }
 
-/// History's identity rows: `Saved: <full id>` and `HEAD: <full id>`, each followed by the
+/// History's identity rows: `Viewed: <full id>` and `In use: <full id>`, each followed by the
 /// selected commit's author or committer while no commit detail sits beside the table (the
 /// detail repeats both).
 fn draw_history_identity(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -363,14 +363,14 @@ fn draw_history_identity(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme();
     let mut rows: Vec<(String, Style)> = Vec::new();
     if let Some(source) = &app.repository_source_identity {
-        // The compact rows are `HEAD:`, `Saved:`, `Content:`; Saved leads here.
+        // The compact rows are `In use:`, `Viewed:`, `Content:`; Viewed leads here.
         let compact = source.compact();
         for row in compact.iter().skip(1).take(1).chain(compact.iter().take(1)) {
             rows.push((row.text.clone(), theme.style(row.role)));
         }
     } else if let Some(commit) = &workspace.selected_commit {
         rows.push((
-            format!("Saved: {}", commit.id),
+            format!("Viewed: {}", commit.id),
             theme.style(SemanticToken::Reference),
         ));
     }
@@ -474,7 +474,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
         return;
     };
-    // History is the whole pane below the mode tabs: two identity rows (`Saved:` and `HEAD:`
+    // History is the whole pane below the mode tabs: two identity rows (`Viewed:` and `In use:`
     // full IDs, with the author and committer while no commit detail sits beside the table).
     let history = (history_table::active(workspace)
         || crate::history::detail::drilldown(workspace))
@@ -559,7 +559,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         } else if let Some(commit) = &workspace.selected_commit {
             frame.render_widget(
-                Paragraph::new(format!("Saved: {}", commit.id))
+                Paragraph::new(format!("Viewed: {}", commit.id))
                     .style(theme.style(SemanticToken::Reference)),
                 Rect::new(area.x, area.y + 3, area.width, 1),
             );

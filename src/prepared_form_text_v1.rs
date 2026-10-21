@@ -104,6 +104,35 @@ pub(crate) fn visit_wrapped_ranges_v1(
     text: &str,
     width: u16,
     byte_cap: Option<usize>,
+    phase: impl FnMut() -> ResultV1<()>,
+    output: impl FnMut(Range<usize>, bool) -> ResultV1<()>,
+) -> ResultV1<()> {
+    visit_ranges_v1(text, width, byte_cap, false, phase, output)
+}
+
+/// Longest word fragment (in cells) that moves to the next row whole.
+const MAX_CARRIED_CELLS: usize = 16;
+
+/// The same primitive, but a row breaks after the last space that fits, so
+/// a word never splits across rows ("in / dex"). A token longer than
+/// MAX_CARRIED_CELLS (paths, ref specs, IDs) still breaks by grapheme and
+/// fills the row, so long values do not waste a row. Rows stay contiguous, so
+/// nothing is dropped and every byte keeps its original anchor (TASK-67).
+pub(crate) fn visit_word_wrapped_ranges_v1(
+    text: &str,
+    width: u16,
+    byte_cap: Option<usize>,
+    phase: impl FnMut() -> ResultV1<()>,
+    output: impl FnMut(Range<usize>, bool) -> ResultV1<()>,
+) -> ResultV1<()> {
+    visit_ranges_v1(text, width, byte_cap, true, phase, output)
+}
+
+fn visit_ranges_v1(
+    text: &str,
+    width: u16,
+    byte_cap: Option<usize>,
+    words: bool,
     mut phase: impl FnMut() -> ResultV1<()>,
     mut output: impl FnMut(Range<usize>, bool) -> ResultV1<()>,
 ) -> ResultV1<()> {
@@ -119,6 +148,8 @@ pub(crate) fn visit_wrapped_ranges_v1(
         let mut start = 0;
         let mut cells = 0usize;
         let mut checked = 0;
+        // (byte offset just after the last space, cells up to and including it)
+        let mut last_break: Option<(usize, usize)> = None;
         for (offset, grapheme) in line.grapheme_indices(true) {
             if offset.saturating_sub(checked) >= 256 {
                 phase()?;
@@ -132,16 +163,35 @@ pub(crate) fn visit_wrapped_ranges_v1(
             if byte_cap.is_some_and(|cap| grapheme.len() > cap || count > width) {
                 return Err(PreparedFormTextErrorV1::GraphemeBound);
             }
-            if offset > start
-                && (cells.saturating_add(count) > width
-                    || byte_cap.is_some_and(|cap| offset - start + grapheme.len() > cap))
-            {
-                output(base + start..base + offset, first)?;
-                first = false;
-                start = offset;
-                cells = 0;
+            let overflows = |start: usize, cells: usize| {
+                offset > start
+                    && (cells.saturating_add(count) > width
+                        || byte_cap.is_some_and(|cap| offset - start + grapheme.len() > cap))
+            };
+            if overflows(start, cells) {
+                // Only a short word moves down whole; a long token (a path, a ref
+                // spec, an ID) still fills the row as before.
+                if let Some((after_space, through)) =
+                    last_break.take().filter(|(after, through)| {
+                        words && *after > start && cells - through <= MAX_CARRIED_CELLS
+                    })
+                {
+                    output(base + start..base + after_space, first)?;
+                    first = false;
+                    start = after_space;
+                    cells -= through;
+                }
+                if overflows(start, cells) {
+                    output(base + start..base + offset, first)?;
+                    first = false;
+                    start = offset;
+                    cells = 0;
+                }
             }
             cells = cells.saturating_add(count);
+            if words && grapheme == " " {
+                last_break = Some((offset + 1, cells));
+            }
         }
         output(base + start..base + line.len(), first)?;
         first = false;
@@ -346,7 +396,7 @@ impl PreparedFormTextV1 {
         let mut counts = [0usize; 2];
         for (layout, column) in FORM_COLUMNS_V1.iter().copied().enumerate() {
             for line in &safe {
-                visit_wrapped_ranges_v1(
+                visit_word_wrapped_ranges_v1(
                     line,
                     column,
                     Some(ROW_BYTES),
@@ -407,7 +457,7 @@ impl PreparedFormTextV1 {
             budget.transient(actual_peak)?;
             peak = peak.max(actual_peak);
             for (source, line) in safe.iter().enumerate() {
-                visit_wrapped_ranges_v1(
+                visit_word_wrapped_ranges_v1(
                     line,
                     column,
                     Some(ROW_BYTES),

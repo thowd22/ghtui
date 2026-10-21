@@ -686,7 +686,7 @@ impl Session {
                 );
             }
         }
-        let saved = format!("Saved: {revision}");
+        let saved = format!("Viewed: {revision}");
         self.wait_for_cursorless_condition(
             |frame| {
                 frame.contents().contains(&saved)

@@ -373,7 +373,7 @@ fn graph(n: &NativeGraph, s: &mut Session, mouse: bool, count: usize) {
     // alike have no more history to load.
     wait_status(s, count, 0, count == 200);
     s.wait_for_history_selected(&n.tip);
-    s.wait_for_screen(&format!("Saved: {}", n.tip));
+    s.wait_for_screen(&format!("Viewed: {}", n.tip));
     s.wait_for_settled_footer();
 }
 /// Git children since `before`, without the detail's changed-files read (`diff-tree`) of a
