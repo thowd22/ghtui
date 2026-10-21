@@ -639,10 +639,8 @@ pub fn dispatch(app: &mut App, action: DetailUiActionV994) {
             ));
         }
         DetailUiActionV994::CopySha => {
-            app.dispatch(Action::Explain(format!(
-                "Commit SHA\n{commit}\n\nghtui has no clipboard integration: select the SHA above \
-                 in your terminal to copy it. Nothing was changed."
-            )));
+            // TASK-120: the full SHA goes to the clipboard (OSC 52 and any clipboard program).
+            crate::clipboard::copy(app, "commit SHA", &commit);
         }
     }
 }

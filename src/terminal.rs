@@ -6,6 +6,25 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// TASK-120: true while F12 has released mouse capture for native terminal selection.
+/// Re-entering the screen (after an editor hand-off) keeps the user's choice.
+static MOUSE_RELEASED: AtomicBool = AtomicBool::new(false);
+
+pub fn mouse_released() -> bool {
+    MOUSE_RELEASED.load(Ordering::Acquire)
+}
+
+/// Release (true) or restore (false) mouse capture now.
+pub fn set_mouse_released(released: bool) -> io::Result<()> {
+    MOUSE_RELEASED.store(released, Ordering::Release);
+    if released {
+        execute!(io::stdout(), DisableMouseCapture)
+    } else {
+        execute!(io::stdout(), EnableMouseCapture)
+    }
+}
 
 pub trait TerminalOps {
     fn raw(&mut self) -> io::Result<()>;
@@ -25,7 +44,11 @@ impl TerminalOps for CrosstermOps {
             EnableMouseCapture,
             EnableBracketedPaste,
             Hide
-        )
+        )?;
+        if mouse_released() {
+            execute!(io::stdout(), DisableMouseCapture)?;
+        }
+        Ok(())
     }
     fn restore(&mut self) -> io::Result<()> {
         let screen = execute!(

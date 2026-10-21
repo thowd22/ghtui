@@ -4,7 +4,7 @@
 //! and committer, relative and UTC dates, clickable parents and the changed files with counts.
 //! A parent link moves the bar inside the same window; Enter opens the diff and `Y` blame,
 //! each returning with Back to the same row, `f` sets the file's `path:` chip (Esc Clear
-//! returns), and `y` shows the SHA to copy, by
+//! returns), and `y` copies the SHA (OSC 52), by
 //! key and by click. At 80x24 `D` opens the same detail as a drill-down that follows parents and returns
 //! with `u`. HEAD, refs, status, the index and config never change.
 use super::*;
@@ -313,19 +313,19 @@ fn journey(mouse: bool) {
     );
     back_to(&mut s, &repo, mouse, "manual");
 
-    // y shows the full SHA to copy (no clipboard integration is added).
+    // y copies the full SHA (TASK-120): an OSC 52 escape to the terminal and a status line.
+    let before = s.transcript.len();
     if mouse {
         click_in_detail(&mut s, "y copy SHA");
     } else {
         s.send_key(b"y");
     }
-    let body = s.wait_for_overlay_body("Commit SHA");
-    assert!(body.contains(repo.sha("manual")), "{body}");
-    if mouse {
-        s.close_overlay_by_mouse("Commit SHA");
-    } else {
-        s.close_overlay_by_key("Commit SHA");
-    }
+    s.wait_for_output_bytes(
+        before,
+        &crate::copy_select_v120::osc52(repo.sha("manual")),
+        "OSC 52 copy of the full SHA",
+    );
+    s.wait_for_screen("Copied commit SHA (40 chars) via terminal OSC 52");
     assert_eq!(repo.state(), baseline);
 
     // 80x24: no split; D opens the drill-down of the row under the bar.

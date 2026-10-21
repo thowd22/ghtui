@@ -115,6 +115,28 @@ impl PreparedCatalogue {
         for name in ["help", "settings", "refresh", "quit"] {
             builder.key(&format!("global.{name}"), app.shortcut(name));
         }
+        // TASK-120: copying and the mouse-capture toggle are commands too.
+        use crate::clipboard::ClipboardAction;
+        builder.push(
+            "global.copy".into(),
+            "Copy focused item".into(),
+            &["clipboard", "copy", "yank", "sha", "url", "path"],
+            Action::Clipboard(ClipboardAction::CopyFocused),
+            false,
+        )?;
+        builder.key("global.copy", "y");
+        builder.push(
+            "global.mouse".into(),
+            if app.copy_v120.mouse_released {
+                "Restore mouse capture".into()
+            } else {
+                "Release mouse for terminal selection".into()
+            },
+            &["mouse", "select", "clipboard", "terminal", "copy"],
+            Action::Clipboard(ClipboardAction::ToggleMouseCapture),
+            false,
+        )?;
+        builder.key("global.mouse", "F12");
         builder.merge_footer(app)?;
         Ok(Self {
             context: CatalogueContext {

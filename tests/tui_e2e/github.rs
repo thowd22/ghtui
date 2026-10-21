@@ -422,6 +422,24 @@ fn inbox(mouse: bool) {
         ],
     );
     session.wait_for_selected_row(&title, selected_pr);
+    // TASK-120: `y` (or Commands → Copy focused item) copies the selected PR's URL as an
+    // OSC 52 escape, with no gh command.
+    let url = format!(
+        "https://github.invalid/{}",
+        selected_pr.replace('#', "/pull/")
+    );
+    let before = session.transcript.len();
+    if mouse {
+        session.invoke_via_palette(true, "Copy focused item");
+    } else {
+        session.send_key(b"y");
+    }
+    session.wait_for_output_bytes(
+        before,
+        &crate::copy_select_v120::osc52(&url),
+        "OSC 52 copy of the PR URL",
+    );
+    session.wait_for_screen("Copied PR URL");
     journal(&mut session, &fixture, 14);
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
     let scope = Scope::github("github.invalid", Some(42)).unwrap();

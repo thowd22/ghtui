@@ -97,6 +97,8 @@ impl ContextHelp {
             help.push(HelpLineKind::Shortcut, format!("{label}: {key}"))?;
         }
         help.push(HelpLineKind::Shortcut, "Ctrl+C: emergency quit. External-editor handoff restores terminal and mouse state before running the editor.".into())?;
+        help.push(HelpLineKind::Shortcut, "Copy: drag over text to select and copy it; y copies the focused SHA, URL, path, log line or comment. Copies use OSC 52 and wl-copy, xclip, xsel or pbcopy when found.".into())?;
+        help.push(HelpLineKind::Shortcut, "F12: release the mouse so the terminal selects text (most terminals also select with Shift+drag while ghtui has the mouse); F12 again restores it.".into())?;
         help.push(HelpLineKind::Heading, "Views".into())?;
         for (name, label) in [
             ("inbox", "Inbox"),

@@ -8,6 +8,8 @@ mod capability_inspector;
 mod collaboration;
 #[path = "tui_e2e/comparison.rs"]
 mod comparison;
+#[path = "tui_e2e/copy_select_v120.rs"]
+mod copy_select_v120;
 #[path = "tui_e2e/corpus.rs"]
 mod corpus;
 #[path = "tui_e2e/cross_feature_v65.rs"]

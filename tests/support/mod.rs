@@ -837,6 +837,10 @@ impl Session {
         // A runner's preferences must not change color/avatar fixture semantics.
         // Individual no-color scenarios may re-add the variable below.
         command.env_remove("NO_COLOR");
+        // TASK-120: a copy never reaches the runner's own desktop clipboard. Journeys that
+        // cover a clipboard program set a display and put a fake one on PATH.
+        command.env_remove("DISPLAY");
+        command.env_remove("WAYLAND_DISPLAY");
         command.env("HOME", fixture.root.join("home"));
         command.env("XDG_CONFIG_HOME", fixture.root.join("config"));
         command.env("XDG_CACHE_HOME", fixture.root.join("cache"));
@@ -1923,6 +1927,29 @@ impl Session {
             .screen()
             .cell(row, column)
             .is_some_and(|cell| cell.inverse())
+    }
+
+    /// TASK-120: wait until the raw PTY output after byte `from` contains `needle` (an escape
+    /// sequence such as an OSC 52 copy), returning where it starts.
+    pub fn wait_for_output_bytes(&mut self, from: usize, needle: &[u8], what: &str) -> usize {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            self.poll_output(Duration::from_millis(10));
+            let tail = &self.transcript[from.min(self.transcript.len())..];
+            if let Some(at) = tail
+                .windows(needle.len())
+                .position(|window| window == needle)
+            {
+                return from + at;
+            }
+            if Instant::now() >= deadline {
+                self.save_artifacts();
+                panic!(
+                    "{what} never appeared in the terminal output\n{}",
+                    self.screen()
+                );
+            }
+        }
     }
 
     /// Drain actual terminal output, then wait briefly for a redraw; no application state access.

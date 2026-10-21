@@ -480,6 +480,29 @@ fn run_view(mouse: bool) {
     choose(&mut session, mouse, "[l Logs]", b"l");
     session.wait_for_screen("ERROR fixture assertion failed");
     session.wait_for_screen("A useful next line");
+    // TASK-120: a drag over a log line copies exactly that text; `y` copies the selected
+    // log line. Both reach the terminal as OSC 52, with no gh command.
+    let before = session.transcript.len();
+    if mouse {
+        let line = "ERROR fixture assertion failed";
+        let (x, y) = session.locate(line).unwrap();
+        session.drag((x, y), (x + line.len() as u16 - 1, y));
+        session.wait_for_output_bytes(
+            before,
+            &crate::copy_select_v120::osc52(line),
+            "OSC 52 copy of the dragged log line",
+        );
+        session.wait_for_screen("Copied selection (30 chars)");
+    } else {
+        session.send_key(b"y");
+        let copied = crate::copy_select_v120::wait_for_osc52_text(&mut session, before);
+        session.wait_for_screen("Copied log line");
+        assert!(
+            !copied.is_empty() && session.screen().contains(copied.trim()),
+            "the copied log line {copied:?} is the selected visible row\n{}",
+            session.screen()
+        );
+    }
     journal(&mut session, &fixture, 6);
     choose(&mut session, mouse, "[N Annotations]", b"N");
     session.wait_for_screen("src/lib.rs:4–5");

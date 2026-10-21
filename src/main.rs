@@ -3119,10 +3119,23 @@ fn run() -> Result<()> {
             );
         }
         let render_started = render_timings.start();
-        let drawn = terminal.draw(|frame| ui::draw(frame, &mut app))?.area;
+        ghtui::clipboard::tick(&mut app);
+        let drawn = terminal
+            .draw(|frame| {
+                ui::draw(frame, &mut app);
+                // TASK-120: keep the frame as drawn for drag selection, then paint the selection.
+                let selection = &mut app.copy_v120.selection;
+                selection.remember_frame(frame.buffer_mut());
+                selection.paint(frame.buffer_mut());
+            })?
+            .area;
         render_timings.record(render_started, drawn.width, drawn.height);
+        ghtui::clipboard::flush_terminal(&mut app)?;
         if event::poll(Duration::from_millis(40))? {
-            app.handle_event(event::read()?);
+            let input = event::read()?;
+            if !ghtui::clipboard::pre_event(&mut app, &input) {
+                app.handle_event(input);
+            }
         }
     }
     render_timings.finish();

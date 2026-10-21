@@ -121,6 +121,8 @@ pub enum Action {
     ),
     /// TASK-27: edit a PR branch file or resolve its conflicts in an isolated revision.
     PrBranchEditV27(crate::pr_branch_edit_v27::BranchEditActionV27),
+    /// TASK-120: copy the focused item, or release/restore mouse capture.
+    Clipboard(crate::clipboard::ClipboardAction),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,6 +223,8 @@ impl PointerRegion {
 
 /// One state owner; drawing reads prepared content and never invokes a provider.
 pub struct App {
+    /// TASK-120: drag selection, pending OSC 52 copy and mouse-capture release.
+    pub copy_v120: crate::clipboard::CopyStateV120,
     pub notifications_v63: Option<crate::notifications_ui_v63::NotificationBrowserV63>,
     pub notification_pr_source_v63: Option<crate::notification_pr_v63::NotificationPrStateV63>,
     pub notifications_work_v63: Option<Arc<crate::notifications_v63::NotificationWorkV63>>,
@@ -510,6 +514,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            copy_v120: Default::default(),
             native_external_admission_v4:
                 crate::providers::owned_pty_viewer_v4::ViewerAdmissionV4::new(),
             pr_native_diff_v1: None,
@@ -1162,6 +1167,10 @@ impl App {
             crate::pr_branch_edit_v27::dispatch(self, *input);
             return;
         }
+        if let Action::Clipboard(input) = &action {
+            crate::clipboard::dispatch(self, *input);
+            return;
+        }
         if let Action::NotificationsV63(input) = &action {
             crate::notifications_ui_v63::dispatch(self, *input);
             return;
@@ -1641,6 +1650,7 @@ impl App {
             }
             Action::PrFileImage(_) => unreachable!("Immutable image action dispatched above"),
             Action::PrBranchEditV27(_) => unreachable!("Branch edit action dispatched above"),
+            Action::Clipboard(_) => unreachable!("Clipboard action dispatched above"),
             Action::View(view) => {
                 if view != View::Inbox { self.closed_conversation_draft_v20 = None; }
                 self.clear_capability_inspector();
@@ -3089,6 +3099,18 @@ impl App {
                 }
                 // List plus preview split: Tab between the panes, keys of the focused preview.
                 if crate::list_preview_v92::key(self, key) {
+                    return;
+                }
+                // TASK-120: `y` copies the focused item (SHA, URL, path, log line, comment).
+                if key.code == KeyCode::Char('y')
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                    && matches!(self.view, View::Inbox | View::Actions | View::Repository)
+                {
+                    self.dispatch(Action::Clipboard(
+                        crate::clipboard::ClipboardAction::CopyFocused,
+                    ));
                     return;
                 }
                 if matches!(self.view, View::Inbox | View::Actions)

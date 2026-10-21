@@ -211,12 +211,21 @@ fn history_detail_v994_keys_and_clicks_reach_the_same_actions() {
     assert_eq!(workspace.graph_view_v1, GraphViewV1::Timeline);
     assert_eq!(workspace.graph_projection_start_v2, start);
 
-    // y shows the full SHA in a notice, by key and by its token.
+    // y copies the full SHA (TASK-120: OSC 52), by key and by its token.
     let mut copy = app(&real);
     draw(&mut copy, &mut terminal);
     press(&mut copy, KeyCode::Char('y'));
-    assert_eq!(copy.overlay, Some(Overlay::Notice));
-    assert!(copy.notice.contains(&original), "{}", copy.notice);
+    assert_eq!(copy.overlay, None);
+    assert!(
+        copy.status.starts_with("Copied commit SHA (40 chars)"),
+        "{}",
+        copy.status
+    );
+    let expected = crate::clipboard::osc52_sequence(&original).unwrap();
+    assert_eq!(
+        copy.copy_v120.pending_osc52.as_deref(),
+        Some(expected.as_slice())
+    );
     let mut copy_click = app(&real);
     draw(&mut copy_click, &mut terminal);
     let token = copy_click
@@ -226,7 +235,11 @@ fn history_detail_v994_keys_and_clicks_reach_the_same_actions() {
         .unwrap()
         .rect;
     click(&mut copy_click, token);
-    assert_eq!(copy_click.notice, copy.notice);
+    assert_eq!(copy_click.status, copy.status);
+    assert_eq!(
+        copy_click.copy_v120.pending_osc52.as_deref(),
+        Some(expected.as_slice())
+    );
 }
 
 #[test]

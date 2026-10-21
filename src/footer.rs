@@ -344,6 +344,8 @@ pub fn resolve_key(controls: &[KeyControl], event: KeyEvent) -> Option<Action> {
 /// `Esc Cancel` while the current view is loading. Keys follow the configured bindings.
 pub fn global_tail(app: &App) -> Vec<KeyControl> {
     let mut tail = Vec::new();
+    // TASK-120: while mouse capture is released the bar says so and how to restore it.
+    tail.extend(crate::clipboard::footer_control(app));
     if app.loading[app.view.index()] || app.navigation_restore_inflight {
         tail.push(global("Esc", "Cancel", Action::Cancel));
     }
