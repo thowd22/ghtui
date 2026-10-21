@@ -4,6 +4,8 @@ use std::{sync::Arc, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadedLogSearchModeV2 {
+    /// TASK-116: the default type-to-filter mode (nucleo, smart case).
+    Fuzzy,
     ExactText,
     Regex,
 }
@@ -91,13 +93,17 @@ pub(crate) fn prepare_loaded_log_indices_v3(
         None
     };
     check()?;
+    let mut fuzzy = (mode == LoadedLogSearchModeV2::Fuzzy)
+        .then(|| crate::log_finder_v1::FuzzyLineMatcherV1::new(query));
     let mut indices = Vec::new();
     for (index, line) in logs.lines().enumerate() {
         check()?;
-        if regex
-            .as_ref()
-            .map_or(line.contains(query), |r| r.is_match(line))
-        {
+        let matched = match (&regex, &mut fuzzy) {
+            (Some(r), _) => r.is_match(line),
+            (None, Some(f)) => f.is_match(line),
+            (None, None) => line.contains(query),
+        };
+        if matched {
             indices.push(index);
         }
     }

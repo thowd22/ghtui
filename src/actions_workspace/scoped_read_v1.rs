@@ -75,6 +75,11 @@ pub(crate) fn prepare_policy(workspace: &mut ActionsWorkspace, pending: bool) {
             workspace.view == ActionsView::Logs,
         ),
         (
+            "[e First error]",
+            Ui::FirstError,
+            workspace.view == ActionsView::Logs,
+        ),
+        (
             "[> Next match]",
             Ui::Next(true),
             workspace.view == ActionsView::Logs,

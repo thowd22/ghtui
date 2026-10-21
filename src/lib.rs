@@ -39,6 +39,7 @@ pub mod local_availability;
 pub(crate) mod local_commit_actor_origin_v1_test_support;
 pub mod local_identity_readability_v1;
 pub mod local_picker;
+pub mod log_finder_v1;
 pub mod markdown_v114;
 pub mod metrics;
 pub mod metrics_repository;

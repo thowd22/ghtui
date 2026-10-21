@@ -718,16 +718,25 @@ fn publish_admitted_v7(
     if let Some(workspace) = &mut app.actions {
         workspace.watching = state.watch_v2.as_ref().is_some_and(|watch| watch.active());
     }
-    let matched = state
-        .matches_v2
-        .as_ref()
-        .map(|matches| matches.indices().len());
+    let matched = state.matches_v2.as_ref().map(|matches| {
+        (
+            matches.indices().len(),
+            matches.query() == crate::log_finder_v1::ERROR_PATTERN_V1,
+            app.actions.as_ref().map_or(0, |w| w.selected + 1),
+        )
+    });
     app.scoped_actions_v1 = Some(state);
     app.loading[View::Actions.index()] = false;
     app.status = if let Some((ticks, bytes)) = prepared.watch_progress_v2 {
         format!("Original finite Watch • tick {ticks}/12 • {bytes}/33554432 captured bytes • original120s deadline • no mutation")
-    } else if let Some(count) = matched {
-        format!("Loaded-log search • {count} matching lines in actual captured job • 0 external effects • >/< next/previous, x clear")
+    } else if let Some((count, errors, line)) = matched {
+        if errors {
+            format!("First error at line {line} • {count} error lines in actual captured job • 0 external effects • n/N next/previous, x clear")
+        } else if count > 0 {
+            format!("Loaded-log search • line {line} • {count} matching lines in actual captured job • 0 external effects • n/N next/previous, x clear")
+        } else {
+            format!("Loaded-log search • {count} matching lines in actual captured job • 0 external effects • x clear")
+        }
     } else {
         "Original scoped Actions target verified • bounded non-atomic read • no mutation".into()
     };

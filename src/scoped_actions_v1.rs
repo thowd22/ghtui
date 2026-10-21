@@ -1172,7 +1172,12 @@ fn execute_inner_v2(
         workspace.warnings.push(format!("Loaded snapshot only • run {} attempt {} job {} • no reload or review/source coordinates",snapshot.run().run().id,snapshot.run().run().attempt,snapshot.job().id()));
         workspace.prepare_rows();
         for &index in matches.indices() {
-            if let Some(row) = workspace.rows.get_mut(index) {
+            // Runner error markers keep their failure colour (TASK-116).
+            if let Some(row) = workspace
+                .rows
+                .get_mut(index)
+                .filter(|row| row.role == crate::theme::SemanticToken::Normal)
+            {
                 row.role = crate::theme::SemanticToken::Reference;
             }
         }

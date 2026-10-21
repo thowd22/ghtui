@@ -3,12 +3,15 @@
 use super::*;
 const TEXT: &str = "first actual\nerror 界 é\nthird actual\nerror second\nlast\n";
 fn log_steps(uid: u64) -> Vec<GhStep> {
+    log_steps_text(uid, TEXT)
+}
+fn log_steps_text(uid: u64, text: &str) -> Vec<GhStep> {
     let mut steps = operation(ReadKind::Logs, uid, CURRENT);
     steps
         .iter_mut()
         .find(|step| step.args.first().is_some_and(|a| a == "run"))
         .unwrap()
-        .stdout = TEXT.as_bytes().to_vec();
+        .stdout = text.as_bytes().to_vec();
     steps
 }
 fn ctl(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
@@ -48,7 +51,7 @@ fn field(session: &mut Session, mouse: bool, label: &str, value: &str, first: bo
 fn apply(session: &mut Session, mouse: bool, search: bool) {
     if mouse {
         session.click_visible_action(if search {
-            "[Search captured logs]"
+            "[Enter Jump to line]"
         } else {
             "[Apply filters]"
         });
@@ -64,12 +67,14 @@ fn capture_logs(session: &mut Session, fixture: &Fixture, mouse: bool) {
     session.wait_for_command_count(fixture, 37);
     complete(session, after, &["error 界 é", "error second"]);
 }
+/// The finder with an optional exact/regex toggle. Enter (or the Jump
+/// control) jumps to the first listed result, or keeps the place when none.
 fn search(session: &mut Session, mouse: bool, query: &str, regex: bool) {
     ctl(session, mouse, "[/ Search loaded logs]", b"/");
-    modal(session, "Search actual captured Actions logs");
+    modal(session, "Find in job log");
     // Search reopens the retained bounded query; replace it explicitly.
     if mouse {
-        let (x, y) = session.locate("Query:").unwrap();
+        let (x, y) = session.locate("Find:").unwrap();
         session.click(x + 7, y);
     }
     session.send_key(b"\x01");
@@ -78,7 +83,8 @@ fn search(session: &mut Session, mouse: bool, query: &str, regex: bool) {
     if mouse {
         session.click_visible_action(&format!("[{expected}]"));
     } else {
-        session.send_key(if regex { b"\t\t\r" } else { b"\t\r" });
+        // Find -> Fuzzy -> Exact text -> Regex; choosing returns to Find.
+        session.send_key(if regex { b"\t\t\t\r" } else { b"\t\t\r" });
     }
     session.wait_for_screen(if regex {
         "Mode: Regex"
@@ -88,8 +94,7 @@ fn search(session: &mut Session, mouse: bool, query: &str, regex: bool) {
     if mouse {
         apply(session, true, true);
     } else {
-        // Focus remains the mode control; move to the actual Apply control.
-        session.send_key(if regex { b"\t\r" } else { b"\t\t\r" });
+        session.send_key(b"\r");
     }
 }
 fn selected_log(session: &Session, label: &str) {
@@ -220,23 +225,28 @@ fn match_navigation(mouse: bool) {
     complete(&mut session, after, &["Finite Watch armed", "error 界 é"]);
     let after = session.completed_cursorless_end();
     search(&mut session, mouse, "error", false);
-    complete(&mut session, after, &["2 matching lines", "error 界 é"]);
-    let after = session.completed_cursorless_end();
-    ctl(&mut session, mouse, "[> Next match]", b">");
-    complete(&mut session, after, &["matching line 2"]);
+    complete(
+        &mut session,
+        after,
+        &["line 2 • 2 matching lines", "error 界 é"],
+    );
     selected_log(&session, "error 界 é");
     let after = session.completed_cursorless_end();
-    ctl(&mut session, mouse, "[< Previous match]", b"<");
+    ctl(&mut session, mouse, "[> Next match]", b">");
     complete(&mut session, after, &["matching line 4"]);
     selected_log(&session, "error second");
     let after = session.completed_cursorless_end();
-    search(&mut session, mouse, "界|second", true);
-    complete(&mut session, after, &["2 matching lines"]);
-    selected_log(&session, "error second");
+    ctl(&mut session, mouse, "[< Previous match]", b"<");
+    complete(&mut session, after, &["matching line 2"]);
+    selected_log(&session, "error 界 é");
+    let after = session.completed_cursorless_end();
+    search(&mut session, mouse, "second|third", true);
+    complete(&mut session, after, &["line 3 • 2 matching lines"]);
+    selected_log(&session, "third actual");
     let after = session.completed_cursorless_end();
     ctl(&mut session, mouse, "[x Clear matches]", b"x");
     complete(&mut session, after, &["matches cleared", "error second"]);
-    selected_log(&session, "error second");
+    selected_log(&session, "third actual");
     assert_eq!(commands(&session, &fixture).len(), 37);
     assert!(!session.screen().contains("Inline comment"));
     end(&mut session, &fixture, mouse, &steps, &git, &config, &sql);
@@ -269,12 +279,12 @@ fn invalid_query(mouse: bool) {
     );
     let after = session.completed_cursorless_end();
     ctl(&mut session, mouse, "[> Next match]", b">");
-    complete(&mut session, after, &["matching line 2"]);
-    selected_log(&session, "error 界 é");
+    complete(&mut session, after, &["matching line 4"]);
+    selected_log(&session, "error second");
     let after = session.completed_cursorless_end();
     search(&mut session, mouse, "NOT_PRESENT_IN_ACTUAL_CAPTURE", false);
-    complete(&mut session, after, &["0 matching lines", "error 界 é"]);
-    selected_log(&session, "error 界 é");
+    complete(&mut session, after, &["0 matching lines", "error second"]);
+    selected_log(&session, "error second");
     end(&mut session, &fixture, mouse, &steps, &git, &config, &sql);
 }
 fn tiny_editor(mouse: bool) {
@@ -458,6 +468,115 @@ fn watch_drift(mouse: bool) {
         assert!(!session.screen().contains("attempt 3"));
         end(&mut session, &fixture, mouse, &steps, &git, &config, &sql);
     }
+}
+/// TASK-116: a 2000-line job log. Typing filters live (fuzzy), Enter or a
+/// click jumps to the line in context, First error and n/N step errors.
+fn big_log() -> String {
+    let mut text = String::new();
+    for i in 1..=2000 {
+        let line = match i {
+            1200 => "error: linker `cc` failed".to_owned(),
+            1500 => "thread 'main' panicked: segfault in parser".to_owned(),
+            1800 => "##[error]Process completed with exit code 101.".to_owned(),
+            _ => format!("step {i:04} ok"),
+        };
+        text.push_str(&line);
+        text.push('\n');
+    }
+    text
+}
+fn finder_journey(mouse: bool) {
+    let text = big_log();
+    let mut steps = actions_protocol();
+    steps.extend(operation(ReadKind::Run, 42, CURRENT));
+    steps.extend(log_steps_text(42, &text));
+    let fixture = configured_native(&steps);
+    let git = git_state(&fixture);
+    let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
+    let mut session = start(&fixture, mouse);
+    let sql = sql(&fixture);
+    session.resize(120, 40);
+    session.wait_for_main_frame();
+    open_run(&mut session, &fixture, mouse, 24, CURRENT);
+    jobs(&mut session, mouse);
+    let after = session.completed_cursorless_end();
+    ctl(&mut session, mouse, "[l Logs]", b"l");
+    session.wait_for_command_count(&fixture, 37);
+    complete(&mut session, after, &["step 0001 ok"]);
+    // One input; results update as each key arrives, no Apply.
+    ctl(&mut session, mouse, "[/ Search loaded logs]", b"/");
+    let body = modal(&mut session, "Find in job log");
+    assert!(body.contains("Type to filter 2000 log lines"), "{body}");
+    assert!(body.contains("Mode: Fuzzy"));
+    session.send_key(b"sg");
+    session.wait_for_screen("of 2000 lines match");
+    session.send_key(b"flt");
+    session.wait_for_screen("1 of 2000 lines match");
+    session.wait_for_screen("1500 │ thread 'main' panicked: segfault in parser");
+    let after = session.completed_cursorless_end();
+    if mouse {
+        let (x, y) = session
+            .locate("panicked: segfault")
+            .expect("listed finder result");
+        session.click(x, y);
+    } else {
+        session.send_key(b"\r");
+    }
+    complete(
+        &mut session,
+        after,
+        &["line 1500 • 1 matching lines", "segfault in parser"],
+    );
+    selected_log(&session, "segfault in parser");
+    // The surrounding log stays visible around the jump.
+    assert!(session.screen().contains("step 1499 ok"));
+    assert!(session.screen().contains("step 1501 ok"));
+    // Jump to first error, then n/N (or the match controls) step errors.
+    let after = session.completed_cursorless_end();
+    ctl(&mut session, mouse, "[e First error]", b"e");
+    complete(
+        &mut session,
+        after,
+        &[
+            "First error at line 1200 • 2 error lines",
+            "linker `cc` failed",
+        ],
+    );
+    selected_log(&session, "linker `cc` failed");
+    let after = session.completed_cursorless_end();
+    ctl(&mut session, mouse, "[> Next match]", b"n");
+    complete(&mut session, after, &["error line 1800 • 2 of 2"]);
+    selected_log(&session, "exit code 101");
+    let after = session.completed_cursorless_end();
+    ctl(&mut session, mouse, "[< Previous match]", b"N");
+    complete(&mut session, after, &["error line 1200 • 1 of 2"]);
+    selected_log(&session, "linker `cc` failed");
+    // Reopen: the internal error pattern is not prefilled; Esc returns in place.
+    ctl(&mut session, mouse, "[/ Search loaded logs]", b"/");
+    let body = modal(&mut session, "Find in job log");
+    assert!(body.contains("Type to filter 2000 log lines"), "{body}");
+    session.send_key(b"step 1999");
+    session.wait_for_screen("1 of 2000 lines match");
+    session.wait_for_screen("1999 │ step 1999 ok");
+    let after = session.completed_cursorless_end();
+    if mouse {
+        session.click_visible_action("[Esc Close editor]");
+    } else {
+        session.send_key(b"\x1b");
+    }
+    session.wait_for_overlay_close("Find in job log");
+    complete(&mut session, after, &["linker `cc` failed"]);
+    selected_log(&session, "linker `cc` failed");
+    assert_eq!(commands(&session, &fixture).len(), 37);
+    end(&mut session, &fixture, mouse, &steps, &git, &config, &sql);
+}
+#[test]
+fn scoped_actions_read_v2_keyboard_finder_live_fuzzy_jump_first_error_and_n_steps() {
+    finder_journey(false);
+}
+#[test]
+fn scoped_actions_read_v2_mouse_finder_live_fuzzy_jump_first_error_and_n_steps() {
+    finder_journey(true);
 }
 #[test]
 fn scoped_actions_read_v2_keyboard_filters_all_fields_refresh_partial_page_and_open() {

@@ -877,3 +877,230 @@ fn scoped_actions_read_v2_editor_stale_apply_and_busy_open_preserve_genuine_new_
     unchanged(&fix, &sql, &git);
     f::exact(&fix, &all);
 }
+
+// ---- TASK-116: type-to-filter log finder ----
+fn finder_buffer(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let mut t = Terminal::new(TestBackend::new(width, height)).unwrap();
+    t.draw(|frame| {
+        let area = frame.area();
+        read_ui_v2::draw(frame, app, area);
+    })
+    .unwrap();
+    t.backend().buffer().clone()
+}
+fn finder_rows(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect()
+}
+fn type_text(app: &mut App, text: &str) {
+    for ch in text.chars() {
+        key(app, KeyCode::Char(ch), KeyModifiers::NONE);
+    }
+}
+fn loaded_text(text: &str) -> (Fixture, GithubProvider, App, Vec<GhStep>) {
+    let mut steps = f::operation(ScopedActionsRequestKindV1::Logs, 42);
+    steps
+        .iter_mut()
+        .find(|step| step.args.first().is_some_and(|a| a == "run"))
+        .unwrap()
+        .stdout = text.as_bytes().to_vec();
+    let (fix, p, mut app, all) = f::opened(steps);
+    let value = f::read(&mut app, &p, &fix, ActionsAction::Logs(Some(501))).unwrap();
+    f::install(&mut app, value);
+    (fix, p, app, all)
+}
+fn run_queued(app: &mut App, p: &GithubProvider, fix: &Fixture) {
+    let work = take_work(app).expect("finder queued the original Search work");
+    let value = execute(work, p, &f::database(fix)).unwrap();
+    f::install(app, value);
+}
+#[test]
+fn scoped_actions_read_v2_finder_live_filter_count_highlight_keyboard_jump_and_n_steps() {
+    let (fix, p, mut app, all) = loaded(vec![]);
+    let sql = f::sql_state(&fix);
+    let git = f::git_state(&fix);
+    key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+    assert_eq!(app.overlay, Some(Overlay::ScopedActionsReadV2));
+    let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+    assert!(rows.iter().any(|r| r.contains("Find in job log")));
+    assert!(rows
+        .iter()
+        .any(|r| r.contains("Type to filter 5 log lines")));
+    assert!(rows.iter().any(|r| r.contains("Mode: Fuzzy")));
+    // Live: each key re-ranks, no Apply needed.
+    type_text(&mut app, "sec");
+    let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+    assert!(
+        rows.iter().any(|r| r.contains("1 of 5 lines match")),
+        "{rows:#?}"
+    );
+    key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    type_text(&mut app, "err");
+    let buffer = finder_buffer(&mut app, 100, 24);
+    let rows = finder_rows(&buffer);
+    assert!(
+        rows.iter().any(|r| r.contains("2 of 5 lines match")),
+        "{rows:#?}"
+    );
+    let first = rows
+        .iter()
+        .position(|r| r.contains("▌") && r.contains("error 界"))
+        .expect("first ranked result selected");
+    assert!(rows[first + 1].contains("4 │ error second"), "{rows:#?}");
+    // The matched "err" is highlighted, the rest of the line is not.
+    let x = rows[first].find("error").unwrap();
+    let x = rows[first][..x].chars().count() as u16;
+    let bold = |dx: u16| {
+        buffer[(x + dx, first as u16)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED)
+    };
+    assert!(bold(0) && bold(1) && bold(2));
+    assert!(!bold(3) && !bold(4));
+    // Down chooses the second result; Enter jumps there with all matches.
+    key(&mut app, KeyCode::Down, KeyModifiers::NONE);
+    let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+    assert!(rows
+        .iter()
+        .any(|r| r.contains("▌") && r.contains("error second")));
+    key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.overlay.is_none());
+    run_queued(&mut app, &p, &fix);
+    let state = app.scoped_actions_v1.as_ref().unwrap();
+    assert_eq!(state.matches_v2.as_ref().unwrap().indices(), &[1, 3]);
+    assert_eq!(state.matches_v2.as_ref().unwrap().mode(), M::Fuzzy);
+    assert_eq!(app.actions.as_ref().unwrap().selected, 3);
+    assert!(app.status.contains("line 4"), "{}", app.status);
+    assert!(app.status.contains("2 matching lines"));
+    // n/N step through matches while they are installed.
+    key(&mut app, KeyCode::Char('n'), KeyModifiers::NONE);
+    assert_eq!(app.actions.as_ref().unwrap().selected, 1);
+    assert!(app.status.contains("1 of 2"), "{}", app.status);
+    key(&mut app, KeyCode::Char('N'), KeyModifiers::NONE);
+    assert_eq!(app.actions.as_ref().unwrap().selected, 3);
+    // Esc in a reopened finder returns without changing the jump.
+    key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+    finder_buffer(&mut app, 100, 24);
+    key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(app.overlay.is_none());
+    assert_eq!(app.actions.as_ref().unwrap().selected, 3);
+    unchanged(&fix, &sql, &git);
+    f::exact(&fix, &all);
+}
+#[test]
+fn scoped_actions_read_v2_finder_click_result_and_mode_toggles_use_same_actions() {
+    let (fix, p, mut app, all) = loaded(vec![]);
+    ui(&mut app, read_ui_v2::ReadUiActionV2::OpenSearch);
+    finder_buffer(&mut app, 100, 24);
+    paste(&mut app, "actual");
+    let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+    assert!(
+        rows.iter().any(|r| r.contains("2 of 5 lines match")),
+        "{rows:#?}"
+    );
+    let click = |app: &mut App, x: u16, y: u16| {
+        app.handle_event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        }));
+    };
+    // Regex toggle by click; an invalid pattern explains itself live.
+    let y = rows.iter().position(|r| r.contains("[Regex]")).unwrap();
+    let x = rows[y][..rows[y].find("[Regex]").unwrap()].chars().count() as u16;
+    click(&mut app, x + 1, y as u16);
+    key(&mut app, KeyCode::Char('('), KeyModifiers::NONE);
+    let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+    assert!(
+        rows.iter().any(|r| r.contains("Regex unavailable")),
+        "{rows:#?}"
+    );
+    key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+    assert!(rows
+        .iter()
+        .any(|r| r.contains("Mode: Regex") && r.contains("2 of 5")));
+    // Clicking a result row jumps to that line.
+    let y = rows
+        .iter()
+        .position(|r| r.contains("third actual"))
+        .expect("third line listed");
+    click(&mut app, 4, y as u16);
+    assert!(app.overlay.is_none());
+    run_queued(&mut app, &p, &fix);
+    let state = app.scoped_actions_v1.as_ref().unwrap();
+    assert_eq!(state.matches_v2.as_ref().unwrap().indices(), &[0, 2]);
+    assert_eq!(state.matches_v2.as_ref().unwrap().mode(), M::Regex);
+    assert_eq!(app.actions.as_ref().unwrap().selected, 2);
+    f::exact(&fix, &all);
+}
+#[test]
+fn scoped_actions_read_v2_first_error_key_and_finder_control_jump_and_step_errors() {
+    let text =
+        "setup\nerror: cannot find crate\nok\n##[error]Process completed with exit code 1.\n";
+    for via_finder in [false, true] {
+        let (fix, p, mut app, all) = loaded_text(text);
+        let sql = f::sql_state(&fix);
+        let git = f::git_state(&fix);
+        if via_finder {
+            key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+            let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+            let y = rows
+                .iter()
+                .position(|r| r.contains("[e First error]"))
+                .unwrap();
+            let x = rows[y][..rows[y].find("[e First error]").unwrap()]
+                .chars()
+                .count() as u16;
+            app.handle_event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x + 2,
+                row: y as u16,
+                modifiers: KeyModifiers::NONE,
+            }));
+            assert!(app.overlay.is_none());
+        } else {
+            key(&mut app, KeyCode::Char('e'), KeyModifiers::NONE);
+        }
+        run_queued(&mut app, &p, &fix);
+        assert_eq!(app.actions.as_ref().unwrap().selected, 1);
+        assert!(
+            app.status.contains("First error at line 2"),
+            "{}",
+            app.status
+        );
+        assert!(app.status.contains("2 error lines"));
+        // The runner marker keeps its failure colour.
+        assert_eq!(
+            app.actions.as_ref().unwrap().rows[3].role,
+            crate::theme::SemanticToken::Failure
+        );
+        key(&mut app, KeyCode::Char('n'), KeyModifiers::NONE);
+        assert_eq!(app.actions.as_ref().unwrap().selected, 3);
+        assert!(app.status.contains("error line 4"), "{}", app.status);
+        // Reopening the finder never shows the internal error pattern.
+        key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+        let rows = finder_rows(&finder_buffer(&mut app, 100, 24));
+        assert!(rows
+            .iter()
+            .any(|r| r.contains("Type to filter 4 log lines")));
+        assert!(!rows.iter().any(|r| r.contains("##\\[error")));
+        key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        unchanged(&fix, &sql, &git);
+        f::exact(&fix, &all);
+    }
+    // A log without error lines says so and changes nothing.
+    let (fix, _, mut app, all) = loaded(vec![]);
+    key(&mut app, KeyCode::Char('e'), KeyModifiers::NONE);
+    assert!(app.status.contains("No error lines"), "{}", app.status);
+    assert!(app.scoped_actions_work_v1.is_none());
+    f::exact(&fix, &all);
+}
