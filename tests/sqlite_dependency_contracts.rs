@@ -171,17 +171,28 @@ fn sqlite_dependency_real_concurrent_wal_checkpoint_drafts_and_records_reopen_is
     );
     let barrier = Arc::new(Barrier::new(4));
     let remaining = Arc::new(AtomicUsize::new(2));
+    // Both writers start every iteration together, so they contend for the write lock
+    // each time while checkpoints run, but neither can starve the other for a whole
+    // busy budget by re-taking the lock in a tight loop (TASK-102).
+    let rounds = Arc::new(Barrier::new(2));
     let mut writers = Vec::new();
     for (uid, cache) in [(42, first), (43, second)] {
         let barrier = barrier.clone();
+        let rounds = rounds.clone();
         let remaining = remaining.clone();
         writers.push(thread::spawn(move || {
             let _done = WriterDone(remaining);
             let scope = Scope::github("github.invalid", Some(uid)).unwrap();
             barrier.wait();
+            // A failure is kept, not raised, so the other writer's rounds still complete.
+            let mut failure = None;
             for iteration in 0..128 {
+                rounds.wait();
+                if failure.is_some() {
+                    continue;
+                }
                 let body = body(uid, iteration);
-                cache
+                let written = cache
                     .put(
                         &scope,
                         &Record::new(
@@ -191,10 +202,13 @@ fn sqlite_dependency_real_concurrent_wal_checkpoint_drafts_and_records_reopen_is
                             json!({"uid":uid,"index":iteration,"body":body}),
                         ),
                     )
-                    .unwrap();
-                cache.put_draft(&scope, "composer/comment", &body).unwrap();
+                    .and_then(|()| cache.put_draft(&scope, "composer/comment", &body));
+                if let Err(error) = written {
+                    failure = Some(format!("writer {uid} iteration {iteration}: {error:#}"));
+                }
                 thread::yield_now();
             }
+            failure
         }));
     }
     let checkpoint_barrier = barrier.clone();
@@ -222,9 +236,14 @@ fn sqlite_dependency_real_concurrent_wal_checkpoint_drafts_and_records_reopen_is
         (checkpointer, calls, observed_log)
     });
     barrier.wait();
-    for writer in writers {
-        writer.join().unwrap();
-    }
+    let failures: Vec<String> = writers
+        .into_iter()
+        .filter_map(|writer| writer.join().unwrap())
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "Concurrent writes failed: {failures:?}"
+    );
     let (connection, calls, observed_log) = checker.join().unwrap();
     assert!(
         calls >= 64 && observed_log,

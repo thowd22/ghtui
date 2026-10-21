@@ -17,6 +17,7 @@ use crate::{
 };
 use conversation_history_v17::ConversationRecoveryWitnessV17;
 use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 fn seeded(
     held: bool,

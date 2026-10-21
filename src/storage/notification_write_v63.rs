@@ -318,11 +318,7 @@ impl Cache {
             .reconcile_notification_inspection_v63(inspection, token, deadline)
             .map_err(anyhow::Error::msg)?;
         self.validate_notification_marker_v63(marker, origin, witness, token, deadline)?;
-        self.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(std::time::Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.connection, deadline)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;

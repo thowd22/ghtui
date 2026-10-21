@@ -55,11 +55,7 @@ impl PreparedStateCacheRepairV74 {
             .source()
             .validate_state_cache_repair_boundary_v75(&self.repair)
             .map_err(anyhow::Error::msg)?;
-        self.cache.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(std::time::Instant::now())
-                .min(std::time::Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.cache.connection, deadline)?;
         let tx = self
             .cache
             .connection

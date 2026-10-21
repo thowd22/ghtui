@@ -34,7 +34,7 @@ pub(crate) use own_fence::{
 use rusqlite::{params_from_iter, types::Value as SqlValue, Transaction, TransactionBehavior};
 use std::{
     sync::{Arc, Weak},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 const METADATA_BYTES_V19: usize = 64 * 1024;
@@ -855,11 +855,7 @@ impl PreparedConversationCommitV19 {
                 .check_current_v85()
                 .map_err(anyhow::Error::msg)?;
         }
-        self.cache.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.cache.connection, deadline)?;
         let tx = self
             .cache
             .connection

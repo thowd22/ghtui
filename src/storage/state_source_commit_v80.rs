@@ -12,12 +12,7 @@ use crate::{
 };
 use repository_catalogue_intents_v1::state_source_v80::PreparedCatalogueStateSourceV80;
 use sha2::{Digest, Sha256};
-use std::{
-    io::Write,
-    mem::size_of,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{io::Write, mem::size_of, sync::Arc, time::Instant};
 const CAP: usize = 8 * 1024 * 1024;
 struct CountV80 {
     bytes: usize,
@@ -259,11 +254,7 @@ impl PreparedStateSourceCommitV80 {
             bail!("Foreign State source closed result");
         }
         let deadline = self.binding.deadline().min(closed.deadline());
-        self.cache.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.cache.connection, deadline)?;
         let tx = self
             .cache
             .connection

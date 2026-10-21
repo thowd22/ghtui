@@ -11,11 +11,7 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use rusqlite::{params_from_iter, types::Value as SqlValue, Transaction, TransactionBehavior};
-use std::{
-    os::unix::fs::MetadataExt,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{os::unix::fs::MetadataExt, sync::Arc, time::Instant};
 
 // Only this module's fixed table/column profiles and the two actual original
 // private source adapters below construct these predicates. Never a callback.
@@ -515,22 +511,10 @@ impl PreparedWorkflowCleanupV9 {
             Ok(())
         };
         current().map_err(|_| WorkflowCleanupFailureV9::Retained)?;
-        struct RestoreTimeout<'a>(&'a Connection);
-        impl Drop for RestoreTimeout<'_> {
-            fn drop(&mut self) {
-                let _ = self.0.busy_timeout(Duration::from_secs(2));
-            }
-        }
-        cache
-            .connection
-            .busy_timeout(
-                self.effective
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_secs(2)),
-            )
+        // The lock wait ends at the effective deadline; dropping the guard restores the
+        // connection's normal wait for later writes.
+        let _busy = crate::storage::busy_v1::until(&cache.connection, self.effective)
             .map_err(|_| WorkflowCleanupFailureV9::Retained)?;
-        let _restore = RestoreTimeout(&cache.connection);
-        // Busy-timeout changes affect only this same existing writer connection.
         let tx = Transaction::new_unchecked(&cache.connection, TransactionBehavior::Immediate)
             .map_err(|_| WorkflowCleanupFailureV9::Retained)?;
         let result = (|| -> anyhow::Result<()> {

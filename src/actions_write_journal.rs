@@ -24,7 +24,6 @@ use std::{
     fmt,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
 };
 mod availability;
 mod bounded_candidates;
@@ -471,7 +470,7 @@ impl ActionsWriteJournal {
         drop(Cache::open(path)?);
         let path = std::fs::canonicalize(path)?;
         let mut connection = Connection::open(&path)?;
-        connection.busy_timeout(Duration::from_secs(2))?;
+        crate::storage::busy_v1::install(&connection)?;
         connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS actions_write_attempts(

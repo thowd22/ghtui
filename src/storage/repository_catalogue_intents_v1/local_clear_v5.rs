@@ -23,13 +23,7 @@ impl Cache {
         if issuer(&cache)? != original.reservation.issuer {
             return Err(CatalogueIntentBoundaryError::OriginalSource);
         }
-        cache
-            .connection
-            .busy_timeout(
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(std::time::Duration::from_secs(2)),
-            )
+        let _busy = crate::storage::busy_v1::until(&cache.connection, deadline)
             .map_err(|_| CatalogueIntentBoundaryError::Database)?;
         let tx = cache
             .connection

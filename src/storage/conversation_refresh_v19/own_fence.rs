@@ -126,11 +126,7 @@ impl PreparedConversationOwnFenceV19 {
         let deadline = deadline.min(self.publication_cutoff_v51);
         clock(cancel, deadline)?;
         self.terminal.validate_file_v19()?;
-        self.cache.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.cache.connection, deadline)?;
         let tx = self
             .cache
             .connection

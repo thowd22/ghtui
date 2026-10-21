@@ -607,11 +607,7 @@ impl PrWriteJournal {
         let base = seed.0.stable_base_v68()?;
         let parent = seed.0.lineage_v68.as_ref().and_then(|l| l.parent_ack);
         check()?;
-        self.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(std::time::Instant::now())
-                .min(Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.connection, deadline)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;

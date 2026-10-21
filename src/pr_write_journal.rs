@@ -76,7 +76,6 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -386,7 +385,7 @@ impl PrWriteJournal {
         drop(Cache::open(path)?);
         let path = std::fs::canonicalize(path)?;
         let mut connection = Connection::open(&path)?;
-        connection.busy_timeout(Duration::from_secs(2))?;
+        crate::storage::busy_v1::install(&connection)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS pr_write_scopes(
           host TEXT NOT NULL, principal TEXT NOT NULL, pr_node TEXT NOT NULL,

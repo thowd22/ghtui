@@ -21,6 +21,7 @@ pub(crate) use state_filter_v68::{
     state_disposition_fingerprint_v74, state_origin_fingerprint_v74,
 };
 pub(crate) use state_filter_v68::{StateAckCacheEpochV77, StateAckQueueBoundaryV78};
+pub(crate) mod busy_v1;
 mod metric_trends_v1;
 pub use metric_trends_v1::{METRIC_TREND_PAYLOAD_BYTES, METRIC_TREND_RETAINED_DAYS};
 mod metrics_retention;
@@ -224,7 +225,7 @@ impl Cache {
     }
 
     fn initialize(mut connection: Connection) -> Result<Self> {
-        connection.busy_timeout(std::time::Duration::from_secs(2))?;
+        crate::storage::busy_v1::install(&connection)?;
         connection.pragma_update(None, "foreign_keys", true)?;
         let transaction =
             connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

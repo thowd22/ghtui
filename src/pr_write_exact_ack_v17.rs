@@ -531,11 +531,7 @@ impl PrWriteJournal {
         };
         clock()?;
         row.validate_current(self)?;
-        self.connection.busy_timeout(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_secs(2)),
-        )?;
+        let _busy = crate::storage::busy_v1::until(&self.connection, deadline)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;

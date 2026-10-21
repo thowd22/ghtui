@@ -13,6 +13,7 @@ use crate::{
     scoped_pr_collaboration_draft_v17::OpenedConversationDraftV17,
     scoped_pr_collaboration_plan_v17::{ConversationPreviewV17, ConversationPublicationStateV17},
 };
+use std::time::Duration;
 use std::time::Instant;
 
 fn writable(s: &Setup) -> Connection {
