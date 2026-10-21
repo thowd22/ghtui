@@ -182,6 +182,8 @@ pub enum MetricsWorkspaceAction {
     Trend(usize),
     /// Inspect one retained trend day's records (index into that trend's retained days).
     TrendDay(usize),
+    /// Open the stale open PRs widget (derived from the loaded inventory, no read).
+    Stale,
     Explain(String),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -189,12 +191,24 @@ pub enum MetricsView {
     Layout,
     Cards,
     Contributors(usize),
-    Details { card: usize, contributor: usize },
+    Details {
+        card: usize,
+        contributor: usize,
+    },
     CardInfo(usize),
     Repositories,
     Trend(usize),
-    TrendDay { card: usize, day: usize },
+    TrendDay {
+        card: usize,
+        day: usize,
+    },
+    /// Open PRs whose GitHub `updated_at` is at least [`STALE_DAYS`] before the as-of.
+    Stale,
+    /// Unresolved review threads read on demand for the loaded open PRs.
+    Threads,
 }
+/// An open PR is stale when GitHub last updated it at least this many days before the as-of.
+pub const STALE_DAYS: u64 = 7;
 #[derive(Clone, Debug)]
 pub struct MetricsPreparedRow {
     pub label: String,
@@ -270,6 +284,14 @@ pub struct MetricsWorkspace {
     pub trends: Arc<[crate::metrics_trend_v1::PreparedTrend]>,
     trend_return: (MetricsView, usize, usize),
     trend_day_return: (usize, usize),
+    /// Stale open PRs, oldest update first; each row opens its exact PR.
+    pub stale_rows: Arc<[MetricsPreparedRow]>,
+    pub stale_summary: String,
+    stale_return: (MetricsView, usize, usize),
+    /// Unresolved review threads; empty until the worker attaches a read.
+    pub thread_rows: Arc<[MetricsPreparedRow]>,
+    pub thread_summary: Option<String>,
+    threads_return: (MetricsView, usize, usize),
 }
 fn row(
     label: String,
@@ -977,8 +999,15 @@ impl MetricsWorkspace {
             trends: Arc::from([]),
             trend_return: (MetricsView::Cards, 0, 0),
             trend_day_return: (0, 0),
+            stale_rows: Arc::from([]),
+            stale_summary: String::new(),
+            stale_return: (MetricsView::Cards, 0, 0),
+            thread_rows: Arc::from([]),
+            thread_summary: None,
+            threads_return: (MetricsView::Cards, 0, 0),
         };
         prepared.rebuild_layout()?;
+        prepared.prepare_stale();
         Ok(prepared)
     }
     pub fn rows(&self) -> &[MetricsPreparedRow] {
@@ -994,7 +1023,110 @@ impl MetricsWorkspace {
             MetricsView::Repositories => &self.repository_rows,
             MetricsView::Trend(card) => &self.trends[card].rows,
             MetricsView::TrendDay { card, day } => &self.trends[card].days[day],
+            MetricsView::Stale => &self.stale_rows,
+            MetricsView::Threads => &self.thread_rows,
         }
+    }
+    /// The exact canonical PR target of an original observation.
+    pub fn pr_target(observation: &MetricsPrObservation) -> MetricTarget {
+        MetricTarget::PullRequest(crate::metrics::PrTarget {
+            repository: observation.repository.full_name.to_ascii_lowercase(),
+            number: observation.number,
+            repository_id: Some(observation.repository.id),
+            database_id: Some(observation.id),
+            node_id: Some(observation.node_id.clone()),
+            source_record_id: None,
+        })
+    }
+    /// Open of one original observation, or why it cannot open.
+    pub fn open_pr_action(&self, observation: &MetricsPrObservation) -> MetricsWorkspaceAction {
+        open_action(
+            &self.snapshot,
+            &self.observations,
+            &self.canonical_index,
+            &Self::pr_target(observation),
+        )
+    }
+    fn prepare_stale(&mut self) {
+        let as_of = self.snapshot.as_of;
+        let cutoff = as_of.saturating_sub(STALE_DAYS * 86_400);
+        let open = self
+            .observations
+            .iter()
+            .filter(|pr| matches!(pr.state, crate::providers::gh::MetricsPrState::Open))
+            .collect::<Vec<_>>();
+        let unknown = open
+            .iter()
+            .filter(|pr| pr.observed_updated_at.is_none())
+            .count();
+        let mut stale = open
+            .into_iter()
+            .filter_map(|pr| {
+                let updated = pr.observed_updated_at.as_ref()?.unix_seconds();
+                (updated <= cutoff).then_some((updated, pr))
+            })
+            .collect::<Vec<_>>();
+        stale.sort_by(|(a, left), (b, right)| {
+            a.cmp(b)
+                .then_with(|| left.repository.full_name.cmp(&right.repository.full_name))
+                .then_with(|| left.number.cmp(&right.number))
+        });
+        let host = self.snapshot.scope.host().to_owned();
+        self.stale_rows = stale
+            .iter()
+            .map(|(updated, pr)| {
+                let item = format!("{}#{}", pr.repository.full_name, pr.number);
+                let idle = format!("idle {}d", as_of.saturating_sub(*updated) / 86_400);
+                let title = if pr.draft == Some(true) {
+                    format!("Draft: {}", pr.title)
+                } else {
+                    pr.title.clone()
+                };
+                let mut stale_row = row(
+                    sanitize_terminal(&format!(
+                        "{} • {item} • {title} • {idle} • updated {}",
+                        pr.author.actor.login,
+                        utc_label(*updated)
+                    )),
+                    SemanticToken::Pending,
+                    Some(self.open_pr_action(pr)),
+                );
+                stale_row.actor = Some(ActorIdentity::github(&host, &pr.author.actor));
+                stale_row.avatar_only = true;
+                stale_row.cells = vec![
+                    crate::ui_table::Cell::styled(
+                        sanitize_terminal(&item),
+                        crate::theme::Role::TextMuted,
+                    ),
+                    sanitize_terminal(&title).into(),
+                    String::new().into(),
+                    crate::ui_table::Cell::styled(idle, SemanticToken::Pending.role()),
+                ];
+                stale_row
+            })
+            .collect();
+        self.stale_summary = format!(
+            "{} open PRs not updated for {STALE_DAYS}+ days (GitHub updated_at at or before {}){}",
+            self.stale_rows.len(),
+            utc_label(cutoff),
+            if unknown == 0 {
+                String::new()
+            } else {
+                format!(" • {unknown} without updated_at (not counted)")
+            }
+        );
+    }
+    /// Worker-only: projects the on-demand unresolved-thread read and shows it.
+    pub fn attach_threads(&mut self, rows: Vec<MetricsPreparedRow>, summary: String) {
+        self.thread_rows = Arc::from(rows);
+        self.thread_summary = Some(sanitize_terminal(&summary));
+        if !matches!(self.view, MetricsView::Threads) {
+            self.remember();
+            self.threads_return = (self.view, self.selected, self.top);
+        }
+        self.view = MetricsView::Threads;
+        self.selected = 0;
+        self.top = 0;
     }
     /// Worker-only: prepares every card's trend from retained points (or why they are
     /// unavailable). Drawing only reads these rows.
@@ -1088,6 +1220,8 @@ impl MetricsWorkspace {
             &mut self.repository_return,
             &mut self.info_return,
             &mut self.trend_return,
+            &mut self.stale_return,
+            &mut self.threads_return,
         ] {
             if position.0 == MetricsView::Cards {
                 position.1 = position.1.min(last);
@@ -1208,6 +1342,12 @@ impl MetricsWorkspace {
                             "Choose a repository or Back before inspecting metric details".into(),
                         )
                     }
+                    MetricsView::Stale | MetricsView::Threads => {
+                        return Err(
+                            "Enter opens the selected PR; Back returns to the dashboard cards"
+                                .into(),
+                        )
+                    }
                 }
                 self.selected = 0;
                 self.top = 0;
@@ -1221,7 +1361,10 @@ impl MetricsWorkspace {
                     | MetricsView::CardInfo(card)
                     | MetricsView::Details { card, .. } => card,
                     MetricsView::Trend(_) | MetricsView::TrendDay { .. } => return Ok(None),
-                    MetricsView::Layout | MetricsView::Repositories => {
+                    MetricsView::Layout
+                    | MetricsView::Repositories
+                    | MetricsView::Stale
+                    | MetricsView::Threads => {
                         return Err("Return to dashboard cards before opening a trend".into())
                     }
                 };
@@ -1236,6 +1379,19 @@ impl MetricsWorkspace {
                 self.remember();
                 self.trend_return = (self.view, self.selected, self.top);
                 self.view = MetricsView::Trend(card);
+                self.selected = 0;
+                self.top = 0;
+            }
+            MetricsWorkspaceAction::Stale => {
+                if self.view == MetricsView::Stale {
+                    return Ok(None);
+                }
+                if self.view == MetricsView::Layout {
+                    return Err("Return to dashboard cards before opening stale PRs".into());
+                }
+                self.remember();
+                self.stale_return = (self.view, self.selected, self.top);
+                self.view = MetricsView::Stale;
                 self.selected = 0;
                 self.top = 0;
             }
@@ -1320,6 +1476,18 @@ impl MetricsWorkspace {
                         self.view = MetricsView::Trend(card);
                         (self.selected, self.top) = self.trend_day_return;
                     }
+                    MetricsView::Stale | MetricsView::Threads => {
+                        (self.view, self.selected, self.top) = if self.view == MetricsView::Stale {
+                            self.stale_return
+                        } else {
+                            self.threads_return
+                        };
+                        if self.view == MetricsView::Cards {
+                            self.selected =
+                                self.selected.min(self.card_rows.len().saturating_sub(1));
+                            self.top = self.top.min(self.selected);
+                        }
+                    }
                 }
             }
             MetricsWorkspaceAction::Metric(request) => {
@@ -1358,6 +1526,14 @@ impl MetricsWorkspace {
                         }
                         if window.start >= window.end || window.end > self.snapshot.as_of {
                             return Err("Dashboard UTC request must retain an immutable bounded as-of window".into());
+                        }
+                    }
+                    MetricsAction::Threads => {
+                        if self.view == MetricsView::Layout {
+                            return Err(
+                                "Return to dashboard cards before reading unresolved threads"
+                                    .into(),
+                            );
                         }
                     }
                     MetricsAction::AllSelected

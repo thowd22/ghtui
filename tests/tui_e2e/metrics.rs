@@ -16,6 +16,8 @@ mod boundaries;
 mod dashboard_origin_v1;
 #[path = "dashboard_trends_v1.rs"]
 mod dashboard_trends_v1;
+#[path = "dashboard_widgets_v1.rs"]
+mod dashboard_widgets_v1;
 #[path = "dashboards_v1.rs"]
 mod dashboards_v1;
 #[path = "design_footer_v90.rs"]

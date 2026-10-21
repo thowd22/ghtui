@@ -520,4 +520,6 @@ pub enum MetricsAction {
     Open(MetricTarget),
     Back,
     Refresh,
+    /// Read the unresolved review threads of the loaded open PRs (on demand, read-only).
+    Threads,
 }

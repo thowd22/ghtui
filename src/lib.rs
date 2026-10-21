@@ -19,6 +19,7 @@ pub mod context_help;
 pub mod corpus_routes;
 pub mod corpus_ui;
 pub mod dashboard_profile_v1;
+pub mod dashboard_threads_v1;
 pub mod diff;
 pub mod drafts;
 pub mod editor;

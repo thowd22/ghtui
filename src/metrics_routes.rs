@@ -195,6 +195,9 @@ pub fn prepare(
         (Ok(()), Some(MetricsAction::Open(target))) => {
             open(&request, &identity, target, provider, cancel, start)
         }
+        (Ok(()), Some(MetricsAction::Threads)) => {
+            threads(&request, &identity, provider, cancel, start)
+        }
         (Ok(()), other) => load(&request, &identity, other, provider, cancel, start),
     };
     // Even failed repository reads get a current final principal bracket. A
@@ -291,7 +294,7 @@ pub fn prepare(
             }
             // Retain today's points for a fresh or recomputed snapshot and attach the
             // window's retained trend. Open keeps the original workspace's trends.
-            if prepared.navigate_to.is_none() {
+            if prepared.navigate_to.is_none() && action != Some(MetricsAction::Threads) {
                 if let Some(metrics) = &mut prepared.metrics {
                     let retained = crate::metrics_trend_v1::retain_and_load(
                         &request.database,
@@ -533,6 +536,76 @@ fn cached_window(
         metrics: Some(workspace),
         status:
             "Dashboard UTC window prepared • original snapshot retained • current access reverified"
+                .into(),
+        ..Default::default()
+    })
+}
+
+/// On-demand unresolved review threads of the original loaded open PRs. Each
+/// PR read brackets its own principal/repository/PR identity; a private failure
+/// hides the Dashboard, any other failure is named as partial, never zero.
+fn threads(
+    request: &MetricsRequest,
+    identity: &HostIdentity,
+    provider: &GithubProvider,
+    cancel: &CancellationToken,
+    start: Instant,
+) -> Result<PreparedView, Failure> {
+    let previous = request
+        .previous
+        .as_ref()
+        .ok_or_else(|| Failure::Invalid("Load Dashboard evidence before reading threads".into()))?;
+    let guard = previous.read_guard.as_ref().ok_or_else(|| {
+        Failure::Invalid("Original Dashboard read proof unavailable; Refresh first".into())
+    })?;
+    guard.validate_parents(&previous.observations)?;
+    let (candidates, skipped) = crate::dashboard_threads_v1::candidates(&previous.observations);
+    let mut reads = Vec::new();
+    for pr in candidates {
+        if cancel.is_cancelled() {
+            return Err(Failure::Invalid(
+                "Dashboard thread read cancelled; no mutation sent".into(),
+            ));
+        }
+        let remaining = limits(start)?.max_duration;
+        let thread_limits = crate::providers::gh::MetricsThreadLimits {
+            max_thread_pages: 4,
+            thread_page_size: 25,
+            max_threads: 100,
+            max_comment_pages_per_thread: 3,
+            comment_page_size: 20,
+            max_comments: 1000,
+            max_graphql_pages: 8,
+            max_document_bytes: 128 * 1024,
+            max_response_bytes: 8 * 1024 * 1024,
+            max_duration: remaining,
+        };
+        match provider.metrics_review_threads(identity, pr, &thread_limits, cancel) {
+            Ok(snapshot) => reads.push((pr, Ok(snapshot))),
+            Err(error)
+                if matches!(
+                    error.kind,
+                    GithubErrorKind::Permission
+                        | GithubErrorKind::NotFound
+                        | GithubErrorKind::IdentityChanged
+                        | GithubErrorKind::Authentication
+                ) =>
+            {
+                return Err(error.into())
+            }
+            Err(error) => reads.push((pr, Err(error.to_string()))),
+        }
+    }
+    guard.validate_parents(&previous.observations)?;
+    let (rows, summary) = crate::dashboard_threads_v1::project(previous, &reads, skipped);
+    let mut retained = previous.clone();
+    retained.pending = None;
+    retained.status = None;
+    retained.attach_threads(rows, summary);
+    Ok(PreparedView {
+        metrics: Some(retained),
+        status:
+            "Unresolved review threads read • current GitHub state • Enter opens the PR • read-only"
                 .into(),
         ..Default::default()
     })

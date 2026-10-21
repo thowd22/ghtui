@@ -13,6 +13,13 @@ impl MetricsTimestamp {
     pub fn unix_seconds(&self) -> u64 {
         self.seconds
     }
+    /// A validated GitHub RFC 3339 UTC timestamp, or None.
+    pub fn parse(raw: &str) -> Option<Self> {
+        crate::github_workspace::timestamp_seconds(raw).map(|seconds| Self {
+            raw: raw.into(),
+            seconds,
+        })
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct MetricsRepository {

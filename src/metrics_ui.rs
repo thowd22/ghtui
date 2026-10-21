@@ -124,6 +124,28 @@ pub fn draw(
                 }
             }
         }
+        let widget = match workspace.view {
+            MetricsView::Stale => Some(("Stale open PRs", workspace.stale_summary.as_str())),
+            MetricsView::Threads => Some((
+                "Unresolved review threads",
+                workspace.thread_summary.as_deref().unwrap_or_default(),
+            )),
+            _ => None,
+        };
+        if let Some((title, summary)) = widget {
+            for (label, role) in [
+                (title, SemanticToken::Head),
+                (summary, SemanticToken::Normal),
+            ] {
+                if y < area.bottom() {
+                    frame.render_widget(
+                        Paragraph::new(label).style(theme.style(role)),
+                        Rect::new(area.x, y, area.width, 1),
+                    );
+                    y += 1;
+                }
+            }
+        }
         if workspace.view == MetricsView::Repositories && y < area.bottom() {
             frame.render_widget(Paragraph::new("Choose ALL declared repositories or exactly one; no organization/global fallback").style(theme.style(SemanticToken::Head)),Rect::new(area.x,y,area.width,1));
             y += 1;
@@ -133,7 +155,9 @@ pub fn draw(
     let pending = workspace.pending.is_some();
     let (columns, header): (&[Column], bool) = match workspace.view {
         MetricsView::Cards => (&CARD_COLUMNS, !pending),
-        MetricsView::Contributors(_) => (&CONTRIBUTOR_COLUMNS, !pending),
+        MetricsView::Contributors(_) | MetricsView::Stale | MetricsView::Threads => {
+            (&CONTRIBUTOR_COLUMNS, !pending)
+        }
         _ => (&PROSE_COLUMNS, false),
     };
     let table = Table {
@@ -141,9 +165,15 @@ pub fn draw(
         header,
         focused,
         glyphs: true,
-        empty: (!pending).then_some(
-            "No contributing records • inspect Details for source coverage; absence is not zero",
-        ),
+        empty: (!pending).then_some(match workspace.view {
+            MetricsView::Stale => "No loaded open PR is idle that long • see the summary above",
+            MetricsView::Threads => {
+                "No unresolved threads read • the summary names any partial source"
+            }
+            _ => {
+                "No contributing records • inspect Details for source coverage; absence is not zero"
+            }
+        }),
     };
     let rows = workspace.rows();
     let table_row = |index: usize| {
@@ -340,6 +370,23 @@ pub fn footer_keys(workspace: &MetricsWorkspace) -> Vec<KeyControl> {
                 workspace.view,
                 MetricsView::Trend(_) | MetricsView::TrendDay { .. }
             )),
+        // TASK-62 widgets, at the lowest priority: they overflow into Commands first.
+        KeyControl::new("z", "Stale PRs", Action::Metrics(W::Stale))
+            .with_compact("Stale")
+            .with_priority(if layout { 66 } else { 48 })
+            .disabled_by(
+                layout.then(|| "Return to dashboard cards before opening stale PRs".to_string()),
+            )
+            .with_selected(workspace.view == MetricsView::Stale),
+        KeyControl::new("u", "Unresolved threads", metric(MetricsAction::Threads))
+            .with_compact("Threads")
+            .with_priority(if layout { 68 } else { 49 })
+            .disabled_by(
+                layout.then(|| {
+                    "Return to dashboard cards before reading unresolved threads".to_string()
+                }),
+            )
+            .with_selected(workspace.view == MetricsView::Threads),
     ]);
     if workspace.pending.is_some() {
         for key in &mut keys {
