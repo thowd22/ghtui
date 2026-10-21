@@ -10,6 +10,8 @@ mod collaboration;
 mod comparison;
 #[path = "tui_e2e/corpus.rs"]
 mod corpus;
+#[path = "tui_e2e/cross_feature_v65.rs"]
+mod cross_feature_v65;
 #[path = "tui_e2e/design_frames_v89.rs"]
 mod design_frames_v89;
 #[path = "tui_e2e/design_inbox_v94_v95.rs"]

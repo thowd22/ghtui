@@ -29,7 +29,7 @@ mod pr_progress;
 #[path = "pr_reviews_v1.rs"]
 mod pr_reviews_v1;
 
-fn configured() -> Fixture {
+pub(crate) fn configured() -> Fixture {
     let fixture = Fixture::new();
     Config {
         host: "github.invalid".into(),
@@ -46,7 +46,7 @@ fn configured() -> Fixture {
     );
     fixture
 }
-fn local_git_witness(fixture: &Fixture) -> (String, String, Vec<u8>) {
+pub(crate) fn local_git_witness(fixture: &Fixture) -> (String, String, Vec<u8>) {
     (
         fixture.git(&["rev-parse", "HEAD"]),
         fixture.git(&["status", "--porcelain=v2", "-z"]),
@@ -67,7 +67,7 @@ fn args(endpoint: &str, method: &str, paged: bool) -> Vec<String> {
     }
     args
 }
-fn step(endpoint: &str, method: &str, value: Value, paged: bool) -> GhStep {
+pub(crate) fn step(endpoint: &str, method: &str, value: Value, paged: bool) -> GhStep {
     GhStep {
         args: args(endpoint, method, paged),
         stdin: vec![],
@@ -89,10 +89,10 @@ fn pr() -> Value {
 fn comment(id: u64, body: &str, updated: &str) -> Value {
     json!({"id":id,"node_id":format!("IC_{id}"),"body":body,"user":{"id":42,"login":"octocat","type":"User"},"created_at":"2026-10-13T00:00:00Z","updated_at":updated,"issue_url":"https://api.github.invalid/repos/example/repo/issues/7","html_url":format!("https://github.invalid/example/repo/pull/7#issuecomment-{id}")})
 }
-fn starter() -> Value {
+pub(crate) fn starter() -> Value {
     comment(9, "Existing starter comment", "2026-10-13T00:00:00Z")
 }
-fn initial() -> Vec<GhStep> {
+pub(crate) fn initial() -> Vec<GhStep> {
     let mut steps = identity();
     steps.extend(identity());
     for queue in ["author", "assignee", "review-requested"] {
@@ -131,12 +131,12 @@ fn repo_settings() -> Value {
 fn repo_settings_step(value: Value) -> GhStep {
     step("repos/example/repo", "GET", value, false)
 }
-fn guard() -> Vec<GhStep> {
+pub(crate) fn guard() -> Vec<GhStep> {
     let mut steps = identity();
     steps.push(step("repos/example/repo/pulls/7", "GET", pr(), false));
     steps
 }
-fn details(comments: Vec<Value>) -> Vec<GhStep> {
+pub(crate) fn details(comments: Vec<Value>) -> Vec<GhStep> {
     let mut steps = vec![
         step("repos/example/repo/pulls/7", "GET", pr(), false),
         step(
@@ -157,7 +157,7 @@ fn details(comments: Vec<Value>) -> Vec<GhStep> {
     steps.push(step("repos/example/repo/pulls/7", "GET", pr(), false));
     steps
 }
-fn inspected(comments: Vec<Value>) -> Vec<GhStep> {
+pub(crate) fn inspected(comments: Vec<Value>) -> Vec<GhStep> {
     let mut steps = identity();
     steps.extend(details(comments));
     steps.extend(identity());
@@ -416,7 +416,7 @@ fn wait_preview_state_ink(session: &mut Session, label: &str, token: ghtui::them
         );
     }
 }
-fn records(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value> {
+pub(crate) fn records(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value> {
     session.wait_for_command_count(fixture, count);
     let records: Vec<Value> = session
         .inspect_command_journal(fixture)
@@ -427,7 +427,7 @@ fn records(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value>
     assert!(records.iter().all(|record| record["matched"] == true));
     records
 }
-fn mutation_count(records: &[Value]) -> usize {
+pub(crate) fn mutation_count(records: &[Value]) -> usize {
     records.iter().filter(|record| is_mutation(record)).count()
 }
 fn is_mutation(record: &Value) -> bool {
@@ -459,7 +459,12 @@ fn cache_path(fixture: &Fixture) -> std::path::PathBuf {
     fixture.root.join("config/ghtui/cache.sqlite3")
 }
 
-fn write(endpoint: &str, method: &str, payload: Option<Value>, response: Value) -> GhStep {
+pub(crate) fn write(
+    endpoint: &str,
+    method: &str,
+    payload: Option<Value>,
+    response: Value,
+) -> GhStep {
     let mut mutation = step(endpoint, method, response, false);
     if let Some(payload) = payload {
         mutation.args.extend(["--input".into(), "-".into()]);
