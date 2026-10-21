@@ -30,7 +30,7 @@ mod origin_default_v1;
 #[path = "actions/principal_freshness.rs"]
 mod principal_freshness;
 #[path = "../support/actions_publication.rs"]
-mod publication_support;
+pub(crate) mod publication_support;
 #[path = "actions/restart.rs"]
 mod restart;
 #[path = "actions/runner_groups_v1.rs"]
@@ -48,7 +48,7 @@ mod workflow_revision_v1;
 #[path = "actions/workflow_usability_v1.rs"]
 mod workflow_usability_v1;
 
-fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     let fixture = Fixture::new();
     fixture.init_git();
     fixture.commit_file("unchanged.txt", b"preserve this checkout\n", "initial");
@@ -64,7 +64,7 @@ fn fixture() -> Fixture {
     fixture
 }
 /// The Runs table's RUN cell (TASK-91): the run id, then `#attempt` after a rerun.
-fn run_cell(id: u64, attempt: u64) -> String {
+pub(crate) fn run_cell(id: u64, attempt: u64) -> String {
     if attempt > 1 {
         format!("{id} #{attempt}")
     } else {
@@ -72,7 +72,7 @@ fn run_cell(id: u64, attempt: u64) -> String {
     }
 }
 /// Waits until one painted line holds every part: the cells of one table row.
-fn wait_row(session: &mut Session, parts: &[&str]) {
+pub(crate) fn wait_row(session: &mut Session, parts: &[&str]) {
     let description = format!("one row with {parts:?}");
     if let Err(error) = session.try_wait_for_condition(
         |screen| {
@@ -133,7 +133,7 @@ fn selected_has(session: &Session, text: &str) -> bool {
         .is_some_and(|row| row.contains(text))
 }
 /// Waits until the Actions list paints its `▌` selection bar on the row containing `text`.
-fn wait_selected(session: &mut Session, text: &str) -> String {
+pub(crate) fn wait_selected(session: &mut Session, text: &str) -> String {
     session.wait_for_selected_row(&crate::support::view_title("Actions"), text)
 }
 fn api(endpoint: &str) -> Vec<String> {
@@ -149,7 +149,7 @@ fn api(endpoint: &str) -> Vec<String> {
     .map(str::to_owned)
     .collect()
 }
-fn read(endpoint: &str, value: Value, pages: bool) -> GhStep {
+pub(crate) fn read(endpoint: &str, value: Value, pages: bool) -> GhStep {
     let mut args = api(endpoint);
     if pages {
         args.extend(["--paginate".into(), "--slurp".into()]);
@@ -163,10 +163,10 @@ fn read(endpoint: &str, value: Value, pages: bool) -> GhStep {
         delay_ms: 0,
     }
 }
-fn raw_run() -> Value {
+pub(crate) fn raw_run() -> Value {
     json!({"id":123,"workflow_id":7,"name":"CI matrix","display_title":"Fix checkout","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"feature","event":"pull_request","status":"completed","conclusion":"failure","run_attempt":2,"created_at":"2026-10-13T12:00:00Z","actor":{"login":"alice","type":"User"},"triggering_actor":{"login":"octocat","type":"User"}})
 }
-fn initial() -> Vec<GhStep> {
+pub(crate) fn initial() -> Vec<GhStep> {
     vec![
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         read("user", json!({"id":42,"login":"octocat"}), false),
@@ -191,14 +191,14 @@ fn open_steps() -> Vec<GhStep> {
         ),
     ]
 }
-fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+pub(crate) fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
     if mouse {
         button(session, label)
     } else {
         session.send_key(key)
     }
 }
-fn button(session: &mut Session, label: &str) {
+pub(crate) fn button(session: &mut Session, label: &str) {
     if matches!(
         label,
         "[Preview]"
@@ -217,7 +217,7 @@ fn button(session: &mut Session, label: &str) {
 /// A command control: clicked (mouse), or Tab-focused in the key bar and activated with
 /// Enter (keyboard). Commands that do not fit the bar are chosen through the palette by the
 /// same input kind.
-fn command(session: &mut Session, mouse: bool, label: &str) {
+pub(crate) fn command(session: &mut Session, mouse: bool, label: &str) {
     if mouse {
         button(session, label);
     } else {
@@ -225,7 +225,7 @@ fn command(session: &mut Session, mouse: bool, label: &str) {
         session.send_key(b"\r");
     }
 }
-fn write(endpoint: &str, input: Option<Value>, out: Value) -> GhStep {
+pub(crate) fn write(endpoint: &str, input: Option<Value>, out: Value) -> GhStep {
     let mut step = read(endpoint, out, false);
     step.args[5] = "POST".into();
     if let Some(input) = input {
@@ -234,26 +234,26 @@ fn write(endpoint: &str, input: Option<Value>, out: Value) -> GhStep {
     }
     step
 }
-fn run_guard(run: Value) -> Vec<GhStep> {
+pub(crate) fn run_guard(run: Value) -> Vec<GhStep> {
     vec![
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         read("user", json!({"id":42,"login":"octocat"}), false),
         read("repos/example/repo/actions/runs/123", run, false),
     ]
 }
-fn current_account() -> Vec<GhStep> {
+pub(crate) fn current_account() -> Vec<GhStep> {
     vec![
         GhStep::read(&["--version"], "gh version 2.101.0\n"),
         read("user", json!({"id":42,"login":"octocat"}), false),
     ]
 }
 /// Private draft OPEN has an explicit positive principal before and after loading.
-fn compose_identity_steps() -> Vec<GhStep> {
+pub(crate) fn compose_identity_steps() -> Vec<GhStep> {
     let mut steps = current_account();
     steps.extend(current_account());
     steps
 }
-fn confirm(session: &mut Session, mouse: bool, field_count: usize) {
+pub(crate) fn confirm(session: &mut Session, mouse: bool, field_count: usize) {
     if mouse {
         session.click_visible_action("[Confirm action]");
     } else {
@@ -263,7 +263,7 @@ fn confirm(session: &mut Session, mouse: bool, field_count: usize) {
         session.send_key(b"\r");
     }
 }
-fn close_form(session: &mut Session, mouse: bool) {
+pub(crate) fn close_form(session: &mut Session, mouse: bool) {
     if mouse {
         session.click_visible_action("[Keep draft / Close]");
     } else {
@@ -283,7 +283,7 @@ fn close_form(session: &mut Session, mouse: bool) {
         panic!("{error}; artifacts: {}", session.artifact_dir.display());
     }
 }
-fn inspect_original_publication(session: &mut Session, mouse: bool, attempt_id: i64) {
+pub(crate) fn inspect_original_publication(session: &mut Session, mouse: bool, attempt_id: i64) {
     open_original_publication(session, mouse, attempt_id);
     session.wait_for_screen(&format!("Inspect ORIGINAL Actions attempt #{attempt_id}"));
 }
@@ -313,7 +313,7 @@ fn open_original_publication(session: &mut Session, mouse: bool, attempt_id: i64
         panic!("Exact original publication {attempt_id} never gained keyboard selection");
     }
 }
-fn journal(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value> {
+pub(crate) fn journal(session: &mut Session, fixture: &Fixture, count: usize) -> Vec<Value> {
     session.wait_for_command_count(fixture, count);
     let rows = session
         .inspect_command_journal(fixture)
@@ -817,7 +817,7 @@ fn secrets_vars(mouse: bool) {
     session.wait_for_screen("MODE = west");
     session.quit_and_assert_restored_terminal(mouse);
 }
-fn focus_field(session: &mut Session, mouse: bool, label: &str, index: usize) {
+pub(crate) fn focus_field(session: &mut Session, mouse: bool, label: &str, index: usize) {
     if mouse {
         session.click_owned_form_field("ACTIONS INTENT", label);
     } else {
@@ -1440,7 +1440,7 @@ fn artifact_png() -> Vec<u8> {
         .unwrap();
     bytes
 }
-fn artifact_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+pub(crate) fn artifact_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     use std::io::{Cursor, Write};
     let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (path, bytes) in entries {
@@ -1456,11 +1456,11 @@ fn artifact_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     }
     archive.finish().unwrap().into_inner()
 }
-fn artifact_value(id: u64, name: &str, bytes: &[u8], expired: bool) -> Value {
+pub(crate) fn artifact_value(id: u64, name: &str, bytes: &[u8], expired: bool) -> Value {
     use sha2::{Digest, Sha256};
     json!({"id":id,"name":name,"size_in_bytes":bytes.len(),"expired":expired,"created_at":"2026-10-12T12:00:00Z","updated_at":"2026-10-12T12:00:00Z","expires_at":"2026-10-20T12:00:00Z","digest":format!("sha256:{:x}",Sha256::digest(bytes)),"workflow_run":{"id":123,"head_sha":"a".repeat(40)}})
 }
-fn artifact_download(id: u64, bytes: Vec<u8>) -> GhStep {
+pub(crate) fn artifact_download(id: u64, bytes: Vec<u8>) -> GhStep {
     let mut step = read(
         &format!("repos/example/repo/actions/artifacts/{id}/zip"),
         Value::Null,

@@ -859,3 +859,11 @@ mod history_tree_search {
         journey(true)
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// (d) Actions: run -> failed step log -> artifact export -> deployment approval, where an
+//     offline approval keeps its original attempt and a later confirmed one sends once.
+// ---------------------------------------------------------------------------------------
+
+#[path = "cross_feature_actions_v65.rs"]
+mod actions;
