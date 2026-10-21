@@ -373,7 +373,10 @@ pub struct App {
     /// The commit an arrow key last chose in History while its read runs (TASK-99): a bar
     /// moved further during that read stays where the person put it.
     pub history_bar_choice_v99: Option<String>,
-    pub github: Option<crate::github_workspace::GithubWorkspace>,
+    /// Where History stood when its next page was asked for (TASK-109): the page that comes
+    /// back keeps the bar and the viewport on the same commits.
+    pub history_place_v109: Option<crate::history::place::HistoryPlaceV109>,
+    pub github:Option<crate::github_workspace::GithubWorkspace>,
     pub github_action: Option<crate::github_workspace::GithubAction>,
     pub github_content_focused: bool,
     /// Which pane of a list plus preview split owns the content focus (TASK-92).
@@ -645,6 +648,7 @@ impl Default for App {
             takeover_v93: Default::default(),
             history_detail_v994: Default::default(),
             history_bar_choice_v99: None,
+            history_place_v109: None,
             github: None,
             github_action: None,
             github_content_focused: true,
@@ -1957,6 +1961,19 @@ impl App {
                     // A row, a click or another graph action takes the focus from the query.
                     self.history_filter_input_v993 = None;
                 }
+                // The next History page keeps the reader's place (TASK-109): its window opens
+                // on the commit under the bar, and the bar and viewport stay on their commits.
+                self.history_place_v109 = if matches!(
+                    &action,
+                    crate::workspace::RowAction::Graph(
+                        crate::repository_graph_v1::GraphActionV1::More
+                    )
+                ) {
+                    self.sync_history_cursor_revision_v99();
+                    crate::history::place::capture(self)
+                } else {
+                    None
+                };
                 self.repository_action = Some(action);
                 if !keep_viewport {
                     self.repository_list.top = 0;

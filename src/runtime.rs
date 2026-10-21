@@ -1872,6 +1872,15 @@ impl Background {
                     if let Some(workspace) = prepared.workspace {
                         // The History commit under the bar before this install: arrows that
                         // kept moving while an arrow's choice was read keep their place.
+                        // A continuation page keeps the place the reader holds NOW: scrolling
+                        // while the page read ran moved it on from where the read began
+                        // (TASK-109). Taken before this install adjusts the list.
+                        let history_place = app.history_place_v109.take().map(|asked| {
+                            crate::history::place::HistoryPlaceV109 {
+                                loaded: asked.loaded,
+                                ..crate::history::place::capture(app).unwrap_or(asked)
+                            }
+                        });
                         let held_bar = app
                             .history_bar_choice_v99
                             .take()
@@ -1941,6 +1950,11 @@ impl Background {
                                 app.repository_list.selected.min(rows.saturating_sub(1));
                             app.repository_list.top =
                                 app.repository_list.top.min(app.repository_list.selected);
+                        }
+                        // A continuation page keeps the bar and viewport on the commits the
+                        // reader scrolled to (TASK-109), not the newest commit.
+                        if let Some(place) = history_place {
+                            crate::history::place::restore(app, &workspace, &place);
                         }
                         if let Some(row) = held_bar {
                             app.repository_list.selected = row;

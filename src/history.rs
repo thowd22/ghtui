@@ -4,6 +4,7 @@ pub mod detail;
 pub mod entry;
 pub mod filter;
 pub mod lanes;
+pub mod place;
 pub mod refs;
 
 #[cfg(test)]

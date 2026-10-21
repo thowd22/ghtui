@@ -632,11 +632,17 @@ fn history_scroll_journey(mouse: bool) {
         scroll(&mut s, mouse, true);
     }
     let mut during = Vec::new();
+    // The place the reader holds while the page loads; the loaded page keeps it (TASK-109).
+    let mut held_place = history_view(s.completed_cursorless_screen().unwrap());
     for _ in 0..8 {
         if !history_loading(s.completed_cursorless_screen().unwrap()) {
             break;
         }
         let sample = timed_scroll(&mut s, mouse, false);
+        let now = history_view(s.completed_cursorless_screen().unwrap());
+        if now.2 {
+            held_place = now;
+        }
         // Git records the read's start only once the wrapper releases it: until then the
         // answered scroll happened while the page read was still held.
         if history_loading(s.completed_cursorless_screen().unwrap())
@@ -661,8 +667,9 @@ fn history_scroll_journey(mouse: bool) {
     let second = 2 * FIRST_PAGE;
     s.wait_for_cursorless_condition(
         |frame| {
+            // The bar stays on the newest commit, scrolled out of view (TASK-109).
             !history_loading(frame)
-                && history_ready(frame)
+                && !history_rows(frame).is_empty()
                 && history_loaded_count(&frame.contents()) == Some(second)
         },
         "the next History page loaded",
@@ -699,6 +706,20 @@ fn history_scroll_journey(mouse: bool) {
     report.record(
         "history_after_next_page",
         json!({"first_shown_row": position(&top), "selected_row": position(&bar)}),
+    );
+    // TASK-109: the loaded page keeps the first shown commit and the bar where the reader
+    // held them (the bar stays on the newest commit, off screen), not back at the newest.
+    report.require(
+        "history_keeps_place_after_next_page",
+        (&top, &bar) == (&held_place.0, &held_place.1)
+            && position(&top).is_some_and(|row| row > 0),
+        format!(
+            "while loading: first {:?} (row {:?}) bar {:?}; after: first {top:?} (row {:?}) bar {bar:?}",
+            held_place.0,
+            position(&held_place.0),
+            held_place.1,
+            position(&top)
+        ),
     );
 
     // 80x24: scrolling through the loaded window stays as fast. The direction follows the
@@ -768,6 +789,160 @@ fn performance_v66_keyboard_history_scrolled_while_next_page_loads() {
 #[test]
 fn performance_v66_mouse_history_scrolled_while_next_page_loads() {
     history_scroll_journey(true)
+}
+
+/// TASK-109: the bar on the last loaded commit, one more step down reads the next page and
+/// the bar and the first shown row stay on the same commits. By keyboard the bar walks there
+/// with Down and Down reads the page; by mouse the wheel scrolls there, a click puts the bar
+/// on it and the wheel reads the page.
+fn history_place_journey(mouse: bool) {
+    let _lock = perf_lock();
+    let repo = large_repo();
+    let fixture = large_fixture(repo);
+    let baseline = RepoState::capture(&fixture.repo());
+    let trace = fixture.root.join("git-trace2-place.jsonl");
+    let env = [("GIT_TRACE2_EVENT", trace.to_str().unwrap())];
+    let mut s = launch_perf(&fixture, &fixture.repo(), 120, 40, &env);
+    s.wait_for_screen("Recent commits");
+    s.wait_for_settled_footer();
+    s.choose(mouse, "[g History]", b"g");
+    wait_history_at(&mut s, &repo.shas[0]);
+    s.wait_for_settled_footer();
+    assert_eq!(history_loaded_count(&s.screen()), Some(FIRST_PAGE));
+    let last = repo.shas[FIRST_PAGE - 1].clone();
+    let shown = |frame: &vt100::Screen, sha: &str| {
+        history_rows(frame)
+            .iter()
+            .any(|row| !row.sha.is_empty() && sha.starts_with(row.sha.as_str()))
+    };
+    if mouse {
+        let mut events = 0;
+        while !shown(s.completed_cursorless_screen().unwrap(), &last) {
+            assert!(
+                events < 120,
+                "the wheel never showed {last}\n{}",
+                s.screen()
+            );
+            let before = history_view(s.completed_cursorless_screen().unwrap());
+            scroll(&mut s, true, true);
+            s.wait_for_cursorless_condition(
+                move |frame| history_view(frame) != before,
+                "the wheel moved History",
+                Duration::from_secs(10),
+            );
+            events += 1;
+        }
+        s.click_history_row(&last);
+    } else {
+        for step in 1..FIRST_PAGE {
+            let before = history_view(s.completed_cursorless_screen().unwrap()).1;
+            s.send_key(b"\x1b[B");
+            s.wait_for_cursorless_condition(
+                move |frame| {
+                    let bar = history_view(frame).1;
+                    bar.is_some() && bar != before
+                },
+                &format!("Down moved the bar to commit {step}"),
+                Duration::from_secs(10),
+            );
+        }
+    }
+    s.wait_for_history_selected(&last);
+    s.wait_for_settled_footer();
+    s.wait_for_cursorless_condition(
+        |frame| !history_loading(frame) && history_ready(frame),
+        "the bar's commit read finished",
+        Duration::from_secs(20),
+    );
+    let start = history_view(s.completed_cursorless_screen().unwrap());
+    assert!(
+        start
+            .1
+            .as_ref()
+            .is_some_and(|bar| last.starts_with(bar.as_str())),
+        "bar on the last loaded commit before the page: {start:?}\n{}",
+        s.screen()
+    );
+    assert!(continuation_reads(&trace).is_empty(), "no page read yet");
+    // Further steps down first bring the end-of-loaded-history row into view; the step past
+    // it reads the next page. `before` is the view just before that step.
+    let second = 2 * FIRST_PAGE;
+    let mut before;
+    let mut steps = 0;
+    loop {
+        assert!(
+            steps < 10,
+            "stepping down never read the next page\n{}",
+            s.screen()
+        );
+        before = history_view(s.completed_cursorless_screen().unwrap());
+        if mouse {
+            scroll(&mut s, true, true);
+        } else {
+            s.send_key(b"\x1b[B");
+        }
+        steps += 1;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let started = loop {
+            s.poll_output(Duration::from_millis(5));
+            let frame = s.completed_cursorless_screen().unwrap();
+            if history_loading(frame) || history_loaded_count(&frame.contents()) == Some(second) {
+                break true;
+            }
+            if history_view(frame) != before || Instant::now() >= deadline {
+                break false;
+            }
+        };
+        if started {
+            break;
+        }
+    }
+    assert!(
+        before
+            .1
+            .as_ref()
+            .is_some_and(|bar| last.starts_with(bar.as_str())),
+        "the bar stayed on the last loaded commit: {before:?}"
+    );
+    s.wait_for_cursorless_condition(
+        |frame| {
+            !history_loading(frame)
+                && history_ready(frame)
+                && history_loaded_count(&frame.contents()) == Some(second)
+        },
+        "the next History page loaded",
+        Duration::from_millis(COLD_LARGE_LOAD_CEILING_MS),
+    );
+    s.wait_for_settled_footer();
+    let after = history_view(s.completed_cursorless_screen().unwrap());
+    assert_eq!(
+        (&after.0, &after.1),
+        (&before.0, &before.1),
+        "the loaded page keeps the first shown commit and the bar\n{}",
+        s.screen()
+    );
+    assert!(
+        !shown(s.completed_cursorless_screen().unwrap(), &repo.shas[0]),
+        "History did not jump back to the newest commit\n{}",
+        s.screen()
+    );
+    assert_eq!(continuation_reads(&trace), [format!("--skip={FIRST_PAGE}")]);
+    s.quit_and_assert_restored_terminal(mouse);
+    assert!(
+        RepoState::capture(&fixture.repo()) == baseline,
+        "HEAD, refs, status, index and config unchanged"
+    );
+    let journal = s.inspect_command_journal(&fixture);
+    assert!(journal.is_empty(), "gh journal: {journal:?}");
+}
+
+#[test]
+fn performance_v66_keyboard_history_next_page_keeps_place() {
+    history_place_journey(false)
+}
+#[test]
+fn performance_v66_mouse_history_next_page_keeps_place() {
+    history_place_journey(true)
 }
 
 // ---------------------------------------------------------------------------------------
