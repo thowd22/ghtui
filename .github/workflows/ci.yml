@@ -1,5 +1,10 @@
 name: CI
 
+# Trust boundary: this workflow runs untrusted pull-request code (including
+# forks), so it uses `pull_request` (never `pull_request_target`), references
+# no secrets, gives every job a read-only token and never persists that token
+# in .git. Every third-party action is pinned to a full commit SHA; the
+# comment names the release that SHA was resolved from (git ls-remote).
 on:
   push:
     branches: [main]
@@ -14,9 +19,17 @@ on:
 permissions:
   contents: read
 
+# One run per branch or pull request; a newer push to a pull request cancels
+# the older run, but runs on main always finish so every main commit has a
+# complete result.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # bash -eo pipefail: a failing cargo command piped into tee fails the step.
+    shell: bash
 
 env:
   CARGO_TERM_COLOR: always
@@ -31,14 +44,22 @@ jobs:
     name: fmt and clippy
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93.1
         with:
+          toolchain: 1.93.1
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      # Caches are read by every run but only main may write them, so a pull
+      # request (fork or not) can never seed a cache that main later restores.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: lint-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
 
@@ -46,8 +67,10 @@ jobs:
     name: installer scripts
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - run: bash -n scripts/install.sh && bash -n scripts/package-release.sh
@@ -57,13 +80,20 @@ jobs:
     name: cargo test (code, provider and PTY suites)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@1.93.1
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93.1
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       # PTY tests run headless: portable-pty allocates its own pseudo-terminal
@@ -71,7 +101,6 @@ jobs:
       # needed. test-all.mjs runs `cargo test --locked --all-targets` with the
       # test-only Git environment (foreground automatic maintenance).
       - if: ${{ inputs.pty_filter == '' }}
-        shell: bash
         run: node scripts/test-all.mjs 2>&1 | tee "$RUNNER_TEMP/test-all.log"
         env:
           # Saturated hosted runners produce rare one-off PTY timing flakes;
@@ -86,7 +115,6 @@ jobs:
           git config --list --show-origin --global || true
           id; ulimit -a | tr '\n' ';'; echo
       - if: ${{ inputs.pty_filter != '' }}
-        shell: bash
         run: cargo test --locked --test tui_e2e -- "$FILTER" 2>&1 | tee "$RUNNER_TEMP/test-all.log"
         env:
           FILTER: ${{ inputs.pty_filter }}
@@ -102,9 +130,56 @@ jobs:
       # diagnosis when the suite fails.
       - name: Upload the test log
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-log
           path: ${{ runner.temp }}/test-all.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  macos:
+    name: macOS build and library tests (native, non-gating)
+    # Native macOS verification is deferred past the Linux v1 (user decision
+    # 2026-10-17), so this job reports its result on every run without
+    # blocking a Linux merge. It is never skipped: a failure shows as a failed
+    # job with its log uploaded below.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93.1
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test-macos-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/macos.log"
+      - run: cargo test --locked --lib 2>&1 | tee -a "$RUNNER_TEMP/macos.log"
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: maintenance.autoDetach
+          GIT_CONFIG_VALUE_0: "false"
+          GIT_CONFIG_KEY_1: gc.autoDetach
+          GIT_CONFIG_VALUE_1: "false"
+      - name: Upload the macOS log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-${{ matrix.arch }}-log
+          path: ${{ runner.temp }}/macos.log
           if-no-files-found: ignore
           retention-days: 14

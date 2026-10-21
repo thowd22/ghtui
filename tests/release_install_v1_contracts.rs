@@ -1454,7 +1454,9 @@ fn v1_release_workflows_build_both_musl_targets_and_gate_ci() {
     assert!(build_steps.contains("scripts/package-release.sh archive"));
     let publish = &release["jobs"]["publish"];
     assert_eq!(publish["permissions"]["contents"].as_str(), Some("write"));
-    let publish_steps = runs(publish);
+    // The read-only assemble job prepares and install-checks the assets; the
+    // write-holding publish job only uploads, compares and promotes them.
+    let publish_steps = format!("{}\n{}", runs(&release["jobs"]["assemble"]), runs(publish));
     assert!(publish_steps.contains("scripts/package-release.sh finish"));
     assert!(publish_steps.contains("bash dist/install.sh --release-base \"file://"));
     assert!(publish_steps.contains("gh release create"));
@@ -1472,7 +1474,7 @@ fn v1_release_workflows_build_both_musl_targets_and_gate_ci() {
         "bash dist/install.sh",
         "--verify-tag --draft",
         "gh release download",
-        "sha256sum -c SHA256SUMS",
+        "cd \"$uploaded\" && sha256sum -c SHA256SUMS",
         "--draft=false --latest",
     ];
     let positions: Vec<_> = order

@@ -1,10 +1,27 @@
 name: Release
 
-# Pushing a tag such as v0.1.0 builds static Linux binaries, verifies them and
-# the installer against the assembled assets, uploads a draft release, checks
-# the uploaded bytes match the tested ones and only then publishes it.
-# workflow_dispatch is a dry run: it builds, verifies and assembles the
-# assets for the Cargo.toml version but never creates a release.
+# Pushing a tag such as v0.1.0 builds static Linux binaries on native runners,
+# checks that the tag, Cargo.toml, Cargo.lock and `ghtui --version` agree,
+# installs each exact archive with scripts/install.sh and drives the installed
+# binary through the keyboard/mouse PTY journeys, assembles install.sh,
+# release-version.txt and SHA256SUMS, uploads a DRAFT release, proves the
+# uploaded bytes are the tested bytes and only then promotes it.
+#
+# workflow_dispatch is a dry run: it builds, verifies and assembles the assets
+# for the Cargo.toml version with a read-only token and never creates a
+# release.
+#
+# Trust boundary: no pull_request trigger exists here, so fork code never
+# runs in this workflow. Only the `publish` job holds a write token, and only
+# for a pushed v* tag, inside the `release` environment (configure required
+# reviewers and a v* tag rule there). Release builds start cold: no cache is
+# restored, so a poisoned cache can never reach a published binary. Every
+# third-party action is pinned to a full commit SHA; the comment names the
+# release it was resolved from.
+#
+# Evidence boundary: local YAML checks (tests/ci_workflow_contracts.rs) only
+# prove this file's shape. Native and hosted evidence exists only once a
+# configured remote has actually run this workflow.
 on:
   push:
     tags: ["v*"]
@@ -19,6 +36,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
@@ -27,7 +48,7 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     # Each target builds on a runner of the same CPU so the binary can be
-    # executed (--version smoke test) before it is packaged.
+    # executed (--version and installed PTY journeys) before it is packaged.
     strategy:
       fail-fast: true
       matrix:
@@ -37,9 +58,11 @@ jobs:
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Resolve the release tag
@@ -50,27 +73,30 @@ jobs:
             version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
             echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
           fi
-      - name: Check the tag matches Cargo.toml
+      - name: Check the tag matches Cargo.toml and Cargo.lock
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
           test "v$version" = "$RELEASE_TAG" || {
             echo "tag $RELEASE_TAG does not match Cargo.toml version $version" >&2
             exit 1
           }
-      - uses: dtolnay/rust-toolchain@1.93.1
+          locked=$(awk '/^name = "ghtui"$/ { getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit }' Cargo.lock)
+          test "$locked" = "$version" || {
+            echo "Cargo.lock ghtui version $locked does not match Cargo.toml version $version" >&2
+            exit 1
+          }
+      - uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93.1
         with:
+          toolchain: 1.93.1
           targets: ${{ matrix.target }}
       # cargo-zigbuild uses zig as the musl C compiler and linker for the
       # bundled SQLite and other C sources, producing fully static binaries.
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.13.0
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-zigbuild
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
+          tool: cargo-zigbuild@0.20.1
       - name: Build
         run: cargo zigbuild --locked --release --bin ghtui --target ${{ matrix.target }}
       - name: Verify the binary is static and reports the tag version
@@ -85,44 +111,54 @@ jobs:
       # INSTALLED binary through the keyboard and mouse PTY journeys before
       # anything is uploaded.
       - name: Install the archive and run the installed-binary PTY journeys
-        shell: bash
         run: |
           check=$(mktemp -d)
           cp dist/ghtui-*.tar.gz "$check/"
           scripts/package-release.sh finish "$RELEASE_TAG" "$check"
           GHTUI_E2E_RELEASE_DIST="$check" cargo test --locked --test tui_e2e v1_release -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/installed-pty.log"
+          # A filter that selects nothing would pass vacuously.
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/installed-pty.log" || {
+            echo "no installed-binary PTY journey ran" >&2
+            exit 1
+          }
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.autoDetach
           GIT_CONFIG_VALUE_0: "false"
           GIT_CONFIG_KEY_1: gc.autoDetach
           GIT_CONFIG_VALUE_1: "false"
+      # Record the SHA-256 of the exact bytes the journeys just tested; the
+      # publish job refuses any archive whose bytes differ.
+      - name: Record the tested archive digest
+        run: |
+          mkdir -p tested
+          (cd dist && sha256sum ghtui-*.tar.gz) > "tested/${{ matrix.target }}.sha256"
+          cat "tested/${{ matrix.target }}.sha256"
       - name: Upload the installed-binary test log
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: installed-pty-${{ matrix.target }}
           path: ${{ runner.temp }}/installed-pty.log
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ghtui-${{ matrix.target }}
-          path: dist/ghtui-*.tar.gz
+          path: |
+            dist/ghtui-*.tar.gz
+            tested/${{ matrix.target }}.sha256
           if-no-files-found: error
 
-  publish:
-    name: publish release
+  assemble:
+    name: assemble and verify release assets
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # Only this job can write, and only on a pushed tag; pull requests never
-    # run this workflow, so fork code never sees these credentials.
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Resolve the release tag
@@ -133,21 +169,25 @@ jobs:
             version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
             echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
           fi
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: ghtui-*
-          path: dist
+          path: ${{ github.workspace }}
           merge-multiple: true
       - name: Write install.sh, release-version.txt and SHA256SUMS
         run: |
           # Refuse a partial matrix: both targets must be present.
           for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            test -f "dist/ghtui-$RELEASE_TAG-$target.tar.gz" || {
+            if [ ! -f "dist/ghtui-$RELEASE_TAG-$target.tar.gz" ] || [ ! -f "tested/$target.sha256" ]; then
               echo "missing archive for $target" >&2
               exit 1
-            }
+            fi
           done
+          # The archives are the exact bytes the installed PTY journeys tested.
+          (cd dist && sha256sum -c ../tested/*.sha256)
           scripts/package-release.sh finish "$RELEASE_TAG" dist
+          (cd dist && sha256sum -c SHA256SUMS)
+          test "$(cat dist/release-version.txt)" = "$RELEASE_TAG"
       - name: Install from the assembled assets before publishing
         run: |
           release=$(mktemp -d)
@@ -156,15 +196,58 @@ jobs:
           cp dist/* "$release/latest/download/"
           bash dist/install.sh --release-base "file://$release" --install-dir "$RUNNER_TEMP/bin"
           test "$("$RUNNER_TEMP/bin/ghtui" --version)" = "ghtui ${RELEASE_TAG#v}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: [build, assemble]
+    # Only this job can write, only for a pushed v* tag, and only inside the
+    # protected `release` environment.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: dist
+      - name: Re-check the assembled assets
+        run: |
+          RELEASE_TAG=$GITHUB_REF_NAME
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          (cd dist && sha256sum -c SHA256SUMS)
+          test "$(cat dist/release-version.txt)" = "$RELEASE_TAG"
       # Build provenance for every asset. Attestations need a public
-      # repository (or a plan that supports them for private ones).
+      # repository (or a plan that supports them for private ones); a private
+      # repository without that support publishes without them and says so.
       - name: Attest build provenance
-        if: ${{ github.event_name == 'push' && github.event.repository.visibility == 'public' }}
-        uses: actions/attest-build-provenance@v2
+        id: attest
+        if: ${{ github.event.repository.visibility == 'public' }}
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/*
+      - name: Verify the provenance attestations
+        if: ${{ steps.attest.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for file in dist/*; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
+          done
+      - name: Note missing attestations
+        if: ${{ steps.attest.outcome == 'skipped' }}
+        run: |
+          echo "::warning::No build provenance attestation: repository is not public."
       - name: Upload a draft GitHub release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -174,7 +257,6 @@ jobs:
             --generate-notes \
             --verify-tag --draft
       - name: Check the uploaded assets are the tested bytes
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -183,13 +265,12 @@ jobs:
           for file in dist/*; do
             cmp -- "$file" "$uploaded/$(basename -- "$file")"
           done
-          test "$(ls "$uploaded" | wc -l)" = "$(ls dist | wc -l)"
+          test "$(find "$uploaded" -type f | wc -l)" = "$(find dist -type f | wc -l)"
           (cd "$uploaded" && sha256sum -c SHA256SUMS)
       # Only now does the release become visible. A tag like v0.2.0-rc.1 is
       # published as a prerelease, so the installer's latest/download URLs
       # keep pointing at the last stable tag.
       - name: Publish the release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
