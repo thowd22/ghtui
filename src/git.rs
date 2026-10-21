@@ -539,6 +539,17 @@ pub enum Operation {
         path: RawPath,
         stage: u8,
     },
+    /// Replace one conflict-marker block of a conflicted working file with the
+    /// chosen lines. Planning records the exact working bytes it read in
+    /// `original`; execution refuses if the file no longer has those bytes.
+    /// The index is never touched, so the user stages the result separately.
+    ResolveConflictBlock {
+        path: RawPath,
+        block: usize,
+        keep: crate::conflict_blocks::ConflictBlockKeep,
+        text: String,
+        original: Vec<u8>,
+    },
     BisectStart {
         good: String,
         bad: String,
@@ -1971,6 +1982,30 @@ impl GitRepository {
         original_config: Option<&[u8]>,
     ) -> GitResult<MutationPlan> {
         let status = self.status()?;
+        // A block resolution is planned against the exact working bytes read
+        // now; execution refuses if the file no longer has them.
+        let operation = match operation {
+            Operation::ResolveConflictBlock {
+                path,
+                block,
+                keep,
+                text,
+                ..
+            } => {
+                let file = self.conflict_block_file_v42(&path, &status)?;
+                let original = std::fs::read(&file)?;
+                crate::conflict_blocks::resolve_conflict_block(&original, block, keep, &text)
+                    .map_err(GitError)?;
+                Operation::ResolveConflictBlock {
+                    path,
+                    block,
+                    keep,
+                    text,
+                    original,
+                }
+            }
+            other => other,
+        };
         let args = self.operation_args(&operation, &status)?;
         let target = match &operation {
             Operation::Fetch { remote }
@@ -2003,11 +2038,20 @@ impl GitRepository {
             }
             _ => self.root.display().to_string(),
         };
-        let effect = args
-            .iter()
-            .map(|arg| display_bytes(arg.as_bytes()))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let effect = match &operation {
+            Operation::ResolveConflictBlock {
+                path, block, keep, ..
+            } => format!(
+                "block {block} → {} in {}; working file only, index unchanged, no Git command",
+                keep.name(),
+                path.display()
+            ),
+            _ => args
+                .iter()
+                .map(|arg| display_bytes(arg.as_bytes()))
+                .collect::<Vec<_>>()
+                .join(" "),
+        };
         let destructive = matches!(
             operation,
             Operation::DeleteBranch { .. }
@@ -2020,6 +2064,7 @@ impl GitRepository {
                 | Operation::Reset { .. }
                 | Operation::DiscardFiles(_)
                 | Operation::ResolveConflict { .. }
+                | Operation::ResolveConflictBlock { .. }
         );
         // SAME five existing fingerprint captures. Legacy None does not
         // compare additional configuration or issue any additional child.
@@ -2143,6 +2188,16 @@ impl GitRepository {
             ));
         }
         let status = self.status()?;
+        if let Operation::ResolveConflictBlock {
+            path,
+            block,
+            keep,
+            text,
+            original,
+        } = &plan.operation
+        {
+            return self.write_conflict_block_v42(&status, path, *block, *keep, text, original);
+        }
         let args = self.operation_args(&plan.operation, &status)?;
         let stdin = match &plan.operation {
             Operation::ApplyPatch { patch, .. } => Some(patch.as_slice()),
@@ -2188,6 +2243,102 @@ impl GitRepository {
         Ok(output)
     }
 
+    /// The exact conflicted regular file a block resolution may rewrite: an
+    /// unmerged path, not a symlink or directory, inside this worktree.
+    fn conflict_block_file_v42(&self, path: &RawPath, status: &RepoStatus) -> GitResult<PathBuf> {
+        validate_path(path)?;
+        if !status
+            .entries
+            .iter()
+            .any(|entry| entry.conflict && entry.path == *path)
+        {
+            return Err(GitError(
+                "Select a conflicted file; block resolution only rewrites unmerged paths".into(),
+            ));
+        }
+        let file = self.root.join(path.as_os_str());
+        let metadata = std::fs::symlink_metadata(&file).map_err(|_| {
+            GitError("The working file is absent; choose a whole-file version instead".into())
+        })?;
+        if !metadata.is_file() {
+            return Err(GitError(
+                "Block resolution needs a regular working file (not a symlink or directory)".into(),
+            ));
+        }
+        if metadata.len() > 2 * 1024 * 1024 {
+            return Err(GitError(
+                "Working file exceeds the 2 MiB block-resolution limit; edit it outside ghtui"
+                    .into(),
+            ));
+        }
+        let root = self.root.canonicalize()?;
+        let parent = file
+            .parent()
+            .ok_or_else(|| GitError("Path must name a file inside the repository".into()))?
+            .canonicalize()?;
+        if !parent.starts_with(&root) {
+            return Err(GitError(
+                "Path must name a file inside the repository".into(),
+            ));
+        }
+        Ok(file)
+    }
+
+    /// Replaces one conflict block in place, after re-checking that the file
+    /// still has the exact bytes the preview was built from. Writes a sibling
+    /// temporary file with the same permissions and renames it over the file.
+    fn write_conflict_block_v42(
+        &self,
+        status: &RepoStatus,
+        path: &RawPath,
+        block: usize,
+        keep: crate::conflict_blocks::ConflictBlockKeep,
+        text: &str,
+        original: &[u8],
+    ) -> GitResult<String> {
+        use std::io::Write;
+        let file = self.conflict_block_file_v42(path, status)?;
+        let current = std::fs::read(&file)?;
+        if current != original {
+            return Err(GitError(format!(
+                "{} changed since the preview; nothing was written. Refresh and confirm a new preview.",
+                path.display()
+            )));
+        }
+        let (resolved, left) =
+            crate::conflict_blocks::resolve_conflict_block(original, block, keep, text)
+                .map_err(GitError)?;
+        let permissions = std::fs::metadata(&file)?.permissions();
+        let name = file
+            .file_name()
+            .ok_or_else(|| GitError("Path must name a file".into()))?;
+        let mut temporary_name = OsString::from(".");
+        temporary_name.push(name);
+        temporary_name.push(format!(".ghtui-resolve-{}", std::process::id()));
+        let temporary = file.with_file_name(temporary_name);
+        let written = (|| -> std::io::Result<()> {
+            let mut handle = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
+            handle.write_all(&resolved)?;
+            handle.set_permissions(permissions)?;
+            handle.sync_all()?;
+            std::fs::rename(&temporary, &file)
+        })();
+        if let Err(error) = written {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        Ok(format!(
+            "Resolved conflict block {block} of {} in {} with {}; {left} block{} left. The index is unchanged: Stage selected file when the file is ready.",
+            left + 1,
+            path.display(),
+            keep.name(),
+            if left == 1 { "" } else { "s" }
+        ))
+    }
+
     fn operation_args(
         &self,
         operation: &Operation,
@@ -2231,6 +2382,7 @@ impl GitRepository {
                     | Operation::Unstage(_)
                     | Operation::ApplyPatch { .. }
                     | Operation::ResolveConflict { .. }
+                    | Operation::ResolveConflictBlock { .. }
                     | Operation::Continue
                     | Operation::Skip
                     | Operation::Abort
@@ -2590,6 +2742,10 @@ impl GitRepository {
                     "--",
                 ]);
                 args.push(path.as_os_str().to_owned());
+            }
+            // Written directly by `write_conflict_block_v42`; no Git child runs.
+            Operation::ResolveConflictBlock { path, .. } => {
+                self.conflict_block_file_v42(path, status)?;
             }
             Operation::Continue | Operation::Skip | Operation::Abort => {
                 let sequencer = status

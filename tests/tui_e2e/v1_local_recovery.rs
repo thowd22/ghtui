@@ -507,3 +507,106 @@ fn reflog_limits(mouse: bool) {
     assert!(session.inspect_command_journal(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
 }
+
+const BLOCK: &str = "Conflict block number (Block N)";
+const KEEP: &str = "Keep (ours, theirs, both, base, edited)";
+const TEXT: &str = "Edited lines (keep = edited)";
+
+#[test]
+fn v1_local_recovery_keyboard_resolve_conflict_blocks_one_at_a_time() {
+    conflict_blocks(false);
+}
+#[test]
+fn v1_local_recovery_mouse_resolve_conflict_blocks_one_at_a_time() {
+    conflict_blocks(true);
+}
+
+/// TASK-42 AC2: two conflict blocks in one file are resolved separately, one
+/// keeping theirs and one with lines typed in ghtui. The index stays unmerged
+/// until the explicit Stage, and the merge then continues with those bytes.
+fn conflict_blocks(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    let body = |first: &str, last: &str| {
+        format!("{first}\nkeep one\nkeep two\nkeep three\nkeep four\nkeep five\n{last}\n")
+    };
+    fixture.commit_file("file.txt", body("one", "two").as_bytes(), "base");
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.commit_file(
+        "file.txt",
+        body("one theirs", "two theirs").as_bytes(),
+        "theirs",
+    );
+    let theirs = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture.git(&["switch", "main"]);
+    fixture.commit_file("file.txt", body("one ours", "two ours").as_bytes(), "ours");
+    let ours = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fixture_git_fails(&fixture, &["merge", "feature"]);
+    let file = fixture.repo().join("file.txt");
+    let unmerged = fixture.git(&["ls-files", "--unmerged"]);
+
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+    session.wait_for_screen("⚠ MERGE PAUSED • 1 unresolved conflict");
+    select_row(&mut session, mouse, "conflicted  file.txt", 0, true);
+    session.wait_for_screen("Conflict in file.txt");
+    session.wait_for_screen("Conflict blocks: 2 • m → Resolve one conflict block");
+    session.wait_for_screen("Block 1 of 2 (lines 1–5): ours 1 line • theirs 1 line");
+    session.wait_for_screen("Block 2 of 2 (lines 11–15): ours 1 line • theirs 1 line");
+
+    // Block 2 keeps the incoming lines; block 1 stays as it is.
+    operation(&mut session, mouse, LocalCommand::ResolveConflictBlock);
+    fill(&mut session, mouse, &[(BLOCK, "2"), (KEEP, "theirs")]);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("Git effect: block 2 → theirs in file.txt");
+    session.wait_for_screen("result │ two theirs");
+    session.wait_for_screen("1 conflict block remain unresolved after this.");
+    assert!(fs::read_to_string(&file).unwrap().contains("two ours"));
+    local::confirm(&mut session, mouse, 3);
+    session.wait_for_screen("Completed • Resolve one conflict block");
+    let after = fs::read_to_string(&file).unwrap();
+    assert!(
+        after.starts_with("<<<<<<< HEAD\none ours\n=======\none theirs\n>>>>>>> feature\n"),
+        "{after}"
+    );
+    assert!(after.ends_with("keep five\ntwo theirs\n"), "{after}");
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), unmerged);
+
+    // The compact layout shows the one remaining block; type its lines.
+    session.resize(80, 24);
+    select_row(&mut session, mouse, "conflicted  file.txt", 0, true);
+    session.wait_for_screen("Conflict blocks: 1");
+    session.wait_for_screen("Block 1 of 1 (lines 1–5)");
+    operation(&mut session, mouse, LocalCommand::ResolveConflictBlock);
+    fill(
+        &mut session,
+        mouse,
+        &[(BLOCK, "1"), (KEEP, "edited"), (TEXT, "one merged")],
+    );
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("Git effect: block 1 → edited text in file.txt");
+    local::confirm(&mut session, mouse, 3);
+    session.wait_for_screen("Completed • Resolve one conflict block");
+    let resolved = body("one merged", "two theirs");
+    assert_eq!(fs::read_to_string(&file).unwrap(), resolved);
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), unmerged);
+
+    select_row(&mut session, mouse, "conflicted  file.txt", 0, true);
+    session.wait_for_screen("Conflict blocks: none left");
+    stage_selected(&mut session, mouse);
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), "");
+    assert_eq!(fixture.git(&["show", ":file.txt"]), resolved);
+    session.wait_for_screen("⚠ MERGE PAUSED • all conflicts resolved and staged");
+
+    operation(&mut session, mouse, LocalCommand::Continue);
+    local::preview(&mut session, mouse);
+    session.wait_for_screen("merge --continue");
+    local::confirm(&mut session, mouse, 0);
+    session.wait_for_screen("Completed • Continue operation");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD^1"]), format!("{ours}\n"));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD^2"]), format!("{theirs}\n"));
+    assert_eq!(fixture.git(&["show", "HEAD:file.txt"]), resolved);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}

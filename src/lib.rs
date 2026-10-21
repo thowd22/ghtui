@@ -14,6 +14,7 @@ pub mod cli;
 pub mod command_palette;
 pub mod comparison;
 pub mod config;
+pub mod conflict_blocks;
 pub mod context_help;
 pub mod corpus_routes;
 pub mod corpus_ui;

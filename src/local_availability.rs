@@ -88,7 +88,9 @@ impl<'a> LocalAvailability<'a> {
             return Some("History writes guarded: replacement/graft overrides active.".into());
         }
         match command {
-            StageFile | UnstageFile | DiscardFile | ResolveConflict if self.path.is_none() => {
+            StageFile | UnstageFile | DiscardFile | ResolveConflict | ResolveConflictBlock
+                if self.path.is_none() =>
+            {
                 Some("Select an exact changed file first.".into())
             }
             StageSelection | UnstageSelection if self.anchor.is_none() => {
@@ -116,7 +118,7 @@ impl<'a> LocalAvailability<'a> {
             Continue | Skip | Abort if self.status.operation.is_none() => {
                 Some("There is no paused Git operation.".into())
             }
-            ResolveConflict
+            ResolveConflict | ResolveConflictBlock
                 if !self
                     .status
                     .entries

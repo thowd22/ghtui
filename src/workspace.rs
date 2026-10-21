@@ -1341,6 +1341,45 @@ impl Workspace {
                         );
                     }
                 }
+                // Number each marker block near the top, so one block can be
+                // resolved at a time without scrolling past every version.
+                let working = repo.root.join(path.as_os_str());
+                if let Some(content) = std::fs::symlink_metadata(&working)
+                    .ok()
+                    .filter(|meta| meta.is_file() && meta.len() <= 512 * 1024)
+                    .and_then(|_| std::fs::read(&working).ok())
+                    .filter(|content| !content.contains(&0))
+                {
+                    match crate::conflict_blocks::parse_conflict_blocks(&content) {
+                        Ok(blocks) if !blocks.is_empty() => {
+                            self.push(
+                                &format!(
+                                    "Conflict blocks: {} • m → Resolve one conflict block keeps ours, theirs, both, base or edited text",
+                                    blocks.len()
+                                ),
+                                SemanticRole::Conflict,
+                                Some(RowAction::Conflict(path.clone())),
+                            );
+                            for (index, block) in blocks.iter().enumerate() {
+                                self.push(
+                                    &block.summary(index + 1, blocks.len()),
+                                    SemanticRole::Reference,
+                                    Some(RowAction::Conflict(path.clone())),
+                                );
+                            }
+                        }
+                        Ok(_) => self.push(
+                            "Conflict blocks: none left • inspect the file, then m → Stage selected file",
+                            SemanticRole::Reference,
+                            Some(RowAction::Conflict(path.clone())),
+                        ),
+                        Err(error) => self.push(
+                            &error,
+                            SemanticRole::Boundary,
+                            Some(RowAction::Conflict(path.clone())),
+                        ),
+                    }
+                }
                 let stages: Vec<_> = repo
                     .conflict_stages()
                     .map_err(|e| e.to_string())?
@@ -1458,7 +1497,7 @@ impl Workspace {
                     ),
                 }
                 self.push(
-                    "Next: m → Choose conflict version or edit the file, then m → Stage selected file • o: Overview",
+                    "Next: m → Choose conflict version (whole file) or Resolve one conflict block, then m → Stage selected file • o: Overview",
                     SemanticRole::Boundary,
                     Some(RowAction::Conflict(path)),
                 );

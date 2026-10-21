@@ -2024,3 +2024,162 @@ fn v1_local_recovery_pruned_expired_and_branch_moved_reflog_entries_are_stated()
         .iter()
         .any(|row| row.label.contains(&tip[..8]) || row.label.contains(&draft[..8])));
 }
+
+/// A paused merge whose file has two diff3 conflict blocks.
+fn v42_two_block_merge(fixture: &Fixture) {
+    fixture.init_git();
+    let body = |first: &str, last: &str| {
+        format!("{first}\nkeep one\nkeep two\nkeep three\nkeep four\nkeep five\n{last}\n")
+    };
+    fixture.commit_file("file.txt", body("one", "two").as_bytes(), "base");
+    fixture.git(&["switch", "-c", "feature"]);
+    fixture.commit_file(
+        "file.txt",
+        body("one theirs", "two theirs").as_bytes(),
+        "theirs",
+    );
+    fixture.git(&["switch", "main"]);
+    fixture.commit_file("file.txt", body("one ours", "two ours").as_bytes(), "ours");
+    assert!(!v1_gaps_git(
+        &fixture.repo(),
+        &["-c", "merge.conflictStyle=diff3", "merge", "feature"]
+    ));
+}
+
+#[test]
+fn v42_conflict_blocks_resolve_one_block_at_a_time_refuse_stale_bytes_and_keep_the_index() {
+    let fixture = Fixture::new();
+    v42_two_block_merge(&fixture);
+    let file = fixture.repo().join("file.txt");
+    let unmerged = fixture.git(&["ls-files", "--unmerged"]);
+    let view = workspace(&fixture, RepositoryMode::Overview);
+    let conflict = view
+        .rows
+        .iter()
+        .position(|row| row.action == Some(RowAction::Conflict(RawPath::new(b"file.txt".to_vec()))))
+        .unwrap();
+    let selected = LocalContext::from_row(&view, conflict);
+    assert_eq!(
+        LocalCommand::ResolveConflictBlock.disabled_reason(&selected),
+        None
+    );
+    // Without a selected conflicted file the command explains itself.
+    let unselected = LocalContext::from_workspace(&view, None, None);
+    assert!(LocalCommand::ResolveConflictBlock
+        .disabled_reason(&unselected)
+        .is_some());
+
+    // Block 2 keeps the common-ancestor lines; block 1 stays unresolved.
+    let plan = prepare(
+        LocalCommand::ResolveConflictBlock,
+        &selected,
+        &[("block", "2"), ("keep", "base")],
+    );
+    for expected in [
+        "Block 2 of 2 (lines 13–19): ours 1 line • theirs 1 line • base 1 line",
+        "  ours │ two ours",
+        "  theirs │ two theirs",
+        "  result │ two",
+        "1 conflict block remain unresolved after this.",
+    ] {
+        assert!(
+            plan.preview.iter().any(|line| line == expected),
+            "{expected}: {:#?}",
+            plan.preview
+        );
+    }
+    assert!(plan.mutation.destructive);
+    assert!(plan
+        .mutation
+        .effect
+        .contains("index unchanged, no Git command"));
+    // Preview is read-only.
+    assert!(fs::read_to_string(&file).unwrap().contains("two ours"));
+    execute(&plan);
+    let after = fs::read_to_string(&file).unwrap();
+    assert!(after.contains("<<<<<<< HEAD\none ours\n"), "{after}");
+    assert!(after.ends_with("keep five\ntwo\n"), "{after}");
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), unmerged);
+    assert!(fixture.repo().join(".git/MERGE_HEAD").exists());
+
+    // A block number past the remaining blocks is refused before any write.
+    let error = LocalPlan::prepare(
+        LocalCommand::ResolveConflictBlock,
+        &selected,
+        &values(&[("block", "2"), ("keep", "ours")]),
+        CancellationToken::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("1 to 1"), "{error}");
+
+    // An edit made outside ghtui after the preview is never overwritten.
+    let plan = prepare(
+        LocalCommand::ResolveConflictBlock,
+        &selected,
+        &[
+            ("block", "1"),
+            ("keep", "edited"),
+            ("text", "one merged\nby hand"),
+        ],
+    );
+    assert!(plan.preview.iter().any(|line| line == "  result │ by hand"));
+    let outside = format!("{after}outside edit\n");
+    fs::write(&file, &outside).unwrap();
+    let error = plan
+        .execute(true, CancellationToken::default())
+        .unwrap_err();
+    assert!(error.contains("since the preview"), "{error}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), outside);
+
+    // A fresh preview resolves the last block with typed lines.
+    let plan = prepare(
+        LocalCommand::ResolveConflictBlock,
+        &selected,
+        &[
+            ("block", "1"),
+            ("keep", "edited"),
+            ("text", "one merged\nby hand"),
+        ],
+    );
+    assert!(plan
+        .preview
+        .iter()
+        .any(|line| line.starts_with("No conflict blocks remain after this")));
+    execute(&plan);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "one merged\nby hand\nkeep one\nkeep two\nkeep three\nkeep four\nkeep five\ntwo\noutside edit\n"
+    );
+    let leftovers: Vec<_> = fs::read_dir(fixture.repo())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("ghtui-resolve"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    // Still unmerged until the user stages; staging records the edited bytes.
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), unmerged);
+    let error = LocalPlan::prepare(
+        LocalCommand::ResolveConflictBlock,
+        &selected,
+        &values(&[("block", "1"), ("keep", "ours")]),
+        CancellationToken::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("no conflict-marker blocks left"), "{error}");
+    let view = workspace(&fixture, RepositoryMode::Overview);
+    let row = view
+        .rows
+        .iter()
+        .position(|row| row.action == Some(RowAction::Conflict(RawPath::new(b"file.txt".to_vec()))))
+        .unwrap();
+    execute(&prepare(
+        LocalCommand::StageFile,
+        &LocalContext::from_row(&view, row),
+        &[],
+    ));
+    assert_eq!(fixture.git(&["ls-files", "--unmerged"]), "");
+    assert_eq!(
+        fixture.git(&["show", ":file.txt"]),
+        fs::read_to_string(&file).unwrap()
+    );
+}

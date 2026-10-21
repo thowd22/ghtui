@@ -20,7 +20,18 @@ fn activate_row(session: &mut Session, mouse: bool, text: &str) {
     }
     session.send_key(&b"\x1b[A".repeat(48));
     for _ in 0..64 {
-        session.poll_output(Duration::from_millis(120));
+        // Let queued keys drain before reading the bar: under load a single
+        // fixed poll can read a frame while earlier keys are still pending, so
+        // later Downs move past the row unseen. Settled = two equal frames.
+        let mut previous = session.screen();
+        for _ in 0..50 {
+            session.poll_output(Duration::from_millis(120));
+            let current = session.screen();
+            if current == previous {
+                break;
+            }
+            previous = current;
+        }
         if session
             .screen()
             .lines()

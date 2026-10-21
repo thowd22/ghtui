@@ -56,9 +56,10 @@ pub enum LocalCommand {
     BisectBad,
     BisectSkip,
     BisectReset,
+    ResolveConflictBlock,
 }
 impl LocalCommand {
-    pub const ALL: [(Self, &'static str); 40] = [
+    pub const ALL: [(Self, &'static str); 41] = [
         (Self::StageFile, "Stage selected file"),
         (Self::UnstageFile, "Unstage selected file"),
         (Self::StageSelection, "Stage selected lines"),
@@ -99,6 +100,8 @@ impl LocalCommand {
         (Self::BisectBad, "Mark version bad"),
         (Self::BisectSkip, "Skip untestable version"),
         (Self::BisectReset, "End bug search"),
+        // Appended last so existing menu positions stay where users learned them.
+        (Self::ResolveConflictBlock, "Resolve one conflict block"),
     ];
     pub fn label(self) -> &'static str {
         Self::ALL
@@ -417,6 +420,19 @@ pub fn fields(command: LocalCommand, context: &LocalContext) -> Vec<LocalField> 
             "ours",
             &["ours", "theirs", "base"],
         )],
+        ResolveConflictBlock => vec![
+            field("block", "Conflict block number (Block N)", "1"),
+            choice(
+                "keep",
+                "Keep (ours, theirs, both, base, edited)",
+                "ours",
+                &crate::conflict_blocks::ConflictBlockKeep::NAMES,
+            ),
+            LocalField {
+                multiline: true,
+                ..field("text", "Edited lines (keep = edited)", "")
+            },
+        ],
         Reset => vec![
             field("revision", "Saved version", revision),
             choice("mode", "Reset effect", "soft", &["soft", "mixed", "hard"]),
@@ -1049,6 +1065,18 @@ impl LocalPlan {
                         .map(sanitize_terminal),
                 );
             }
+        }
+        if let Operation::ResolveConflictBlock {
+            path,
+            block,
+            keep,
+            text,
+            original,
+        } = &mutation.operation
+        {
+            preview.extend(conflict_block_preview_v42(
+                path, *block, *keep, text, original,
+            )?);
         }
         if repo.fingerprint().map_err(|error| error.to_string())? != mutation.observed {
             return Err("Repository changed while preparing the operation preview. Refresh and confirm a new preview.".into());
@@ -1814,6 +1842,17 @@ fn operation(
             path: path()?,
             stage: conflict_stage_v1(&value("stage")?)?,
         },
+        ResolveConflictBlock => Operation::ResolveConflictBlock {
+            path: path()?,
+            block: value("block")?
+                .trim()
+                .parse()
+                .map_err(|_| "Block must be a number such as 1.".to_string())?,
+            keep: crate::conflict_blocks::ConflictBlockKeep::parse(&value("keep")?)?,
+            text: values.get("text").cloned().unwrap_or_default(),
+            // Read from the working file when the preview is planned.
+            original: Vec::new(),
+        },
         RecoverBranch => Operation::RecoverBranch {
             name: value("name")?,
             revision: value("revision")?,
@@ -1838,6 +1877,67 @@ fn operation(
         BisectSkip => Operation::BisectSkip,
         BisectReset => Operation::BisectReset,
     })
+}
+
+/// The block a resolution replaces, what replaces it and what stays unresolved.
+fn conflict_block_preview_v42(
+    path: &RawPath,
+    block: usize,
+    keep: crate::conflict_blocks::ConflictBlockKeep,
+    text: &str,
+    original: &[u8],
+) -> Result<Vec<String>, String> {
+    use crate::conflict_blocks::{block_replacement, parse_conflict_blocks};
+    let blocks = parse_conflict_blocks(original)?;
+    let chosen = blocks
+        .get(block.wrapping_sub(1))
+        .ok_or("Selected conflict block is no longer in the file.")?;
+    let replacement = block_replacement(chosen, keep, text)?;
+    let lines = |bytes: &[u8], prefix: &str| -> Vec<String> {
+        if bytes.is_empty() {
+            return vec![format!("{prefix}(no lines)")];
+        }
+        let body = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        body.split(|byte| *byte == b'\n')
+            .take(60)
+            .map(|line| {
+                format!(
+                    "{prefix}{}",
+                    sanitize_terminal(&crate::git::display_bytes(line))
+                )
+            })
+            .collect()
+    };
+    let mut preview = vec![
+        format!(
+            "Exact file: {} — rewrites only conflict block {block}; other blocks and the index stay as they are.",
+            path.display()
+        ),
+        chosen.summary(block, blocks.len()),
+        format!("Ours ({}):", sanitize_terminal(&chosen.ours_label)),
+    ];
+    preview.extend(lines(&chosen.ours, "  ours │ "));
+    if let Some(base) = &chosen.base {
+        preview.push("Base:".into());
+        preview.extend(lines(base, "  base │ "));
+    }
+    preview.push(format!(
+        "Theirs ({}):",
+        sanitize_terminal(&chosen.theirs_label)
+    ));
+    preview.extend(lines(&chosen.theirs, "  theirs │ "));
+    preview.push(format!("Block {block} becomes ({}):", keep.name()));
+    preview.extend(lines(&replacement, "  result │ "));
+    let left = blocks.len() - 1;
+    preview.push(if left == 0 {
+        "No conflict blocks remain after this; inspect the file, then Stage selected file.".into()
+    } else {
+        format!(
+            "{left} conflict block{} remain unresolved after this.",
+            if left == 1 { "" } else { "s" }
+        )
+    });
+    Ok(preview)
 }
 
 /// Bounded check for unresolved conflict markers at line starts in a regular file.
