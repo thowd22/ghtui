@@ -9,13 +9,13 @@ struct HeldOriginalRepository {
 }
 impl HeldOriginalRepository {
     fn stop(session: &mut Session, fixture: &Fixture, expected: &[GhStep]) -> Self {
-        session.wait_for_command_count(fixture, 57);
+        session.wait_for_command_count(fixture, 59);
         let journal = commands(session, fixture);
-        assert_eq!(journal.len(), 57);
-        let child = &journal[56];
+        assert_eq!(journal.len(), 59);
+        let child = &journal[58];
         assert_eq!(child["matched"], true);
         assert_eq!(child["args"], json!(expected[56].args));
-        assert_eq!(expected[56].args[1], format!("repos/{FIRST}"));
+        assert_eq!(expected[58].args[1], format!("repos/{FIRST}"));
         let pid = i32::try_from(child["pid"].as_u64().unwrap()).unwrap();
         assert!(pid > 0);
         // SAFETY: only this fixture's exact positive live subprocess, never a
@@ -72,10 +72,10 @@ fn fixture_steps(cancel_and_reopen: bool) -> Vec<GhStep> {
     held[15].delay_ms = 15_000;
     held.truncate(16);
     expected.extend(held);
-    assert_eq!(expected.len(), 57);
+    assert_eq!(expected.len(), 59);
     if cancel_and_reopen {
         expected.extend(bridge());
-        assert_eq!(expected.len(), 75);
+        assert_eq!(expected.len(), 77);
     }
     expected
 }
@@ -101,7 +101,7 @@ fn original_checks(session: &mut Session) {
         session,
         &[
             "Exact observed build",
-            "Required rules unavailable",
+            REQUIRED_SUMMARY,
             "ci-actor",
             "[b Back]",
         ],
@@ -118,7 +118,7 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
     let mut session = launch(&fixture, mouse);
     selected(&mut session, &fixture, mouse);
     choose(&mut session, mouse, "[k Checks]", b"k");
-    session.wait_for_command_count(&fixture, 41);
+    session.wait_for_command_count(&fixture, 43);
     original_checks(&mut session);
     select_observed_row(&mut session, mouse, "Exact observed build");
     let sql = sql_state(&fixture);
@@ -142,7 +142,7 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
         .split_whitespace()
         .collect::<String>();
     assert!(explanation.contains("WaitfortheoriginalobservedChecksread"));
-    assert_eq!(commands(&session, &fixture).len(), 57);
+    assert_eq!(commands(&session, &fixture).len(), 59);
     assert_eq!(sql_state(&fixture), sql);
     close_notice(&mut session, mouse);
     original_checks(&mut session);
@@ -165,13 +165,13 @@ fn journey(mouse: bool, cancel_and_reopen: bool) {
             )
             .unwrap();
         held.reaped(&mut session);
-        assert_eq!(commands(&session, &fixture).len(), 57);
+        assert_eq!(commands(&session, &fixture).len(), 59);
         assert_eq!(sql_state(&fixture), sql);
         original_checks(&mut session);
         // Explicit fresh Open must use a new complete 18-child bracket; the
         // retired token/result cannot be reused as a successful observation.
         open_control(&mut session, mouse);
-        session.wait_for_command_count(&fixture, 75);
+        session.wait_for_command_count(&fixture, 77);
         ready(
             &mut session,
             &[

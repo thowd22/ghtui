@@ -33,6 +33,7 @@ fn selected() -> Check {
         url: "https://foreign.invalid/other/repo/actions/runs/999".into(),
         head_sha: "a".repeat(40),
         kind: "check".into(),
+        app_id: None,
     }
 }
 fn check() -> Value {

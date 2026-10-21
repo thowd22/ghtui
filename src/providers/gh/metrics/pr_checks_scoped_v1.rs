@@ -103,6 +103,7 @@ impl<'a> ScopedPrCheckBindingV1<'a> {
             id: observed.id,
             head_sha: observed.head_sha.clone(),
             kind: "check".into(),
+            app_id: None,
             name: String::new(),
             status: String::new(),
             conclusion: String::new(),

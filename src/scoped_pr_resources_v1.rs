@@ -6,7 +6,7 @@ use crate::{
     pr_write_journal::{PrWriteJournal, PrWriteTarget},
     providers::gh::{
         GithubError, GithubErrorKind, GithubProvider, PrResourceKindV1, PrResourceReadLimitsV1,
-        PrResourceReadV1, RepositoryCatalogueAccessLimits,
+        PrResourceReadV1, RepositoryCatalogueAccessLimits, RequiredStateV1,
     },
     repository_view::DiffLayout,
     storage::Cache,
@@ -1052,8 +1052,13 @@ impl ScopedPrResourceViewV1 {
                 }
             }
             PrResourceKindV1::Checks => {
+                let (required_label, required_role) = self.observed.required_rules_notice();
+                rows.push(row(required_label, required_role));
+                self.targets.push(PrResourceRowV1::Notice);
+                let required = self.observed.required_checks();
+                let complete = self.observed.check_coverage().complete_observed()
+                    && self.observed.status_coverage().complete_observed();
                 for label in [
-                    self.observed.required_rules_notice().into(),
                     self.observed.source_limitations().into(),
                     coverage("Check runs", self.observed.check_coverage()),
                     coverage("Status contexts", self.observed.status_coverage()),
@@ -1098,12 +1103,48 @@ impl ScopedPrResourceViewV1 {
                             ),
                             role,
                         );
+                        item.label
+                            .push_str(match required.map(|r| r.required(value)) {
+                                Some(Some(true)) => " • required",
+                                Some(Some(false)) => " • not required",
+                                Some(None) => " • required unknown",
+                                None => "",
+                            });
                         item.actor = value.actor.clone();
                         if item.actor.is_none() {
                             item.label.push_str(" • actor unavailable");
                         }
                         rows.push(item);
                         self.targets.push(PrResourceRowV1::Check(status, i));
+                    }
+                }
+                // Required contexts without a satisfying observed result follow
+                // the result rows, so every Check target keeps its index.
+                if let Some(required) = required {
+                    let observed: Vec<_> = self
+                        .observed
+                        .checks()
+                        .iter()
+                        .chain(self.observed.statuses())
+                        .collect();
+                    for (context, state) in required.states(&observed) {
+                        let label = match state {
+                            RequiredStateV1::NotReported if complete => {
+                                "required • expected, not reported for this head"
+                            }
+                            RequiredStateV1::NotReported => {
+                                "required • not seen in the incomplete observed results"
+                            }
+                            RequiredStateV1::Unverified => {
+                                "required • reported without the app the rule pins"
+                            }
+                            _ => continue,
+                        };
+                        rows.push(row(
+                            format!("{} {context} • {label}", SemanticToken::Pending.symbol()),
+                            SemanticToken::Pending,
+                        ));
+                        self.targets.push(PrResourceRowV1::Notice);
                     }
                 }
             }

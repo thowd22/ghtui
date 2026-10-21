@@ -49,7 +49,7 @@ fn run(mouse: bool, large_yaml: bool) {
             actual_confirm[16] = wf("active");
         }
         expected.extend(actual_confirm);
-        assert_eq!(expected.len(), 126);
+        assert_eq!(expected.len(), 128);
         if drift.is_none() {
             expected.extend(history());
             if !large_yaml {
@@ -66,7 +66,7 @@ fn run(mouse: bool, large_yaml: bool) {
         open_original_form(&mut session, &fixture, mouse);
         let after = session.completed_cells_end();
         form_action(&mut session, mouse, FORM, "[Confirm action]");
-        session.wait_for_command_count(&fixture, 126);
+        session.wait_for_command_count(&fixture, 128);
         cells(
             &mut session,
             after,
@@ -137,7 +137,7 @@ fn run(mouse: bool, large_yaml: bool) {
                 "accepted_pending"
             );
         } else {
-            session.wait_for_command_count(&fixture, 135);
+            session.wait_for_command_count(&fixture, 137);
             owned_v120::visible(
                 &mut session,
                 mouse,
@@ -152,7 +152,7 @@ fn run(mouse: bool, large_yaml: bool) {
             if !large_yaml {
                 let after = session.completed_cells_end();
                 form_action(&mut session, mouse, HISTORY, "[F4 Acknowledge locally]");
-                session.wait_for_command_count(&fixture, 144);
+                session.wait_for_command_count(&fixture, 146);
                 owned_v120::visible(
                     &mut session,
                     mouse,
@@ -168,7 +168,7 @@ fn run(mouse: bool, large_yaml: bool) {
                 );
                 let after = session.completed_cells_end();
                 form_action(&mut session, mouse, HISTORY, "[View original]");
-                session.wait_for_command_count(&fixture, 153);
+                session.wait_for_command_count(&fixture, 155);
                 owned_v120::visible(
                     &mut session,
                     mouse,
@@ -278,7 +278,7 @@ fn over_rows_refusal_v120(mouse: bool) {
     open_run(&mut session, &fixture, mouse);
     let after = session.completed_cursorless_end();
     control(&mut session, mouse, "Workflows", b"W");
-    session.wait_for_command_count(&fixture, 70);
+    session.wait_for_command_count(&fixture, 72);
     session.wait_for_new_cursorless_condition(
         after,
         |frame| {
@@ -292,7 +292,7 @@ fn over_rows_refusal_v120(mouse: bool) {
     let trace = git_commands(&fixture);
     let after = session.completed_cursorless_end();
     original_workflow_row(&mut session, mouse);
-    session.wait_for_command_count(&fixture, 84);
+    session.wait_for_command_count(&fixture, 86);
     session.wait_for_new_cursorless_condition(
         after,
         |frame| {

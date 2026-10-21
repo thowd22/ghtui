@@ -41,7 +41,9 @@ impl PrResourceReadLimitsV1 {
     pub fn max_external_requests(&self, kind: PrResourceKindV1) -> usize {
         match kind {
             PrResourceKindV1::Files => 3 + self.max_pages_per_source,
-            PrResourceKindV1::Checks => 2 + self.max_pages_per_source * 2,
+            // Opening/closing parent, both observed sources, then the base
+            // branch's classic protection and rulesets page.
+            PrResourceKindV1::Checks => 4 + self.max_pages_per_source * 2,
         }
     }
 }
@@ -201,6 +203,8 @@ pub struct PrResourceReadV1 {
     pub(super) file_coverage: PrResourceCoverageV1,
     pub(super) check_coverage: PrResourceCoverageV1,
     pub(super) status_coverage: PrResourceCoverageV1,
+    /// The base branch's required contexts, read for Checks only.
+    pub(super) required: Option<RequiredChecksV1>,
     pub(super) patch: Option<Vec<u8>>,
     pub(super) patch_failure: Option<GithubErrorKind>,
 }
@@ -260,6 +264,19 @@ impl PrResourceReadV1 {
                 n = n.checked_add(b::actor(actor)?)?;
             }
         }
+        match &self.required {
+            Some(RequiredChecksV1::Known { base_ref, contexts }) => {
+                n = n.checked_add(b::sum([
+                    base_ref.capacity(),
+                    b::vector(contexts)?,
+                    b::strings(contexts.iter().map(|context| &context.context))?,
+                ])?)?;
+            }
+            Some(RequiredChecksV1::Unavailable { base_ref, reason }) => {
+                n = n.checked_add(b::strings([base_ref, reason])?)?;
+            }
+            None => {}
+        }
         for coverage in [
             &self.file_coverage,
             &self.check_coverage,
@@ -305,8 +322,31 @@ impl PrResourceReadV1 {
     pub fn patch_failure(&self) -> Option<&GithubErrorKind> {
         self.patch_failure.as_ref()
     }
-    pub fn required_rules_notice(&self) -> &'static str {
-        "Required rules unavailable; observed results are not certified merge blockers"
+    /// The base branch's required-check answer; `None` outside Checks.
+    pub fn required_checks(&self) -> Option<&RequiredChecksV1> {
+        self.required.as_ref()
+    }
+    /// One header line for the required rules and the role that colours it.
+    /// A required context that was not seen is only "not reported" when both
+    /// observed sources were enumerated completely.
+    pub fn required_rules_notice(&self) -> (String, crate::theme::SemanticToken) {
+        use crate::theme::SemanticToken;
+        let Some(required) = &self.required else {
+            return (
+                "Required rules unavailable; observed results are not certified merge blockers"
+                    .into(),
+                SemanticToken::Muted,
+            );
+        };
+        let observed: Vec<&ObservedPrCheckV1> = self.checks.iter().chain(&self.statuses).collect();
+        let (mut text, role) = required.summary(&observed);
+        if matches!(required, RequiredChecksV1::Known { contexts, .. } if !contexts.is_empty())
+            && !(self.check_coverage.complete_observed()
+                && self.status_coverage.complete_observed())
+        {
+            text.push_str(" • observed results incomplete");
+        }
+        (text, role)
     }
     pub fn source_limitations(&self) -> &'static str {
         "API-visible latest results; non-atomic, fork association and 1,000-suite limits; not all history"

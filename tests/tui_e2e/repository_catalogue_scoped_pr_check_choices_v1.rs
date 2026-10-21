@@ -116,11 +116,8 @@ fn script_choices(ambiguous: bool, missing: bool, lost: bool) -> Vec<GhStep> {
 fn candidate_source(session: &mut Session, fixture: &Fixture, mouse: bool, ambiguous: bool) {
     selected(session, fixture, mouse);
     choose(session, mouse, "[k Checks]", b"k");
-    session.wait_for_command_count(fixture, 41);
-    ready(
-        session,
-        &["Exact observed build", "Required rules unavailable"],
-    );
+    session.wait_for_command_count(fixture, 43);
+    ready(session, &["Exact observed build", REQUIRED_SUMMARY]);
     select_observed_row(session, mouse, "Exact observed build");
     // Open check joins the key bar only once a check row is selected.
     session.wait_for_control("[Enter Open check]");
@@ -131,7 +128,7 @@ fn candidate_source(session: &mut Session, fixture: &Fixture, mouse: bool, ambig
         session.wait_for_control("[Enter Open check]");
         session.send_key(b"\r");
     }
-    session.wait_for_command_count(fixture, if ambiguous { 56 } else { 59 });
+    session.wait_for_command_count(fixture, if ambiguous { 58 } else { 61 });
     overlay_ready(
         session,
         "Action unavailable",
@@ -162,7 +159,7 @@ fn completed_back_to_checks(session: &mut Session, mouse: bool) {
                 crate::support::controls::control_painted(frame, "[f Files]")
                     && crate::support::controls::control_painted(frame, "[k Checks]")
                     && text.contains("Exact observed build")
-                    && text.contains("Required rules unavailable")
+                    && text.contains(REQUIRED_SUMMARY)
                     && !crate::support::controls::control_painted(frame, "[C Candidates]")
                     && !text.contains("[Esc Cancel]")
             })
@@ -304,7 +301,7 @@ fn chooser_journey(mouse: bool, ambiguous: bool, missing: bool, lost: bool) {
     candidate_source(&mut session, &fixture, mouse, ambiguous);
     let before = sql_state(&fixture);
     let trace = git_commands(&fixture);
-    let selected_count = if ambiguous { 74 } else { 77 };
+    let selected_count = if ambiguous { 76 } else { 79 };
     pick(
         &mut session,
         &fixture,
@@ -346,12 +343,9 @@ fn chooser_journey(mouse: bool, ambiguous: bool, missing: bool, lost: bool) {
         ready(&mut session, &["Run 123 • attempt 2"]);
         assert!(!session.screen().contains(OTHER_LOG));
         assert!(!session.screen().contains("logs: 0"));
-        assert_eq!(commands(&session, &fixture).len(), 93);
+        assert_eq!(commands(&session, &fixture).len(), 95);
         completed_back_to_checks(&mut session, mouse);
-        ready(
-            &mut session,
-            &["Exact observed build", "Required rules unavailable"],
-        );
+        ready(&mut session, &["Exact observed build", REQUIRED_SUMMARY]);
     } else {
         ready(&mut session, &[OTHER_LOG, "Other selected log line 00"]);
         assert!(!session.screen().contains("EXACT_MATCHED_JOB_LOG_CANARY"));
@@ -393,10 +387,7 @@ fn chooser_journey(mouse: bool, ambiguous: bool, missing: bool, lost: bool) {
         ready(&mut session, &["1 matches in captured job 502 attempt 2"]);
         assert_eq!(sql_state(&fixture), before);
         completed_back_to_checks(&mut session, mouse);
-        ready(
-            &mut session,
-            &["Exact observed build", "Required rules unavailable"],
-        );
+        ready(&mut session, &["Exact observed build", REQUIRED_SUMMARY]);
         assert!(!session.screen().contains(OTHER_LOG));
     }
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });

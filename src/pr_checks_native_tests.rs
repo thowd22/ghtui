@@ -72,6 +72,7 @@ fn github() -> GithubWorkspace {
             url: "https://github.invalid/aaa/unrelated/actions/runs/999".into(),
             head_sha: original.head_sha.clone(),
             kind: "check".into(),
+            app_id: None,
         },
         Check {
             id: 601,
@@ -81,6 +82,7 @@ fn github() -> GithubWorkspace {
             url: String::new(),
             head_sha: original.head_sha.clone(),
             kind: "check".into(),
+            app_id: None,
         },
         Check {
             id: 0,
@@ -90,6 +92,7 @@ fn github() -> GithubWorkspace {
             url: "https://github.invalid/example/repo".into(),
             head_sha: original.head_sha.clone(),
             kind: "status".into(),
+            app_id: None,
         },
     ];
     let mut page = PrPage {

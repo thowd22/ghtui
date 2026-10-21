@@ -102,7 +102,7 @@ fn corrective_current_hidden_final_uid43_direct_install_draw_has_no_close_or_nex
             assert!(corrective::publish(&mut app, &owner, result));
         }
         hidden_now(&mut app);
-        assert_eq!(steps.len(), 63);
+        assert_eq!(steps.len(), 65);
         read_only(&f, &before, &git, &steps);
     }
 }

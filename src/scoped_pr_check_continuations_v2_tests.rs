@@ -281,7 +281,7 @@ fn continued_annotations_actual_matched_job20_current_location_not_canonical_ran
     assert!(app.actions.as_ref().unwrap().rows[0]
         .label
         .contains("not a canonical file range"));
-    assert_eq!(s.len(), 68);
+    assert_eq!(s.len(), 70);
     read_only(&f, &before, &git, &s);
 }
 #[test]
@@ -636,7 +636,7 @@ fn continued_annotations_local_guard_failure_real_closing_uid_priority_no_privat
             phases,
             vec![(
                 crate::providers::gh::PrCheckAnnotationPhaseV2::BeforeAnnotations,
-                58
+                60
             )]
         );
         assert!(!error.message.contains(DRAFT));
@@ -668,7 +668,7 @@ fn continued_annotations_closing_source_sql_cas_hides_without_rebasing_or_final_
         .to_owned();
     let journal = f.root.join("gh-fixture/commands.jsonl");
     let concurrent = std::thread::spawn(move || {
-        wait_count(&journal, 66);
+        wait_count(&journal, 68);
         let db = rusqlite::Connection::open(path).unwrap();
         assert_eq!(db.execute("INSERT INTO saved_views(host,login,name,payload) VALUES(?1,'user-id:42',?2,'NEW_ORIGINAL_SQL_CANARY') ON CONFLICT(host,login,name) DO UPDATE SET payload=excluded.payload",rusqlite::params![HOST,key]).unwrap(),1);
     });
@@ -747,7 +747,7 @@ fn continued_exact_refresh18_observed_attempt_preserves_no_mutation_or_required_
     );
     assert!(!app.actions.as_ref().unwrap().coverage.complete);
     assert!(app.form.is_none());
-    assert_eq!(s.len(), 66);
+    assert_eq!(s.len(), 68);
     read_only(&f, &before, &git, &s);
 }
 fn advance() -> Vec<GhStep> {
@@ -808,7 +808,7 @@ fn continued_attempt_advance16_retains_original2_and_latest3_no_auto_adoption() 
         app.pr_checks_route.as_ref().unwrap().observation()
     ));
     assert!(app.pr_check_watch_v2.is_none());
-    assert_eq!(s.len(), 64);
+    assert_eq!(s.len(), 66);
     read_only(&f, &before, &git, &s);
 }
 #[test]
@@ -1135,7 +1135,7 @@ fn continued_watch_current_failed_proof_hides_private_even_when_quota_stops() {
     assert!(app.pr_checks_route.is_none());
     assert!(app.pr_check_watch_v2.is_none());
     assert!(!app.status.contains(DRAFT));
-    assert_eq!(s.len(), 63);
+    assert_eq!(s.len(), 65);
     read_only(&f, &before, &git, &s);
 }
 #[test]
@@ -1159,7 +1159,7 @@ fn continued_annotation_huge_multibyte_failed_capture_no_further_child_or_false_
     );
     finish(&mut app, prepared);
     assert!(app.actions.is_none());
-    assert_eq!(s.len(), 59);
+    assert_eq!(s.len(), 61);
     assert!(!app.status.contains("🦀"));
     read_only(&f, &before, &git, &s);
 }
@@ -1229,7 +1229,7 @@ fn continued_annotation_private_callback_time_uses_original_clock_no_next_child(
         .unwrap_err();
     assert_eq!(phases, 1);
     assert!(!error.message.contains(DRAFT));
-    assert_eq!(s.len(), 58);
+    assert_eq!(s.len(), 60);
     read_only(&f, &before, &git, &s);
 }
 #[test]
@@ -1271,6 +1271,6 @@ fn continued_other502_manual_log_refresh18_replaces_capture_without_retained_his
         "No capture history/route chain retained after a genuine replacement"
     );
     assert!(app.pr_check_log_matches_v2.is_none());
-    assert_eq!(s.len(), 84);
+    assert_eq!(s.len(), 86);
     read_only(&f, &before, &git, &s);
 }

@@ -35,7 +35,7 @@ fn original(known: bool) -> Vec<GhStep> {
     let mut all = initial();
     all.extend(resource_operation(true));
     all.extend(op);
-    assert_eq!(all.len(), 59);
+    assert_eq!(all.len(), 61);
     all
 }
 fn open_job(session: &mut Session, fixture: &Fixture, mouse: bool) {
@@ -51,7 +51,7 @@ fn open_job(session: &mut Session, fixture: &Fixture, mouse: bool) {
         session,
         &["[> Next failed step]", "[< Previous failed step]"],
     );
-    assert_eq!(commands(session, fixture).len(), 59);
+    assert_eq!(commands(session, fixture).len(), 61);
 }
 fn navigate(session: &mut Session, mouse: bool, next: bool, number: u64) {
     let previous = session.completed_cursorless_end();
@@ -98,18 +98,18 @@ fn journey(mouse: bool, known: bool, lost: bool) {
     if lost {
         let previous = session.completed_cursorless_end();
         control(&mut session, mouse, "[r Refresh]", b"r");
-        session.wait_for_command_count(&fixture, 74);
+        session.wait_for_command_count(&fixture, 76);
         completed_action(&mut session, previous, "private results hidden");
         assert!(!session.screen().contains("[> Next failed step]"));
         assert!(!session.screen().contains(step_cell(2)));
         session.send_key(b">");
         session.poll_output(Duration::from_millis(30));
-        assert_eq!(commands(&session, &fixture).len(), 74);
+        assert_eq!(commands(&session, &fixture).len(), 76);
         assert!(!session.screen().contains("Sparse reported failure"));
     } else if known {
         for (next, number) in [(true, 2), (true, 17), (true, 2), (false, 17)] {
             navigate(&mut session, mouse, next, number);
-            assert_eq!(commands(&session, &fixture).len(), 59);
+            assert_eq!(commands(&session, &fixture).len(), 61);
             assert_eq!(sql_state(&fixture), before);
         }
         for width in [40, 80, 120] {
@@ -122,7 +122,7 @@ fn journey(mouse: bool, known: bool, lost: bool) {
             );
             navigate(&mut session, mouse, true, 2);
             navigate(&mut session, mouse, false, 17);
-            assert_eq!(commands(&session, &fixture).len(), 59);
+            assert_eq!(commands(&session, &fixture).len(), 61);
         }
         assert!(!session.screen().contains("selective step capture"));
         let previous = session.completed_cursorless_end();
@@ -131,7 +131,7 @@ fn journey(mouse: bool, known: bool, lost: bool) {
         } else {
             session.send_key(b"\r")
         }
-        session.wait_for_command_count(&fixture, 74);
+        session.wait_for_command_count(&fixture, 76);
         completed_action(&mut session, previous, "EXACT_MATCHED_JOB_LOG_CANARY");
         // Sparse reported number17 is NEVER a transport locator: only the
         // already-admitted whole job501 log bracket was executed.
@@ -168,7 +168,7 @@ fn journey(mouse: bool, known: bool, lost: bool) {
             close_notice(&mut session, mouse);
             completed_action(&mut session, previous, "[> Next failed step]");
             ready(&mut session, &[step_cell(0), "[> Next failed step]"]);
-            assert_eq!(commands(&session, &fixture).len(), 59);
+            assert_eq!(commands(&session, &fixture).len(), 61);
         }
     }
     finish_read(

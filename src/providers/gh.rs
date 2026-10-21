@@ -77,8 +77,10 @@ pub(crate) use repository_catalogue::{
 mod remote_repository_v1;
 pub use remote_repository_v1::*;
 mod required_checks_v1;
+pub(crate) use required_checks_v1::read_required_checks_v1;
 pub use required_checks_v1::{
-    RequiredChecksV1, RequiredContextV1, RequiredSourceV1, RequiredStateV1,
+    context_matches, ObservedContextV1, RequiredChecksV1, RequiredContextV1, RequiredSourceV1,
+    RequiredStateV1,
 };
 mod pr_create_v1;
 pub(in crate::providers) mod pr_issue_links_v87;
@@ -316,6 +318,9 @@ pub struct Check {
     pub url: String,
     pub head_sha: String,
     pub kind: String,
+    /// The GitHub App that reported a check run; commit statuses name none.
+    #[serde(default)]
+    pub app_id: Option<u64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Workflow {
@@ -1334,6 +1339,11 @@ impl GithubProvider {
                 url: text(v, "details_url"),
                 head_sha: text(v, "head_sha"),
                 kind: "check".into(),
+                app_id: v
+                    .get("app")
+                    .and_then(|app| app.get("id"))
+                    .and_then(Value::as_u64)
+                    .filter(|id| *id > 0),
             })
             .collect();
         if checks.iter().any(|check| {
@@ -1383,6 +1393,7 @@ impl GithubProvider {
                 url: text(&v, "target_url"),
                 head_sha: sha.into(),
                 kind: "status".into(),
+                app_id: None,
             });
         }
         Ok(checks)

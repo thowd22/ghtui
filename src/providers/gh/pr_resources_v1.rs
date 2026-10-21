@@ -366,6 +366,7 @@ impl GithubProvider {
             file_coverage: Default::default(),
             check_coverage: Default::default(),
             status_coverage: Default::default(),
+            required: None,
             patch: None,
             patch_failure: None,
         };
@@ -394,6 +395,12 @@ impl GithubProvider {
                     collect_checks(self, &observed.parent, true, limits, cancel)?;
                 observed.statuses = statuses;
                 observed.status_coverage = coverage;
+                observed.required = Some(scoped_required_checks(
+                    self,
+                    observed.parent.summary(),
+                    limits,
+                    cancel,
+                )?);
             }
         }
         let closing = match kind {
@@ -414,6 +421,52 @@ impl GithubProvider {
         checked_finished(self, cancel)?;
         Ok(observed)
     }
+}
+/// The base branch's required contexts through the same measured window: one
+/// classic-protection GET and one rulesets page. A full rulesets page may hide
+/// more rules, so it is an explicit Unavailable answer, never a partial set.
+fn scoped_required_checks(
+    provider: &GithubProvider,
+    parent: &PrSummary,
+    limits: &PrResourceReadLimitsV1,
+    cancel: &CancellationToken,
+) -> GithubResult<RequiredChecksV1> {
+    let repo = &parent.pr.repository;
+    let mut truncated = false;
+    let required = read_required_checks_v1(
+        &parent.base_ref,
+        cancel,
+        |branch| {
+            document(
+                provider,
+                &format!("repos/{repo}/branches/{branch}"),
+                limits.max_document_bytes,
+                cancel,
+                false,
+            )
+        },
+        |branch| {
+            let value = document(
+                provider,
+                &format!("repos/{repo}/rules/branches/{branch}?per_page=100&page=1"),
+                limits.max_document_bytes,
+                cancel,
+                false,
+            )?;
+            let Value::Array(rules) = value else {
+                return Err(safe(GithubErrorKind::Json));
+            };
+            truncated = rules.len() >= 100;
+            Ok(rules)
+        },
+    )?;
+    if truncated {
+        return Ok(RequiredChecksV1::Unavailable {
+            base_ref: parent.base_ref.clone(),
+            reason: "rulesets exceed one page".into(),
+        });
+    }
+    Ok(required)
 }
 fn checked_finished(provider: &GithubProvider, cancel: &CancellationToken) -> GithubResult<()> {
     provider

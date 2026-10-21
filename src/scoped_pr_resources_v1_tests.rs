@@ -11,6 +11,7 @@ use crate::providers::gh::{
     PrResourceKindV1, PrResourceReadLimitsV1, RepositoryCatalogueAccessLimits,
 };
 use crate::scoped_pr_observed_tabs_v1::resources::*;
+use crate::theme::SemanticToken;
 
 const PATCH:&[u8]=b"diff --git a/src/view.rs b/src/view.rs\n--- a/src/view.rs\n+++ b/src/view.rs\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n";
 fn resource_parent(name: &str) -> Value {
@@ -64,13 +65,42 @@ fn resource_steps(kind: PrResourceKindV1, name: &str) -> Vec<GhStep> {
                 ),
                 status_page(name),
             ));
+            steps.extend(required_steps(name, branch_protection(92), rules_page()));
         }
     }
     steps.push(get(&format!("repos/{name}/pulls/7"), resource_parent(name)));
     steps.push(get(&format!("repos/{REPO}"), repo(410, name)));
     steps.extend(principal(42, "renamed-same-positive-principal"));
-    assert_eq!(steps.len(), 10);
+    assert_eq!(
+        steps.len(),
+        if kind == PrResourceKindV1::Checks {
+            12
+        } else {
+            10
+        }
+    );
     steps
+}
+/// Classic protection on `main` requiring Build600 from `app`.
+fn branch_protection(app: u64) -> Value {
+    json!({"name":"main","protected":true,"protection":{"enabled":true,"required_status_checks":{
+        "enforcement_level":"non_admins","contexts":["Build600"],
+        "checks":[{"context":"Build600","app_id":app}]}}})
+}
+/// One active ruleset requiring the `lint` status and an unreported `release-gate`.
+fn rules_page() -> Value {
+    json!([{"type":"pull_request","parameters":{}},
+        {"type":"required_status_checks","parameters":{"required_status_checks":[
+            {"context":"lint"},{"context":"release-gate"}]}}])
+}
+fn required_steps(name: &str, branch: Value, rules: Value) -> [GhStep; 2] {
+    [
+        get(&format!("repos/{name}/branches/main"), branch),
+        get(
+            &format!("repos/{name}/rules/branches/main?per_page=100&page=1"),
+            rules,
+        ),
+    ]
 }
 fn script(op: &[GhStep]) -> Vec<GhStep> {
     let mut steps = source_steps();
@@ -484,19 +514,135 @@ fn scoped_pr_resource_checks_nullable_actor_time_and_required_rules_are_not_zero
     assert_eq!(view.observed().checks()[0].id, 600);
     assert!(view.observed().checks()[0].actor_id.is_none());
     assert!(view.observed().checks()[0].completed_at.is_none());
+    // Build600 (app 92, as pinned) failed, lint is pending, release-gate never ran.
+    let labels: Vec<&str> = result.page.rows.iter().map(|r| r.label.as_str()).collect();
+    assert!(labels.iter().any(|label| label
+        .contains("Required on main: 1 failing, 1 pending, 1 not reported")
+        && !label.contains("incomplete")));
     assert!(result
         .page
         .rows
         .iter()
-        .any(|row| row.label.contains("Required rules unavailable")));
+        .any(|row| row.label.contains("Check#600")
+            && row.label.contains(" • required")
+            && row.role == SemanticToken::Failure));
+    assert!(labels
+        .iter()
+        .any(|label| label.contains("Status#700") && label.contains(" • required")));
+    assert!(labels
+        .iter()
+        .any(|label| label
+            .contains("release-gate • required • expected, not reported for this head")));
+    assert!(!labels
+        .iter()
+        .any(|label| label.contains("Required rules unavailable")));
     assert!(result
         .page
         .rows
         .iter()
         .any(|row| row.label.contains("not an Actions run")));
     assert!(result.page.checks.is_none());
-    assert_eq!(result.accounting.children_started(), 4);
+    assert_eq!(result.accounting.children_started(), 6);
     effects(&fixture, &before, &git, &steps);
+}
+#[test]
+fn scoped_pr_resource_required_contexts_match_by_name_and_the_app_the_rule_pins() {
+    let mut op = resource_steps(PrResourceKindV1::Checks, REPO);
+    // Classic protection pins Build600 to app 77, but app 92 reported it; the
+    // ruleset pins the `lint` status to app 5, and statuses name no app.
+    let rules = json!([{"type":"required_status_checks","parameters":{"required_status_checks":[
+        {"context":"lint","integration_id":5}]}}]);
+    let [branch, rules] = required_steps(REPO, branch_protection(77), rules);
+    op[6] = branch;
+    op[7] = rules;
+    let steps = script(&op);
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&steps);
+    let (source, scope, mut workspace) = opened(&fixture);
+    let before = sql_state(&fixture);
+    let git = git_state_resource(&fixture);
+    let result = run_resource(
+        &fixture,
+        source,
+        scope,
+        &mut workspace,
+        PrResourceKindV1::Checks,
+        &Default::default(),
+    )
+    .unwrap();
+    let labels: Vec<&str> = result.page.rows.iter().map(|r| r.label.as_str()).collect();
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.contains("Required on main: 1 not reported, 1 app unverified")),
+        "{labels:#?}"
+    );
+    assert!(labels
+        .iter()
+        .any(|label| label.contains("Check#600") && label.contains(" • not required")));
+    assert!(labels
+        .iter()
+        .any(|label| label.contains("Status#700") && label.contains(" • required unknown")));
+    assert!(labels
+        .iter()
+        .any(|label| label.contains("Build600 • required • expected, not reported for this head")));
+    assert!(labels
+        .iter()
+        .any(|label| label.contains("lint • required • reported without the app the rule pins")));
+    assert_eq!(result.accounting.children_started(), 6);
+    effects(&fixture, &before, &git, &steps);
+}
+#[test]
+fn scoped_pr_resource_unreadable_rules_are_unavailable_not_an_empty_required_set() {
+    for case in 0..2 {
+        let mut op = resource_steps(PrResourceKindV1::Checks, REPO);
+        if case == 0 {
+            // A hidden branch-protection read stops before the rulesets read.
+            op[6].status = 1;
+            op[6].stdout = Vec::new();
+            op[6].stderr = b"gh: Not Found (HTTP 404)".to_vec();
+            op.remove(7);
+        } else {
+            op[7] = get(
+                &op[7].args[1],
+                Value::Array((0..100).map(|_| json!({"type":"pull_request"})).collect()),
+            );
+        }
+        let steps = script(&op);
+        let fixture = Fixture::new();
+        fixture.scripted_gh(&steps);
+        let (source, scope, mut workspace) = opened(&fixture);
+        let before = sql_state(&fixture);
+        let git = git_state_resource(&fixture);
+        let result = run_resource(
+            &fixture,
+            source,
+            scope,
+            &mut workspace,
+            PrResourceKindV1::Checks,
+            &Default::default(),
+        )
+        .unwrap();
+        let labels: Vec<&str> = result.page.rows.iter().map(|r| r.label.as_str()).collect();
+        let expected = if case == 0 {
+            "Required checks on main unavailable: branch protection"
+        } else {
+            "Required checks on main unavailable: rulesets exceed one page"
+        };
+        assert!(
+            labels.iter().any(|label| label.starts_with(expected)),
+            "{labels:#?}"
+        );
+        // Nothing is called required or optional while the rules are unknown.
+        assert!(labels
+            .iter()
+            .filter(|label| label.contains("Check#") || label.contains("Status#"))
+            .all(|label| label.ends_with(" • required unknown")));
+        assert!(!labels
+            .iter()
+            .any(|label| label.contains("not required") || label.contains("required • ")));
+        effects(&fixture, &before, &git, &steps);
+    }
 }
 #[test]
 fn scoped_pr_resource_raw_base_repository_id_node_missing_cannot_be_name_authority() {
@@ -584,7 +730,7 @@ fn scoped_pr_resource_current_owner_repo_permission_and_numeric_principal_refuse
             op[2] = get(&format!("repos/{REPO}"), value);
             op.truncate(3);
         } else {
-            op[9] = get("user", json!({"id":43,"login":"octocat"}));
+            op[11] = get("user", json!({"id":43,"login":"octocat"}));
         }
         let steps = script(&op);
         let fixture = Fixture::new();
@@ -681,10 +827,22 @@ fn scoped_pr_resource_missing_coverage_unknown_and_genuine_observed_empty_are_di
         assert_eq!(view.observed().check_coverage().complete_empty(), !missing);
         assert!(view.observed().status_coverage().complete_empty());
         assert!(view.observed().checks().is_empty());
-        assert!(view
-            .observed()
-            .required_rules_notice()
-            .contains("unavailable"));
+        // Nothing satisfies a required context, but "not reported" is only
+        // claimed outright when both sources were enumerated completely.
+        let (notice, role) = view.observed().required_rules_notice();
+        assert!(notice.starts_with("Required on main: 3 not reported"));
+        assert_eq!(notice.contains("observed results incomplete"), missing);
+        assert_eq!(role, SemanticToken::Pending);
+        let incomplete = result
+            .page
+            .rows
+            .iter()
+            .filter(|row| {
+                row.label
+                    .contains("not seen in the incomplete observed results")
+            })
+            .count();
+        assert_eq!(incomplete, if missing { 3 } else { 0 });
         effects(&fixture, &before, &git, &steps);
     }
 }
@@ -876,8 +1034,9 @@ fn scoped_pr_resource_failed_multibyte_capture_charged_and_no_child_over_remaini
     op[4].stdout = "界".repeat(2000).into_bytes();
     op[4].stderr = "\x1b[0m".repeat(3000).into_bytes();
     // After failed4096 capture, neither another4096 source nor its4096 closing
-    // hold fits10KiB. It must launch ONLY the already reserved closing parent.
-    op.remove(5);
+    // hold fits10KiB. It must launch ONLY the already reserved closing parent:
+    // no status page and no required-rule reads, which become Unavailable.
+    op.drain(5..8);
     let steps = script(&op);
     let fixture = Fixture::new();
     fixture.scripted_gh(&steps);
@@ -900,6 +1059,10 @@ fn scoped_pr_resource_failed_multibyte_capture_charged_and_no_child_over_remaini
     .unwrap();
     assert_eq!(result.accounting.failed_reserved_bytes(), 4096);
     assert_eq!(result.accounting.children_started(), 3);
+    assert!(matches!(
+        result.view.as_ref().unwrap().observed().required_checks(),
+        Some(crate::providers::gh::RequiredChecksV1::Unavailable { .. })
+    ));
     assert!(!result
         .view
         .as_ref()

@@ -111,6 +111,7 @@ fn page() -> PrPage {
             url: String::new(),
             head_sha: HEAD.into(),
             kind: "check".into(),
+            app_id: None,
         }]),
         rows: vec![],
         context: None,

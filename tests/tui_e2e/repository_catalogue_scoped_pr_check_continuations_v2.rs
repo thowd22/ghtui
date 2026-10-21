@@ -123,7 +123,7 @@ fn baseline(chooser: bool) -> Vec<GhStep> {
     } else {
         bridge()
     });
-    assert_eq!(v.len(), 59);
+    assert_eq!(v.len(), 61);
     v
 }
 fn finite_logs() -> Vec<GhStep> {
@@ -295,7 +295,7 @@ fn journey(mouse: bool, case: Case) {
     let mut session = launch(&fixture, mouse);
     if other {
         candidate_source(&mut session, &fixture, mouse, false);
-        pick(&mut session, &fixture, mouse, 0, 77, false);
+        pick(&mut session, &fixture, mouse, 0, 79, false);
     } else {
         open_run(&mut session, &fixture, mouse);
     }
@@ -306,7 +306,7 @@ fn journey(mouse: bool, case: Case) {
         | Case::OtherAnnotations
         | Case::CategoryPermission
         | Case::LateScopeLoss => {
-            let count = if other { 77 } else { 59 };
+            let count = if other { 79 } else { 61 };
             open_selected_job(
                 &mut session,
                 &fixture,
@@ -380,13 +380,13 @@ fn journey(mouse: bool, case: Case) {
             }
         }
         Case::LoadedSearch => {
-            open_selected_job(&mut session, &fixture, mouse, 501, 59);
+            open_selected_job(&mut session, &fixture, mouse, 501, 61);
             control(&mut session, mouse, "[l Logs]", b"l");
-            session.wait_for_command_count(&fixture, 74);
+            session.wait_for_command_count(&fixture, 76);
             ready(&mut session, &["EXACT_MATCHED_JOB_LOG_CANARY"]);
             query(&mut session, mouse, false, "界🦀");
             ready(&mut session, &["1 matches in captured job 501 attempt 2"]);
-            assert_eq!(commands(&session, &fixture).len(), 74);
+            assert_eq!(commands(&session, &fixture).len(), 76);
             assert_eq!(sql_state(&fixture), before);
             query(
                 &mut session,
@@ -409,49 +409,49 @@ fn journey(mouse: bool, case: Case) {
                 ],
             );
             close_notice(&mut session, mouse);
-            assert_eq!(commands(&session, &fixture).len(), 74);
+            assert_eq!(commands(&session, &fixture).len(), 76);
         }
         Case::StatusWatch => {
             control(&mut session, mouse, "[r Refresh]", b"r");
-            session.wait_for_command_count(&fixture, 77);
+            session.wait_for_command_count(&fixture, 79);
             ready(
                 &mut session,
                 &["Original scoped status refreshed", "Run 123 • attempt 2"],
             );
             control(&mut session, mouse, "[w Watch]", b"w");
             ready(&mut session, &["Finite scoped watch armed"]);
-            session.wait_for_command_count(&fixture, 95);
+            session.wait_for_command_count(&fixture, 97);
             ready(&mut session, &["tick 1/12"]);
-            session.wait_for_command_count(&fixture, 113);
+            session.wait_for_command_count(&fixture, 115);
             ready(&mut session, &["tick 2/12"]);
             control(&mut session, mouse, "[w Stop watch]", b"w");
             ready(&mut session, &["Finite scoped watch stopped"]);
             session.poll_output(Duration::from_secs(6));
-            assert_eq!(commands(&session, &fixture).len(), 113);
+            assert_eq!(commands(&session, &fixture).len(), 115);
             assert!(session.screen().contains("Run 123 • attempt 2"));
         }
         Case::LogWatchStop => {
-            open_selected_job(&mut session, &fixture, mouse, 501, 59);
+            open_selected_job(&mut session, &fixture, mouse, 501, 61);
             control(&mut session, mouse, "[l Logs]", b"l");
-            session.wait_for_command_count(&fixture, 74);
+            session.wait_for_command_count(&fixture, 76);
             ready(&mut session, &["EXACT_MATCHED_JOB_LOG_CANARY"]);
             control(&mut session, mouse, "[r Refresh]", b"r");
-            session.wait_for_command_count(&fixture, 89);
+            session.wait_for_command_count(&fixture, 91);
             ready(&mut session, &[FRESH_LOG]);
             control(&mut session, mouse, "[w Watch]", b"w");
-            session.wait_for_command_count(&fixture, 104);
+            session.wait_for_command_count(&fixture, 106);
             ready(&mut session, &[FRESH_LOG, "tick 1/12"]);
-            session.wait_for_command_count(&fixture, 112);
+            session.wait_for_command_count(&fixture, 114);
             control(&mut session, mouse, "[w Stop watch]", b"w");
             ready(&mut session, &["Finite scoped watch stopped"]);
             session.poll_output(Duration::from_secs(6));
-            assert_eq!(commands(&session, &fixture).len(), 112);
+            assert_eq!(commands(&session, &fixture).len(), 114);
             assert!(!session.screen().contains("LATE_STOPPED_LOG_CAPTURE_CANARY"));
             assert!(session.screen().contains(FRESH_LOG));
         }
         Case::AttemptAdvance => {
             control(&mut session, mouse, "[w Watch]", b"w");
-            session.wait_for_command_count(&fixture, 75);
+            session.wait_for_command_count(&fixture, 77);
             overlay_ready(
                 &mut session,
                 "Action unavailable",
@@ -464,7 +464,7 @@ fn journey(mouse: bool, case: Case) {
             close_notice(&mut session, mouse);
             ready(&mut session, &["Run 123 • attempt 2"]);
             session.poll_output(Duration::from_secs(6));
-            assert_eq!(commands(&session, &fixture).len(), 75);
+            assert_eq!(commands(&session, &fixture).len(), 77);
             assert!(!session.screen().contains("Run 123 • attempt 3"));
             assert_eq!(sql_state(&fixture), before);
         }
@@ -508,19 +508,19 @@ fn foreign_annotation_suite(mouse: bool) {
     op[9] = get(&format!("repos/{FIRST}/check-runs/601"), wrong);
     op.truncate(10);
     expected.extend(op);
-    assert_eq!(expected.len(), 87);
+    assert_eq!(expected.len(), 89);
     let fixture = resource_configured(&expected);
     let git = git_state(&fixture);
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
     let mut session = launch(&fixture, mouse);
     candidate_source(&mut session, &fixture, mouse, false);
-    pick(&mut session, &fixture, mouse, 0, 77, false);
+    pick(&mut session, &fixture, mouse, 0, 79, false);
     let before = sql_state(&fixture);
     let trace = git_commands(&fixture);
-    open_selected_job(&mut session, &fixture, mouse, 502, 77);
+    open_selected_job(&mut session, &fixture, mouse, 502, 79);
     let previous = session.completed_cursorless_end();
     control(&mut session, mouse, "[N Annotations]", b"N");
-    session.wait_for_command_count(&fixture, 87);
+    session.wait_for_command_count(&fixture, 89);
     completed_action(&mut session, previous, "Original scoped read unavailable");
     assert!(session.screen().contains("private results hidden"));
     assert!(!session.screen().contains(ANN));

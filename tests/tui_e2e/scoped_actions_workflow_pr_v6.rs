@@ -199,7 +199,7 @@ fn unrelated(fixture: &Fixture) -> Vec<String> {
 fn open_original_form(session: &mut Session, fixture: &Fixture, mouse: bool) {
     let after = session.completed_cursorless_end();
     control(session, mouse, "Workflows", b"W");
-    session.wait_for_command_count(fixture, 70);
+    session.wait_for_command_count(fixture, 72);
     session.wait_for_new_cursorless_condition(
         after,
         |frame| {
@@ -213,7 +213,7 @@ fn open_original_form(session: &mut Session, fixture: &Fixture, mouse: bool) {
     );
     let after = session.completed_cursorless_end();
     original_workflow_row(session, mouse);
-    session.wait_for_command_count(fixture, 84);
+    session.wait_for_command_count(fixture, 86);
     session.wait_for_new_cursorless_condition(
         after,
         |frame| {
@@ -231,7 +231,7 @@ fn open_original_form(session: &mut Session, fixture: &Fixture, mouse: bool) {
         session.focus_completed_actions_control_v2("Disable workflow");
         session.send_key(b"\r");
     }
-    session.wait_for_command_count(fixture, 96);
+    session.wait_for_command_count(fixture, 98);
     cells(
         session,
         after,
@@ -240,7 +240,7 @@ fn open_original_form(session: &mut Session, fixture: &Fixture, mouse: bool) {
     );
     let after = session.completed_cells_end();
     form_action(session, mouse, FORM, "[Preview]");
-    session.wait_for_command_count(fixture, 108);
+    session.wait_for_command_count(fixture, 110);
     cells(
         session,
         after,
@@ -251,13 +251,13 @@ fn open_original_form(session: &mut Session, fixture: &Fixture, mouse: bool) {
 fn journey(mouse: bool) {
     for changed_uid in [false, true] {
         let mut expected = steps(vec![]);
-        assert_eq!(expected.len(), 59);
+        assert_eq!(expected.len(), 61);
         expected.extend(list());
         expected.extend(definition());
         expected.extend(phase());
         expected.extend(phase());
         expected.extend(confirm(if changed_uid { 999 } else { 42 }));
-        assert_eq!(expected.len(), 126);
+        assert_eq!(expected.len(), 128);
         let fixture = resource_configured(&expected);
         let git = git_state(&fixture);
         let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
@@ -268,7 +268,7 @@ fn journey(mouse: bool) {
         open_original_form(&mut session, &fixture, mouse);
         let after = session.completed_cells_end();
         form_action(&mut session, mouse, FORM, "[Confirm action]");
-        session.wait_for_command_count(&fixture, 126);
+        session.wait_for_command_count(&fixture, 128);
         if changed_uid {
             session.wait_for_new_cursorless_condition(
                 after,

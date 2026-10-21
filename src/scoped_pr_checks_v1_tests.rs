@@ -824,7 +824,7 @@ fn scoped_check_original_source_sql_cas_change_before_final_principal_does_not_r
     let journal = fixture.root.join("gh-fixture/commands.jsonl");
     let git_before = git_state_resource(&fixture);
     let concurrent = std::thread::spawn(move || {
-        wait_count(&journal, 46);
+        wait_count(&journal, 48);
         let db = rusqlite::Connection::open(path).unwrap();
         assert_eq!(
             db.execute(

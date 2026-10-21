@@ -244,7 +244,7 @@ fn check_choice_partial_positive_run18_then_other_member_logs18_no_unique_author
         &source
     ));
     assert!(Arc::ptr_eq(app.remote_scope.as_ref().unwrap(), &scope));
-    assert_eq!(steps.len(), 84);
+    assert_eq!(steps.len(), 86);
     read_only(&fixture, &before, &git, &steps);
 }
 #[test]
@@ -271,7 +271,7 @@ fn check_choice_ambiguous_second_genuine_run_is_explicit_not_first_default() {
     let page = app.actions.as_ref().unwrap().run.as_ref().unwrap();
     assert_eq!(page.attempt.run.id, 124);
     assert!(page.attempt.run.title.contains("124"));
-    assert_eq!(steps.len(), 63);
+    assert_eq!(steps.len(), 65);
     read_only(&fixture, &before, &git, &steps);
 }
 #[test]
@@ -571,7 +571,7 @@ fn check_choice_original_source_sql_cas_closing_guard_never_rebases_or_writes() 
     let journal = fixture.root.join("gh-fixture/commands.jsonl");
     let git = git_state_resource(&fixture);
     let concurrent = std::thread::spawn(move || {
-        wait_count(&journal, 64);
+        wait_count(&journal, 66);
         let db = rusqlite::Connection::open(path).unwrap();
         let changed = db.execute(
             "INSERT INTO saved_views(host,login,name,payload) VALUES(?2,'user-id:42',?3,?1) ON CONFLICT(host,login,name) DO UPDATE SET payload=excluded.payload",
@@ -671,7 +671,7 @@ fn check_choice_selected_guard_occurs_only_after_actual_member_and_final_account
             .unwrap_err();
         assert_eq!(
             phases,
-            vec![(PrCheckSelectedReadPhaseV1::BeforeSelectedProjection, 58)]
+            vec![(PrCheckSelectedReadPhaseV1::BeforeSelectedProjection, 60)]
         );
         assert!(!error.message.contains(DRAFT));
         assert!(!error.message.contains("PRIVATE_GUARD_DIAGNOSTIC"));
@@ -1002,7 +1002,7 @@ fn check_choice_actual_ten_job_pages27_fixed_offsets_and_positive_all_member_cou
             .len(),
         1000
     );
-    assert_eq!(steps.len(), 75);
+    assert_eq!(steps.len(), 77);
     read_only(&fixture, &before, &git, &steps);
 }
 #[test]
@@ -1163,10 +1163,10 @@ fn check_other_logs_member_before_private_capture_guard_then_real_closing_uid_pr
         assert_eq!(
             phases,
             vec![
-                (crate::providers::gh::PrCheckLogReadPhase::BeforeCapture, 57),
+                (crate::providers::gh::PrCheckLogReadPhase::BeforeCapture, 59),
                 (
                     crate::providers::gh::PrCheckLogReadPhase::BeforeFinalProof,
-                    60
+                    62
                 )
             ]
         );

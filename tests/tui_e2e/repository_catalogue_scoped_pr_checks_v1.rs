@@ -148,14 +148,10 @@ fn steps(logs: Vec<GhStep>) -> Vec<GhStep> {
 fn open_run(session: &mut Session, fixture: &Fixture, mouse: bool) {
     selected(session, fixture, mouse);
     choose(session, mouse, "[k Checks]", b"k");
-    session.wait_for_command_count(fixture, 41);
+    session.wait_for_command_count(fixture, 43);
     ready(
         session,
-        &[
-            "Required rules unavailable",
-            "Exact observed build",
-            "ci-actor",
-        ],
+        &[REQUIRED_SUMMARY, "Exact observed build", "ci-actor"],
     );
     select_observed_row(session, mouse, "Exact observed build");
     // Open check joins the key bar only once a check row is selected.
@@ -167,7 +163,7 @@ fn open_run(session: &mut Session, fixture: &Fixture, mouse: bool) {
         session.wait_for_control("[Enter Open check]");
         session.send_key(b"\r");
     }
-    session.wait_for_command_count(fixture, 59);
+    session.wait_for_command_count(fixture, 61);
     ready(
         session,
         &[
@@ -227,13 +223,13 @@ fn read_only_control(session: &mut Session, fixture: &Fixture, mouse: bool) {
     );
     let body = session.wait_for_overlay_body("Action unavailable");
     assert!(visible_words(&body).contains("original"));
-    assert_eq!(commands(session, fixture).len(), 59);
+    assert_eq!(commands(session, fixture).len(), 61);
     close_notice(session, mouse);
     ready(session, &["Run 123 • attempt 2"]);
 }
 fn happy_bridge(mouse: bool) {
     let expected = steps(logs());
-    assert_eq!(expected.len(), 74);
+    assert_eq!(expected.len(), 76);
     let fixture = resource_configured(&expected);
     let git_before = git_state(&fixture);
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
@@ -267,9 +263,9 @@ fn happy_bridge(mouse: bool) {
         session.poll_output(Duration::from_millis(20));
     }
     ready(&mut session, &["2 Test exact source"]);
-    assert_eq!(commands(&session, &fixture).len(), 59);
+    assert_eq!(commands(&session, &fixture).len(), 61);
     control(&mut session, mouse, "[l Logs]", b"l");
-    session.wait_for_command_count(&fixture, 74);
+    session.wait_for_command_count(&fixture, 76);
     ready(
         &mut session,
         &["EXACT_MATCHED_JOB_LOG_CANARY", "Scoped exact log line 00"],
@@ -284,7 +280,7 @@ fn happy_bridge(mouse: bool) {
     );
     ready(&mut session, &["1 matches in captured job 501 attempt 2"]);
     assert_eq!(sql_state(&fixture), before);
-    assert_eq!(commands(&session, &fixture).len(), 74);
+    assert_eq!(commands(&session, &fixture).len(), 76);
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
     session.wait_for_main_frame();
     for _ in 0..45 {
@@ -319,15 +315,11 @@ fn happy_bridge(mouse: bool) {
             .unwrap();
     }
     ready(&mut session, &["Scoped exact log line 30"]);
-    assert_eq!(commands(&session, &fixture).len(), 74);
+    assert_eq!(commands(&session, &fixture).len(), 76);
     control(&mut session, mouse, "[b Back to PR checks]", b"b");
     ready(
         &mut session,
-        &[
-            "Exact observed build",
-            "Required rules unavailable",
-            "[b Back]",
-        ],
+        &["Exact observed build", REQUIRED_SUMMARY, "[b Back]"],
     );
     assert!(!session.screen().contains("EXACT_MATCHED_JOB_LOG_CANARY"));
     assert!(!session.screen().contains("Run 123 • attempt 2"));
@@ -349,7 +341,7 @@ fn lost_log(mouse: bool) {
     log[11] = who(43);
     log.truncate(12);
     let expected = steps(log);
-    assert_eq!(expected.len(), 71);
+    assert_eq!(expected.len(), 73);
     let fixture = resource_configured(&expected);
     let git_before = git_state(&fixture);
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
@@ -358,7 +350,7 @@ fn lost_log(mouse: bool) {
     let before = sql_state(&fixture);
     let trace = git_commands(&fixture);
     control(&mut session, mouse, "[l Logs]", b"l");
-    session.wait_for_command_count(&fixture, 71);
+    session.wait_for_command_count(&fixture, 73);
     session
         .try_wait_for_condition(
             |screen| {
@@ -376,7 +368,7 @@ fn lost_log(mouse: bool) {
     choose(&mut session, mouse, "[r Refresh]", b"r");
     session.resize(if mouse { 120 } else { 80 }, if mouse { 40 } else { 24 });
     session.poll_output(Duration::from_millis(100));
-    assert_eq!(commands(&session, &fixture).len(), 71);
+    assert_eq!(commands(&session, &fixture).len(), 73);
     assert_eq!(sql_state(&fixture), before);
     no_attempts(&fixture);
     choose(&mut session, mouse, "2 Repository", b"2");

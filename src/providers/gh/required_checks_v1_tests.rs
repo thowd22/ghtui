@@ -10,6 +10,7 @@ fn check(name: &str, kind: &str, status: &str, conclusion: &str) -> Check {
         url: String::new(),
         head_sha: "a".repeat(40),
         kind: kind.into(),
+        app_id: None,
     }
 }
 
@@ -137,4 +138,62 @@ fn required_checks_branch_paths_encode_or_refuse_unsafe_names() {
     for bad in ["", "/main", "a/../b", "a\nb"] {
         assert_eq!(branch_path(bad), None, "{bad:?}");
     }
+}
+
+#[test]
+fn required_checks_match_by_name_and_the_app_a_rule_pins() {
+    let pinned = |context: &str, app_id: Option<u64>| RequiredContextV1 {
+        context: context.into(),
+        app_id,
+        source: RequiredSourceV1::BranchProtection,
+    };
+    let required = RequiredChecksV1::Known {
+        base_ref: "main".into(),
+        contexts: vec![
+            pinned("build", Some(15368)),
+            pinned("lint", Some(7)),
+            pinned("deploy", Some(9)),
+        ],
+    };
+    let mut build = check("build", "check", "completed", "success");
+    build.app_id = Some(15368);
+    // Another app reporting the same name does not satisfy the pinned rule.
+    let mut impostor = check("lint", "check", "completed", "success");
+    impostor.app_id = Some(99);
+    // A commit status names no app, so a pinned rule cannot be verified by it.
+    let deploy = check("deploy", "status", "completed", "success");
+    let checks = vec![build, impostor, deploy];
+    assert_eq!(required.required(&checks[0]), Some(true));
+    assert_eq!(required.required(&checks[1]), Some(false));
+    assert_eq!(required.required(&checks[2]), None);
+    assert_eq!(
+        required.states(&checks),
+        [
+            ("build", RequiredStateV1::Passed),
+            ("lint", RequiredStateV1::NotReported),
+            ("deploy", RequiredStateV1::Unverified),
+        ]
+    );
+    assert_eq!(
+        required.summary(&checks),
+        (
+            "Required on main: 1 not reported, 1 app unverified, 1 passed".into(),
+            SemanticToken::Pending
+        )
+    );
+    // Unpinned rules accept any app's result with the name.
+    let any = RequiredChecksV1::Known {
+        base_ref: "main".into(),
+        contexts: vec![pinned("lint", None)],
+    };
+    assert_eq!(any.required(&checks[1]), Some(true));
+    // `app_id: -1` in classic protection means any app.
+    let mut out = Vec::new();
+    parse_branch_protection(
+        &json!({"protected":true,"protection":{"enabled":true,"required_status_checks":{
+            "enforcement_level":"everyone","checks":[{"context":"any","app_id":-1}]}}}),
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(out[0].app_id, None);
 }

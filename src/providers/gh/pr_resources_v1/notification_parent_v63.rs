@@ -102,6 +102,7 @@ impl GithubProvider {
             statuses: Vec::new(),
             check_coverage: Default::default(),
             status_coverage: Default::default(),
+            required: None,
             patch,
             patch_failure,
         })

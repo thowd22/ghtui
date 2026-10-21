@@ -20,13 +20,13 @@ struct HeldChild {
 }
 impl HeldChild {
     fn actual(session: &mut Session, fixture: &Fixture, expected: &[GhStep]) -> Self {
-        session.wait_for_command_count(fixture, 87);
+        session.wait_for_command_count(fixture, 89);
         let journal = commands(session, fixture);
-        assert_eq!(journal.len(), 87);
-        let row = &journal[86];
+        assert_eq!(journal.len(), 89);
+        let row = &journal[88];
         assert_eq!(row["matched"], true);
         assert_eq!(row["args"], json!(expected[86].args));
-        assert_eq!(expected[86].args[1], format!("repos/{FIRST}"));
+        assert_eq!(expected[88].args[1], format!("repos/{FIRST}"));
         let pid = i32::try_from(row["pid"].as_u64().unwrap()).unwrap();
         assert!(pid > 0);
         // SAFETY: the strict journal's exact currently live child PID only.
@@ -133,7 +133,7 @@ fn hidden_frame(session: &mut Session) {
 fn expected(case: CorrectiveCase) -> Vec<GhStep> {
     let mut all = baseline(false);
     all.extend(logs());
-    assert_eq!(all.len(), 74);
+    assert_eq!(all.len(), 76);
     let mut next = finite_logs();
     match case {
         CorrectiveCase::GlobalRefresh => {}
@@ -158,9 +158,9 @@ fn journey(mouse: bool, case: CorrectiveCase) {
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
     let mut session = launch(&fixture, mouse);
     open_run(&mut session, &fixture, mouse);
-    open_selected_job(&mut session, &fixture, mouse, 501, 59);
+    open_selected_job(&mut session, &fixture, mouse, 501, 61);
     control(&mut session, mouse, "[l Logs]", b"l");
-    session.wait_for_command_count(&fixture, 74);
+    session.wait_for_command_count(&fixture, 76);
     ready(&mut session, &[OLD_LOG, "Scoped exact log line 00"]);
     let original_sql = sql_state(&fixture);
     let original_trace = git_commands(&fixture);
@@ -168,7 +168,7 @@ fn journey(mouse: bool, case: CorrectiveCase) {
     let mut final_sql = original_sql.clone();
     match case {
         CorrectiveCase::GlobalRefresh => {
-            session.wait_for_command_count(&fixture, 89);
+            session.wait_for_command_count(&fixture, 91);
             ready(&mut session, &[FRESH_LOG, "Scoped exact log line 01"]);
             assert!(!session.screen().contains(OLD_LOG));
             assert!(!session.screen().contains(REJECTED_LOG));
@@ -179,21 +179,18 @@ fn journey(mouse: bool, case: CorrectiveCase) {
             );
             assert_eq!(sql_state(&fixture), original_sql);
             control(&mut session, mouse, "[b Back to PR checks]", b"b");
-            ready(
-                &mut session,
-                &["Exact observed build", "Required rules unavailable"],
-            );
+            ready(&mut session, &["Exact observed build", REQUIRED_SUMMARY]);
             assert!(!session.screen().contains(FRESH_LOG));
         }
         CorrectiveCase::ClosingUid => {
-            session.wait_for_command_count(&fixture, 86);
+            session.wait_for_command_count(&fixture, 88);
             hidden_frame(&mut session);
             assert_eq!(sql_state(&fixture), original_sql);
             // Fenced follow-up cannot query a default source or private draft.
             choose(&mut session, mouse, "1 Inbox", b"1");
             global_refresh(&mut session, mouse);
             session.poll_output(Duration::from_millis(250));
-            assert_eq!(commands(&session, &fixture).len(), 86);
+            assert_eq!(commands(&session, &fixture).len(), 88);
         }
         CorrectiveCase::ClosingSql => {
             let mut held = HeldChild::actual(&mut session, &fixture, &expected);
@@ -214,7 +211,7 @@ fn journey(mouse: bool, case: CorrectiveCase) {
             held.reaped(&mut session);
             assert_eq!(
                 commands(&session, &fixture).len(),
-                87,
+                89,
                 "No final principal or fallback after closing original SQL refusal"
             );
             assert_eq!(sql_state(&fixture), final_sql);
@@ -239,14 +236,10 @@ fn journey(mouse: bool, case: CorrectiveCase) {
             choose(&mut session, mouse, "1 Inbox", b"1");
             ready(
                 &mut session,
-                &[
-                    "Exact observed build",
-                    "Required rules unavailable",
-                    "[b Back]",
-                ],
+                &["Exact observed build", REQUIRED_SUMMARY, "[b Back]"],
             );
             assert!(!session.screen().contains(REJECTED_LOG));
-            assert_eq!(commands(&session, &fixture).len(), 87);
+            assert_eq!(commands(&session, &fixture).len(), 89);
             assert_eq!(sql_state(&fixture), original_sql);
         }
     }

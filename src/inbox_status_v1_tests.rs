@@ -48,6 +48,7 @@ fn check(status: &str, conclusion: &str) -> Check {
         url: String::new(),
         head_sha: "a".repeat(40),
         kind: "check".into(),
+        app_id: None,
     }
 }
 

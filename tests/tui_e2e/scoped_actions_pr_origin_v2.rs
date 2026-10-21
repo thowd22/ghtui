@@ -65,7 +65,7 @@ fn happy(mouse: bool) {
     let trace = git_commands(&fixture);
     let after = session.completed_cursorless_end();
     control(&mut session, mouse, "[a Artifacts]", b"a");
-    session.wait_for_command_count(&fixture, 72);
+    session.wait_for_command_count(&fixture, 74);
     complete(
         &mut session,
         after,
@@ -90,7 +90,7 @@ fn happy(mouse: bool) {
         &["Exact observed build", "[Enter Open check]"],
     );
     assert!(!session.screen().contains("GENUINE_PR_ARTIFACT"));
-    assert_eq!(commands(&session, &fixture).len(), 72);
+    assert_eq!(commands(&session, &fixture).len(), 74);
     unchanged(&session, &fixture, &sql, &expected);
     assert_eq!(git_state(&fixture), git);
     assert_eq!(git_commands(&fixture), trace);

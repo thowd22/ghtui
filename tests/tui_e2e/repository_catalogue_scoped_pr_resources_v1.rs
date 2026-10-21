@@ -22,6 +22,7 @@ fn resource_operation(checks: bool) -> Vec<GhStep> {
     if checks {
         steps.push(get(&format!("repos/{FIRST}/commits/{}/check-runs?filter=latest&per_page=100&page=1","a".repeat(40)),json!({"total_count":1,"check_runs":[{"id":600,"node_id":"CHECK_600","name":"Exact observed build","head_sha":"a".repeat(40),"status":"completed","conclusion":"failure","check_suite":{"id":900},"user":{"id":70,"login":"ci-actor","type":"User"}}]})));
         steps.push(get(&format!("repos/{FIRST}/commits/{}/status?per_page=100&page=1","a".repeat(40)),json!({"sha":"a".repeat(40),"total_count":1,"repository":{"id":10000,"node_id":"REPO_catalogue_10000","full_name":FIRST},"statuses":[{"id":700,"node_id":"STATUS_700","context":"external-lint","state":"pending","creator":{"id":71,"login":"status-actor","type":"User"}}]})));
+        steps.extend(required_rules());
     } else {
         steps.push(get(&format!("repos/{FIRST}/pulls/7/files?per_page=100&page=1"),json!([{"filename":"src/界.rs","status":"modified","additions":2,"deletions":1,"patch":"@@ -1,2 +1,3 @@\n context\n-old\n+new\n+next"}])));
         steps.push(GhStep::read(&["pr","diff","7","--repo",&format!("{HOST}/{FIRST}"),"--color","never"],"diff --git a/src/界.rs b/src/界.rs\n--- a/src/界.rs\n+++ b/src/界.rs\n@@ -1,2 +1,3 @@\n context\n-old\n+new\n+next\n"));
@@ -29,8 +30,30 @@ fn resource_operation(checks: bool) -> Vec<GhStep> {
     steps.push(get(&format!("repos/{FIRST}/pulls/7"), parent_resource()));
     steps.push(get(&format!("repos/{FIRST}"), repository(0)));
     steps.extend(principal(42));
-    assert_eq!(steps.len(), 10);
+    assert_eq!(steps.len(), if checks { 12 } else { 10 });
     steps
+}
+/// The start of the required-rules summary for `required_rules()`; it fits
+/// the Checks pane at 80 columns. `REQUIRED_FULL` is the whole line.
+const REQUIRED_SUMMARY: &str = "Required on main: 1 failing";
+const REQUIRED_FULL: &str = "Required on main: 1 failing, 1 pending, 1 not reported";
+/// The base branch's required contexts: classic protection requires the
+/// observed check run, and a ruleset requires the observed status plus a
+/// `release-gate` context nothing reported.
+fn required_rules() -> [GhStep; 2] {
+    [
+        get(
+            &format!("repos/{FIRST}/branches/main"),
+            json!({"name":"main","protected":true,"protection":{"enabled":true,"required_status_checks":{
+                "enforcement_level":"non_admins","contexts":["Exact observed build"],
+                "checks":[{"context":"Exact observed build","app_id":null}]}}}),
+        ),
+        get(
+            &format!("repos/{FIRST}/rules/branches/main?per_page=100&page=1"),
+            json!([{"type":"required_status_checks","ruleset_id":3,"parameters":{"required_status_checks":[
+                {"context":"external-lint"},{"context":"release-gate"}]}}]),
+        ),
+    ]
 }
 fn initial() -> Vec<GhStep> {
     let mut steps = collection(vec![json!([repository(0)])], 42);
@@ -103,7 +126,7 @@ fn happy(mouse: bool) {
     let mut logs = scoped_checks::logs_for_head(&history.h);
     immutable_images::bind_steps(&mut logs, &history);
     steps.extend(logs);
-    assert_eq!(steps.len(), 101);
+    assert_eq!(steps.len(), 103);
     fixture.scripted_gh(&steps);
     let git_before = git_state(&fixture);
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
@@ -181,21 +204,29 @@ fn happy(mouse: bool) {
     assert_eq!(sql_state(&fixture), before);
     assert_eq!(git_state(&fixture), git_before);
     choose(&mut session, mouse, "[k Checks]", b"k");
-    session.wait_for_command_count(&fixture, 68);
+    session.wait_for_command_count(&fixture, 70);
     ready(
         &mut session,
         &[
-            "Required rules unavailable",
+            REQUIRED_SUMMARY,
             "Exact observed build",
             "ci-actor",
             "external-lint",
         ],
     );
+    if !mouse {
+        // At 120 columns the whole required-rules line and the required
+        // context nothing reported are visible, read through the same window.
+        ready(
+            &mut session,
+            &[REQUIRED_FULL, "release-gate • required • expected"],
+        );
+    }
     assert!(!session.screen().contains(DETAIL_BODY));
     assert!(!session.screen().contains(PRIVATE_DRAFT));
     scoped_checks::select_observed_row(&mut session, mouse, "Exact observed build");
     choose(&mut session, mouse, "[Enter Open check]", b"\r");
-    session.wait_for_command_count(&fixture, 86);
+    session.wait_for_command_count(&fixture, 88);
     ready(
         &mut session,
         &["Run 123 • attempt 2", "JOB", "test (stable)", &history.h],
@@ -208,7 +239,7 @@ fn happy(mouse: bool) {
     assert!(!session.screen().contains(DETAIL_BODY));
     assert!(!session.screen().contains(PRIVATE_DRAFT));
     scoped_checks::control(&mut session, mouse, "[l Logs]", b"l");
-    session.wait_for_command_count(&fixture, 101);
+    session.wait_for_command_count(&fixture, 103);
     ready(&mut session, &["EXACT_MATCHED_JOB_LOG_CANARY"]);
     assert_eq!(sql_state(&fixture), before);
     scoped_checks::control(&mut session, mouse, "[b Back to PR checks]", b"b");
@@ -238,7 +269,7 @@ fn happy(mouse: bool) {
         explanation.contains("CommitstatuscontextsdonotidentifyanActionsrun"),
         "Actual owned status-context refusal, including words split by terminal wrapping: {explanation}"
     );
-    assert_eq!(commands(&session, &fixture).len(), 101);
+    assert_eq!(commands(&session, &fixture).len(), 103);
     assert_eq!(sql_state(&fixture), before);
     if mouse {
         session.close_overlay_by_mouse("Action unavailable");
@@ -256,8 +287,10 @@ fn happy(mouse: bool) {
     } else {
         session.send_key(b"\x1b[6~");
     }
-    ready(&mut session, &["not an Actions run"]);
-    assert_eq!(commands(&session, &fixture).len(), 101);
+    // At 80 columns the status row's trailing `• required` marker cuts the
+    // end of its label, so match the label's stable start.
+    ready(&mut session, &["external-lint • pending • not an Actions"]);
+    assert_eq!(commands(&session, &fixture).len(), 103);
     choose(&mut session, mouse, "[b Back]", b"b");
     session
         .try_wait_for_condition(
@@ -290,9 +323,9 @@ fn loss(mouse: bool) {
         if drift {
             steps.extend(files);
             let mut checks = resource_operation(true);
-            checks[9] = get("user", json!({"id":43,"login":"octocat"}));
+            checks[11] = get("user", json!({"id":43,"login":"octocat"}));
             steps.extend(checks);
-            assert_eq!(steps.len(), 51);
+            assert_eq!(steps.len(), 53);
         } else {
             let mut bad = parent_resource();
             bad["base"]["repo"]["id"] = json!(999999);
@@ -315,7 +348,7 @@ fn loss(mouse: bool) {
                 &["Old side: current base-branch tip", "[k Checks]"],
             );
             choose(&mut session, mouse, "[k Checks]", b"k");
-            session.wait_for_command_count(&fixture, 51);
+            session.wait_for_command_count(&fixture, 53);
         }
         session
             .try_wait_for_condition(

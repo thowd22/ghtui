@@ -168,11 +168,11 @@ fn unrelated(fixture: &Fixture) -> Vec<String> {
 }
 fn happy(mouse: bool) {
     let mut expected = steps(vec![]);
-    assert_eq!(expected.len(), 59);
+    assert_eq!(expected.len(), 61);
     expected.extend(phase());
     expected.extend(phase());
     expected.extend(confirm());
-    assert_eq!(expected.len(), 105);
+    assert_eq!(expected.len(), 107);
     let fixture = resource_configured(&expected);
     let git = git_state(&fixture);
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
@@ -181,7 +181,7 @@ fn happy(mouse: bool) {
     let sql = unrelated(&fixture);
     let trace = git_commands(&fixture);
     // No A2 resource/bootstrap route was invoked: all59 are actual PR/Checks.
-    assert_eq!(commands(&session, &fixture).len(), 59);
+    assert_eq!(commands(&session, &fixture).len(), 61);
     let after = session.completed_cells_end();
     if mouse {
         control(&mut session, true, "Rerun selected job", b"");
@@ -189,7 +189,7 @@ fn happy(mouse: bool) {
         session.focus_completed_actions_control_v2("Rerun selected job");
         session.send_key(b"\r");
     }
-    session.wait_for_command_count(&fixture, 71);
+    session.wait_for_command_count(&fixture, 73);
     complete_cells(
         &mut session,
         after,
@@ -204,11 +204,11 @@ fn happy(mouse: bool) {
     );
     let after = session.completed_cells_end();
     form_control(&mut session, mouse, FORM, "[Preview]");
-    session.wait_for_command_count(&fixture, 83);
+    session.wait_for_command_count(&fixture, 85);
     complete_cells(&mut session, after, FORM, &["RERUN PREVIEW", H, "501"]);
     let after = session.completed_cells_end();
     form_control(&mut session, mouse, FORM, "[Confirm action]");
-    session.wait_for_command_count(&fixture, 105);
+    session.wait_for_command_count(&fixture, 107);
     complete_cells(
         &mut session,
         after,
@@ -274,7 +274,7 @@ fn happy(mouse: bool) {
     assert_read_only_git(&fixture);
     session.quit_and_assert_restored_terminal(mouse);
     let rows = commands(&session, &fixture);
-    assert_eq!(rows.len(), 105);
+    assert_eq!(rows.len(), 107);
     for (row, step) in rows.iter().zip(&expected) {
         assert_eq!(row["args"], json!(step.args));
         assert_eq!(row["matched"], true);

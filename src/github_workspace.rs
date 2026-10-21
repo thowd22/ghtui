@@ -535,12 +535,18 @@ impl PrPage {
                         required
                             .states(checks)
                             .into_iter()
-                            .filter(|(_, state)| {
-                                *state == crate::providers::gh::RequiredStateV1::NotReported
+                            .filter_map(|(context, state)| match state {
+                                crate::providers::gh::RequiredStateV1::NotReported => {
+                                    Some((context, "expected, not reported"))
+                                }
+                                crate::providers::gh::RequiredStateV1::Unverified => {
+                                    Some((context, "reported without the pinned app"))
+                                }
+                                _ => None,
                             })
-                            .map(|(context, _)| PrRow {
+                            .map(|(context, why)| PrRow {
                                 label: format!(
-                                    "{} {context} • required • expected, not reported for head {}",
+                                    "{} {context} • required • {why} for head {}",
                                     SemanticToken::Pending.symbol(),
                                     summary.head_sha
                                 ),

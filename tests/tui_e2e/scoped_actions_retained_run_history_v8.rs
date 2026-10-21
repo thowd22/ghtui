@@ -198,7 +198,7 @@ fn open_preview(s: &mut Session, f: &Fixture, mouse: bool, c: C, offset: usize) 
     } else {
         open_run_offset_v120(s, f, mouse, offset);
     }
-    s.wait_for_command_count(f, offset + 59);
+    s.wait_for_command_count(f, offset + 61);
     let after = s.completed_cells_end();
     if mouse {
         control(s, true, &format!("[{}]", c.label()), b"");
@@ -206,7 +206,7 @@ fn open_preview(s: &mut Session, f: &Fixture, mouse: bool, c: C, offset: usize) 
         s.focus_completed_actions_control_v2(&format!("[{}]", c.label()));
         s.send_key(b"\r");
     }
-    s.wait_for_command_count(f, offset + 71);
+    s.wait_for_command_count(f, offset + 73);
     complete_cells(
         s,
         after,
@@ -271,7 +271,7 @@ fn open_preview(s: &mut Session, f: &Fixture, mouse: bool, c: C, offset: usize) 
     }
     let after = s.completed_cells_end();
     act(s, mouse, &title(c), "[Preview]");
-    s.wait_for_command_count(f, offset + 83);
+    s.wait_for_command_count(f, offset + 85);
     complete_cells(s, after, &title(c), &["PREVIEW", H, "[Confirm action]"]);
 }
 fn selected_offset_v120(s: &mut Session, f: &Fixture, mouse: bool, offset: usize) {
@@ -316,15 +316,8 @@ fn selected_offset_v120(s: &mut Session, f: &Fixture, mouse: bool, offset: usize
 fn open_run_offset_v120(s: &mut Session, f: &Fixture, mouse: bool, offset: usize) {
     selected_offset_v120(s, f, mouse, offset);
     choose(s, mouse, "[k Checks]", b"k");
-    s.wait_for_command_count(f, offset + 41);
-    ready(
-        s,
-        &[
-            "Required rules unavailable",
-            "Exact observed build",
-            "ci-actor",
-        ],
-    );
+    s.wait_for_command_count(f, offset + 43);
+    ready(s, &[REQUIRED_SUMMARY, "Exact observed build", "ci-actor"]);
     select_observed_row(s, mouse, "Exact observed build");
     // Open check joins the key bar only once a check row is selected.
     s.wait_for_control("[Enter Open check]");
@@ -335,7 +328,7 @@ fn open_run_offset_v120(s: &mut Session, f: &Fixture, mouse: bool, offset: usize
         s.wait_for_control("[Enter Open check]");
         s.send_key(b"\r");
     }
-    s.wait_for_command_count(f, offset + 59);
+    s.wait_for_command_count(f, offset + 61);
     ready(
         s,
         &[

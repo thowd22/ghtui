@@ -122,6 +122,7 @@ impl PrChecksOrigin {
             id: check.id,
             head_sha: check.head_sha.clone(),
             kind: "check".into(),
+            app_id: None,
             name: String::new(),
             status: String::new(),
             conclusion: String::new(),

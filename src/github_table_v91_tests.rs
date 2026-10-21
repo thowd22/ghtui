@@ -238,6 +238,7 @@ fn design_table_v91_pr_checks_are_a_table_with_glyphs_bar_and_row_targets() {
         url: String::new(),
         head_sha: head.clone(),
         kind: "check_run".into(),
+        app_id: None,
     };
     let mut app = with_page(PrTab::Checks, |page| {
         page.checks = Some(vec![

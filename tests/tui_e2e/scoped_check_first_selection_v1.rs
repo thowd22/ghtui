@@ -3,15 +3,15 @@
 use super::*;
 fn first_input(mouse: bool) {
     let expected = steps(vec![]);
-    assert_eq!(expected.len(), 59);
+    assert_eq!(expected.len(), 61);
     let fixture = resource_configured(&expected);
     let git_before = git_state(&fixture);
     let config = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
     let mut session = launch(&fixture, mouse);
     selected(&mut session, &fixture, mouse);
     choose(&mut session, mouse, "[k Checks]", b"k");
-    session.wait_for_command_count(&fixture, 41);
-    session.wait_for_cursorless_condition(|frame|{let text=frame.contents();text.contains("Required rules unavailable")&&text.contains("Check#600")&&text.contains("Status#700")&&crate::support::controls::main_footer_visible(frame)&&crate::support::controls::control_painted(frame, "[b Back]")&&!crate::support::controls::control_painted(frame, "[Enter Open check]")},"Actual completed original Checks notice+genuine Check600+unrelated Status700 before first input; Open check leaves the key bar until a check is selected",Duration::from_secs(8));
+    session.wait_for_command_count(&fixture, 43);
+    session.wait_for_cursorless_condition(|frame|{let text=frame.contents();text.contains(REQUIRED_SUMMARY)&&text.contains("Check#600")&&text.contains("Status#700")&&crate::support::controls::main_footer_visible(frame)&&crate::support::controls::control_painted(frame, "[b Back]")&&!crate::support::controls::control_painted(frame, "[Enter Open check]")},"Actual completed original Checks notice+genuine Check600+unrelated Status700 before first input; Open check leaves the key bar until a check is selected",Duration::from_secs(8));
     let original = crate::support::completed_navigation_controls_v1::progress_selection(
         session.completed_cursorless_screen().unwrap(),
         "Exact observed build",
@@ -32,7 +32,7 @@ fn first_input(mouse: bool) {
     session.wait_for_new_cursorless_condition(before,|frame|crate::support::completed_navigation_controls_v1::progress_selection(frame,"Exact observed build").is_some_and(|selection|selection.selected_row==Some(selection.target.1)),"Exactly ONE Down/click must visibly select genuine original Check600, not a notice or Status700",Duration::from_millis(400));
     assert_eq!(
         commands(&session, &fixture).len(),
-        41,
+        43,
         "Selection itself performs zero API work"
     );
     if mouse {
@@ -40,7 +40,7 @@ fn first_input(mouse: bool) {
     } else {
         session.send_key(b"\r");
     }
-    session.wait_for_command_count(&fixture, 59);
+    session.wait_for_command_count(&fixture, 61);
     ready(
         &mut session,
         &[
@@ -54,7 +54,7 @@ fn first_input(mouse: bool) {
     assert!(!session.screen().contains(PRIVATE_DRAFT));
     control(&mut session, mouse, "[b Back to PR checks]", b"b");
     ready(&mut session, &["Exact observed build", "Status#700"]);
-    assert_eq!(commands(&session, &fixture).len(), 59);
+    assert_eq!(commands(&session, &fixture).len(), 61);
     unchanged(&session, &fixture, &sql_before, &expected);
     assert_eq!(git_state(&fixture), git_before);
     assert_eq!(git_commands(&fixture), trace);

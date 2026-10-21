@@ -43,6 +43,74 @@ pub enum RequiredStateV1 {
     Pending,
     /// No check run or status with this name was reported for the head.
     NotReported,
+    /// A result with this name was reported, but the rule pins an app the result
+    /// does not name (a commit status), so it is not known to satisfy the rule.
+    Unverified,
+}
+
+/// One observed result that can satisfy a required context: its name, the app
+/// that reported it when known, and the state it contributes.
+pub trait ObservedContextV1 {
+    fn context_name(&self) -> Option<&str>;
+    fn context_app_id(&self) -> Option<u64>;
+    fn context_state(&self) -> RequiredStateV1;
+}
+
+impl<T: ObservedContextV1 + ?Sized> ObservedContextV1 for &T {
+    fn context_name(&self) -> Option<&str> {
+        (**self).context_name()
+    }
+    fn context_app_id(&self) -> Option<u64> {
+        (**self).context_app_id()
+    }
+    fn context_state(&self) -> RequiredStateV1 {
+        (**self).context_state()
+    }
+}
+
+impl ObservedContextV1 for Check {
+    fn context_name(&self) -> Option<&str> {
+        Some(&self.name)
+    }
+    fn context_app_id(&self) -> Option<u64> {
+        self.app_id
+    }
+    fn context_state(&self) -> RequiredStateV1 {
+        check_state(self)
+    }
+}
+
+impl ObservedContextV1 for super::ObservedPrCheckV1 {
+    fn context_name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+    fn context_app_id(&self) -> Option<u64> {
+        self.app_id
+    }
+    fn context_state(&self) -> RequiredStateV1 {
+        if !self.current_context_unique {
+            // Repeated contexts have no single current result.
+            return RequiredStateV1::Pending;
+        }
+        conclusion_state(self.conclusion.as_deref().unwrap_or(""))
+    }
+}
+
+/// `Some(true)` when `observed` satisfies `required`, `Some(false)` when it is
+/// another context or another app's result, `None` when the rule pins an app
+/// the result does not name.
+pub fn context_matches<C: ObservedContextV1 + ?Sized>(
+    required: &RequiredContextV1,
+    observed: &C,
+) -> Option<bool> {
+    if observed.context_name() != Some(required.context.as_str()) {
+        return Some(false);
+    }
+    match (required.app_id, observed.context_app_id()) {
+        (None, _) => Some(true),
+        (Some(pinned), Some(app)) => Some(pinned == app),
+        (Some(_), None) => None,
+    }
 }
 
 const MAX_CONTEXTS: usize = 500;
@@ -54,24 +122,45 @@ impl RequiredChecksV1 {
         }
     }
     /// `Some(true)` required, `Some(false)` optional, `None` unknown.
-    pub fn required(&self, check: &Check) -> Option<bool> {
+    pub fn required<C: ObservedContextV1 + ?Sized>(&self, check: &C) -> Option<bool> {
         match self {
-            Self::Known { contexts, .. } => Some(contexts.iter().any(|c| c.context == check.name)),
+            Self::Known { contexts, .. } => {
+                let mut unknown = false;
+                for required in contexts {
+                    match context_matches(required, check) {
+                        Some(true) => return Some(true),
+                        None => unknown = true,
+                        Some(false) => {}
+                    }
+                }
+                (!unknown).then_some(false)
+            }
             Self::Unavailable { .. } => None,
         }
     }
     /// Required contexts and their state on the observed checks, in rule order.
-    pub fn states<'a>(&'a self, checks: &[Check]) -> Vec<(&'a str, RequiredStateV1)> {
+    pub fn states<'a, C: ObservedContextV1>(
+        &'a self,
+        checks: &[C],
+    ) -> Vec<(&'a str, RequiredStateV1)> {
         let Self::Known { contexts, .. } = self else {
             return Vec::new();
         };
         contexts
             .iter()
             .map(|required| {
-                let matching = checks.iter().filter(|c| c.name == required.context);
                 let mut state = RequiredStateV1::NotReported;
-                for check in matching {
-                    let this = check_state(check);
+                let mut unverified = false;
+                for check in checks {
+                    match context_matches(required, check) {
+                        Some(true) => {}
+                        None => {
+                            unverified = true;
+                            continue;
+                        }
+                        Some(false) => continue,
+                    }
+                    let this = check.context_state();
                     state = match (state, this) {
                         (RequiredStateV1::Failing, _) | (_, RequiredStateV1::Failing) => {
                             RequiredStateV1::Failing
@@ -82,12 +171,18 @@ impl RequiredChecksV1 {
                         _ => RequiredStateV1::Passed,
                     };
                 }
+                if state == RequiredStateV1::NotReported && unverified {
+                    state = RequiredStateV1::Unverified;
+                }
                 (required.context.as_str(), state)
             })
             .collect()
     }
     /// One line for the Checks tab header, with the role that colours it.
-    pub fn summary(&self, checks: &[Check]) -> (String, crate::theme::SemanticToken) {
+    pub fn summary<C: ObservedContextV1>(
+        &self,
+        checks: &[C],
+    ) -> (String, crate::theme::SemanticToken) {
         use crate::theme::SemanticToken;
         match self {
             Self::Unavailable { base_ref, reason } => (
@@ -101,16 +196,18 @@ impl RequiredChecksV1 {
             Self::Known { base_ref, .. } => {
                 let states = self.states(checks);
                 let count = |s| states.iter().filter(|(_, x)| *x == s).count();
-                let (failing, pending, passed, missing) = (
+                let (failing, pending, passed, missing, unverified) = (
                     count(RequiredStateV1::Failing),
                     count(RequiredStateV1::Pending),
                     count(RequiredStateV1::Passed),
                     count(RequiredStateV1::NotReported),
+                    count(RequiredStateV1::Unverified),
                 );
                 let parts: Vec<String> = [
                     (failing, "failing"),
                     (pending, "pending"),
                     (missing, "not reported"),
+                    (unverified, "app unverified"),
                     (passed, "passed"),
                 ]
                 .into_iter()
@@ -119,7 +216,7 @@ impl RequiredChecksV1 {
                 .collect();
                 let role = if failing > 0 {
                     SemanticToken::Failure
-                } else if pending + missing > 0 {
+                } else if pending + missing + unverified > 0 {
                     SemanticToken::Pending
                 } else {
                     SemanticToken::Success
@@ -135,7 +232,11 @@ impl RequiredChecksV1 {
 
 /// The state one observed check contributes to a required context.
 pub fn check_state(check: &Check) -> RequiredStateV1 {
-    match check.conclusion.as_str() {
+    conclusion_state(&check.conclusion)
+}
+
+fn conclusion_state(conclusion: &str) -> RequiredStateV1 {
+    match conclusion {
         "success" | "neutral" | "skipped" => RequiredStateV1::Passed,
         "" => RequiredStateV1::Pending,
         _ => RequiredStateV1::Failing,
@@ -276,10 +377,63 @@ fn unavailable_reason(error: &GithubError) -> &'static str {
     }
 }
 
+/// Reads the required checks of `base_ref` through `branch` (classic protection
+/// for an encoded branch path) and `rules` (active rulesets). Account failures
+/// and cancellation propagate (the caller hides private pages); any other read
+/// failure is an explicit `Unavailable` answer rather than an empty required set.
+pub(crate) fn read_required_checks_v1(
+    base_ref: &str,
+    cancel: &CancellationToken,
+    branch: impl FnOnce(&str) -> GithubResult<Value>,
+    rules: impl FnOnce(&str) -> GithubResult<Vec<Value>>,
+) -> GithubResult<RequiredChecksV1> {
+    let unavailable = |reason: &str| {
+        Ok(RequiredChecksV1::Unavailable {
+            base_ref: base_ref.into(),
+            reason: reason.into(),
+        })
+    };
+    let Some(path) = branch_path(base_ref) else {
+        return unavailable("the base branch name cannot be read");
+    };
+    let propagate = |error: &GithubError| {
+        cancel.is_cancelled()
+            || matches!(
+                error.kind,
+                GithubErrorKind::Authentication
+                    | GithubErrorKind::IdentityChanged
+                    | GithubErrorKind::MissingGh
+            )
+    };
+    let mut contexts = Vec::new();
+    match branch(&path) {
+        Ok(value) => {
+            if let Err(reason) = parse_branch_protection(&value, &mut contexts) {
+                return unavailable(reason);
+            }
+        }
+        Err(error) if propagate(&error) => return Err(error),
+        Err(error) => {
+            return unavailable(&format!("branch protection {}", unavailable_reason(&error)))
+        }
+    }
+    match rules(&path) {
+        Ok(rules) => {
+            if let Err(reason) = parse_rules(&rules, &mut contexts) {
+                return unavailable(reason);
+            }
+        }
+        Err(error) if propagate(&error) => return Err(error),
+        Err(error) => return unavailable(&format!("rulesets {}", unavailable_reason(&error))),
+    }
+    Ok(RequiredChecksV1::Known {
+        base_ref: base_ref.into(),
+        contexts,
+    })
+}
+
 impl GithubProvider {
-    /// Reads the required checks of `base_ref`. Account failures and cancellation
-    /// propagate (the caller hides private pages); any other read failure is an
-    /// explicit `Unavailable` answer rather than an empty required set.
+    /// Reads the required checks of `base_ref`; see [`read_required_checks_v1`].
     pub fn required_checks(
         &self,
         repo: &str,
@@ -287,60 +441,27 @@ impl GithubProvider {
         cancel: &CancellationToken,
     ) -> GithubResult<RequiredChecksV1> {
         validate_repo(repo)?;
-        let unavailable = |reason: &str| {
-            Ok(RequiredChecksV1::Unavailable {
-                base_ref: base_ref.into(),
-                reason: reason.into(),
-            })
-        };
-        let Some(branch) = branch_path(base_ref) else {
-            return unavailable("the base branch name cannot be read");
-        };
-        let propagate = |error: &GithubError| {
-            cancel.is_cancelled()
-                || matches!(
-                    error.kind,
-                    GithubErrorKind::Authentication
-                        | GithubErrorKind::IdentityChanged
-                        | GithubErrorKind::MissingGh
+        read_required_checks_v1(
+            base_ref,
+            cancel,
+            |branch| {
+                self.api(
+                    &format!("repos/{repo}/branches/{branch}"),
+                    "GET",
+                    None,
+                    None,
+                    false,
+                    cancel,
                 )
-        };
-        let mut contexts = Vec::new();
-        match self.api(
-            &format!("repos/{repo}/branches/{branch}"),
-            "GET",
-            None,
-            None,
-            false,
-            cancel,
-        ) {
-            Ok(value) => {
-                if let Err(reason) = parse_branch_protection(&value, &mut contexts) {
-                    return unavailable(reason);
-                }
-            }
-            Err(error) if propagate(&error) => return Err(error),
-            Err(error) => {
-                return unavailable(&format!("branch protection {}", unavailable_reason(&error)))
-            }
-        }
-        match self.api_list(
-            &format!("repos/{repo}/rules/branches/{branch}?per_page=100"),
-            None,
-            cancel,
-        ) {
-            Ok(rules) => {
-                if let Err(reason) = parse_rules(&rules, &mut contexts) {
-                    return unavailable(reason);
-                }
-            }
-            Err(error) if propagate(&error) => return Err(error),
-            Err(error) => return unavailable(&format!("rulesets {}", unavailable_reason(&error))),
-        }
-        Ok(RequiredChecksV1::Known {
-            base_ref: base_ref.into(),
-            contexts,
-        })
+            },
+            |branch| {
+                self.api_list(
+                    &format!("repos/{repo}/rules/branches/{branch}?per_page=100"),
+                    None,
+                    cancel,
+                )
+            },
+        )
     }
 }
 
