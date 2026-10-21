@@ -5326,6 +5326,228 @@ fn merge_workflows_provider_reads_repository_methods_and_permission_without_gues
     assert_eq!(journal(&fixture).len(), 2);
 }
 
+/// `gh pr merge` pinned to the previewed head; `--auto` only when asked.
+fn merge_cli(flag: &str, auto: bool) -> GhStep {
+    let mut args = vec![
+        "pr",
+        "merge",
+        "7",
+        "--repo",
+        "github.invalid/example/repo",
+        flag,
+        "--match-head-commit",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ];
+    if auto {
+        args.push("--auto");
+    }
+    GhStep::read(&args, "")
+}
+fn merge_rows(fixture: &Fixture) -> Vec<Value> {
+    journal(fixture)
+        .into_iter()
+        .filter(|row| row["args"][0] == "pr" && row["args"][1] == "merge")
+        .collect()
+}
+
+/// TASK-24 testing step 1: head races, protected-branch refusal, pending
+/// checks with auto-merge, queue admission and timeout reconciliation. Every
+/// merge is pinned to the previewed head, never uses `--admin`, and an
+/// unknown outcome blocks a second write until reconciled.
+#[test]
+fn merge_workflows_provider_scenarios_pin_head_and_never_resend_unknown_outcomes() {
+    use ghtui::providers::gh::MergeMethod;
+    let cancel = CancellationToken::default();
+    let read_pr = |value: Value| step(api_args("repos/example/repo/pulls/7"), value);
+
+    // Head race: GitHub's head moved since preview, so no merge is sent.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut moved = pr(7, "example/repo");
+    moved["head"]["sha"] = json!("cccccccccccccccccccccccccccccccccccccccc");
+    steps[2] = read_pr(moved);
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .merge(&identity(), &target(), MergeMethod::Squash, false, &cancel)
+        .unwrap_err();
+    assert!(
+        matches!(error.kind, GithubErrorKind::StaleHead),
+        "{error:?}"
+    );
+    assert_eq!(journal(&fixture).len(), 3);
+    assert!(merge_rows(&fixture).is_empty(), "head race sends no merge");
+
+    // Clean squash merge: one pinned command, confirmed by the read-back.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut merged = pr(7, "example/repo");
+    merged["merged"] = json!(true);
+    merged["state"] = json!("closed");
+    steps.extend([merge_cli("--squash", false), read_pr(merged)]);
+    fixture.scripted_gh(&steps);
+    let summary = provider(&fixture)
+        .merge(&identity(), &target(), MergeMethod::Squash, false, &cancel)
+        .unwrap();
+    assert!(summary.merged);
+    let rows = merge_rows(&fixture);
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg == "--admin"));
+    assert!(journal(&fixture).iter().all(|row| row["matched"] == true));
+
+    // Protected branch: GitHub refuses the merge. An exited write is an
+    // unknown outcome by contract, so a second attempt re-reads the PR but
+    // never launches a second merge.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut refused = merge_cli("--merge", false);
+    refused.status = 1;
+    refused.stderr =
+        b"X Pull request example/repo#7 is not mergeable: the base branch policy prohibits the merge.\n"
+            .to_vec();
+    steps.push(refused);
+    steps.extend(guard_steps());
+    fixture.scripted_gh(&steps);
+    let gh = provider(&fixture);
+    let first = gh
+        .merge(&identity(), &target(), MergeMethod::Merge, false, &cancel)
+        .unwrap_err();
+    assert!(matches!(first.kind, GithubErrorKind::AmbiguousWrite));
+    assert!(first.message.contains("base branch policy"), "{first:?}");
+    let again = gh
+        .merge(&identity(), &target(), MergeMethod::Merge, false, &cancel)
+        .unwrap_err();
+    assert!(matches!(again.kind, GithubErrorKind::AmbiguousWrite));
+    assert_eq!(journal(&fixture).len(), 7);
+    assert_eq!(merge_rows(&fixture).len(), 1, "no duplicate merge write");
+
+    // Pending checks: auto-merge is requested explicitly with `--auto`; the
+    // read-back shows a pending request, and the PR is not reported merged.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut pending = pr(7, "example/repo");
+    pending["mergeable_state"] = json!("blocked");
+    pending["auto_merge"] = json!({"merge_method":"squash"});
+    steps.extend([merge_cli("--squash", true), read_pr(pending)]);
+    fixture.scripted_gh(&steps);
+    let summary = provider(&fixture)
+        .merge(&identity(), &target(), MergeMethod::Squash, true, &cancel)
+        .unwrap();
+    assert!(summary.auto_merge && !summary.merged);
+    assert_eq!(merge_rows(&fixture).len(), 1);
+
+    // Required merge queue: the accepted merge leaves the PR open; the
+    // separate merge-context read finds its queue entry (queued, not merged).
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    steps.extend([
+        merge_cli("--merge", false),
+        read_pr(pr(7, "example/repo")),
+        merge_context_step(
+            json!({"id":"MQ7","state":"AWAITING_CHECKS","position":3,"headCommit":{"oid":"cccccccccccccccccccccccccccccccccccccccc"},"baseCommit":{"oid":target().base_sha},"enqueuer":{"login":"octocat"},"enqueuedAt":"2026-10-20T00:00:00Z","jump":false}),
+            Value::Null,
+        ),
+    ]);
+    fixture.scripted_gh(&steps);
+    let gh = provider(&fixture);
+    let summary = gh
+        .merge(&identity(), &target(), MergeMethod::Merge, false, &cancel)
+        .unwrap();
+    assert!(!summary.merged && summary.pr.state == "open");
+    let queue = gh.merge_context(&summary, &cancel).unwrap().queue.unwrap();
+    assert_eq!(
+        (queue.id.as_str(), queue.state.as_str(), queue.position),
+        ("MQ7", "AWAITING_CHECKS", 3)
+    );
+    assert_eq!(journal(&fixture).len(), 6);
+
+    // Timeout: the merge command outlives its deadline and is killed. The
+    // outcome is unknown; a fresh read observes the PR but is not an
+    // acknowledgement, so the next merge attempt sends nothing.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut slow = merge_cli("--merge", false);
+    slow.delay_ms = 10_000;
+    steps.push(slow);
+    steps.push(read_pr(pr(7, "example/repo")));
+    steps.extend(guard_steps());
+    fixture.scripted_gh(&steps);
+    let gh = provider(&fixture).with_timeout(Duration::from_millis(2_000));
+    let started = Instant::now();
+    let error = gh
+        .merge(&identity(), &target(), MergeMethod::Merge, false, &cancel)
+        .unwrap_err();
+    assert!(
+        matches!(error.kind, GithubErrorKind::AmbiguousWrite),
+        "{error:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(8));
+    let rows = merge_rows(&fixture);
+    assert_eq!(rows.len(), 1);
+    assert_process_gone(rows[0]["pid"].as_u64().unwrap());
+    let observed = gh.pr_summary("example/repo", 7, &cancel).unwrap();
+    assert!(
+        !observed.merged,
+        "the observation reports, it does not unlock"
+    );
+    let retry = gh
+        .merge(&identity(), &target(), MergeMethod::Merge, false, &cancel)
+        .unwrap_err();
+    assert!(matches!(retry.kind, GithubErrorKind::AmbiguousWrite));
+    assert_eq!(journal(&fixture).len(), steps.len());
+    assert_eq!(
+        merge_rows(&fixture).len(),
+        1,
+        "no second merge after timeout"
+    );
+}
+
+/// TASK-25 AC3: `gh pr close` ran but the re-fetched PR is still open. The
+/// error names the re-read state and the retry sends no second close.
+#[test]
+fn pr_lifecycle_unconfirmed_close_reports_refetched_state_and_never_resends() {
+    let cancel = CancellationToken::default();
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    steps.push(GhStep::read(
+        &["pr", "close", "7", "--repo", "github.invalid/example/repo"],
+        "",
+    ));
+    steps.push(step(
+        api_args("repos/example/repo/pulls/7"),
+        pr(7, "example/repo"),
+    ));
+    steps.extend(guard_steps());
+    fixture.scripted_gh(&steps);
+    let gh = provider(&fixture);
+    let close = ghtui::providers::gh::PrLifecycle::Close;
+    let error = gh
+        .lifecycle(&identity(), &target(), close, &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::AmbiguousWrite));
+    assert!(
+        error
+            .message
+            .contains("GitHub re-read the PR as open at head aaaaaaa"),
+        "{error:?}"
+    );
+    let retry = gh
+        .lifecycle(&identity(), &target(), close, &cancel)
+        .unwrap_err();
+    assert!(matches!(retry.kind, GithubErrorKind::AmbiguousWrite));
+    let rows = journal(&fixture);
+    assert_eq!(rows.len(), steps.len());
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["args"][0] == "pr" && row["args"][1] == "close")
+            .count(),
+        1
+    );
+}
+
 fn merged_head(head_repo: &str) -> (PrSummary, Vec<GhStep>) {
     let mut original = target();
     original.merged = true;

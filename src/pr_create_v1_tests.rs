@@ -354,6 +354,62 @@ fn v1_pr_create_fork_parent_target_and_reviewers_post_once_then_request() {
         "{text}"
     );
     assert!(text.contains("Reviewers to request after creation: alice, upstream/core"));
+    // TASK-26 AC6: the account and each requested user are actor rows that
+    // paint the shared initials chip; a team stays a labelled text row.
+    let actors: Vec<(&str, &str)> = plan
+        .actor_rows
+        .iter()
+        .map(|actor| (plan.preview[actor.row].as_str(), actor.login.as_str()))
+        .collect();
+    assert_eq!(
+        actors,
+        [
+            ("Account: octocat on github.invalid", "octocat"),
+            ("  Reviewer: alice", "alice")
+        ]
+    );
+    assert!(plan
+        .preview
+        .contains(&"  Team reviewer: upstream/core".to_string()));
+    let theme = crate::theme::Theme::from_settings(0, false);
+    let account = &plan.actor_rows[0];
+    let line = plan.preview_row_line(account.row, true, &plan.preview[account.row], theme);
+    let identity = account.identity("github.invalid");
+    assert_eq!(
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>(),
+        "Account: OC octocat on github.invalid"
+    );
+    assert_eq!(
+        line.spans[1].style,
+        theme.identity_chip(crate::identity::InitialsChip::slot(&identity))
+    );
+    // Same identity hue as every other GitHub actor row for this login.
+    assert_eq!(
+        crate::identity::InitialsChip::slot(&identity),
+        crate::identity::InitialsChip::slot(&crate::identity::ActorIdentity::github(
+            "github.invalid",
+            &crate::providers::gh::Actor {
+                login: "octocat".into(),
+                ..Default::default()
+            }
+        ))
+    );
+    let mut plain = theme;
+    plain.mode = crate::theme::ColorMode::NoColor;
+    let line = plan.preview_row_line(plan.actor_rows[1].row, true, "  Reviewer: alice", plain);
+    assert_eq!(
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>(),
+        "  Reviewer: [AL] alice"
+    );
+    // A wrapped continuation or an ordinary row is never given a chip.
+    let line = plan.preview_row_line(account.row, false, "on github.invalid", theme);
+    assert_eq!(line.spans.len(), 1);
     let created = plan.submit(&provider, &cancel).unwrap();
     assert_eq!(
         (created.repository.as_str(), created.number),

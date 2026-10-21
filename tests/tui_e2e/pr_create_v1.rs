@@ -238,6 +238,66 @@ fn choose_reviewers_and_parent(session: &mut Session, mouse: bool, reviewers: &s
     }
 }
 
+/// Each `(prefix, initials, rest, login)` row reads `prefix`, the two-cell
+/// chip filled with the login's identity hue, one blank unfilled cell, then
+/// `rest`; the `[AB]` text form never appears with colour on.
+fn actor_chips_painted(frame: &vt100::Screen, rows: &[(&str, &str, &str, &str)]) -> bool {
+    use ghtui::identity::{ActorIdentity, ActorKind, InitialsChip};
+    let contents = frame.contents();
+    if contents.contains("[OC]") || contents.contains("[AL]") {
+        return false;
+    }
+    rows.iter().all(|(prefix, initials, rest, login)| {
+        let identity = ActorIdentity {
+            host: Some(HOST.into()),
+            login: Some((*login).into()),
+            name: String::new(),
+            email: None,
+            avatar_url: None,
+            kind: ActorKind::User,
+            git_role: None,
+            host_associated: true,
+        };
+        let hex = ghtui::theme::CATPPUCCIN_MOCHA.lanes()[InitialsChip::slot(&identity)];
+        let hue = vt100::Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+        let wanted = format!("{prefix}{initials} {rest}");
+        contents.lines().enumerate().any(|(row, line)| {
+            let Some(at) = line.find(&wanted) else {
+                return false;
+            };
+            let chip = (line[..at].chars().count() + prefix.chars().count()) as u16;
+            let filled = initials.chars().enumerate().all(|(offset, letter)| {
+                frame
+                    .cell(row as u16, chip + offset as u16)
+                    .is_some_and(|cell| {
+                        cell.contents() == letter.to_string() && cell.bgcolor() == hue
+                    })
+            });
+            let gap = frame
+                .cell(row as u16, chip + 2)
+                .is_some_and(|cell| cell.contents().trim().is_empty() && cell.bgcolor() != hue);
+            filled && gap
+        })
+    })
+}
+fn wait_actor_chips(session: &mut Session, rows: &[(&str, &str, &str, &str)]) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        session.poll_output(std::time::Duration::from_millis(5));
+        if session
+            .completed_cells_screen()
+            .is_some_and(|frame| actor_chips_painted(frame, rows))
+        {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "create preview actor chips not painted\n{}",
+            session.screen()
+        );
+    }
+}
+
 /// A fork's PR targets GitHub's recorded parent, then requests reviewers once.
 fn fork_journey(mouse: bool) {
     let (fixture, head) = checkout();
@@ -294,6 +354,15 @@ fn fork_journey(mouse: bool) {
     preview(&mut session, mouse);
     session.wait_for_screen("(fork example/repo) → upstream/repo:trunk");
     session.wait_for_screen("Reviewers to request after creation: alice");
+    // TASK-26 AC6: the account and the requested reviewer carry the shared
+    // filled initials chip in their identity hue.
+    wait_actor_chips(
+        &mut session,
+        &[
+            ("Account: ", "OC", "octocat on github.invalid", "octocat"),
+            ("  Reviewer: ", "AL", "alice", "alice"),
+        ],
+    );
     let records = journal(&session, &fixture);
     assert_eq!(records.len(), previewed);
     assert_eq!(posts(&records), 0, "preview never writes");

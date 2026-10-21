@@ -675,6 +675,36 @@ fn loaded_governed_reason(command: PrCommand, context: &PrActionContext) -> Opti
         _ => None,
     }
 }
+/// The refusal when the fresh read of the PR no longer matches the one the
+/// action was prepared for. It names what GitHub reports now (re-fetched just
+/// before this check), so a moved head or base is visible, not just refused.
+fn changed_target_reason(prepared: &PrSummary, fresh: &PrSummary) -> String {
+    let short = |sha: &str| sha.get(..7).unwrap_or(sha).to_owned();
+    let mut changes = Vec::new();
+    if fresh.pr.id != prepared.pr.id || fresh.pr.repository != prepared.pr.repository {
+        changes.push("GitHub now reports a different PR at this number".to_string());
+    }
+    if fresh.head_sha != prepared.head_sha {
+        changes.push(format!(
+            "head is now {} on {} (prepared for {})",
+            short(&fresh.head_sha),
+            fresh.head_ref,
+            short(&prepared.head_sha)
+        ));
+    }
+    if fresh.base_sha != prepared.base_sha {
+        changes.push(format!(
+            "base is now {} on {} (prepared for {})",
+            short(&fresh.base_sha),
+            fresh.base_ref,
+            short(&prepared.base_sha)
+        ));
+    }
+    sanitize_terminal(&format!(
+        "PR identity or saved head changed: {}. Refresh and review the new state; nothing was sent and the draft was not published.",
+        changes.join("; ")
+    ))
+}
 /// Who enabled the pending auto-merge request, read when the form opened.
 fn auto_merge_enabler_line(context: &PrActionContext) -> Option<String> {
     let info = context
@@ -1504,7 +1534,7 @@ impl PrPlan {
             || target.head_sha != context.target.head_sha
             || target.base_sha != context.target.base_sha
         {
-            return Err("PR identity or saved head changed. Refresh and inspect it; the draft was not published.".into());
+            return Err(changed_target_reason(&context.target, &target));
         }
         if matches!(operation, PrOperation::Merge(_)) {
             if let Some(reason) = merge_disabled_reason(&target) {
@@ -2347,6 +2377,24 @@ mod pr_merge_tests {
         }
         assert!(merge_method("fast-forward").is_err());
         assert_eq!(PrCommand::Merge.key(), "merge");
+        // TASK-25 AC3: a moved head or base names what GitHub reports now.
+        target.merged = false;
+        let mut fresh = target.clone();
+        fresh.head_sha = "c".repeat(40);
+        let reason = changed_target_reason(&target, &fresh);
+        assert!(reason.starts_with("PR identity or saved head changed: "));
+        assert!(
+            reason.contains("head is now ccccccc on feature (prepared for aaaaaaa)"),
+            "{reason}"
+        );
+        assert!(!reason.contains("base is now") && reason.contains("nothing was sent"));
+        fresh.head_sha = target.head_sha.clone();
+        fresh.base_sha = "d".repeat(40);
+        fresh.pr.id = "PR_other".into();
+        let reason = changed_target_reason(&target, &fresh);
+        assert!(reason.contains("base is now ddddddd on main (prepared for bbbbbbb)"));
+        assert!(reason.contains("different PR at this number"));
+        assert!(!reason.contains("head is now"));
     }
 }
 

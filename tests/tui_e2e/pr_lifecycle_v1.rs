@@ -339,6 +339,150 @@ fn cancelled_close(mouse: bool) {
     session.quit_and_assert_restored_terminal(false);
 }
 
+/// TASK-25 AC3, head change: the preview re-reads the PR, finds a new head
+/// and shows it (new and prepared short SHAs). Nothing is sent, no `gh pr`
+/// command runs, and closing the form returns to the still-open PR.
+fn moved_head_close(mouse: bool) {
+    let fixture = configured();
+    let git = local_git_witness(&fixture);
+    let mut steps = initial();
+    steps.extend(details(vec![starter()]));
+    let opened = steps.len();
+    steps.extend(with_pr(
+        guard(),
+        &pr_with(|v| v["head"]["sha"] = json!("cccccccccccccccccccccccccccccccccccccccc")),
+    ));
+    let previewed = steps.len();
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_summary(&mut session, mouse);
+    records(&mut session, &fixture, opened);
+    let (label, key, visible) = COMMITS.unwrap();
+    choose(&mut session, mouse, label, key);
+    session.wait_for_screen(visible);
+    menu(&mut session, mouse, "Close without merging");
+    session.wait_for_screen("Local PR intent ready");
+    // The refused preview leaves no Confirm button, so use the bare control.
+    choose(&mut session, mouse, "[Preview]", b"\x10");
+    session.wait_for_screen("PR identity or saved head changed");
+    session.wait_for_screen("head is now ccccccc on feature");
+    session.wait_for_screen("(prepared for aaaaaaa)");
+    let after = records(&mut session, &fixture, previewed);
+    assert_eq!(mutation_count(&after), 0, "no GitHub write");
+    assert!(!after.iter().any(|record| record["args"][0] == "pr"));
+    choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("Local PR intent ready")
+                && text.contains("Native collaboration • open")
+                && crate::support::controls::main_footer_visible(frame)
+        },
+        "PR view restored, still open, after the moved-head refusal",
+        Duration::from_secs(8),
+    );
+    assert_eq!(
+        mutation_count(&records(&mut session, &fixture, previewed)),
+        0
+    );
+    assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    session.quit_and_assert_restored_terminal(false);
+}
+
+/// TASK-25 AC3, partial outcome: `gh pr close` runs, but the re-fetched PR
+/// is still open. The form shows what GitHub re-read, the journal records the
+/// attempt as `uncertain` (never confirmed), and confirming again sends no
+/// second close.
+fn unconfirmed_close(mouse: bool) {
+    let fixture = configured();
+    let git = local_git_witness(&fixture);
+    let mut steps = initial();
+    steps.extend(details(vec![starter()]));
+    let opened = steps.len();
+    steps.extend(guard());
+    let previewed = steps.len();
+    steps.extend(guard());
+    steps.extend(guard());
+    steps.push(cli(&["pr", "close", "7", "--repo", REPO]));
+    steps.push(step("repos/example/repo/pulls/7", "GET", pr(), false));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_summary(&mut session, mouse);
+    records(&mut session, &fixture, opened);
+    let (label, key, visible) = COMMITS.unwrap();
+    choose(&mut session, mouse, label, key);
+    session.wait_for_screen(visible);
+    menu(&mut session, mouse, "Close without merging");
+    session.wait_for_screen("Local PR intent ready");
+    preview(&mut session, mouse);
+    session.wait_for_screen("Closes this PR without merging");
+    assert_eq!(
+        mutation_count(&records(&mut session, &fixture, previewed)),
+        0
+    );
+    confirm(&mut session, mouse);
+    session.wait_for_screen("Uncertain publication");
+    session.wait_for_screen("GitHub re-read the PR as open");
+    assert!(!session
+        .screen()
+        .contains("Published • Close without merging"));
+    let closes = |records: &[Value]| {
+        records
+            .iter()
+            .filter(|record| record["args"][0] == "pr" && record["args"][1] == "close")
+            .count()
+    };
+    assert_eq!(closes(&records(&mut session, &fixture, steps.len())), 1);
+    let database = Connection::open(cache_path(&fixture)).unwrap();
+    let states: Vec<String> = database
+        .prepare("SELECT state FROM pr_write_attempts")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        states,
+        ["uncertain"],
+        "an unconfirmed close is never confirmed"
+    );
+    // Ctrl-S again (the invalidated plan hides the button) sends nothing.
+    session.send_key(b"\x13");
+    session.poll_output(Duration::from_millis(300));
+    assert_eq!(closes(&records(&mut session, &fixture, steps.len())), 1);
+    choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("READ-ONLY PREVIEW")
+                && text.contains("Native collaboration")
+                && crate::support::controls::main_footer_visible(frame)
+        },
+        "PR view restored after closing the uncertain close form",
+        Duration::from_secs(8),
+    );
+    assert_eq!(closes(&records(&mut session, &fixture, steps.len())), 1);
+    assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    session.quit_and_assert_restored_terminal(false);
+}
+
+#[test]
+fn v1_pr_lifecycle_keyboard_moved_head_shows_new_head_and_sends_nothing() {
+    moved_head_close(false)
+}
+#[test]
+fn v1_pr_lifecycle_mouse_moved_head_shows_new_head_and_sends_nothing() {
+    moved_head_close(true)
+}
+#[test]
+fn v1_pr_lifecycle_keyboard_unconfirmed_close_stays_uncertain_without_resend() {
+    unconfirmed_close(false)
+}
+#[test]
+fn v1_pr_lifecycle_mouse_unconfirmed_close_stays_uncertain_without_resend() {
+    unconfirmed_close(true)
+}
+
 #[test]
 fn v1_pr_lifecycle_keyboard_reopens_closed_pr_with_one_write() {
     journey(reopen_case(), false)

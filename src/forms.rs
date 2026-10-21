@@ -3330,6 +3330,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ) {
             let body = Rect::new(inner.x, body_y_v4, inner.width, visible as u16);
             let document = form.preview_display_v1.document.clone();
+            // The create-PR preview paints its account and reviewer rows with
+            // the shared actor chip; every other preview row stays plain.
+            let pr_create_v1 = match &form.purpose {
+                FormPurpose::Local(intent) => intent.pr_create_v1.clone(),
+                _ => None,
+            };
             let mut summary_viewport_v7 =
                 crate::prepared_form_text_v1::FormPreviewViewportV1::default();
             let window = document.as_ref().map(|document| {
@@ -3355,7 +3361,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     }
                     form.preview_display_v1.geometry_rejected=false;
                     for (offset,row) in window.rows().enumerate() {
-                        frame.render_widget(Paragraph::new(row.text()).style(theme.base()),
+                        let line = match &pr_create_v1 {
+                            Some(plan) => plan.preview_row_line(row.original_row(), row.first_segment(), row.text(), theme),
+                            None => ratatui::text::Line::raw(row.text()),
+                        };
+                        frame.render_widget(Paragraph::new(line).style(theme.base()),
                             Rect::new(body.x,body.y+offset as u16,body.width,1));
                     }
                 }

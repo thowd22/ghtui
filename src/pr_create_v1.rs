@@ -33,6 +33,70 @@ pub struct PrCreatePlanV1 {
     pub reviewers: Vec<String>,
     pub team_reviewers: Vec<String>,
     pub preview: Vec<String>,
+    /// Preview rows that name a GitHub user (the account and each requested
+    /// reviewer). The form paints the shared initials chip after `prefix`.
+    pub actor_rows: Vec<PrCreateActorRowV1>,
+}
+
+/// One preview row that names a GitHub user: `prefix` then the user's chip
+/// and the rest of the row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrCreateActorRowV1 {
+    pub row: usize,
+    pub prefix: &'static str,
+    pub login: String,
+}
+impl PrCreateActorRowV1 {
+    /// The shared actor identity for the chip: a login on `host`. Initials
+    /// and hue follow the login, the same as every other GitHub actor row.
+    pub fn identity(&self, host: &str) -> crate::identity::ActorIdentity {
+        crate::identity::ActorIdentity {
+            host: Some(host.to_owned()),
+            login: Some(self.login.clone()),
+            name: String::new(),
+            email: None,
+            avatar_url: None,
+            kind: crate::identity::ActorKind::User,
+            git_role: None,
+            host_associated: true,
+        }
+    }
+}
+impl PrCreatePlanV1 {
+    /// A painted preview row: an actor row becomes `prefix`, the filled
+    /// initials chip (`[AB]` without colour), one blank cell, then the rest.
+    /// Any other row, or a wrapped continuation, stays plain text.
+    pub fn preview_row_line(
+        &self,
+        original_row: usize,
+        first_segment: bool,
+        text: &str,
+        theme: crate::theme::Theme,
+    ) -> ratatui::text::Line<'static> {
+        use crate::identity::InitialsChip;
+        use ratatui::text::{Line, Span};
+        let actor = self
+            .actor_rows
+            .iter()
+            .find(|actor| actor.row == original_row)
+            .filter(|_| first_segment);
+        let Some((actor, rest)) =
+            actor.and_then(|actor| text.strip_prefix(actor.prefix).map(|rest| (actor, rest)))
+        else {
+            return Line::styled(text.to_owned(), theme.base());
+        };
+        let identity = actor.identity(&self.host);
+        let chip = if theme.mode == crate::theme::ColorMode::NoColor {
+            theme.style(crate::theme::SemanticToken::Actor)
+        } else {
+            theme.identity_chip(InitialsChip::slot(&identity))
+        };
+        Line::from(vec![
+            Span::styled(actor.prefix, theme.base()),
+            Span::styled(InitialsChip::text(&identity, theme.mode), chip),
+            Span::styled(format!(" {rest}"), theme.base()),
+        ])
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -255,9 +319,14 @@ impl PrCreatePlanV1 {
                 "GitHub's {branch} has no commits that {base} lacks, so there is nothing to propose. Commit and push your work first."
             ));
         }
+        let mut actor_rows = vec![PrCreateActorRowV1 {
+            row: 1,
+            prefix: "Account: ",
+            login: identity.login.clone(),
+        }];
         let mut preview = vec![
             "Create pull request — nothing is sent until confirmation".into(),
-            format!("Account: {} on {host}", identity.login),
+            format!("Account: {} on {host}", sanitize_terminal(&identity.login)),
             format!("Repository: {repository}"),
             if repository.eq_ignore_ascii_case(&origin) {
                 format!(
@@ -286,6 +355,18 @@ impl PrCreatePlanV1 {
                 "Reviewers to request after creation: {}",
                 requested.join(", ")
             ));
+            // One row per requested user, each with the shared actor chip.
+            for login in &reviewers {
+                actor_rows.push(PrCreateActorRowV1 {
+                    row: preview.len(),
+                    prefix: "  Reviewer: ",
+                    login: login.clone(),
+                });
+                preview.push(format!("  Reviewer: {login}"));
+            }
+            for team in &team_reviewers {
+                preview.push(format!("  Team reviewer: {}/{team}", owner(&repository)));
+            }
         }
         if body.trim().is_empty() {
             preview.push("Body: (empty)".into());
@@ -358,6 +439,7 @@ impl PrCreatePlanV1 {
             reviewers,
             team_reviewers,
             preview,
+            actor_rows,
         })
     }
 

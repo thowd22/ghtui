@@ -1544,9 +1544,16 @@ impl GithubProvider {
         };
         if !confirmed {
             self.runner.mark_ambiguous(&self.resource(repo, n));
+            // Partial outcome: the command ran, but the re-fetched PR does
+            // not show the effect. Say what GitHub reports now.
             return Err(error(
                 GithubErrorKind::AmbiguousWrite,
-                "PR lifecycle state was not confirmed after the command; reconcile before retrying",
+                format!(
+                    "PR lifecycle state was not confirmed: GitHub re-read the PR as {}{} at head {}; reconcile before retrying",
+                    if fresh.merged { "merged" } else { fresh.pr.state.as_str() },
+                    if fresh.pr.draft { " (draft)" } else { "" },
+                    fresh.head_sha.get(..7).unwrap_or(&fresh.head_sha),
+                ),
             ));
         }
         Ok(fresh)
