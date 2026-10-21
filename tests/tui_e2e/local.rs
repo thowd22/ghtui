@@ -287,6 +287,56 @@ fn staging(mouse: bool) {
 }
 
 #[test]
+fn discard_keyboard_exact_file_preview_cancel_and_confirm_restores_saved_bytes() {
+    discard(false)
+}
+#[test]
+fn discard_mouse_exact_file_preview_cancel_and_confirm_restores_saved_bytes() {
+    discard(true)
+}
+/// TASK-64: Discard selected file changes is destructive, so it previews the exact file and
+/// a warning, a closed draft writes nothing, and only the confirmed plan rewrites the working
+/// file; the index, HEAD and untracked work are left as they were.
+fn discard(mouse: bool) {
+    use ghtui::local_actions::LocalCommand;
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("with space.txt", b"saved\n", "First saved version");
+    std::fs::write(fixture.repo().join("with space.txt"), b"unsaved edit\n").unwrap();
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+    select_changed(&mut session, mouse, "with space.txt");
+    crate::local_management::operation(&mut session, mouse, LocalCommand::DiscardFile);
+    close(&mut session, mouse);
+    assert_eq!(
+        std::fs::read(fixture.repo().join("with space.txt")).unwrap(),
+        b"unsaved edit\n",
+        "closing the draft discards nothing"
+    );
+    crate::local_management::operation(&mut session, mouse, LocalCommand::DiscardFile);
+    preview(&mut session, mouse);
+    session.wait_for_screen("Exact file: with space.txt");
+    session.wait_for_screen("Warning: this can replace or remove existing history/files");
+    assert_eq!(
+        std::fs::read(fixture.repo().join("with space.txt")).unwrap(),
+        b"unsaved edit\n",
+        "the preview is read-only"
+    );
+    confirm(&mut session, mouse, 0);
+    session.wait_for_screen("Completed • Discard selected file changes");
+    assert_eq!(
+        std::fs::read(fixture.repo().join("with space.txt")).unwrap(),
+        b"saved\n"
+    );
+    assert_eq!(fixture.git(&["show", ":with space.txt"]), "saved\n");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
 fn local_commit_keyboard_stage_message_hook_failure_and_amend_cancel() {
     commit(false)
 }

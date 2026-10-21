@@ -332,8 +332,10 @@ pub struct ActionsControl {
 impl ActionsControl {
     /// The key-bar key and caption. `[l Logs]`, `> Next failure` and `X Enable workflow` carry
     /// their key in the label; catalogue tabs, Publications, Cancel, log search, scope (`o`),
-    /// run filter (`f`), rerun all (`A`) and failed (`F`) and acknowledgement (`K`) have fixed
-    /// keys; every other control is a click target and a palette entry without a key. A
+    /// run filter (`f`), rerun all (`A`) and failed (`F`), acknowledgement (`K`) and the
+    /// settings, cache and approval commands have fixed keys; every other control (the run,
+    /// artifact and reconciliation commands) is a click target and a palette entry without a
+    /// key, reached by Tab focus and Enter or through Commands. A
     /// scoped page's own control on the same key (`[f Edit filters]`) keeps it.
     pub fn key_and_text(&self) -> (Option<String>, String) {
         let label = self.label.trim();
@@ -358,6 +360,39 @@ impl ActionsControl {
             ActionsAction::Compose(ActionsCommand::FilterRuns) => Some("f"),
             ActionsAction::Compose(ActionsCommand::RerunAll) => Some("A"),
             ActionsAction::Compose(ActionsCommand::RerunFailed) => Some("F"),
+            // TASK-64: every settings, cache and approval command has a key. Each key is
+            // unique within its catalogue and avoids the catalogue tabs, the global keys and
+            // the keys the PR-check route reads before the bar (`d`, `n`, `x`, `<`, `>`).
+            ActionsAction::Compose(ActionsCommand::FilterCaches) => Some("f"),
+            ActionsAction::Compose(ActionsCommand::SetSecret | ActionsCommand::SetVariable) => {
+                Some("=")
+            }
+            ActionsAction::Compose(ActionsCommand::CreateRunnerGroup) => Some("+"),
+            ActionsAction::Compose(
+                ActionsCommand::DeleteCache
+                | ActionsCommand::DeleteSecret
+                | ActionsCommand::DeleteVariable
+                | ActionsCommand::RemoveRunner
+                | ActionsCommand::DeleteRunnerGroup,
+            ) => Some("-"),
+            ActionsAction::Compose(
+                ActionsCommand::EditEnvironment
+                | ActionsCommand::EditPolicy
+                | ActionsCommand::EditRunnerGroup,
+            ) => Some("M"),
+            ActionsAction::Compose(ActionsCommand::RunnerLabels) => Some("L"),
+            ActionsAction::Compose(ActionsCommand::GroupRunners) => Some("T"),
+            ActionsAction::Compose(ActionsCommand::GroupRepositories) => Some("O"),
+            ActionsAction::Compose(ActionsCommand::ApproveDeployment) => Some("Y"),
+            ActionsAction::Compose(ActionsCommand::RejectDeployment) => Some("B"),
+            ActionsAction::Policy(section) => Some(match section {
+                PolicySection::Permissions => "L",
+                PolicySection::SelectedActions => "T",
+                PolicySection::WorkflowToken => "O",
+                PolicySection::ForkWorkflows => "H",
+                PolicySection::ForkApproval => "Y",
+                PolicySection::Retention => "U",
+            }),
             ActionsAction::Acknowledge
             | ActionsAction::PublicationAcknowledge(_)
             | ActionsAction::PublicationAcknowledgeAcceptance(_) => Some("K"),
