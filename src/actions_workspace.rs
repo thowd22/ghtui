@@ -332,11 +332,11 @@ pub struct ActionsControl {
 impl ActionsControl {
     /// The key-bar key and caption. `[l Logs]`, `> Next failure` and `X Enable workflow` carry
     /// their key in the label; catalogue tabs, Publications, Cancel, log search, scope (`o`),
-    /// run filter (`f`), rerun all (`A`) and failed (`F`), acknowledgement (`K`) and the
-    /// settings, cache and approval commands have fixed keys; every other control (the run,
-    /// artifact and reconciliation commands) is a click target and a palette entry without a
-    /// key, reached by Tab focus and Enter or through Commands. A
-    /// scoped page's own control on the same key (`[f Edit filters]`) keeps it.
+    /// run filter (`f`), rerun all (`A`) and failed (`F`), acknowledgement (`K`), the
+    /// settings, cache and approval commands, the run commands (`J` rerun job, `!`
+    /// force-cancel, `-` delete run, `L` delete logs, `Y` approve fork), the artifact
+    /// commands (`X` export, `U` extract, `-` delete) and `i` Inspect uncertain write have
+    /// fixed keys. A scoped page's own control on the same key (`[f Edit filters]`) keeps it.
     pub fn key_and_text(&self) -> (Option<String>, String) {
         let label = self.label.trim();
         let inner = label
@@ -381,6 +381,20 @@ impl ActionsControl {
                 | ActionsCommand::EditRunnerGroup,
             ) => Some("M"),
             ActionsAction::Compose(ActionsCommand::RunnerLabels) => Some("L"),
+            // TASK-64: the run and artifact commands and the uncertain-write inspection have
+            // keys too. Deletes share `-` with the settings deletes (one per page); the rest
+            // avoid every Run/Jobs/Artifact page key, the catalogue tabs and the preview
+            // split's `j`/`k`.
+            ActionsAction::Compose(ActionsCommand::RerunJob) => Some("J"),
+            ActionsAction::Compose(ActionsCommand::ForceCancel) => Some("!"),
+            ActionsAction::Compose(ActionsCommand::DeleteRun | ActionsCommand::DeleteArtifact) => {
+                Some("-")
+            }
+            ActionsAction::Compose(ActionsCommand::DeleteLogs) => Some("L"),
+            ActionsAction::Compose(ActionsCommand::ApproveFork) => Some("Y"),
+            ActionsAction::Compose(ActionsCommand::ExportArtifact) => Some("X"),
+            ActionsAction::Compose(ActionsCommand::ExtractArtifact) => Some("U"),
+            ActionsAction::Reconcile => Some("i"),
             ActionsAction::Compose(ActionsCommand::GroupRunners) => Some("T"),
             ActionsAction::Compose(ActionsCommand::GroupRepositories) => Some("O"),
             ActionsAction::Compose(ActionsCommand::ApproveDeployment) => Some("Y"),

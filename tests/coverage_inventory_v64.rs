@@ -16,17 +16,21 @@
 #[path = "git_support/mod.rs"]
 mod git_support;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ghtui::{
-    actions_workspace::{ActionsView, ActionsWorkspace},
-    app::{Action, App, View},
+    actions_workspace::{ActionsAction, ActionsCommand, ActionsView, ActionsWorkspace, RunPage},
+    app::{Action, App, Overlay, View},
     command_palette::{CommandPalette, PaletteAction, PaletteEntry, PaletteOutcome},
     footer::{self, ControlGroup, KeyControl, Resolved},
     github_workspace::{GithubWorkspace, PrPage, PrTab},
     local_actions::LocalCommand,
     navigation_catalogue::PreparedCatalogue,
     providers::gh::{
-        CapabilityContractRowV1, Coverage, HostIdentity, PrDetails, PrSummary, PullRequest, Queue,
+        ActionsArtifact, ActionsTarget, Actor, CapabilityContractRowV1, Coverage, HostIdentity,
+        PrDetails, PrSummary, PullRequest, Queue, RunAttempt, Workflow, WorkflowDefinition,
+        WorkflowRun,
     },
     workspace::{RepositoryMode, Workspace},
 };
@@ -437,15 +441,91 @@ fn detail(tab: PrTab) -> App {
 }
 
 fn actions(view: ActionsView) -> App {
+    actions_with(view, |_| {})
+}
+
+/// An Actions page prepared from `prepare`'s exact targets, without any gh read.
+fn actions_with(view: ActionsView, prepare: impl FnOnce(&mut ActionsWorkspace)) -> App {
     let mut workspace = ActionsWorkspace::new(
         identity(Some(42)),
         vec!["example/repo".into(), "example/other".into()],
     );
+    prepare(&mut workspace);
     workspace.view = view;
     workspace.prepare_rows();
     let mut app = empty(View::Actions);
     app.actions = Some(workspace);
     app
+}
+
+/// A finished, failed pull-request run: rerun all/failed and the deletes are enabled; rerun of
+/// a job (none open), cancel, force-cancel and fork approval explain why they are not.
+fn run_page(logs: Option<&str>) -> RunPage {
+    let actor = |login: &str| Actor {
+        login: login.into(),
+        actor_type: "User".into(),
+        ..Actor::default()
+    };
+    RunPage {
+        repository: "example/other".into(),
+        attempt: RunAttempt {
+            run: WorkflowRun {
+                id: 123,
+                workflow_id: 7,
+                name: "CI".into(),
+                title: "Coverage run".into(),
+                head_sha: "a".repeat(40),
+                head_branch: "feature".into(),
+                event: "pull_request".into(),
+                status: "completed".into(),
+                conclusion: "failure".into(),
+                attempt: 2,
+                actor: actor("alice"),
+                triggering_actor: actor("current-user"),
+                created_at: "2026-10-13T12:00:00Z".into(),
+                updated_at: "2026-10-13T12:05:00Z".into(),
+                url: String::new(),
+            },
+            jobs: vec![],
+            definition_note: "dependencies unavailable".into(),
+        },
+        selected_job: None,
+        logs: logs.map(str::to_owned),
+        annotations: vec![],
+    }
+}
+
+fn artifact() -> ActionsArtifact {
+    ActionsArtifact {
+        id: 41,
+        name: "build-output".into(),
+        run_id: 123,
+        attempt: None,
+        head_sha: "a".repeat(40),
+        size_in_bytes: 1024,
+        expired: false,
+        created_at: String::new(),
+        updated_at: String::new(),
+        expires_at: String::new(),
+        digest: None,
+    }
+}
+
+fn definition() -> WorkflowDefinition {
+    WorkflowDefinition {
+        workflow: Workflow {
+            id: 7,
+            name: "CI".into(),
+            path: ".github/workflows/ci.yml".into(),
+            state: "active".into(),
+        },
+        revision: "main".into(),
+        commit_sha: "c".repeat(40),
+        yaml: "on: workflow_dispatch\njobs: {}\n".into(),
+        triggers: vec!["workflow_dispatch".into()],
+        dispatch_inputs: vec![],
+        jobs: vec![],
+    }
 }
 
 fn search(corpus: bool) -> App {
@@ -502,6 +582,45 @@ fn states(fixture: &git_support::Fixture) -> Vec<(String, App)> {
     for (view, label) in ActionsView::CATALOGS {
         states.push((format!("Actions {label}"), actions(view)));
     }
+    // The detail pages behind the catalogues (TASK-64 AC2).
+    states.push((
+        "Actions Run".into(),
+        actions_with(ActionsView::Run, |workspace| {
+            workspace.run = Some(run_page(None))
+        }),
+    ));
+    states.push((
+        "Actions Logs".into(),
+        actions_with(ActionsView::Logs, |workspace| {
+            workspace.run = Some(run_page(Some("CI\tRun tests\tERROR fixture\n")))
+        }),
+    ));
+    states.push((
+        "Actions Artifact".into(),
+        actions_with(ActionsView::Artifact, |workspace| {
+            workspace.run = Some(run_page(None));
+            workspace.artifact = Some(artifact());
+        }),
+    ));
+    states.push((
+        "Actions Workflow definition".into(),
+        actions_with(ActionsView::Workflow, |workspace| {
+            workspace.definition = Some(definition())
+        }),
+    ));
+    states.push((
+        "Actions Publications".into(),
+        actions(ActionsView::Publications),
+    ));
+    states.push((
+        "Actions Runs (uncertain write)".into(),
+        actions_with(ActionsView::Runs, |workspace| {
+            workspace.reconciliation_target = Some(ActionsTarget::Run {
+                repository: "example/repo".into(),
+                id: 123,
+            })
+        }),
+    ));
     states.push(("Dashboard (not loaded)".into(), empty(View::Dashboard)));
     states
 }
@@ -576,13 +695,33 @@ fn click_path(control: &KeyControl) -> &'static str {
 }
 
 /// The document row for one control: `| state | `key` | label | click path |`.
-fn doc_row(state: &str, control: &KeyControl) -> String {
+fn doc_row(state: &str, key: &str, control: &KeyControl) -> String {
     format!(
-        "| {state} | `{}` | {} | {} |",
-        control.key,
+        "| {state} | `{key}` | {} | {} |",
         control.label,
         click_path(control)
     )
+}
+
+/// The key a disabled Actions control shares with an enabled control of the same page, which
+/// keeps it (`X Enable workflow` beside an enabled `X Disable workflow`): the key does what the
+/// enabled control does, and the disabled one explains itself from Commands.
+fn shared_key(app: &App, controls: &[KeyControl], control: &KeyControl) -> Option<String> {
+    if !control.key.is_empty() || control.disabled.is_none() {
+        return None;
+    }
+    let key = app
+        .actions
+        .as_ref()?
+        .controls
+        .iter()
+        .map(|prepared| prepared.key_and_text())
+        .find(|(key, text)| key.is_some() && *text == control.label)?
+        .0?;
+    controls
+        .iter()
+        .any(|other| other.key == key && other.disabled.is_none())
+        .then_some(key)
 }
 
 fn copy(entry: &PaletteEntry) -> PaletteEntry {
@@ -624,8 +763,22 @@ fn coverage_v64_every_key_bar_control_has_a_key_a_click_target_and_a_document_ro
         for (index, control) in controls.iter().enumerate() {
             checked += 1;
             let name = format!("{state}: `{} {}`", control.key, control.label);
-            if !documented.contains(&(state.clone(), control.key.clone(), control.label.clone())) {
-                missing.push(doc_row(&state, control));
+            let shared = shared_key(&app, &controls, control);
+            let key = shared.clone().unwrap_or_else(|| control.key.clone());
+            if !documented.contains(&(state.clone(), key.clone(), control.label.clone())) {
+                missing.push(doc_row(&state, &key, control));
+            }
+            if shared.is_some() {
+                // Its shared key belongs to the enabled control; Commands explains this one.
+                let explained = catalogue.entries.iter().any(|entry| {
+                    matches!(&entry.action, Action::Explain(reason) if reason.contains(&control.label))
+                });
+                if !explained {
+                    failures.push(format!(
+                        "{name} shares `{key}` but Commands does not explain it"
+                    ));
+                }
+                continue;
             }
             // A key binding: the painted key token is a real key and resolves to this control.
             if control.key.is_empty() {
@@ -798,4 +951,426 @@ fn coverage_v64_pr_actions_menu_rows_are_documented() {
         missing.join("\n")
     );
     assert!(checked > 20, "{checked}");
+}
+
+#[test]
+fn coverage_v64_actions_run_artifact_and_inspect_commands_have_their_own_keys() {
+    let press = |app: &App, key: char| {
+        footer::resolve(
+            &footer::main_controls(app),
+            &KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+        )
+    };
+    let compose = |command| Action::Actions(ActionsAction::Compose(command));
+    let run = actions_with(ActionsView::Run, |workspace| {
+        workspace.run = Some(run_page(None))
+    });
+    // Enabled on a finished failed run: the key does the command.
+    for (key, command) in [
+        ('-', ActionsCommand::DeleteRun),
+        ('L', ActionsCommand::DeleteLogs),
+    ] {
+        assert_eq!(press(&run, key), Some(Resolved::Act(compose(command))));
+    }
+    // Unavailable here: the key explains why, never nothing.
+    for (key, command, reason) in [
+        ('J', ActionsCommand::RerunJob, "Open the job to rerun"),
+        ('!', ActionsCommand::ForceCancel, "Run already completed"),
+        (
+            'Y',
+            ActionsCommand::ApproveFork,
+            "not awaiting fork approval",
+        ),
+    ] {
+        match press(&run, key) {
+            Some(Resolved::Explain(explanation)) => assert!(
+                explanation.starts_with(command.label()) && explanation.contains(reason),
+                "{key}: {explanation}"
+            ),
+            other => panic!("{key} must explain {command:?}, got {other:?}"),
+        }
+    }
+    let artifact_page = actions_with(ActionsView::Artifact, |workspace| {
+        workspace.run = Some(run_page(None));
+        workspace.artifact = Some(artifact());
+    });
+    assert_eq!(
+        press(&artifact_page, '-'),
+        Some(Resolved::Act(compose(ActionsCommand::DeleteArtifact)))
+    );
+    for (key, command) in [
+        ('X', ActionsCommand::ExportArtifact),
+        ('U', ActionsCommand::ExtractArtifact),
+    ] {
+        match press(&artifact_page, key) {
+            Some(Resolved::Explain(explanation)) => assert!(
+                explanation.starts_with(command.label())
+                    && explanation.contains("download its archive first"),
+                "{key}: {explanation}"
+            ),
+            other => panic!("{key} must explain {command:?}, got {other:?}"),
+        }
+    }
+    let uncertain = actions_with(ActionsView::Runs, |workspace| {
+        workspace.reconciliation_target = Some(ActionsTarget::Run {
+            repository: "example/repo".into(),
+            id: 123,
+        })
+    });
+    assert_eq!(
+        press(&uncertain, 'i'),
+        Some(Resolved::Act(Action::Actions(ActionsAction::Reconcile)))
+    );
+    // Every new key has exactly one bearer on its page.
+    for (app, keys) in [
+        (&run, &["J", "!", "-", "L", "Y"][..]),
+        (&artifact_page, &["X", "U", "-"][..]),
+        (&uncertain, &["i"][..]),
+    ] {
+        let controls = footer::main_controls(app);
+        for key in keys {
+            let bearers = controls
+                .iter()
+                .filter(|control| control.key == *key)
+                .count();
+            assert_eq!(bearers, 1, "{key} has {bearers} bearers");
+        }
+    }
+}
+
+// ---- Overlays ----------------------------------------------------------------------------
+
+const OVERLAY_SIZES: [(u16, u16); 2] = [(120, 40), (80, 24)];
+
+fn paint(app: &mut App, width: u16, height: u16) -> Vec<Vec<String>> {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| ghtui::ui::draw(frame, app)).unwrap();
+    let buffer = terminal.backend().buffer();
+    (0..height)
+        .map(|y| {
+            (0..width)
+                .map(|x| buffer[(x, y)].symbol().to_string())
+                .collect()
+        })
+        .collect()
+}
+
+/// The box (left, top, right, bottom; borders included) whose top border carries `title`.
+fn overlay_box(screen: &[Vec<String>], title: &str) -> Option<(u16, u16, u16, u16)> {
+    let title = title.chars().map(String::from).collect::<Vec<_>>();
+    for (y, row) in screen.iter().enumerate() {
+        let Some(x) = (0..row.len().saturating_sub(title.len()))
+            .find(|x| row[*x..*x + title.len()] == title[..])
+        else {
+            continue;
+        };
+        let left = (0..x)
+            .rev()
+            .find(|i| matches!(row[*i].as_str(), "╭" | "┌"))?;
+        let right = (x..row.len()).find(|i| matches!(row[*i].as_str(), "╮" | "┐"))?;
+        let bottom =
+            (y + 1..screen.len()).find(|j| matches!(screen[*j][left].as_str(), "╰" | "└"))?;
+        return Some((left as u16, y as u16, right as u16, bottom as u16));
+    }
+    None
+}
+
+type Bounds = (u16, u16, u16, u16);
+
+/// Bracketed tokens painted inside the box: (x, y, text between the brackets).
+fn bracketed(
+    screen: &[Vec<String>],
+    (left, top, right, bottom): Bounds,
+) -> Vec<(u16, u16, String)> {
+    let mut tokens = Vec::new();
+    for y in top + 1..bottom {
+        let row = &screen[usize::from(y)];
+        let mut x = left + 1;
+        while x < right {
+            if row[usize::from(x)] == "[" {
+                if let Some(close) = (x + 1..right).find(|i| row[usize::from(*i)] == "]") {
+                    let text = row[usize::from(x + 1)..usize::from(close)].concat();
+                    if !text.contains('[') && !text.trim().is_empty() {
+                        tokens.push((x, y, text));
+                    }
+                    x = close;
+                }
+            }
+            x += 1;
+        }
+    }
+    tokens
+}
+
+/// What a control can change in an overlay state; focus is left out because a click also
+/// moves it to the clicked control.
+fn signature(app: &App) -> String {
+    format!(
+        "{:?} {:?} notice {} help {} local {} pr {} theme {} {:?} save {} status {:?}",
+        app.overlay,
+        app.view,
+        app.notice_scroll,
+        app.context_help_scroll,
+        app.local_action_index,
+        app.pr_action_index,
+        app.settings_theme,
+        app.density,
+        app.settings_save_requested,
+        app.status
+    )
+}
+
+fn click_at(app: &mut App, x: u16, y: u16) {
+    app.handle_event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    }));
+}
+
+fn press_key(app: &mut App, event: KeyEvent) {
+    app.handle_event(Event::Key(event));
+}
+
+fn plain(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+type MakeApp<'a> = Box<dyn Fn() -> App + 'a>;
+
+struct OverlayState<'a> {
+    name: &'static str,
+    title: &'static str,
+    /// Menu overlays list rows chosen by `j`/`k` (or arrows) and `Enter`, or a click.
+    menu: bool,
+    make: MakeApp<'a>,
+}
+
+fn overlay_states(fixture: &git_support::Fixture) -> Vec<OverlayState<'_>> {
+    vec![
+        OverlayState {
+            name: "Help",
+            title: "Help • keyboard and mouse",
+            menu: false,
+            make: Box::new(|| {
+                let mut app = inbox(3);
+                app.dispatch(Action::Help);
+                app
+            }),
+        },
+        OverlayState {
+            name: "Explanation",
+            title: "Action unavailable • explanation only",
+            menu: false,
+            make: Box::new(|| {
+                let mut app = inbox(3);
+                app.notice = (1..=40)
+                    .map(|line| format!("Explanation line {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                app.overlay = Some(Overlay::Notice);
+                app
+            }),
+        },
+        OverlayState {
+            name: "Settings",
+            title: "Settings • local preferences",
+            menu: false,
+            make: Box::new(|| {
+                let mut app = empty(View::Inbox);
+                app.dispatch(Action::Settings);
+                app
+            }),
+        },
+        OverlayState {
+            name: "Local operations",
+            title: "Local operations • explicit preview and confirmation",
+            menu: true,
+            make: Box::new(move || {
+                let mut app = empty(View::Repository);
+                app.workspace = Some(
+                    Workspace::load(&fixture.root, RepositoryMode::Working, "HEAD", None)
+                        .unwrap()
+                        .unwrap(),
+                );
+                app.overlay = Some(Overlay::LocalActions);
+                app
+            }),
+        },
+        OverlayState {
+            name: "PR actions",
+            title: "PR actions • native workflows",
+            menu: true,
+            make: Box::new(|| {
+                let mut app = detail(PrTab::Summary);
+                app.overlay = Some(Overlay::PrActions);
+                app
+            }),
+        },
+    ]
+}
+
+/// Every bracketed control painted in each main overlay is a click target, and its key (or,
+/// for a keyless control, Tab focus and Enter) has the same effect as the click. Menu rows are
+/// click targets in menu order, and `j` moves the selection to the same row Enter chooses.
+/// The document lists every probed control. Commands is probed entry by entry above.
+#[test]
+fn coverage_v64_main_overlays_controls_have_equal_key_and_click_paths_and_document_rows() {
+    let fixture = repository_fixture();
+    let doc = document();
+    let documented = table_rows(&section(&doc, "## Overlay controls"))
+        .into_iter()
+        .map(|cells| {
+            assert_eq!(cells.len(), 4, "overlay row needs 4 cells: {cells:?}");
+            (cells[0].clone(), cells[1].clone())
+        })
+        .collect::<BTreeSet<_>>();
+    let mut failures = Vec::new();
+    let mut probed = BTreeSet::new();
+    let mut checked = 0;
+    for state in overlay_states(&fixture) {
+        for (width, height) in OVERLAY_SIZES {
+            let name = format!("{} at {width}x{height}", state.name);
+            let mut app = (state.make)();
+            let screen = paint(&mut app, width, height);
+            let Some(bounds) = overlay_box(&screen, state.title) else {
+                failures.push(format!("{name}: no overlay titled {:?}", state.title));
+                continue;
+            };
+            let baseline = signature(&app);
+            let fresh = || {
+                let mut app = (state.make)();
+                paint(&mut app, width, height);
+                app
+            };
+            for (x, y, text) in bracketed(&screen, bounds) {
+                let control = format!("[{text}]");
+                let key = text
+                    .split_once(' ')
+                    .filter(|(_, label)| !label.trim().is_empty())
+                    .and_then(|(key, _)| event(key));
+                let Some(hit) = app
+                    .hits
+                    .iter()
+                    .rev()
+                    .find(|hit| hit.rect.contains((x, y).into()))
+                else {
+                    // Bracketed prose is not a control; a keyed button without a hit is a gap.
+                    if key.is_some() {
+                        failures.push(format!("{name}: {control} has no click target"));
+                    }
+                    continue;
+                };
+                if hit.rect.x != x {
+                    // A note inside a larger control (a menu row's `[disabled: …]`).
+                    continue;
+                }
+                checked += 1;
+                // A value control (`[Theme: Dark]`) is documented by its name.
+                let documented_as = match text.split_once(": ") {
+                    Some((setting, _)) => format!("[{setting}: …]"),
+                    None => control.clone(),
+                };
+                probed.insert((state.name.to_string(), documented_as));
+                let mut clicked = fresh();
+                click_at(&mut clicked, x, y);
+                let after = signature(&clicked);
+                if after == baseline && !text.starts_with("PgUp") {
+                    failures.push(format!("{name}: clicking {control} changes nothing"));
+                }
+                match key {
+                    Some(event) => {
+                        let mut pressed = fresh();
+                        press_key(&mut pressed, event);
+                        if signature(&pressed) != after {
+                            failures.push(format!(
+                                "{name}: {control} key gives {} but its click gives {after}",
+                                signature(&pressed)
+                            ));
+                        }
+                    }
+                    None => {
+                        let reached = (0..8).any(|tabs| {
+                            let mut focused = fresh();
+                            for _ in 0..tabs {
+                                press_key(&mut focused, plain(KeyCode::Tab));
+                            }
+                            press_key(&mut focused, plain(KeyCode::Enter));
+                            signature(&focused) == after
+                        });
+                        if !reached {
+                            failures.push(format!(
+                                "{name}: no Tab focus and Enter does what clicking {control} does"
+                            ));
+                        }
+                    }
+                }
+            }
+            if !state.menu {
+                continue;
+            }
+            // Menu rows: full inner-width hits, in menu order from the first row.
+            let (left, top, right, bottom) = bounds;
+            let rows = app
+                .hits
+                .iter()
+                .filter(|hit| {
+                    hit.rect.x == left + 2
+                        && hit.rect.width + 4 == right + 1 - left
+                        && (top + 1..bottom).contains(&hit.rect.y)
+                })
+                .map(|hit| (hit.rect, hit.action.clone()))
+                .collect::<Vec<_>>();
+            let expected = if state.name == "PR actions" {
+                app.pr_controls()
+            } else {
+                LocalCommand::ALL
+                    .iter()
+                    .map(|(command, label)| (label.to_string(), Action::LocalCommand(*command)))
+                    .collect()
+            };
+            if rows.len() < 3 {
+                failures.push(format!(
+                    "{name}: only {} menu rows are click targets",
+                    rows.len()
+                ));
+            }
+            for (offset, (rect, action)) in rows.iter().enumerate() {
+                checked += 1;
+                let Some((label, wanted)) = expected.get(offset) else {
+                    failures.push(format!("{name}: row {offset} has no menu entry"));
+                    continue;
+                };
+                let painted = screen[usize::from(rect.y)].concat();
+                if action != wanted || !painted.contains(label.as_str()) {
+                    failures.push(format!(
+                        "{name}: row {offset} paints {painted:?} and clicks {action:?}, not {label}"
+                    ));
+                }
+                // Keyboard: `j` moves the `>` selection to the same row; Enter chooses it.
+                let mut moved = fresh();
+                for _ in 0..offset {
+                    press_key(&mut moved, plain(KeyCode::Char('j')));
+                }
+                let screen = paint(&mut moved, width, height);
+                if screen[usize::from(rect.y)][usize::from(rect.x)] != ">" {
+                    failures.push(format!("{name}: {offset} × j does not select row {offset}"));
+                }
+            }
+            probed.insert((state.name.to_string(), "Menu rows".to_string()));
+        }
+    }
+    let missing = probed
+        .iter()
+        .filter(|row| !documented.contains(*row))
+        .map(|(overlay, control)| format!("| {overlay} | {control} | | |"))
+        .collect::<Vec<_>>();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(
+        missing.is_empty(),
+        "{DOC} `## Overlay controls` lacks:\n{}",
+        missing.join("\n")
+    );
+    assert!(checked > 40, "{checked}");
 }

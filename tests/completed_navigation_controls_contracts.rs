@@ -1095,6 +1095,38 @@ fn scoped_actions_test_framework_focus_observes_header_to_footer_token() {
     );
 }
 
+/// TASK-64: keyed run commands. A caption names the whole token with that exact caption, so
+/// `Delete run` is `- Delete run` and never `L Delete run logs`; a fragment still needs one
+/// token; and a caption alone never matches a longer caption's token.
+#[test]
+fn scoped_actions_test_framework_caption_names_whole_keyed_token_not_a_longer_one() {
+    let mut parser = vt100::Parser::new(24, 120, 0);
+    let mut frames = CursorlessFrames::default();
+    let mut bytes = box_bytes("Actions • focused view", 24, 120);
+    bytes.extend_from_slice(b"\x1b[6;2H R Runs  W Workflows \x1b[12;2HRun 123 attempt 1");
+    bytes.extend_from_slice(
+        footer(
+            24,
+            " r Refresh  J Rerun selected job  - Delete run  L Delete run logs",
+        )
+        .as_bytes(),
+    );
+    complete(&mut parser, &mut frames, &bytes);
+    let page = navigation::actions_page(&frames, 0).unwrap();
+    let position = |label| navigation::actions_control_position(&frames, &page, label);
+    assert_eq!(position("Delete run"), Some((34, 23)));
+    assert_eq!(position("[Delete run]"), Some((34, 23)));
+    assert_eq!(position("[- Delete run]"), Some((34, 23)));
+    assert_eq!(position("Delete run logs"), Some((48, 23)));
+    assert_eq!(position("[L Delete run logs]"), Some((48, 23)));
+    assert_eq!(position("Rerun selected job"), Some((12, 23)));
+    // A fragment in both delete tokens stays ambiguous; one in one token names it.
+    assert_eq!(position("Delete"), None);
+    assert_eq!(position("run logs"), Some((48, 23)));
+    // A wrong key is not the token.
+    assert_eq!(position("[X Delete run]"), None);
+}
+
 #[test]
 fn scoped_actions_test_framework_focus_body_text_duplicate_or_other_view_cannot_supply_target() {
     let mut parser = vt100::Parser::new(24, 80, 0);

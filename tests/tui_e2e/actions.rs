@@ -229,6 +229,15 @@ pub(crate) fn command(session: &mut Session, mouse: bool, label: &str) {
         session.send_key(b"\r");
     }
 }
+/// A command with a key of its own (TASK-64): clicked (mouse), or its key pressed on the
+/// idle Actions page (keyboard). The key works whether or not its token fits the bar.
+pub(crate) fn keyed(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {
+    if mouse {
+        button(session, label);
+    } else {
+        session.activate_completed_actions_control(false, label, key);
+    }
+}
 pub(crate) fn write(endpoint: &str, input: Option<Value>, out: Value) -> GhStep {
     let mut step = read(endpoint, out, false);
     step.args[5] = "POST".into();
@@ -387,7 +396,7 @@ fn disabled_control(mouse: bool) {
         session.send_key(b"\r");
     }
     wait_row(&mut session, &["matrix test linux", "501"]);
-    command(&mut session, mouse, "Rerun selected job");
+    keyed(&mut session, mouse, "Rerun selected job", b"J");
     session.wait_for_screen("Action unavailable");
     session.wait_for_screen("Open the job to rerun before composing");
     assert!(!session.screen().contains("ACTIONS INTENT"));
@@ -567,7 +576,7 @@ fn run_control(mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("3 Run tests");
-    command(&mut session, mouse, "Rerun selected job");
+    keyed(&mut session, mouse, "Rerun selected job", b"J");
     session.wait_for_screen("ACTIONS INTENT");
     journal(&mut session, &fixture, rerun_open_count);
     // An attempted confirmation without Preview is a local validation error, not a request.
@@ -618,7 +627,7 @@ fn run_control(mouse: bool) {
     session.wait_for_screen("cancelled");
     journal(&mut session, &fixture, cancel_count);
     choose(&mut session, mouse, "[w Stop watch]", b"w");
-    command(&mut session, mouse, "Delete run");
+    keyed(&mut session, mouse, "Delete run", b"-");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");
@@ -1600,14 +1609,14 @@ fn artifact_management(mouse: bool) {
     journal(&mut session, &fixture, archive_read_count);
     let export = fixture.root.join("explicit-output.zip");
     let extract = fixture.root.join("explicit-extracted");
-    for (index, (label, path)) in [
-        ("Export artifact ZIP", &export),
-        ("Extract artifact into a new directory", &extract),
+    for (index, (label, key, path)) in [
+        ("Export artifact ZIP", b"X", &export),
+        ("Extract artifact into a new directory", b"U", &extract),
     ]
     .into_iter()
     .enumerate()
     {
-        command(&mut session, mouse, label);
+        keyed(&mut session, mouse, label, key);
         session.wait_for_screen("ACTIONS INTENT");
         session.paste(path.to_str().unwrap());
         choose(&mut session, mouse, "[Preview]", b"\x10");
@@ -1629,7 +1638,7 @@ fn artifact_management(mouse: bool) {
         0o600
     );
     // A second explicit export must preserve the existing bytes instead of overwriting.
-    command(&mut session, mouse, "Export artifact ZIP");
+    keyed(&mut session, mouse, "Export artifact ZIP", b"X");
     session.wait_for_screen("ACTIONS INTENT");
     session.send_key(b"\x15");
     session.paste(export.to_str().unwrap());
@@ -1640,13 +1649,13 @@ fn artifact_management(mouse: bool) {
     journal(&mut session, &fixture, existing_export_count);
     assert_eq!(std::fs::read(&export).unwrap(), zip);
     close_form(&mut session, mouse);
-    command(&mut session, mouse, "Delete artifact");
+    keyed(&mut session, mouse, "Delete artifact", b"-");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");
     close_form(&mut session, mouse);
     journal(&mut session, &fixture, cancelled_delete_count);
-    command(&mut session, mouse, "Delete artifact");
+    keyed(&mut session, mouse, "Delete artifact", b"-");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");

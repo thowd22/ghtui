@@ -18,7 +18,11 @@ with its key and its click path.
   missing from [Key bar controls by view](#key-bar-controls-by-view);
 - a Commands (`:`) entry cannot be chosen by typing its name and pressing Enter, or by
   clicking its row, or either path yields a different action;
-- a PR actions menu row is missing from [PR actions menu](#pr-actions-menu).
+- a PR actions menu row is missing from [PR actions menu](#pr-actions-menu);
+- a bracketed control of a main overlay (Help, an explanation, Settings, Local operations,
+  PR actions) has no click target, its key (or, without a key, Tab focus and `Enter`) does
+  something other than its click, a menu row clicks another row than `j` selects, or the
+  control is missing from [Overlay controls](#overlay-controls).
 
 Run it with `cargo test --test coverage_inventory_v64`. The PTY journeys it names run with
 `cargo test --test tui_e2e -- <name>`.
@@ -71,9 +75,9 @@ Run it with `cargo test --test coverage_inventory_v64`. The PTY journeys it name
 | `actions.details` | Runs: `Enter` opens the run (SHA, ref, event, actor, attempt, durations); jobs and steps with matrix names; failed job focused first. | `actions_attempt_jobs_steps_annotations_and_logs_preserve_exact_context` | `actions_run_view_keyboard_exact_attempt_job_logs_and_annotations` `actions_run_view_mouse_exact_attempt_job_logs_and_annotations` `v1_actions_runs_keyboard_open_focuses_failed_job_steps_and_error_lines` `v1_actions_runs_mouse_open_focuses_failed_job_steps_and_error_lines` | Job dependencies that cannot be read from the API are labelled as not inferred. |
 | `actions.logs` | Run: `l` Logs, Annotations; log search, failed-step jump, bounded polling labelled with its time; export a loaded log to a new file. | `actions_attempt_rejects_cross_run_jobs_and_log_targets` | `v1_actions_runs_keyboard_logs_open_at_highlighted_job` `v1_actions_runs_mouse_logs_open_at_highlighted_job` `v1_actions_logs_keyboard_export_loaded_log_to_new_file` `v1_actions_logs_mouse_export_loaded_log_to_new_file` | No live log stream: gh gives logs of finished steps; watching polls. |
 | `actions.dispatch` | Workflows `W`, then a workflow: `V` choose the revision to read its YAML, `D` Dispatch with typed inputs and a ref, `X` Disable / Enable, `E` edit locally; workflow edits go through an isolated worktree, commit and PR. | `workflow_controls_definition_fetches_immutable_yaml_and_dispatch_confirms_returned_run` | `actions_workflow_controls_keyboard_typed_dispatch_disable_enable_and_cancel` `actions_workflow_controls_mouse_typed_dispatch_disable_enable_and_cancel` `v1_actions_workflows_keyboard_d_x_keys_plain_preview_and_dispatch` `v1_actions_workflows_mouse_buttons_plain_preview_and_dispatch` | An old host that answers dispatch with an empty 204 is reported as accepted, not as a known run. |
-| `actions.control` | Run: watch, rerun all/failed/one job, debug logging, cancel, force-cancel, delete run or logs; each confirmed against the exact run and attempt. | `actions_run_control_rerun_debug_specific_job_uses_actual_job_id_and_reports_pending_acceptance` | `actions_run_control_keyboard_exact_job_debug_watch_cancel_and_cancelled_delete` `actions_run_control_mouse_exact_job_debug_watch_cancel_and_cancelled_delete` `v1_actions_controls_keyboard_watch_updates_live_and_stops_when_run_finishes` `v1_actions_controls_mouse_watch_updates_live_and_stops_when_run_finishes` | Accepted is shown separately from completed; an uncertain cancel is inspected, never resent. |
-| `actions.artifacts` | Run: Artifacts list with size and expiry, bounded preview of zip entries, export or safe extract to a new directory, confirmed delete. | `actions_artifacts_preview_export_and_safe_extract_verify_bytes_without_overwriting` | `actions_artifacts_keyboard_previews_exports_extracts_deletes_and_rejects_unsafe_archive` `actions_artifacts_mouse_previews_exports_extracts_deletes_and_rejects_unsafe_archive` | Downloaded content is never executed; oversized archives are explained, not previewed. |
-| `actions.approvals` | Approvals `G`: `Y` approve or `B` reject the selected pending deployment with a comment; approve a fork run from the run; history of decisions. | `actions_approvals_deployment_review_checks_eligibility_exact_environment_ids_and_partial_state` | `actions_approvals_keyboard_exact_environment_decisions_history_and_denied_gate` `actions_approvals_mouse_exact_environment_decisions_history_and_denied_gate` `actions_approvals_keyboard_fork_approval_cancel_preview_and_confirm_exact_run` `actions_approvals_mouse_fork_approval_cancel_preview_and_confirm_exact_run` | Custom deployment protection rule apps are shown, but their decisions belong to the app. |
+| `actions.control` | Run: `w` watch, `A` rerun all, `F` rerun failed, `J` rerun the open job (debug logging), `C` cancel, `!` force-cancel, `-` delete run, `L` delete logs; each confirmed against the exact run and attempt. | `actions_run_control_rerun_debug_specific_job_uses_actual_job_id_and_reports_pending_acceptance` | `actions_run_control_keyboard_exact_job_debug_watch_cancel_and_cancelled_delete` `actions_run_control_mouse_exact_job_debug_watch_cancel_and_cancelled_delete` `v1_actions_controls_keyboard_watch_updates_live_and_stops_when_run_finishes` `v1_actions_controls_mouse_watch_updates_live_and_stops_when_run_finishes` `scoped_actions_control_v5_keyboard_force_explicit_choice_202_pending_no_false_ack` `scoped_actions_control_v5_mouse_force_explicit_choice_202_pending_no_false_ack` `scoped_actions_control_v5_keyboard_logs204_separate_f6_acceptance_no_deleted_flag` `scoped_actions_control_v5_mouse_logs204_separate_f6_acceptance_no_deleted_flag` | Accepted is shown separately from completed; an uncertain cancel is inspected, never resent. |
+| `actions.artifacts` | Run: `a` Artifacts list with size and expiry, bounded preview of zip entries, `X` export or `U` safe extract to a new directory, `-` confirmed delete. | `actions_artifacts_preview_export_and_safe_extract_verify_bytes_without_overwriting` | `actions_artifacts_keyboard_previews_exports_extracts_deletes_and_rejects_unsafe_archive` `actions_artifacts_mouse_previews_exports_extracts_deletes_and_rejects_unsafe_archive` | Downloaded content is never executed; oversized archives are explained, not previewed. |
+| `actions.approvals` | Approvals `G`: `Y` approve or `B` reject the selected pending deployment with a comment; `Y` approve a fork run from the run; history of decisions. | `actions_approvals_deployment_review_checks_eligibility_exact_environment_ids_and_partial_state` | `actions_approvals_keyboard_exact_environment_decisions_history_and_denied_gate` `actions_approvals_mouse_exact_environment_decisions_history_and_denied_gate` `actions_approvals_keyboard_fork_approval_cancel_preview_and_confirm_exact_run` `actions_approvals_mouse_fork_approval_cancel_preview_and_confirm_exact_run` | Custom deployment protection rule apps are shown, but their decisions belong to the app. |
 | `actions.cache` | Caches `c`: `f` filter by key and ref; sizes, age, usage and quota context; `-` delete the selected cache by exact id. | `actions_cache_selected_delete_keeps_unrelated_entries_and_units` | `actions_cache_keyboard_filter_usage_cancel_and_exact_delete_preserves_other_cache` `actions_cache_mouse_filter_usage_cancel_and_exact_delete_preserves_other_cache` | Enterprise storage-limit administration is not offered. |
 | `actions.settings` | Secrets `S` and Variables `v`: repository, environment and organization scopes; names and metadata; `=` set a secret with masked transient input or a variable; `-` delete it. | `actions_secrets_vars_secret_set_masks_stdin_journal_and_metadata_never_contains_value` | `actions_secrets_vars_keyboard_masked_transient_secret_variable_and_cancelled_deletions` `actions_secrets_vars_mouse_masked_transient_secret_variable_and_cancelled_deletions` `actions_secrets_vars_keyboard_environment_scope_secret_set_and_confirmed_delete` `actions_secrets_vars_mouse_environment_scope_secret_set_and_confirmed_delete` | Existing secret values are never retrievable. Empty organization selections need gh 2.75.0 or later. |
 | `actions.environments` | Environments `e` (`M` edit the selected environment protection) and Policies `p` (`M` edit; sections `L` Allowlist, `T` Selected actions, `O` Workflow token, `H` Fork workflow, `Y` Fork approval, `U` Retention), each with an effect preview. | `actions_policy_edit_previews_typed_keys_checks_concurrency_and_reads_back` | `actions_settings_keyboard_policy_environment_runner_labels_and_cancelled_removal` `actions_settings_mouse_policy_environment_runner_labels_and_cancelled_removal` `actions_settings_keyboard_changed_environment_id_requires_exact_inspection_and_ack_no_retry` `actions_settings_mouse_changed_environment_id_requires_exact_inspection_and_ack_no_retry` | Some protection rules depend on the plan and repository visibility; unavailable ones are explained. |
@@ -203,7 +207,11 @@ Each row is one control of the key bar (or tab strip) in a probed view state, as
 `footer::main_controls` builds it. The test probes these states: Inbox without an account,
 with an empty queue and with three PRs; a PR on each of its eight tabs; Repository without a
 repository and in Overview, Graph, Tree, Working, Staged and Uncommitted modes; Search and
-Search corpus; Actions without an account and on each catalogue; Dashboard before it loads.
+Search corpus; Actions without an account, on each catalogue, on a finished run (Run), its
+Logs, an Artifact, a Workflow definition, Publications, and Runs with an uncertain write to
+inspect; Dashboard before it loads. A disabled control that shares its key with an enabled one
+on the same page (`X Enable workflow` beside `X Disable workflow`) lists that key; the key does
+the enabled control and Commands explains the disabled one.
 A loaded Dashboard's keys are covered by
 `design_help_v97_dashboard_help_and_commands_cover_every_footer_key`.
 
@@ -837,11 +845,186 @@ A loaded Dashboard's keys are covered by
 | Actions Approvals | `?` | Help | key bar, Commands |
 | Actions Approvals | `:` | Commands | key bar, Commands |
 | Actions Approvals | `q` | Quit | key bar, Commands |
+| Actions Run | `R` | Runs | tab strip, Commands |
+| Actions Run | `W` | Workflows | tab strip, Commands |
+| Actions Run | `c` | Caches | tab strip, Commands |
+| Actions Run | `S` | Secrets | tab strip, Commands |
+| Actions Run | `v` | Variables | tab strip, Commands |
+| Actions Run | `e` | Environments | tab strip, Commands |
+| Actions Run | `p` | Policies | tab strip, Commands |
+| Actions Run | `n` | Runners | tab strip, Commands |
+| Actions Run | `g` | Runner groups | tab strip, Commands |
+| Actions Run | `u` | Usage | tab strip, Commands |
+| Actions Run | `G` | Approvals | tab strip, Commands |
+| Actions Run | `r` | Refresh | key bar, Commands |
+| Actions Run | `P` | Publications | key bar, Commands |
+| Actions Run | `b` | Back | key bar, Commands |
+| Actions Run | `o` | Choose Actions scope | key bar, Commands |
+| Actions Run | `j` | Jobs | key bar, Commands |
+| Actions Run | `l` | Logs | key bar, Commands |
+| Actions Run | `a` | Artifacts | key bar, Commands |
+| Actions Run | `G` | Gates | key bar, Commands |
+| Actions Run | `w` | Watch | key bar, Commands |
+| Actions Run | `A` | Rerun all jobs | key bar, Commands |
+| Actions Run | `F` | Rerun failed jobs | key bar, Commands |
+| Actions Run | `J` | Rerun selected job | Commands (explains) |
+| Actions Run | `C` | Cancel run | Commands (explains) |
+| Actions Run | `!` | Force-cancel run | Commands (explains) |
+| Actions Run | `-` | Delete run | key bar, Commands |
+| Actions Run | `L` | Delete run logs | key bar, Commands |
+| Actions Run | `Y` | Approve fork run | Commands (explains) |
+| Actions Run | `@` | Actor profile | key bar, Commands |
+| Actions Run | `{` | Previous repo | key bar, Commands |
+| Actions Run | `}` | Next repo | key bar, Commands |
+| Actions Run | `?` | Help | key bar, Commands |
+| Actions Run | `:` | Commands | key bar, Commands |
+| Actions Run | `q` | Quit | key bar, Commands |
+| Actions Logs | `R` | Runs | tab strip, Commands |
+| Actions Logs | `W` | Workflows | tab strip, Commands |
+| Actions Logs | `c` | Caches | tab strip, Commands |
+| Actions Logs | `S` | Secrets | tab strip, Commands |
+| Actions Logs | `v` | Variables | tab strip, Commands |
+| Actions Logs | `e` | Environments | tab strip, Commands |
+| Actions Logs | `p` | Policies | tab strip, Commands |
+| Actions Logs | `n` | Runners | tab strip, Commands |
+| Actions Logs | `g` | Runner groups | tab strip, Commands |
+| Actions Logs | `u` | Usage | tab strip, Commands |
+| Actions Logs | `G` | Approvals | tab strip, Commands |
+| Actions Logs | `r` | Refresh | key bar, Commands |
+| Actions Logs | `P` | Publications | key bar, Commands |
+| Actions Logs | `b` | Back | key bar, Commands |
+| Actions Logs | `o` | Choose Actions scope | key bar, Commands |
+| Actions Logs | `l` | Logs | key bar, Commands |
+| Actions Logs | `/` | Search current logs | key bar, Commands |
+| Actions Logs | `x` | Export log | key bar, Commands |
+| Actions Logs | `{` | Previous repo | key bar, Commands |
+| Actions Logs | `}` | Next repo | key bar, Commands |
+| Actions Logs | `?` | Help | key bar, Commands |
+| Actions Logs | `:` | Commands | key bar, Commands |
+| Actions Logs | `q` | Quit | key bar, Commands |
+| Actions Artifact | `R` | Runs | tab strip, Commands |
+| Actions Artifact | `W` | Workflows | tab strip, Commands |
+| Actions Artifact | `c` | Caches | tab strip, Commands |
+| Actions Artifact | `S` | Secrets | tab strip, Commands |
+| Actions Artifact | `v` | Variables | tab strip, Commands |
+| Actions Artifact | `e` | Environments | tab strip, Commands |
+| Actions Artifact | `p` | Policies | tab strip, Commands |
+| Actions Artifact | `n` | Runners | tab strip, Commands |
+| Actions Artifact | `g` | Runner groups | tab strip, Commands |
+| Actions Artifact | `u` | Usage | tab strip, Commands |
+| Actions Artifact | `G` | Approvals | tab strip, Commands |
+| Actions Artifact | `r` | Refresh | key bar, Commands |
+| Actions Artifact | `P` | Publications | key bar, Commands |
+| Actions Artifact | `b` | Back | key bar, Commands |
+| Actions Artifact | `o` | Choose Actions scope | key bar, Commands |
+| Actions Artifact | `X` | Export artifact ZIP | Commands (explains) |
+| Actions Artifact | `U` | Extract artifact into a new directory | Commands (explains) |
+| Actions Artifact | `-` | Delete artifact | key bar, Commands |
+| Actions Artifact | `{` | Previous repo | key bar, Commands |
+| Actions Artifact | `}` | Next repo | key bar, Commands |
+| Actions Artifact | `?` | Help | key bar, Commands |
+| Actions Artifact | `:` | Commands | key bar, Commands |
+| Actions Artifact | `q` | Quit | key bar, Commands |
+| Actions Workflow definition | `R` | Runs | tab strip, Commands |
+| Actions Workflow definition | `W` | Workflows | tab strip, Commands |
+| Actions Workflow definition | `c` | Caches | tab strip, Commands |
+| Actions Workflow definition | `S` | Secrets | tab strip, Commands |
+| Actions Workflow definition | `v` | Variables | tab strip, Commands |
+| Actions Workflow definition | `e` | Environments | tab strip, Commands |
+| Actions Workflow definition | `p` | Policies | tab strip, Commands |
+| Actions Workflow definition | `n` | Runners | tab strip, Commands |
+| Actions Workflow definition | `g` | Runner groups | tab strip, Commands |
+| Actions Workflow definition | `u` | Usage | tab strip, Commands |
+| Actions Workflow definition | `G` | Approvals | tab strip, Commands |
+| Actions Workflow definition | `r` | Refresh | key bar, Commands |
+| Actions Workflow definition | `P` | Publications | key bar, Commands |
+| Actions Workflow definition | `b` | Back | key bar, Commands |
+| Actions Workflow definition | `o` | Choose Actions scope | key bar, Commands |
+| Actions Workflow definition | `V` | Choose workflow revision | key bar, Commands |
+| Actions Workflow definition | `E` | Edit YAML locally | Commands (explains) |
+| Actions Workflow definition | `X` | Enable workflow | Commands (explains) |
+| Actions Workflow definition | `X` | Disable workflow | key bar, Commands |
+| Actions Workflow definition | `D` | Dispatch workflow | key bar, Commands |
+| Actions Workflow definition | `{` | Previous repo | key bar, Commands |
+| Actions Workflow definition | `}` | Next repo | key bar, Commands |
+| Actions Workflow definition | `?` | Help | key bar, Commands |
+| Actions Workflow definition | `:` | Commands | key bar, Commands |
+| Actions Workflow definition | `q` | Quit | key bar, Commands |
+| Actions Publications | `R` | Runs | tab strip, Commands |
+| Actions Publications | `W` | Workflows | tab strip, Commands |
+| Actions Publications | `c` | Caches | tab strip, Commands |
+| Actions Publications | `S` | Secrets | tab strip, Commands |
+| Actions Publications | `v` | Variables | tab strip, Commands |
+| Actions Publications | `e` | Environments | tab strip, Commands |
+| Actions Publications | `p` | Policies | tab strip, Commands |
+| Actions Publications | `n` | Runners | tab strip, Commands |
+| Actions Publications | `g` | Runner groups | tab strip, Commands |
+| Actions Publications | `u` | Usage | tab strip, Commands |
+| Actions Publications | `G` | Approvals | tab strip, Commands |
+| Actions Publications | `r` | Refresh | key bar, Commands |
+| Actions Publications | `P` | Publications | key bar, Commands |
+| Actions Publications | `b` | Back | key bar, Commands |
+| Actions Publications | `o` | Choose Actions scope | key bar, Commands |
+| Actions Publications | `{` | Previous repo | key bar, Commands |
+| Actions Publications | `}` | Next repo | key bar, Commands |
+| Actions Publications | `?` | Help | key bar, Commands |
+| Actions Publications | `:` | Commands | key bar, Commands |
+| Actions Publications | `q` | Quit | key bar, Commands |
+| Actions Runs (uncertain write) | `R` | Runs | tab strip, Commands |
+| Actions Runs (uncertain write) | `W` | Workflows | tab strip, Commands |
+| Actions Runs (uncertain write) | `c` | Caches | tab strip, Commands |
+| Actions Runs (uncertain write) | `S` | Secrets | tab strip, Commands |
+| Actions Runs (uncertain write) | `v` | Variables | tab strip, Commands |
+| Actions Runs (uncertain write) | `e` | Environments | tab strip, Commands |
+| Actions Runs (uncertain write) | `p` | Policies | tab strip, Commands |
+| Actions Runs (uncertain write) | `n` | Runners | tab strip, Commands |
+| Actions Runs (uncertain write) | `g` | Runner groups | tab strip, Commands |
+| Actions Runs (uncertain write) | `u` | Usage | tab strip, Commands |
+| Actions Runs (uncertain write) | `G` | Approvals | tab strip, Commands |
+| Actions Runs (uncertain write) | `r` | Refresh | key bar, Commands |
+| Actions Runs (uncertain write) | `P` | Publications | key bar, Commands |
+| Actions Runs (uncertain write) | `o` | Choose Actions scope | key bar, Commands |
+| Actions Runs (uncertain write) | `i` | Inspect uncertain write | key bar, Commands |
+| Actions Runs (uncertain write) | `f` | Filter runs | key bar, Commands |
+| Actions Runs (uncertain write) | `w` | Watch | key bar, Commands |
+| Actions Runs (uncertain write) | `{` | Previous repo | key bar, Commands |
+| Actions Runs (uncertain write) | `}` | Next repo | key bar, Commands |
+| Actions Runs (uncertain write) | `?` | Help | key bar, Commands |
+| Actions Runs (uncertain write) | `:` | Commands | key bar, Commands |
+| Actions Runs (uncertain write) | `q` | Quit | key bar, Commands |
 | Dashboard (not loaded) | `r` | Refresh | key bar, Commands |
 | Dashboard (not loaded) | `s` | Settings | key bar, Commands |
 | Dashboard (not loaded) | `?` | Help | key bar, Commands |
 | Dashboard (not loaded) | `:` | Commands | key bar, Commands |
 | Dashboard (not loaded) | `q` | Quit | key bar, Commands |
+
+## Overlay controls
+
+Each row is a control of a main overlay, probed at 120x40 and 80x24 by drawing the overlay,
+clicking the control and pressing its key on fresh copies of the same state, and comparing the
+effect. Commands (`:`) is probed entry by entry by
+`coverage_v64_every_commands_entry_is_chosen_by_typing_enter_and_by_clicking_its_row`.
+
+| Overlay | Control | Keys | Click path |
+| --- | --- | --- | --- |
+| Help | [PgUp Previous] | `PgUp` | click the button |
+| Help | [PgDn More] | `PgDn` | click the button |
+| Help | [Esc Close] | `Esc` | click the button |
+| Explanation | [PgUp Previous] | `PgUp` | click the button |
+| Explanation | [PgDn More] | `PgDn` | click the button |
+| Explanation | [Esc Close] | `Esc` | click the button |
+| Settings | [Theme: …] | `Tab` to it, `Enter` | click the row |
+| Settings | [Density: …] | `Tab` to it, `Enter` | click the row |
+| Settings | [Save settings] | `Tab` to it, `Enter` | click the button |
+| Settings | [Esc Close] | `Esc` | click the button |
+| Local operations | Menu rows | `j`/`k` or arrows, `Enter` | click the row |
+| Local operations | [PgUp Previous] | `PgUp` | click the button |
+| Local operations | [PgDn More] | `PgDn` | click the button |
+| Local operations | [Esc Close] | `Esc` | click the button |
+| PR actions | Menu rows | `j`/`k` or arrows, `Enter` | click the row |
+| PR actions | [PgUp Previous] | `PgUp` | click the button |
+| PR actions | [PgDn More] | `PgDn` | click the button |
+| PR actions | [Esc Close] | `Esc` | click the button |
 
 ## Known gaps and limits (release notes)
 
@@ -852,11 +1035,9 @@ A loaded Dashboard's keys are covered by
 - **macOS**: native verification is deferred past the Linux v1.
 - **No browser handoff, clipboard or PR export.** Full SHAs and URLs are shown in full to
   select in the terminal.
-- **Keyless Actions run commands**: Rerun selected job, Force-cancel run, Delete run, Delete run
-  logs, Approve fork run, the artifact Export/Extract/Delete commands and Inspect uncertain
-  write have no key of their own. They are key-bar tokens reached by `Tab` focus and `Enter`
-  or by click, and Commands rows. Giving them keys changes token matching that the scoped
-  Actions journeys rely on (`Delete run` is a prefix of `Delete run logs`), so it is left
-  for a follow-up with those journeys.
+- **Inspect uncertain write (`i`)** has its key and click target whenever an Actions page holds
+  an uncertain write target, which the key-bar probe covers, but the running binary records
+  uncertain Actions writes as publications (`P Publications`, inspect, `K` acknowledge)
+  instead, so no PTY journey reaches this control.
 - **Merge and lifecycle (TASK-24, TASK-25)**: implemented and covered above; each task keeps
   one acceptance criterion open.

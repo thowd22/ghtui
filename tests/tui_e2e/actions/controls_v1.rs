@@ -196,13 +196,13 @@ fn large_artifact(mouse: bool) {
         .unwrap();
     journal(&mut session, &fixture, listed);
     // A cancelled deletion sends nothing.
-    command(&mut session, mouse, "Delete artifact");
+    keyed(&mut session, mouse, "Delete artifact", b"-");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");
     close_form(&mut session, mouse);
     journal(&mut session, &fixture, listed + 4);
-    command(&mut session, mouse, "Delete artifact");
+    keyed(&mut session, mouse, "Delete artifact", b"-");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");

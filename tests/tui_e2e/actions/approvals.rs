@@ -301,14 +301,14 @@ fn fork_approval_observed_footer(mouse: bool, controlled: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("Run 123 • attempt 2");
-    command(&mut session, mouse, "Approve fork run");
+    keyed(&mut session, mouse, "Approve fork run", b"Y");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");
     session.wait_for_screen("Run 123 attempt 2");
     close_form(&mut session, mouse);
     journal(&mut session, &fixture, cancelled_count);
-    command(&mut session, mouse, "Approve fork run");
+    keyed(&mut session, mouse, "Approve fork run", b"Y");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("READ-ONLY PREVIEW");
@@ -325,8 +325,12 @@ fn fork_approval_observed_footer(mouse: bool, controlled: bool) {
         .any(|row| row["args"][1] == "repos/example/repo/actions/runs/123/approve"));
     if controlled {
         session.hold_observed_output_after_literal_v1("Action unavailable • explanation only");
+        // The partial-frame journey keeps its Tab-focus (or palette) path: that route paints
+        // the explanation over several writes, which the held output must observe.
+        command(&mut session, mouse, "Approve fork run");
+    } else {
+        keyed(&mut session, mouse, "Approve fork run", b"Y");
     }
-    command(&mut session, mouse, "Approve fork run");
     session.wait_for_screen("Action unavailable");
     session.wait_for_screen("Original attempt #1");
     journal(&mut session, &fixture, confirmed_count);

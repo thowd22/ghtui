@@ -177,9 +177,11 @@ pub fn actions_page(completed: &CursorlessFrames, after: usize) -> Option<Action
     (footer > bounds.bottom).then_some(ActionsPage { footer, bounds })
 }
 
-/// The key-bar token for `label` in a completed page: `[l Logs]` is the token `l Logs`, and an
-/// unbracketed fragment such as `Acknowledge` names the one token containing it. Ambiguous
-/// fragments and labels painted only in the body never supply a coordinate.
+/// The key-bar token for `label` in a completed page: `[l Logs]` is the token `l Logs`, a
+/// caption such as `Delete run` is the whole token `- Delete run` (key plus exactly that
+/// caption, never `L Delete run logs`), and an unbracketed fragment such as `Acknowledge`
+/// names the one token containing it. Ambiguous fragments and labels painted only in the body
+/// never supply a coordinate.
 pub fn actions_control_position(
     completed: &CursorlessFrames,
     page: &ActionsPage,
@@ -209,6 +211,16 @@ pub fn actions_control_position(
     let exact = tokens
         .iter()
         .filter(|(_, token)| token.eq_ignore_ascii_case(&wanted))
+        .collect::<Vec<_>>();
+    // A whole token is its one-character key plus exactly the wanted caption: `Delete run`
+    // names `- Delete run`, never `L Delete run logs`, which merely contains it.
+    let whole = tokens
+        .iter()
+        .filter(|(_, token)| {
+            token.split_once(' ').is_some_and(|(key, caption)| {
+                key.chars().count() == 1 && caption.eq_ignore_ascii_case(&wanted)
+            })
+        })
         .collect::<Vec<_>>();
     let fragment = tokens
         .iter()
@@ -247,6 +259,8 @@ pub fn actions_control_position(
         .collect::<Vec<_>>();
     let matches = if !exact.is_empty() {
         exact
+    } else if !whole.is_empty() {
+        whole
     } else if !fragment.is_empty() {
         fragment
     } else {

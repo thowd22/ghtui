@@ -248,14 +248,18 @@ fn scroll_to(session: &mut Session, mouse: bool, title: &str, needle: &str) {
     }
 }
 fn command(session: &mut Session, mouse: bool, command: Command) {
-    // Match a complete actual button: the bare Delete run prefix also occurs
-    // in the distinct Delete run logs action and is deliberately ambiguous.
+    // The whole token: `Delete run` is `- Delete run`, never `L Delete run logs`.
     let label = format!("[{}]", command.label());
     if mouse {
         resources_v2::action(session, true, &label, b"");
     } else {
-        session.focus_completed_actions_control_v2(&label);
-        session.send_key(b"\r");
+        // TASK-64: each run command has its own key on the idle Actions page.
+        let key: &[u8] = match command {
+            Command::Force => b"!",
+            Command::Delete => b"-",
+            Command::Logs => b"L",
+        };
+        session.activate_completed_actions_control(false, &label, key);
     }
 }
 fn initial(session: &mut Session, fixture: &Fixture, mouse: bool, command_kind: Command) {
