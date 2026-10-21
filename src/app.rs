@@ -2355,6 +2355,11 @@ impl App {
                     if let Some(Err(reason)) = self.actions.as_mut().map(|a| a.toggle_watch()) {
                         self.dispatch(Action::Explain(reason));
                     }
+                } else if matches!(action, crate::actions_workspace::ActionsAction::Follow) {
+                    // TASK-117: local only; the next live update keeps the newest line in view.
+                    if let Some(actions) = &mut self.actions {
+                        actions.toggle_follow_v117();
+                    }
                 } else if let crate::actions_workspace::ActionsAction::Select(index) = action {
                     if let Some(actions) = &mut self.actions {
                         actions.select(index);

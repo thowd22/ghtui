@@ -18,6 +18,11 @@ mod publications;
 mod settings;
 pub use publications::*;
 mod lease_snapshot;
+mod live_run_v117;
+pub use live_run_v117::{
+    live_timing_v117, LiveRunV117, FOLLOWING_LABEL_V117, FOLLOW_LABEL_V117,
+    LIVE_POLL_MAX_SECS_V117, LIVE_POLL_MIN_SECS_V117,
+};
 #[cfg(test)]
 mod runs_focus_v1_tests;
 pub use lease_snapshot::ActionsPublicationLeaseSnapshot;
@@ -143,6 +148,8 @@ pub enum ActionsAction {
     Back,
     Refresh,
     Watch,
+    /// TASK-117: keep a live log's newest line in view (local; no request).
+    Follow,
     Compose(ActionsCommand),
     /// Inspect an unavailable control without preparing or executing its mutation.
     Unavailable(String),
@@ -431,6 +438,8 @@ impl ActionsControl {
             Back => 10,
             // An armed watch keeps its Stop on the bar, even at 80 columns and mid-tick.
             Watch if self.label == "[w Stop watch]" => 12,
+            // TASK-117: following a live log is the page's reason to be open.
+            Follow => 18,
             Refresh => 15,
             View(ActionsView::Run | ActionsView::Jobs)
             | Logs(_)
@@ -588,6 +597,8 @@ pub struct ActionsWorkspace {
     pub watching: bool,
     /// Plain outcome of the last watch tick, e.g. that the watched run finished.
     pub watch_note: Option<String>,
+    /// TASK-117: the automatic live watch of an in-progress run and its live log.
+    pub live: LiveRunV117,
     pub log_search: Option<(String, bool)>,
     pub publication_rows: Vec<ActionsPublicationRow>,
     pub publication_total: Option<u64>,
@@ -622,8 +633,8 @@ pub fn status_role(status: &str, conclusion: &str) -> SemanticToken {
 }
 /// Step rows show how long a completed step took; unparsed or still-running
 /// timestamps are shown as reported.
-fn step_timing(started: &str, completed: &str) -> String {
-    match crate::ui_table::duration(started, completed) {
+fn step_timing(started: &str, completed: &str, now: u64) -> String {
+    match live_timing_v117(started, completed, now) {
         Some(took) => took,
         _ if started.is_empty() => "not started".into(),
         _ if completed.is_empty() => format!("started {started}"),
@@ -696,6 +707,7 @@ impl ActionsWorkspace {
             warnings: vec![],
             watching: false,
             watch_note: None,
+            live: LiveRunV117::default(),
             log_search: None,
             publication_rows: vec![],
             publication_total: None,
@@ -867,6 +879,8 @@ impl ActionsWorkspace {
         match self.view {
             ActionsView::Runs => true,
             ActionsView::Run | ActionsView::Jobs => self.run.is_some(),
+            // TASK-117: a live log keeps updating; a loaded finished log has nothing to watch.
+            ActionsView::Logs => self.run.is_some() && self.live.target.is_some(),
             _ => false,
         }
     }
@@ -874,6 +888,7 @@ impl ActionsWorkspace {
     pub fn toggle_watch(&mut self) -> Result<(), String> {
         if self.watching {
             self.watching = false;
+            self.stop_live_v117();
             self.watch_note = Some("Watch stopped".into());
         } else if !self.watch_applies() {
             return Err(
@@ -1035,6 +1050,16 @@ impl ActionsWorkspace {
         action: &ActionsAction,
         cancel: &CancellationToken,
     ) -> GithubResult<()> {
+        let result = self.apply_inner(gh, action, cancel);
+        self.leave_live_v117();
+        result
+    }
+    fn apply_inner(
+        &mut self,
+        gh: &GithubProvider,
+        action: &ActionsAction,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
         use ActionsAction::*;
         if matches!(
             action,
@@ -1070,6 +1095,11 @@ impl ActionsWorkspace {
                 if let Err(reason) = self.toggle_watch() {
                     self.warnings.push(reason);
                 }
+                self.prepare_rows();
+                return Ok(());
+            }
+            Follow => {
+                self.toggle_follow_v117();
                 self.prepare_rows();
                 return Ok(());
             }
@@ -1161,6 +1191,8 @@ impl ActionsWorkspace {
                 self.view = ActionsView::Run;
                 self.selected = 0;
                 self.top = 0;
+                // TASK-117: a run still in progress updates live without a manual Watch.
+                self.arm_live_v117();
             }
             OpenJob(id) => {
                 let page = self
@@ -1185,6 +1217,19 @@ impl ActionsWorkspace {
                     _ => None,
                 };
                 let id = &id.or(highlighted);
+                // TASK-117: gh refuses the logs of a run in progress; finished jobs' logs are
+                // read one by one and running jobs say when theirs will appear.
+                if self
+                    .run
+                    .as_ref()
+                    .is_some_and(|page| live_run_v117::runs_live_v117(&page.attempt.run.status))
+                {
+                    self.open_live_log_v117(gh, *id, cancel)?;
+                    self.fetched_at = Some(now());
+                    self.prepare_rows();
+                    return Ok(());
+                }
+                self.live.target = None;
                 let page = self
                     .run
                     .as_mut()
@@ -1314,6 +1359,8 @@ impl ActionsWorkspace {
                 self.selected = 0;
                 self.top = 0;
             }
+            // TASK-117: a live log re-reads the run and any newly finished job logs.
+            Refresh if self.view == ActionsView::Logs => self.refresh_live_log_v117(gh, cancel)?,
             Refresh => {}
             Acknowledge => {
                 return Err(plain_error(
@@ -1461,33 +1508,7 @@ impl ActionsWorkspace {
                         }
                     };
             }
-            Run | Jobs => {
-                let page = self
-                    .run
-                    .as_mut()
-                    .ok_or_else(|| plain_error("Open a run first"))?;
-                // A normal refresh preserves the selected attempt; watching follows the current attempt.
-                let attempt = if self.watching {
-                    gh.run(&page.repository, page.attempt.run.id, cancel)?
-                        .attempt
-                } else {
-                    page.attempt.run.attempt
-                };
-                page.attempt =
-                    gh.run_attempt(&page.repository, page.attempt.run.id, attempt, cancel)?;
-                if page
-                    .selected_job
-                    .is_some_and(|id| !page.attempt.jobs.iter().any(|job| job.id == id))
-                {
-                    page.selected_job = None;
-                }
-                if self.watching {
-                    let run = self.run.as_ref().map(|page| page.attempt.run.clone());
-                    if let Some(run) = run {
-                        self.observe_watched_run(&run);
-                    }
-                }
-            }
+            Run | Jobs => self.refresh_open_attempt(gh, cancel)?,
             Usage => {
                 let usage = gh.cache_usage(self.repository()?, cancel)?;
                 self.rows=vec![ActionsRow::text(format!("Cache storage: {} bytes in {} caches",usage.active_caches_size_in_bytes,usage.active_caches_count)),ActionsRow::text("Cache units are bytes. Workflow timing is milliseconds, not cost; billing multipliers are not inferred.")];
@@ -1504,8 +1525,43 @@ impl ActionsWorkspace {
         }
         Ok(())
     }
+    /// Re-reads the open run attempt and its jobs (with their steps). A normal refresh keeps
+    /// the selected attempt; watching follows the current one and reports progress.
+    fn refresh_open_attempt(
+        &mut self,
+        gh: &GithubProvider,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
+        let page = self
+            .run
+            .as_mut()
+            .ok_or_else(|| plain_error("Open a run first"))?;
+        // TASK-117: the automatic live watch stays on the opened attempt.
+        let attempt = if self.watching && !self.live.armed {
+            gh.run(&page.repository, page.attempt.run.id, cancel)?
+                .attempt
+        } else {
+            page.attempt.run.attempt
+        };
+        page.attempt = gh.run_attempt(&page.repository, page.attempt.run.id, attempt, cancel)?;
+        if page
+            .selected_job
+            .is_some_and(|id| !page.attempt.jobs.iter().any(|job| job.id == id))
+        {
+            page.selected_job = None;
+        }
+        if self.watching {
+            let run = self.run.as_ref().map(|page| page.attempt.run.clone());
+            if let Some(run) = run {
+                self.observe_watched_run(&run);
+            }
+            self.after_live_tick_v117();
+        }
+        Ok(())
+    }
     pub fn prepare_rows(&mut self) {
         use ActionsView::*;
+        self.settle_live_v117();
         let selected_environment = self
             .selected_environment()
             .and_then(|environment| environment["id"].as_u64());
@@ -1545,6 +1601,13 @@ impl ActionsWorkspace {
                 "[x Export log]",
                 ActionsAction::Compose(ActionsCommand::ExportLogs),
             ));
+            // TASK-117: a live log can be followed, and its watch stopped, from the page.
+            if self.live.target.is_some() {
+                self.controls
+                    .push(add(self.follow_label_v117(), ActionsAction::Follow));
+                self.controls
+                    .push(add(self.watch_label(), ActionsAction::Watch));
+            }
         }
         if self.view == Workflow {
             self.controls.push(add(
@@ -1707,6 +1770,7 @@ impl ActionsWorkspace {
                             ..ActionsRow::text("Jobs")
                         });
                     }
+                    let now = now();
                     for job in &page.attempt.jobs {
                         rows.push(ActionsRow {
                             label: format!(
@@ -1724,7 +1788,8 @@ impl ActionsWorkspace {
                             cells: ActionsCells::Row(vec![
                                 job.name.clone(),
                                 outcome(&job.status, &job.conclusion),
-                                crate::ui_table::duration(&job.started_at, &job.completed_at)
+                                // TASK-117: a running job shows for how long it has run.
+                                live_timing_v117(&job.started_at, &job.completed_at, now)
                                     .unwrap_or_else(|| crate::ui_table::NONE.into()),
                                 if job.labels.is_empty() {
                                     job.runner_name.clone()
@@ -1737,6 +1802,16 @@ impl ActionsWorkspace {
                         if self.view == Jobs && page.selected_job == Some(job.id) {
                             self.controls
                                 .push(add("[N Annotations]", ActionsAction::Annotations(job.id)));
+                            if job.status != "completed" {
+                                // TASK-117: say plainly when this job's log can be read.
+                                rows.push(ActionsRow {
+                                    role: SemanticToken::Pending,
+                                    ..ActionsRow::clickable(
+                                        crate::providers::gh::LIVE_LOG_PENDING_V117,
+                                        ActionsAction::Logs(Some(job.id)),
+                                    )
+                                });
+                            }
                             for step in &job.steps {
                                 rows.push(ActionsRow {
                                     label: format!(
@@ -1745,7 +1820,7 @@ impl ActionsWorkspace {
                                         step.name,
                                         step.status,
                                         step.conclusion,
-                                        step_timing(&step.started_at, &step.completed_at)
+                                        step_timing(&step.started_at, &step.completed_at, now)
                                     ),
                                     role: status_role(&step.status, &step.conclusion),
                                     actor: None,
@@ -1754,7 +1829,7 @@ impl ActionsWorkspace {
                                     cells: ActionsCells::Row(vec![
                                         format!("  {} {}", step.number, step.name),
                                         outcome(&step.status, &step.conclusion),
-                                        step_timing(&step.started_at, &step.completed_at),
+                                        step_timing(&step.started_at, &step.completed_at, now),
                                         String::new(),
                                         String::new(),
                                     ]),
@@ -2166,6 +2241,7 @@ impl ActionsWorkspace {
                 }
             }
         }
+        self.follow_newest_v117();
         self.selected = self.selected.min(self.rows.len().saturating_sub(1));
         self.top = self.top.min(self.rows.len().saturating_sub(1));
         if matches!(self.view, Run | Jobs | Logs)

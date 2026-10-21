@@ -67,7 +67,18 @@ pub fn draw(
         let freshness = workspace.fetched_at.map_or("Not loaded".into(), |at| {
             format!("Fetched {}", crate::metrics_workspace::utc_label(at))
         });
-        let watch = if workspace.watching && workspace.watch_applies() {
+        let watch = if workspace.watching && workspace.watch_applies() && workspace.live.armed {
+            // TASK-117: an in-progress run updates by itself; the key facts lead the row.
+            format!(
+                " • Live: updates every {}s until the run finishes{} • w stops",
+                workspace.poll_interval_secs(),
+                workspace
+                    .watch_note
+                    .as_ref()
+                    .map(|note| format!(" • {}", sanitize_terminal(note)))
+                    .unwrap_or_default()
+            )
+        } else if workspace.watching && workspace.watch_applies() {
             format!(
                 " • Watching: refreshes every 5s{} • w stops",
                 workspace

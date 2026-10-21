@@ -2467,10 +2467,12 @@ fn run() -> Result<()> {
                 .pr_checks_route
                 .as_ref()
                 .is_none_or(|route| !route.scoped_v1())
-            && app
-                .actions
-                .as_ref()
-                .is_some_and(|actions| actions.watching && actions.watch_applies())
+            && app.actions.as_ref().is_some_and(|actions| {
+                actions.watching
+                        && actions.watch_applies()
+                        // TASK-117: the automatic live watch waits while a form is open.
+                        && (!actions.live.armed || app.form.is_none())
+            })
             && app.scoped_actions_v1.is_none()
             && Instant::now() >= next_actions_refresh
             && !ghtui::remote_scope_gate_v1::refuse_legacy_request(
@@ -2497,7 +2499,13 @@ fn run() -> Result<()> {
                 requested_refresh.then_some(ghtui::actions_workspace::ActionsAction::Refresh)
             });
             let inspection = app.actions_inspection.take();
-            next_actions_refresh = Instant::now() + Duration::from_secs(5);
+            // TASK-117: a live run backs off from 5 s to 30 s while nothing changes.
+            next_actions_refresh = Instant::now()
+                + Duration::from_secs(
+                    app.actions
+                        .as_ref()
+                        .map_or(5, |actions| actions.poll_interval_secs()),
+                );
             let previous = app.actions.clone();
             let pr_check_route = app.pr_checks_route.clone();
             let mut repositories = options

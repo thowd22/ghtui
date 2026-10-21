@@ -21,6 +21,8 @@ mod environment_secrets_v1;
 mod lease_selection;
 #[path = "actions/limitations_v1.rs"]
 mod limitations_v1;
+#[path = "actions/live_run_v117.rs"]
+mod live_run_v117;
 #[path = "actions/log_export_v1.rs"]
 mod log_export_v1;
 #[path = "actions/log_tail_v107.rs"]
@@ -617,8 +619,9 @@ fn run_control(mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("Run 123 • attempt 3");
-    choose(&mut session, mouse, "[w Watch]", b"w");
-    session.wait_for_screen("Watching: refreshes every 5s");
+    // TASK-117: the queued attempt is followed live without pressing Watch.
+    session.wait_for_screen("Live: updates every 5s");
+    session.wait_for_control("[w Stop watch]");
     command(&mut session, mouse, "Cancel run");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");
@@ -626,7 +629,8 @@ fn run_control(mouse: bool) {
     confirm(&mut session, mouse, 0);
     session.wait_for_screen("cancelled");
     journal(&mut session, &fixture, cancel_count);
-    choose(&mut session, mouse, "[w Stop watch]", b"w");
+    // The cancelled run has completed, so its live updates stopped by themselves.
+    session.wait_for_control("[w Watch]");
     keyed(&mut session, mouse, "Delete run", b"-");
     session.wait_for_screen("ACTIONS INTENT");
     choose(&mut session, mouse, "[Preview]", b"\x10");

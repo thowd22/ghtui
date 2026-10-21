@@ -41,14 +41,10 @@ fn watch_until_finished(mouse: bool) {
         serde_json::to_vec(&json!({"total_count":1,"workflow_runs":[running.clone()]})).unwrap();
     steps.extend(attempt_steps(&running));
     let opened = steps.len();
-    // Each watch tick: account check, current run (follows the newest attempt), attempt and jobs.
+    // TASK-117: the run in progress is followed live from the moment it opens. Each check:
+    // the account, then the opened attempt and its jobs.
     for run in [&running, &finished] {
         steps.extend(current_account());
-        steps.push(read(
-            "repos/example/repo/actions/runs/123",
-            run.clone(),
-            false,
-        ));
         steps.extend(attempt_steps(run));
     }
     let watched = steps.len();
@@ -56,8 +52,8 @@ fn watch_until_finished(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     open_run(&mut session, mouse);
     journal(&mut session, &fixture, opened);
-    choose(&mut session, mouse, "[w Watch]", b"w");
-    session.wait_for_screen("Watching: refreshes every 5s");
+    // No Watch press: the live watch started by itself, and its Stop is on the bar.
+    session.wait_for_screen("Live: updates every 5s until the run finishes");
     session.wait_for_control("[w Stop watch]");
     wait_long(&mut session, "Run 123 attempt 2 is in progress");
     wait_long(

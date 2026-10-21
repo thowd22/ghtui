@@ -5,8 +5,10 @@ mod attempt_jobs_v1;
 mod scoped_dispatch_v7;
 mod scoped_dispatch_write_v7;
 pub(crate) use scoped_dispatch_write_v7::ScopedDispatchInvocationV7;
+mod live_job_log_v117;
 mod log_tail_v107;
 mod scoped_history_v5;
+pub use live_job_log_v117::{job_log_from_raw_v117, LIVE_LOG_PENDING_V117};
 pub use log_tail_v107::{
     log_size_label, run_log_tail_from_raw, stream_readable_run_log, RunLogTail,
     LOG_EXPORT_DISK_LIMIT_V107,

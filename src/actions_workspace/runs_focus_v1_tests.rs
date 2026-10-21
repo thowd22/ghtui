@@ -163,23 +163,29 @@ fn v1_actions_runs_failure_jumps_walk_failed_jobs_and_steps_by_key_and_control()
 #[test]
 fn v1_actions_runs_step_rows_show_durations_or_reported_times() {
     assert_eq!(
-        step_timing("2026-10-09T05:40:48Z", "2026-10-09T05:43:17Z"),
+        step_timing("2026-10-09T05:40:48Z", "2026-10-09T05:43:17Z", 0),
         "2m 29s"
     );
     assert_eq!(
-        step_timing("2026-10-09T05:40:48Z", "2026-10-09T05:40:48Z"),
+        step_timing("2026-10-09T05:40:48Z", "2026-10-09T05:40:48Z", 0),
         "0s"
     );
     assert_eq!(
-        step_timing("2026-10-09T05:00:00Z", "2026-10-09T06:05:00Z"),
+        step_timing("2026-10-09T05:00:00Z", "2026-10-09T06:05:00Z", 0),
         "1h 05m"
     );
     assert_eq!(
-        step_timing("2026-10-09T05:40:48Z", ""),
+        step_timing("2026-10-09T05:40:48Z", "", 0),
         "started 2026-10-09T05:40:48Z"
     );
-    assert_eq!(step_timing("", ""), "not started");
-    assert_eq!(step_timing("soon", "later"), "soon → later");
+    // TASK-117: a running step shows for how long it has run.
+    let start = crate::github_workspace::timestamp_seconds("2026-10-09T05:40:48Z").unwrap();
+    assert_eq!(
+        step_timing("2026-10-09T05:40:48Z", "", start + 42),
+        "running 42s"
+    );
+    assert_eq!(step_timing("", "", 0), "not started");
+    assert_eq!(step_timing("soon", "later", 0), "soon → later");
 }
 
 #[test]
