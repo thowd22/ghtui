@@ -17,7 +17,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 
 ## 2. Builds and host resources
 
-- **Build and test only through `~/.cache/ghtui-agents/shared/agent-run.sh <agent-name> <cmd>`.** It allows at most 6 builds at once, and only while the host has at least 6.5 GiB available. Each build runs in a systemd scope with a 6 GiB cap and `CARGO_BUILD_JOBS=1`, and gives every agent its own target and temp directories. An unbounded `cargo` run can make the host unresponsive.
+- **Build and test only through `~/.cache/ghtui-agents/shared/agent-run.sh <agent-name> <cmd>`.** It allows at most 4 builds at once, and only while the host has at least 8.5 GiB available. Each build runs in a systemd scope with an 8 GiB cap (the lib test binary outgrew 6 GiB on 2026-10-21 and thrashed at the cap) and `CARGO_BUILD_JOBS=1`, and gives every agent its own target and temp directories. An unbounded `cargo` run can make the host unresponsive.
 - **Never `cargo clean` and never delete `target/`.** A rebuild from nothing costs everyone a lot of time.
 - **A fresh agent target directory needs about 9 minutes for its first compile.** Start `cargo test --no-run` in the background before editing. Prefer a direct `cargo test --test <t> -- <filters>` to `scripts/test-task.mjs`, which compiles every test target. Several space-separated filters after `--` run as one command.
 - **Never pipe cargo into `| head`.** When head exits, cargo dies of SIGPIPE (exit 101), which looks like a compile error. Write to a log file and grep it.

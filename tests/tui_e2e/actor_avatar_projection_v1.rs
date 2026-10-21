@@ -9,7 +9,10 @@ fn journey(mouse: bool) {
     )
     .unwrap();
     let mut steps = protocol(Mode::Ready);
-    for step in steps.iter_mut().skip(4) {
+    for step in steps
+        .iter_mut()
+        .filter(|step| step.args.get(1).is_some_and(|arg| arg == "search/issues"))
+    {
         let mut response: Value = serde_json::from_slice(&step.stdout).unwrap();
         response["items"][0]["user"]["name"] = json!("x".repeat(4097));
         step.stdout = serde_json::to_vec(&response).unwrap();
@@ -70,8 +73,8 @@ fn journey(mouse: bool) {
             "?  unknown actor [unknown]",
         ],
     );
-    session.wait_for_command_count(&fixture, 7);
-    assert_commands(&session, &fixture, 7);
+    session.wait_for_command_count(&fixture, 8);
+    assert_commands(&session, &fixture, 8);
     let cache = Cache::open(&database(&fixture)).unwrap();
     let scope = Scope::github("github.com", Some(42)).unwrap();
     let records = cache.list(&scope, None).unwrap();
@@ -111,7 +114,7 @@ fn journey(mouse: bool) {
         &["Queue: All", RED_TITLE, GREEN_TITLE, "?  unknown actor"],
     );
     session.focus_footer_control("[q Quit]");
-    assert_commands(&session, &fixture, 7);
+    assert_commands(&session, &fixture, 8);
     assert_eq!(trace(&fixture), before_input_trace);
     assert_asset_journal(&fixture, false);
     assert!(!fixture.root.join("config/ghtui/avatars").exists());
@@ -148,7 +151,7 @@ fn journey(mouse: bool) {
         .unwrap_or_else(|error| panic!("{error}"));
     assert!(!session.screen().contains("same-login"));
     assert_asset_journal(&fixture, false);
-    assert_commands(&session, &fixture, 7);
+    assert_commands(&session, &fixture, 8);
     session.quit_and_assert_restored_terminal(mouse);
     assert_eq!(git_state(&fixture), git_before);
     assert_read_only_git(&fixture);

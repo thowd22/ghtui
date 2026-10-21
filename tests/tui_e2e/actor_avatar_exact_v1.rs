@@ -35,6 +35,9 @@ fn protocol(mode: Mode) -> Vec<GhStep> {
     for step in steps.iter_mut().skip(4) {
         step.stdout=serde_json::to_vec(&json!({"total_count":2,"incomplete_results":false,"items":[raw_pr(1,RED_TITLE,RED_URL),raw_pr(2,GREEN_TITLE,GREEN_URL)]})).unwrap();
     }
+    // The Inbox load's review/check rollup read (TASK-12); GitHub answers nothing for it.
+    let rollup = crate::support::inbox_rollup_unknown_for("github.com", &steps);
+    steps.extend(rollup);
     if mode == Mode::AccountUnavailable {
         steps.push(GhStep::read(
             &["--version"],
@@ -51,9 +54,9 @@ fn protocol(mode: Mode) -> Vec<GhStep> {
     assert_eq!(
         steps.len(),
         if mode == Mode::AccountUnavailable {
-            9
+            10
         } else {
-            7
+            8
         }
     );
     steps
@@ -338,8 +341,8 @@ fn journey(mouse: bool, mode: Mode) {
             },
         ],
     );
-    session.wait_for_command_count(&fixture, 7);
-    assert_commands(&session, &fixture, 7);
+    session.wait_for_command_count(&fixture, 8);
+    assert_commands(&session, &fixture, 8);
     let loaded_records = Cache::open(&database(&fixture))
         .unwrap()
         .list(&Scope::github("github.com", Some(42)).unwrap(), None)
@@ -358,12 +361,12 @@ fn journey(mouse: bool, mode: Mode) {
     let (new_cols, new_rows) = if mouse { (120, 40) } else { (80, 24) };
     session.resize(new_cols, new_rows);
     ready(&mut session, &[RED_TITLE, GREEN_TITLE]);
-    assert_commands(&session, &fixture, 7);
+    assert_commands(&session, &fixture, 8);
     assert_eq!(trace(&fixture), loaded_trace);
     assert_durable_intent(&fixture, &saved);
     if mode == Mode::AccountUnavailable {
         choose(&mut session, mouse, "[r Refresh]", b"r");
-        session.wait_for_command_count(&fixture, 9);
+        session.wait_for_command_count(&fixture, 10);
         session
             .try_wait_for_condition(
                 |screen| {
@@ -384,7 +387,7 @@ fn journey(mouse: bool, mode: Mode) {
         }
         assert!(!fixture.root.join("config/ghtui/avatars").exists());
         assert_asset_journal(&fixture, true);
-        assert_commands(&session, &fixture, 9);
+        assert_commands(&session, &fixture, 10);
     } else if mode == Mode::NoColor {
         assert!(!session.screen().contains('▀'));
         assert_asset_journal(&fixture, false);
@@ -402,7 +405,7 @@ fn journey(mouse: bool, mode: Mode) {
         ready(&mut session, &["Queue: All", RED_TITLE, GREEN_TITLE]);
         pixels_ready(&mut session, &fixture);
         assert_asset_journal(&fixture, true);
-        assert_commands(&session, &fixture, 7);
+        assert_commands(&session, &fixture, 8);
     }
     if mode != Mode::AccountUnavailable {
         assert_eq!(
@@ -445,9 +448,9 @@ fn journey(mouse: bool, mode: Mode) {
         &session,
         &fixture,
         if mode == Mode::AccountUnavailable {
-            9
+            10
         } else {
-            7
+            8
         },
     );
     session.quit_and_assert_restored_terminal(mouse);

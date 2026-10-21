@@ -666,6 +666,9 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
         )
         .unwrap();
     }
+    // The Inbox load's review/check rollup read (TASK-12); GitHub answers nothing for it.
+    let rollup = crate::support::inbox_rollup_unknown_for("github.com", &steps);
+    steps.extend(rollup);
     fixture.scripted_gh(&steps);
     let pixels = RgbaImage::from_fn(2, 2, |_, y| {
         if y == 0 {
@@ -702,7 +705,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
     session.wait_for_screen("Avatar preview change");
     session.wait_for_screen("AL alice");
     wait_alice_chip(&mut session);
-    session.wait_for_command_count(&fixture, 7);
+    session.wait_for_command_count(&fixture, 8);
     if mouse {
         session.click_visible_action("[c Created by me]");
     } else {
@@ -739,7 +742,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
         assert!(!complete.exists());
         assert!(!fixture.root.join("config/ghtui/avatars").exists());
         let gh_journal = session.inspect_command_journal(&fixture);
-        assert_eq!(gh_journal.lines().count(), 7);
+        assert_eq!(gh_journal.lines().count(), 8);
         assert!(gh_journal
             .lines()
             .all(
@@ -801,7 +804,7 @@ fn github_avatar_journey(mouse: bool, fail_image: bool, cancel_asset: bool) {
     );
     assert!(assets.contains("--proto\n=https\n--max-redirs\n0"));
     let gh_journal = session.inspect_command_journal(&fixture);
-    assert_eq!(gh_journal.lines().count(), 7);
+    assert_eq!(gh_journal.lines().count(), 8);
     assert!(gh_journal
         .lines()
         .all(|line| serde_json::from_str::<serde_json::Value>(line).unwrap()["matched"] == true));
