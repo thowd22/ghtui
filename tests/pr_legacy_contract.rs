@@ -688,3 +688,81 @@ fn conversation_comments_legacy_deliberate_fresh_identical_review_is_not_dedupli
     assert_eq!(write_count(&fixture), 2);
     assert!(commands(&fixture).iter().all(|row| row["matched"] == true));
 }
+
+type StepEdit = Box<dyn Fn(&mut [GhStep])>;
+fn failed_read(stderr: &'static str) -> StepEdit {
+    Box::new(move |steps: &mut [GhStep]| {
+        let last = steps.last_mut().unwrap();
+        last.stdout.clear();
+        last.status = 1;
+        last.stderr = stderr.as_bytes().to_vec();
+    })
+}
+
+/// TASK-65 AC3: a fresh read that fails before the write (rate limit, permission, offline) or
+/// finds a moved head refuses with the draft kept, says what to do next, and writes nothing.
+#[test]
+fn complete_journeys_v65_legacy_refused_fresh_reads_explain_recovery_and_write_nothing() {
+    let moved: StepEdit = Box::new(|steps: &mut [GhStep]| {
+        let mut fresh = pr();
+        fresh["head"]["sha"] = json!("c".repeat(40));
+        steps.last_mut().unwrap().stdout = serde_json::to_vec(&fresh).unwrap();
+    });
+    let cases: Vec<(&str, StepEdit, &str)> = vec![
+        (
+            "rate limit",
+            failed_read("gh: API rate limit exceeded for user ID 42. (HTTP 403)\n"),
+            "GitHub rate limit reached. Nothing was sent; draft kept. Wait for the reset",
+        ),
+        (
+            "permission",
+            failed_read("gh: Resource protected by organization SAML enforcement. (HTTP 403)\n"),
+            "GitHub denied access. Nothing was sent; draft kept. Check gh auth status",
+        ),
+        (
+            "offline",
+            failed_read("error connecting to github.invalid\n"),
+            "GitHub unreachable. Nothing was sent; draft kept. Reconnect",
+        ),
+        ("head moved", moved, ghtui::pr_legacy::HEAD_MOVED),
+    ];
+    for (case, mutate, expected) in cases {
+        let fixture = Fixture::new();
+        let client = provider(&fixture);
+        let mut steps = guard();
+        mutate(&mut steps);
+        fixture.scripted_gh(&steps);
+        let path = fixture.repo().join("cache.sqlite3");
+        let mut journal = PrWriteJournal::open(&path).unwrap();
+        let outcome = execute_legacy(
+            &PrIntent {
+                kind: PrFormKind::Approve,
+                target: target(),
+                identity: identity(),
+            },
+            &workspace(),
+            &BTreeMap::from([("body".into(), "Approve after recovery".into())]),
+            &client,
+            &mut journal,
+            true,
+            None,
+            |_| panic!("{case}: a refused read never reserves a publication"),
+            &CancellationToken::default(),
+        );
+        let PrExecution::Refused { error } = outcome else {
+            panic!("{case}: expected a refusal, got {outcome:?}");
+        };
+        assert!(error.starts_with(expected), "{case}: {error}");
+        assert!(!ghtui::pr_ui::account_failure(&error), "{case}: {error}");
+        assert_eq!(commands(&fixture).len(), 3, "{case}");
+        assert!(commands(&fixture).iter().all(|row| row["matched"] == true));
+        assert_eq!(write_count(&fixture), 0, "{case}");
+        let attempts: u64 = Connection::open(&path)
+            .unwrap()
+            .query_row("SELECT count(*) FROM pr_write_attempts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(attempts, 0, "{case}");
+    }
+}

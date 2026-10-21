@@ -5,6 +5,12 @@
 //!
 //! - PR review: Inbox -> PR -> Approve review with a summary -> offline gh at Submit keeps the
 //!   summary and publishes nothing -> Preview again -> exactly one review POST -> refreshed PR.
+//! - PR review recovery (AC3): external editor failure, rate limit, permission denied and a
+//!   head that moved between Preview and Submit each keep the summary (form and SQLite), say
+//!   what to do next in the form body, and write nothing; 120x40 and 80x24 with resizes.
+//! - Full review path: Inbox -> PR -> Files -> inline range -> add to the PENDING review ->
+//!   submit it as Approve, in `cross_feature_v65_review_path.rs` (declared from the Personal
+//!   images module, whose queue/Files/images fixtures it reuses).
 //! - Local edit to PR: edit a file -> stage one hunk -> commit -> first push to a local bare
 //!   remote -> Create PR, where an offline Preview and a head that moved on GitHub before
 //!   Confirm both keep the typed title and create nothing -> exactly one create request.
@@ -222,6 +228,211 @@ mod review {
     #[test]
     fn complete_journeys_v65_mouse_inbox_pr_approve_offline_submit_keeps_summary_then_publishes() {
         journey(true)
+    }
+
+    // -----------------------------------------------------------------------------------
+    // AC3 recovery: external editor failure, rate limit, permission denied and a head that
+    // moved between Preview and Submit. Each keeps the typed summary in the form and in
+    // SQLite, says what to do next in the form body, and writes nothing.
+    // -----------------------------------------------------------------------------------
+
+    const TITLE: &str = "Approve review • example/repo#7";
+    const KEPT: &str = "Kept through every refusal";
+    const RATE: &str = "gh: API rate limit exceeded for user ID 42. (HTTP 403)\n";
+    const DENIED: &str = "gh: Resource protected by organization SAML enforcement. (HTTP 403)\n";
+
+    fn failed(mut step: GhStep, stderr: &str) -> GhStep {
+        step.stdout = vec![];
+        step.stderr = stderr.as_bytes().to_vec();
+        step.status = 1;
+        step
+    }
+    fn compact(text: &str) -> String {
+        text.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+    /// Wait for a completed frame whose Approve form body (not the status line, which a late
+    /// draft-save ACK may own) holds every fragment, across wrapped rows.
+    fn form_says(session: &mut Session, fragments: &[&str]) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            session.poll_output(Duration::from_millis(5));
+            if let Some(body) = session
+                .completed_cells_screen()
+                .and_then(|screen| crate::support::overlay_body(screen, TITLE))
+            {
+                let body = compact(&body);
+                if fragments
+                    .iter()
+                    .all(|fragment| body.contains(&compact(fragment)))
+                {
+                    return;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Approve form body never showed {fragments:?}\n{}",
+                session.screen()
+            );
+        }
+    }
+    /// The legacy form previews in place; at 80 columns its "Nothing published" tail is cut,
+    /// so wait for the effect line itself. Key order keeps Preview before the next Submit.
+    fn preview(session: &mut Session, mouse: bool) {
+        choose(session, mouse, "[Preview]", b"\x10");
+        form_says(session, &["Approve example/repo#7 by @hubot", KEPT]);
+    }
+    fn draft(fixture: &Fixture) -> Option<String> {
+        ghtui::storage::Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3"))
+            .unwrap()
+            .draft(
+                &ghtui::storage::Scope::github(HOST, Some(42)).unwrap(),
+                "example/repo/pull/7/composer/approve",
+            )
+            .unwrap()
+    }
+    fn attempts(fixture: &Fixture) -> u64 {
+        let db = rusqlite::Connection::open_with_flags(
+            fixture.root.join("config/ghtui/cache.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let exists: u64 = db
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='pr_write_attempts'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if exists == 0 {
+            return 0;
+        }
+        db.query_row("SELECT count(*) FROM pr_write_attempts", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+
+    fn recovery(mouse: bool) {
+        let fixture = configured();
+        let git = local_git_witness(&fixture);
+        let mut steps = initial();
+        steps.extend(details(vec![starter()]));
+        let opened = steps.len();
+        let mut rate = guard();
+        let last = rate.len() - 1;
+        rate[last] = failed(rate[last].clone(), RATE);
+        steps.extend(rate);
+        let rate_limited = steps.len();
+        let mut denied = guard();
+        denied[last] = failed(denied[last].clone(), DENIED);
+        steps.extend(denied);
+        let refused = steps.len();
+        let mut moved = guard();
+        let mut fresh: Value = serde_json::from_slice(&moved[last].stdout).unwrap();
+        fresh["head"]["sha"] = json!("c".repeat(40));
+        moved[last].stdout = serde_json::to_vec(&fresh).unwrap();
+        steps.extend(moved);
+        rewrite(&mut steps, None);
+        fixture.scripted_gh(&steps);
+
+        // EDITOR=false: the external editor exits without success.
+        let mut session = Session::launch_binary(
+            Path::new(env!("CARGO_BIN_EXE_ghtui")),
+            &fixture,
+            120,
+            40,
+            &[("VISUAL", ""), ("EDITOR", "false")],
+        );
+        session.wait_for_screen("ghtui");
+        choose(&mut session, mouse, "1 Inbox", b"1");
+        session.wait_for_screen("Inbox • focused view");
+        choose(&mut session, mouse, "[r Refresh]", b"r");
+        session.wait_for_screen("Native collaboration");
+        choose(&mut session, mouse, "Native collaboration", b"\r");
+        session.wait_for_screen("1 comments");
+        records(&mut session, &fixture, opened);
+        menu(&mut session, mouse, "Approve review");
+        session.wait_for_screen(TITLE);
+        session.wait_for_screen("Review summary:");
+        session.paste(KEPT);
+        form_says(&mut session, &[KEPT]);
+
+        // 1. External editor failure: the typed summary stays and nothing runs.
+        choose(&mut session, mouse, "[External editor]", b"\x05");
+        form_says(&mut session, &["Editor error", "draft retained", KEPT]);
+        assert_eq!(
+            journal(&session, &fixture).len(),
+            opened,
+            "no gh for an editor"
+        );
+
+        // 2. Rate limit on the fresh PR read at Submit, at 120x40.
+        preview(&mut session, mouse);
+        submit(&mut session, mouse);
+        form_says(
+            &mut session,
+            &[
+                "GitHub rate limit reached. Nothing was sent; draft kept.",
+                "Wait for the reset, then Submit again.",
+                "API rate limit exceeded",
+            ],
+        );
+        assert_eq!(
+            mutation_count(&records(&mut session, &fixture, rate_limited)),
+            0
+        );
+
+        // The narrow terminal keeps the form, the explanation and the summary.
+        session.resize(80, 24);
+        form_says(&mut session, &["GitHub rate limit reached", KEPT]);
+
+        // 3. Permission denied (SSO) on the fresh PR read, at 80x24.
+        preview(&mut session, mouse);
+        submit(&mut session, mouse);
+        form_says(
+            &mut session,
+            &[
+                "GitHub denied access. Nothing was sent; draft kept.",
+                "Check gh auth status and SSO",
+            ],
+        );
+        assert_eq!(mutation_count(&records(&mut session, &fixture, refused)), 0);
+
+        // 4. GitHub's head moved after Preview: refused before any write, at 120x40.
+        session.resize(120, 40);
+        form_says(&mut session, &[KEPT]);
+        preview(&mut session, mouse);
+        submit(&mut session, mouse);
+        form_says(
+            &mut session,
+            &[
+                "PR changed on GitHub. Nothing was sent; draft kept.",
+                "refresh the PR (r) and review the new head first.",
+            ],
+        );
+        let after = records(&mut session, &fixture, steps.len());
+        assert_eq!(mutation_count(&after), 0, "no refusal writes anything");
+        assert_eq!(attempts(&fixture), 0, "no publication was reserved");
+        assert!(!session.screen().contains("Published"));
+
+        // Keep draft / Close returns to the PR with the summary saved.
+        choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
+        session.wait_for_control("[p PR actions]");
+        assert_eq!(journal(&session, &fixture).len(), steps.len());
+        session.quit_and_assert_restored_terminal(mouse);
+        let saved = draft(&fixture).expect("the Approve draft is saved");
+        assert!(saved.contains(KEPT), "{saved}");
+        assert_eq!(attempts(&fixture), 0);
+        assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    }
+
+    #[test]
+    fn complete_journeys_v65_keyboard_review_editor_rate_limit_permission_head_moved_keep_draft() {
+        recovery(false)
+    }
+    #[test]
+    fn complete_journeys_v65_mouse_review_editor_rate_limit_permission_head_moved_keep_draft() {
+        recovery(true)
     }
 }
 

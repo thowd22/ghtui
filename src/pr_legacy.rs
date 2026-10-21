@@ -9,11 +9,35 @@ use crate::{
         PrWriteMarker, PrWriteTarget,
     },
     providers::{
-        gh::{GithubProvider, PrTextEdit, ReviewEvent},
+        gh::{GithubError, GithubErrorKind, GithubProvider, PrTextEdit, ReviewEvent},
         runner::{sanitize_terminal, CancellationToken},
     },
 };
 use std::collections::BTreeMap;
+
+/// The first line of a refusal after GitHub moved the PR between Preview and Submit.
+pub const HEAD_MOVED: &str = "PR changed on GitHub. Nothing was sent; draft kept. Keep draft / Close, refresh the PR (r) and review the new head first.";
+
+/// A fresh read before the write failed. Lead with what happened to the draft and what to do
+/// next, in a line short enough for the form at 80 columns, then keep gh's own diagnostic.
+pub fn read_refusal(error: &GithubError) -> String {
+    let next = match error.kind {
+        GithubErrorKind::RateLimited => {
+            "GitHub rate limit reached. Nothing was sent; draft kept. Wait for the reset, then Submit again."
+        }
+        GithubErrorKind::Permission => {
+            "GitHub denied access. Nothing was sent; draft kept. Check gh auth status and SSO, then Submit again."
+        }
+        GithubErrorKind::Authentication => {
+            "GitHub sign-in failed. Nothing was sent; draft kept. Run gh auth login, then Submit again."
+        }
+        GithubErrorKind::Transport => {
+            "GitHub unreachable. Nothing was sent; draft kept. Reconnect, then Submit again."
+        }
+        _ => "Nothing was sent; draft kept.",
+    };
+    format!("{next}\n{error}")
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn execute_legacy<F>(
@@ -151,14 +175,14 @@ where
     }
     let current = match provider.identity(cancel) {
         Ok(current) => current,
-        Err(error) => return refuse(error.to_string()),
+        Err(error) => return refuse(read_refusal(&error)),
     };
     if !current.same_account(&intent.identity) {
         return refuse("Account changed before publication; no GitHub write was sent.".into());
     }
     let fresh = match provider.pr_summary(target.repository(), target.number(), cancel) {
         Ok(fresh) => fresh,
-        Err(error) => return refuse(error.to_string()),
+        Err(error) => return refuse(read_refusal(&error)),
     };
     if fresh.pr.id != intent.target.pr.id
         || fresh.head_sha != intent.target.head_sha
@@ -167,7 +191,7 @@ where
         || (intent.kind == PrFormKind::Description && fresh.pr.body != intent.target.pr.body)
         || (intent.kind == PrFormKind::Base && fresh.base_ref != intent.target.base_ref)
     {
-        return refuse("PR identity, head, base or selected field changed since preview; inspect it before publishing.".into());
+        return refuse(format!("{HEAD_MOVED}\nPR identity, head, base or selected field changed since preview; inspect it before publishing."));
     }
     let permit = match journal.begin(&target, &publication_intent) {
         Ok(permit) => permit,

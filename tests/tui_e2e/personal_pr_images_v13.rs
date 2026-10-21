@@ -17,6 +17,10 @@ mod lifecycle;
 mod publication_v14;
 #[path = "personal_pr_reviews_v14.rs"]
 mod reviews_v14;
+// TASK-65: the full review path joins the inline (publication_v14) and pending review
+// (reviews_v14) step families into one strict script.
+#[path = "cross_feature_v65_review_path.rs"]
+mod cross_feature_v65_review_path;
 fn bind(steps: &mut [GhStep], h: &history::GitImagesV1) {
     for step in steps {
         if let Ok(mut value) = serde_json::from_slice::<Value>(&step.stdout) {
