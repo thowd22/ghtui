@@ -107,7 +107,7 @@ fn design_panels_v93_sort_collapses_untracked_files_into_a_count() {
     let app = app(dir.path());
     let workspace = app.workspace.as_ref().unwrap();
     assert!(active(&app));
-    let collapsed = sort(workspace, false);
+    let collapsed = sort(workspace, &PanelsV93::default());
     let rows = workspace.display_rows_v1();
     assert_eq!(collapsed.untracked, 4);
     let labels = |indexes: &[usize]| {
@@ -116,13 +116,15 @@ fn design_panels_v93_sort_collapses_untracked_files_into_a_count() {
             .map(|index| rows[*index].label.clone())
             .collect::<Vec<_>>()
     };
-    let files = labels(&collapsed.files);
-    assert!(files.iter().any(|label| label.starts_with("Branch: main")));
+    // TASK-119: the Branch section leads; the changed files sit in Changes.
+    let branch = labels(&collapsed.sections[Panel::Branch.index()]);
+    assert!(branch[0].starts_with("Branch: main"), "{branch:?}");
+    let files = labels(collapsed.files());
     assert!(files.iter().any(|label| label.ends_with("a.txt")));
     assert!(files.iter().any(|label| label.ends_with("staged.txt")));
     assert!(!files.iter().any(|label| label.contains("noise-")));
-    // The commits move to their own panel; the old heading row is hidden.
-    let commits = labels(&collapsed.commits);
+    // The commits move to their own panel; the section heading rows are hidden.
+    let commits = labels(collapsed.commits());
     assert_eq!(commits.len(), 2, "{commits:?}");
     assert!(commits[0].contains(&head[..8]));
     let heading = rows
@@ -130,16 +132,32 @@ fn design_panels_v93_sort_collapses_untracked_files_into_a_count() {
         .position(|row| row.label == COMMITS_TITLE)
         .unwrap();
     assert!(collapsed.hidden[heading]);
-    assert_eq!(collapsed.hidden.iter().filter(|hidden| **hidden).count(), 5);
-    let shown = sort(workspace, true);
+    // Four untracked files and the Changes, Worktrees, Stashes and Recent commits headings.
+    assert_eq!(collapsed.hidden.iter().filter(|hidden| **hidden).count(), 8);
+    let shown = sort(
+        workspace,
+        &PanelsV93 {
+            show_untracked: true,
+            ..PanelsV93::default()
+        },
+    );
     assert_eq!(shown.untracked, 4);
-    assert_eq!(shown.files.len(), collapsed.files.len() + 4);
-    assert_eq!(shown.hidden.iter().filter(|hidden| **hidden).count(), 1);
+    assert_eq!(shown.files().len(), collapsed.files().len() + 4);
+    assert_eq!(shown.hidden.iter().filter(|hidden| **hidden).count(), 4);
     // Panel heights: both fit, or the smaller need is met first.
-    assert_eq!(heights(30, 5, 3), (7, 23));
-    assert_eq!(heights(12, 20, 3), (7, 5));
-    assert_eq!(heights(12, 3, 20), (5, 7));
+    assert_eq!(heights(30, 5, 3), (6, 24));
+    assert_eq!(heights(12, 20, 3), (8, 4));
+    assert_eq!(heights(12, 3, 20), (4, 8));
     assert_eq!(heights(12, 20, 20), (6, 6));
+    // The small sections take what they need first; Changes and Recent commits share the rest.
+    assert_eq!(
+        layout(
+            16,
+            [3, 1, 2, 1, 12, 0],
+            [true, true, true, true, true, false]
+        ),
+        [4, 2, 3, 2, 5, 0]
+    );
 }
 
 #[test]
@@ -148,13 +166,25 @@ fn design_panels_v93_draw_files_and_commits_panels_with_preview_at_140_and_stack
     let index_bytes = fs::read(dir.path().join(".git/index")).unwrap();
     let mut app = app(dir.path());
     let selection = app.theme().role(crate::theme::Role::Selection).bg.unwrap();
-    let commit = row_index(&app, &RowAction::Commit(head.clone()));
+    // The newest commit's row in the Recent commits table (the Branch section's Last commit
+    // row opens the same commit).
+    let commit = app
+        .workspace
+        .as_ref()
+        .unwrap()
+        .display_rows_v1()
+        .iter()
+        .position(|row| row.cells.as_ref().is_some_and(|cells| cells.id == head))
+        .unwrap();
     app.repository_list.selected = commit;
     for (width, height) in [(140u16, 42u16), (80, 24)] {
         let (buffer, lines) = draw(&mut app, width, height);
         let screen = lines.join("\n");
         assert!(screen.contains("Repository • focused view"), "{screen}");
-        assert!(screen.contains("Files · 6 changed"), "{screen}");
+        assert!(
+            screen.contains("Changes · 1 staged · 1 unstaged · 4 untracked"),
+            "{screen}"
+        );
         assert!(screen.contains(COMMITS_TITLE), "{screen}");
         assert!(
             screen.contains("untracked: 4 hidden · u shows them"),
@@ -179,13 +209,22 @@ fn design_panels_v93_draw_files_and_commits_panels_with_preview_at_140_and_stack
             .find(|hit| {
                 hit.action == Action::RepositoryRow(RowAction::Commit(head.clone()))
                     && hit.rect.width > 20
+                    && app.repository_panels_v93.areas[Panel::Commits.index()]
+                        .contains((hit.rect.x, hit.rect.y).into())
             })
             .unwrap();
         assert_eq!(buffer[(hit.rect.x, hit.rect.y)].symbol(), "▌");
         assert_eq!(buffer[(hit.rect.x + 3, hit.rect.y)].bg, selection);
         assert!(lines[usize::from(hit.rect.y)].contains(&head[..7]));
-        // The full id stays in the Saved detail row at every width.
-        assert!(screen.contains(&format!("Viewed: {head}")), "{screen}");
+        // The full id and UTC time stay in the Branch section's Last commit row at every width.
+        assert!(
+            screen.contains("Last commit · ") && screen.contains(&format!("  {head}")),
+            "{screen}"
+        );
+        assert!(
+            !screen.contains("Viewed:") && !screen.contains("In use:"),
+            "{screen}"
+        );
         // Every visible file and commit row is a click target, plus the toggle.
         for action in [
             file("a.txt"),
@@ -313,8 +352,8 @@ fn design_panels_v93_wheel_scrolls_the_panel_under_the_pointer_only() {
     );
     let mut app = app(dir.path());
     draw(&mut app, 80, 24);
-    let files = app.repository_panels_v93.areas[0];
-    let commits = app.repository_panels_v93.areas[1];
+    let files = app.repository_panels_v93.areas[Panel::Changes.index()];
+    let commits = app.repository_panels_v93.areas[Panel::Commits.index()];
     assert!(!files.is_empty() && !commits.is_empty());
     let before = app.repository_panels_v93.tops;
     mouse(
@@ -323,12 +362,12 @@ fn design_panels_v93_wheel_scrolls_the_panel_under_the_pointer_only() {
         files.x + 5,
         files.y + 2,
     );
-    assert_eq!(app.repository_panels_v93.tops[0], before[0] + 3);
-    assert_eq!(app.repository_panels_v93.tops[1], before[1]);
+    assert_eq!(app.repository_panels_v93.tops[1], before[1] + 3);
+    assert_eq!(app.repository_panels_v93.tops[4], before[4]);
     let (_, lines) = draw(&mut app, 80, 24);
     // The wheel moves the view, not the selection: the viewport stays where it was put.
-    assert_eq!(app.repository_panels_v93.tops[0], before[0] + 3);
-    assert!(lines.join("\n").contains("Files ·"));
+    assert_eq!(app.repository_panels_v93.tops[1], before[1] + 3);
+    assert!(lines.join("\n").contains("Changes ·"));
 }
 
 /// The changed-files picker over a real two-commit comparison, open in Repository.

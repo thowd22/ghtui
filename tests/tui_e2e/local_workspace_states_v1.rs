@@ -242,8 +242,12 @@ fn detached(mouse: bool) {
 
     let mut session = launch(&fixture, &fixture.repo().join("nested"));
     session.assert_focused_view("Repository");
-    let branch = format!("Branch: detached HEAD | saved version: {}", &detached[..8]);
-    wait_for_overview(&mut session, &[&branch, "Detached saved version"]);
+    // TASK-119: plain Branch row; the full id sits in the Last commit row.
+    let last = format!("  {detached}");
+    wait_for_overview(
+        &mut session,
+        &["Branch: detached HEAD", &last, "Detached saved version"],
+    );
     // A detached HEAD has no branch to track, so no upstream advice is invented.
     assert!(
         !session.screen().contains("no upstream"),
@@ -353,13 +357,15 @@ fn shallow(mouse: bool) {
 
     let mut session = launch(&fixture, &fixture.repo().join("nested"));
     session.assert_focused_view("Repository");
-    let branch = format!("Branch: main | saved version: {}", &tip[..8]);
+    let last = format!("  {tip}");
     wait_for_overview(
         &mut session,
         &[
-            &branch,
-            "Upstream origin/main: 0 commits to send, 0 commits to receive",
-            "Shallow clone: earlier saved versions may be unavailable",
+            "Branch: main · tracking origin/main · up to date as of the last fetch",
+            &last,
+            "Push → origin/main · nothing to send",
+            "Pull ← origin/main · nothing new as of the last fetch",
+            "Shallow clone: older commits may be missing",
             "Newest shallow tip",
         ],
     );
@@ -371,7 +377,7 @@ fn shallow(mouse: bool) {
     session.wait_for_screen("shallow dirty content");
     session.resize(80, 24);
     session.choose(mouse, "[o Overview]", b"o");
-    session.wait_for_screen("Shallow clone: earlier saved versions may be unavailable");
+    session.wait_for_screen("Shallow clone: older commits may be missing");
     session.resize(120, 40);
     session.wait_for_settled_footer();
     session.choose(mouse, "[g History]", b"g");
@@ -450,14 +456,14 @@ fn linked(mouse: bool) {
 
     let mut session = launch(&fixture, &linked.join("nested"));
     session.assert_focused_view("Repository");
-    let branch = format!("Branch: feature | saved version: {}", &feature[..8]);
+    let last = format!("  {feature}");
     wait_for_overview(
         &mut session,
         &[
-            &branch,
+            "Branch: feature · no upstream yet",
+            &last,
             "Feature saved version",
-            "Linked worktrees: 1 besides this one",
-            "⎇ main worktree • clean",
+            "2 worktrees: this checkout + 1 linked · 1 with changes",
         ],
     );
     session.wait_for_settled_footer();

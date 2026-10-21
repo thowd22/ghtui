@@ -199,8 +199,17 @@ fn journey(mouse: bool) {
         // the selection bar onto the newest saved version. At 120x40 every loaded row already
         // fits, so paging must leave the pane exactly as it was; at 80x24 it reaches later rows.
         let newest = "HOVER_SAVED_39";
+        // TASK-119: the Branch section above names the newest commit too (`Last commit · …`);
+        // the wheel goes to its row in the Recent commits panel.
         let (column, row) = session
-            .locate(newest)
+            .screen()
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.contains("Last commit"))
+            .find_map(|(y, line)| {
+                line.find(newest)
+                    .map(|byte| (line[..byte].chars().count() as u16, y as u16))
+            })
             .expect("observed newest saved version");
         let mut moves = 0;
         if !mouse {
@@ -238,7 +247,8 @@ fn journey(mouse: bool) {
                 paged, selected_original,
                 "hovered wheel and keyboard paging reach later rows"
             );
-            assert!(paged.contains("HOVER_SAVED_28") && !paged.contains(newest));
+            // Only the Branch section's Last commit line still names the newest commit.
+            assert!(paged.contains("HOVER_SAVED_28") && paged.matches(newest).count() == 1);
         } else {
             assert_eq!(
                 paged, selected_original,

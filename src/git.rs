@@ -15,6 +15,12 @@ mod local_management_v41;
 pub use local_management_v41::{
     bisect_only_skipped_v44, bisect_progress_v44, BisectProgressV44, StashContentsV41,
 };
+mod worktree_stack_v118;
+pub use worktree_stack_v118::{
+    common_parent_v118, core_worktree_mismatch_v118, short_path_v118, tilde_v118,
+    unset_command_v118, unset_core_worktree_v118, ChangeCountsV118, CoreWorktreeMismatchV118,
+    WorktreeEntryV118,
+};
 mod stash_recovery_v1;
 pub use stash_recovery_v1::{FailedStashIntentV1, StashAttemptFailureV1, StashAttemptSuccessV2};
 pub(crate) mod original_comparison_sides_v1;

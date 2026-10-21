@@ -8,6 +8,8 @@ mod local_confirm_shortcut_v1;
 mod pr_create_v1;
 #[path = "stale_worktree_v1.rs"]
 mod stale_worktree_v1;
+#[path = "worktree_stack_v118.rs"]
+mod worktree_stack_v118;
 
 #[test]
 fn local_workspace_keyboard_explicit_github_repo_keeps_local_dirty_and_unborn_checkouts_accessible()
@@ -120,7 +122,7 @@ fn explicit_github_local_workspace(mouse: bool) {
         session.send_key(b"2");
     }
     session.wait_for_screen("Branch: main");
-    session.wait_for_screen("saved version: none yet");
+    session.wait_for_screen("Branch: main · no commits yet");
     session.resize(80, 24);
     if mouse {
         session.click_visible_action("[C Compare]");

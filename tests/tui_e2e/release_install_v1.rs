@@ -320,7 +320,7 @@ fn installed_tour(mouse: bool) {
     session.wait_for_screen("▶ Details");
     if mouse {
         let (column, row) = session
-            .locate("Recent commits — saved versions")
+            .locate("Recent commits")
             .expect("Repository list pane");
         session.click(column, row + 8);
     } else {

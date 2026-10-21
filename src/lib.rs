@@ -143,6 +143,7 @@ mod repository_tree_viewport_v2_test_support;
 pub mod repository_tree_worker_v1;
 pub mod repository_ui;
 pub mod repository_view;
+pub mod repository_worktrees_v118;
 pub mod runtime;
 pub mod scoped_inbox_route_v1;
 pub(crate) mod scoped_pr_collaboration_draft_v17;

@@ -645,11 +645,7 @@ fn stash_worktrees_view_contents_pop_drop_locked_and_cancelled_removal() {
         .iter()
         .find(|row| row.action == Some(RowAction::OpenWorktree(linked.clone())))
         .expect("linked worktree row");
-    assert!(
-        row.label.contains("dirty: uncommitted changes"),
-        "{}",
-        row.label
-    );
+    assert!(row.label.contains("· 1 changed ·"), "{}", row.label);
     assert!(row.label.contains("linked"), "{}", row.label);
     let opened = Workspace::load(&linked, RepositoryMode::Overview, "HEAD", None)
         .unwrap()
@@ -668,7 +664,7 @@ fn stash_worktrees_view_contents_pop_drop_locked_and_cancelled_removal() {
     let clean = workspace(&fixture, RepositoryMode::Overview);
     assert!(clean.rows.iter().any(|row| row.action
         == Some(RowAction::OpenWorktree(linked.clone()))
-        && row.label.contains("• clean")));
+        && row.label.contains("· clean ·")));
     // A locked worktree is refused before any confirmation.
     fixture.git(&["worktree", "lock", linked.to_str().unwrap()]);
     let locked = LocalPlan::prepare(
@@ -858,7 +854,7 @@ fn v1_local_branches_diverged_pull_push_previews_explain_and_failures_preserve_r
     let overview = workspace(&fixture, RepositoryMode::Overview);
     assert!(overview.rows.iter().any(|row| row
         .label
-        .contains("1 commits to send, 1 commits to receive • DIVERGED")));
+        .contains("1 to push, 1 to pull · diverged: pull first")));
     let context = LocalContext::from_workspace(&overview, None, None);
 
     let pull = prepare(
@@ -1032,7 +1028,7 @@ fn v1_local_recovery_paused_merge_overview_rows_marker_warning_and_named_version
     );
     assert!(labels
         .iter()
-        .any(|label| label.starts_with("Saved stashes: 1 • newest stash@{0}")));
+        .any(|label| label.starts_with("1 stash · newest stash@{0}")));
     let position = |action: RowAction| {
         view.rows
             .iter()
@@ -1995,7 +1991,7 @@ fn v1_local_recovery_pruned_expired_and_branch_moved_reflog_entries_are_stated()
             .clone()
     };
     assert!(view.rows.iter().any(|row| row.label
-        == "Reflog entries expire (gc.reflogExpire, default 90 days); pruned commits are gone. Not a universal undo."));
+        == "Pruned commits are gone and cannot be recovered; this is not a universal undo."));
     let pruned = row(format!(
         "✗ {} draft work • before amend • HEAD@{{",
         &draft[..8]

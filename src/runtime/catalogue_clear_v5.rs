@@ -198,6 +198,7 @@ fn only_empty(p: &PreparedView) -> bool {
         status,
         remote_repository: None,
         workspace: None,
+        core_worktree_v118: None,
         graph_reread_retention_v3: None,
         original_tree_result_v1: None,
         repository_source_identity: None,

@@ -69,6 +69,9 @@ fn graph_claims(workspace: &Workspace, key: &str) -> bool {
 /// diff, graph or file, then the repository-wide actions and Refresh/Settings. Each key appears
 /// once; an unavailable action leaves the bar and its key explains why.
 pub fn footer_keys(app: &App) -> Vec<KeyControl> {
+    if let Some(keys) = crate::repository_worktrees_v118::footer_keys(app) {
+        return keys;
+    }
     let Some(workspace) = app.workspace.as_ref() else {
         // Nothing is open yet: the modes still choose what to open, and the repository
         // actions explain why they wait.
@@ -144,7 +147,7 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     // The panels' untracked toggle owns `u` while the unavailable File back would only explain.
     let panel_keys = crate::repository_panels_v93::footer_keys(app);
     let file_back = take_back(&mut files, false)
-        .filter(|back| panel_keys.is_empty() || back.disabled.is_none());
+        .filter(|back| panel_keys.iter().all(|key| key.key != "u") || back.disabled.is_none());
     let side_back = diff_side.map(|side| {
         KeyControl::new(
             "u",
@@ -436,6 +439,9 @@ fn draw_history_identity(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    if crate::repository_worktrees_v118::draw(frame, app, area) {
+        return;
+    }
     let Some(workspace) = app.workspace.as_ref() else {
         return;
     };
@@ -482,6 +488,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     if !history {
         app.history_graph_width_v99 = 0;
     }
+    // The plain Overview (TASK-119) starts its sections right below the mode tabs: its Branch
+    // section carries the last commit's full id and UTC time, so the identity rows above
+    // the other views are left out.
+    let plain = crate::repository_panels_v93::active(app);
     if history && area.height >= 3 {
         let rows = area.height.saturating_sub(2).min(2);
         draw_history_identity(frame, app, Rect::new(area.x, area.y + 1, area.width, rows));
@@ -489,7 +499,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
         return;
     };
-    if !history && area.height >= 3 {
+    if !history && !plain && area.height >= 3 {
         if let Some(commit) = &workspace.selected_commit {
             let author =
                 crate::git_actor_labels_v1::display_identity(&commit.author, GitRole::Author);
@@ -545,7 +555,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
     }
-    if !history && area.height >= 4 {
+    if !history && !plain && area.height >= 4 {
         if let Some(source) = &app.repository_source_identity {
             // Full 40/64 IDs remain readable independently of long directories.
             for (index, row) in source.compact().iter().take(2).enumerate() {
@@ -565,13 +575,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
     }
-    let source_rows = if app.repository_source_identity.is_some() && !history {
+    let source_rows = if app.repository_source_identity.is_some() && !history && !plain {
         1u16
     } else {
         0
     };
     // Rows above the notice: the tabs and the identity block (one row in History).
-    let identity_rows = if history { 3u16 } else { 4 };
+    let identity_rows = if plain {
+        1u16
+    } else if history {
+        3
+    } else {
+        4
+    };
     let history_notice = workspace.status.has_history_overrides();
     if area.height > identity_rows + source_rows && history_notice {
         frame.render_widget(

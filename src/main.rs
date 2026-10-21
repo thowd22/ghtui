@@ -120,10 +120,12 @@ fn run() -> Result<()> {
         let directory = local_directory.clone();
         background.submit(&mut app, ghtui::app::View::Repository, move |cancel| {
             if cancel.is_cancelled() { return Err("Local discovery cancelled".into()); }
-            let workspace = ghtui::workspace::Workspace::load_with_cancellation(&directory, ghtui::workspace::RepositoryMode::Overview, "HEAD", None, cancel)?;
+            // A stale core.worktree shows its choices instead of an error (TASK-118).
+            let (workspace, core_worktree_v118) = ghtui::repository_worktrees_v118::load(&directory, ghtui::workspace::RepositoryMode::Overview, "HEAD", None, cancel, false)?;
             let activate = activate_local && workspace.is_some();
             let context = workspace.as_ref().map(|workspace| format!("Local {} / {} / {}", workspace.directory.display(), workspace.status.branch.as_deref().unwrap_or("detached HEAD"), workspace.revision));
-            Ok(PreparedView { lines: vec!["No local Git repository detected. Run ghtui inside a checkout to browse local work.".into()], context, status: "Local Git workspace ready • working files preserved".into(), workspace, github:None, form:None, activate_if_untouched: activate, ..PreparedView::default() })
+            let status = if core_worktree_v118.is_some() { "This checkout's core.worktree points at another folder • choose what to do in Repository" } else { "Local Git workspace ready • working files preserved" };
+            Ok(PreparedView { lines: vec!["No local Git repository detected. Run ghtui inside a checkout to browse local work.".into()], context, status: status.into(), workspace, core_worktree_v118, github:None, form:None, activate_if_untouched: activate, ..PreparedView::default() })
         });
     }
     if config.load_inbox_on_start() && app.view == ghtui::app::View::Inbox {
@@ -1549,10 +1551,39 @@ fn run() -> Result<()> {
                 ghtui::repository_graph_reread_native_v3::work(&request, &owner)
             });
         }
+        if let Some(mismatch) = app.core_worktree_unset_v118.take() {
+            // The previewed and confirmed unset of a stale core.worktree (TASK-118); the
+            // write refuses when the setting changed since the preview.
+            background.submit(&mut app, ghtui::app::View::Repository, move |cancel| {
+                let (workspace, core_worktree_v118) =
+                    ghtui::repository_worktrees_v118::unset_and_load(&mismatch, cancel)?;
+                let context = workspace.as_ref().map(|workspace| {
+                    format!(
+                        "Local {} / {} / {}",
+                        workspace.directory.display(),
+                        workspace
+                            .status
+                            .branch
+                            .as_deref()
+                            .unwrap_or("detached HEAD"),
+                        workspace.revision
+                    )
+                });
+                Ok(PreparedView {
+                    lines: vec!["No local repository selected.".into()],
+                    context,
+                    status: "core.worktree unset • Repository now reads this checkout".into(),
+                    workspace,
+                    core_worktree_v118,
+                    ..PreparedView::default()
+                })
+            });
+        }
         if app.repository_load_requested || app.repository_action.is_some() {
             app.repository_load_requested = false;
             // Opening another worktree (TASK-41) is a fresh read-only load of that directory.
             let opened_worktree = app.repository_directory_request_v41.take();
+            let opened = opened_worktree.is_some();
             let previous = if opened_worktree.is_some() {
                 None
             } else {
@@ -1628,23 +1659,30 @@ fn run() -> Result<()> {
                     if reconcile && previous.is_some() {
                         ghtui::local_actions::reconcile(&directory, cancel.clone())?;
                     }
-                    let workspace =
+                    let (workspace, core_worktree_v118) =
                         if let (Some(mut workspace), Some(action)) = (previous.clone(), action) {
                             workspace.open_with_cancellation(action, cancel)?;
-                            Some(workspace)
+                            (Some(workspace), None)
                         } else {
                             let revision = previous
                                 .as_ref()
                                 .map_or("HEAD", |workspace| workspace.revision.as_str())
                                 .to_owned();
-                            ghtui::workspace::Workspace::load_with_cancellation(
+                            // A stale core.worktree shows its choices (TASK-118).
+                            ghtui::repository_worktrees_v118::load(
                                 &directory,
                                 mode,
                                 &revision,
                                 previous.and_then(|workspace| workspace.tree),
                                 cancel,
+                                opened,
                             )?
                         };
+                    let status = if core_worktree_v118.is_some() {
+                        "This checkout's core.worktree points at another folder • nothing changed"
+                    } else {
+                        "Repository loaded • read-only exploration"
+                    };
                     let context = workspace.as_ref().map(|workspace| {
                         format!(
                             "Local {} / {} / {}",
@@ -1660,8 +1698,9 @@ fn run() -> Result<()> {
                     Ok(PreparedView {
                         lines: vec!["No local repository selected.".into()],
                         context,
-                        status: "Repository loaded • read-only exploration".into(),
+                        status: status.into(),
                         workspace,
+                        core_worktree_v118,
                         github: None,
                         form: None,
                         activate_if_untouched: false,

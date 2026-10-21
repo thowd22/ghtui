@@ -244,7 +244,7 @@ fn journey(case: Case, mouse: bool) {
         40,
         &[("GIT_TRACE", trace_path.as_str())],
     );
-    s.wait_for_screen("Recent commits — saved versions");
+    s.wait_for_screen("Recent commits");
     let trace = fs::read(&trace_path).unwrap();
     assert!(!trace.is_empty());
     choose(&mut s, mouse, "Actions", b"4");

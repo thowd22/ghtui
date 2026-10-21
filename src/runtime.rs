@@ -25,6 +25,8 @@ pub struct PreparedView {
         Option<crate::repository_diff_sides_worker_v1::PreparedOriginalDiffWorkV1>,
     pub related_pr_v1: Option<crate::repository_related_pr_v1::PreparedRelatedPrV1>,
     pub lines: Vec<String>,
+    /// A Repository read that hit a stale `core.worktree` (TASK-118).
+    pub core_worktree_v118: Option<crate::git::CoreWorktreeMismatchV118>,
     pub context: Option<String>,
     pub status: String,
     pub remote_repository: Option<crate::remote_repository_native_v1::RemoteRepositoryCompletionV1>,
@@ -1869,6 +1871,9 @@ impl Background {
                         }
                         app.search = Some(search);
                     }
+                    if let Some(mismatch) = prepared.core_worktree_v118 {
+                        crate::repository_worktrees_v118::install(app, mismatch);
+                    }
                     if let Some(workspace) = prepared.workspace {
                         // The History commit under the bar before this install: arrows that
                         // kept moving while an arrow's choice was read keep their place.
@@ -1915,6 +1920,7 @@ impl Background {
                             app.loading[View::Repository.index()] = false;
                         } // Genuine new source retires the prior owner before model installation.
                         crate::repository_source_ui::retire(app);
+                        app.core_worktree_v118 = None;
                         app.repository_source_identity = prepared.repository_source_identity;
                         app.repository_selection = None;
                         app.repository_mode = workspace.mode;

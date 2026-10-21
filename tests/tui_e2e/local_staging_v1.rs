@@ -237,8 +237,8 @@ fn panels_journey(mouse: bool) {
     let status = fixture.git(&["status", "--porcelain=v1", "--untracked-files=all"]);
     let index = std::fs::read(fixture.repo().join(".git/index")).unwrap();
     let mut session = Session::launch(&fixture, 140, 42);
-    session.wait_for_screen("Recent commits — saved versions");
-    session.wait_for_screen("Files · 4 changed");
+    session.wait_for_screen("Recent commits");
+    session.wait_for_screen("Changes · 1 unstaged · 3 untracked");
     session.wait_for_screen("untracked: 3 hidden · u shows them");
     assert!(!session.screen().contains("noise-1.log"));
     // The preview pane sits beside the panels at 140 columns; the branch line has nothing to
@@ -252,16 +252,13 @@ fn panels_journey(mouse: bool) {
         session.send_key(b"\x1b[B\r");
     }
     session.wait_for_screen("Selected working file: file.txt");
-    session.wait_for_selected_cells("Files ·", &["Modified", "unstaged", "file.txt"]);
+    session.wait_for_selected_cells("Changes ·", &["Modified", "unstaged", "file.txt"]);
     session.wait_for_screen("Worktree  changed");
     session.wait_for_screen("─ Enter Open ─");
     session.wait_for_screen("Enter opens the working diff");
     // Down skips the collapsed untracked files and reaches the commits panel.
     session.send_key(b"\x1b[B");
-    session.wait_for_selected_cells(
-        "Recent commits — saved versions",
-        &[&head[..7], "Saved version"],
-    );
+    session.wait_for_selected_cells("Recent commits", &[&head[..7], "Saved version"]);
     session.wait_for_screen(&format!("Commit    {}", head.trim()));
     assert_eq!(
         fixture.git(&["status", "--porcelain=v1", "--untracked-files=all"]),
@@ -284,7 +281,7 @@ fn panels_journey(mouse: bool) {
         // Branch row, file.txt, then new.txt.
         session.send_key(&b"\x1b[A".repeat(16));
         session.send_key(b"\x1b[B");
-        session.wait_for_selected_cells("Files ·", &["Untracked", "new.txt"]);
+        session.wait_for_selected_cells("Changes ·", &["Untracked", "new.txt"]);
         session.send_key(b"+");
     }
     session.wait_for_screen("New untracked file: new.txt");
@@ -305,7 +302,7 @@ fn panels_journey(mouse: bool) {
     } else {
         session.send_key(&b"\x1b[A".repeat(16));
         session.send_key(b"\x1b[B");
-        session.wait_for_selected_cells("Files ·", &["Added", "new.txt"]);
+        session.wait_for_selected_cells("Changes ·", &["Added", "new.txt"]);
         session.send_key(b"-");
     }
     confirm(&mut session, mouse, "Completed • Unstage selected file");
@@ -317,7 +314,7 @@ fn panels_journey(mouse: bool) {
 
     // Narrow: the panels stack, the preview leaves; stage file.txt and commit it.
     session.resize(80, 24);
-    session.wait_for_screen("Recent commits — saved versions");
+    session.wait_for_screen("Recent commits");
     assert!(session.locate("Enter Open").is_none());
     if mouse {
         click_row(&mut session, "file.txt");
@@ -325,7 +322,7 @@ fn panels_journey(mouse: bool) {
         session.click_visible_action("[+ Stage]");
     } else {
         session.send_key(&b"\x1b[A".repeat(16));
-        session.wait_for_selected_cells("Files ·", &["Modified", "file.txt"]);
+        session.wait_for_selected_cells("Changes ·", &["Modified", "file.txt"]);
         session.send_key(b"+");
     }
     confirm(

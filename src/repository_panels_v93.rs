@@ -1,13 +1,15 @@
-//! TASK-93: the Repository Overview as persistent panels. A Files panel holds the working-tree
-//! status (`workspace_rows`: branch, upstream and paused-operation prose, then one row per
-//! changed file) with untracked files collapsed to a count and a toggle, and a Recent commits
-//! panel holds the saved versions. From [`SPLIT_MIN_WIDTH`] columns the selected row is
-//! previewed beside them (see [`crate::list_preview_v92`]); the preview only shows what the
-//! Overview read already holds, so moving the cursor never runs Git.
+//! TASK-93/119: the Repository Overview as persistent panels, one per section of the Overview
+//! read (see [`crate::workspace::overview_v119`]): Branch, Changes (untracked files collapsed
+//! to a count and a toggle), Worktrees (the stack collapsed behind its summary row, TASK-118),
+//! Stashes, Recent commits and, when the reflogs hold any, Recover lost commits (collapsed
+//! behind its own entry). From [`SPLIT_MIN_WIDTH`] columns the selected row is previewed
+//! beside them (see [`crate::list_preview_v92`]); the preview only shows what the Overview
+//! read already holds, so moving the cursor never runs Git.
 //!
-//! The panels share the Repository list state: one selection walks Files then Commits, every
-//! row keeps its click target and action, and stage, unstage and commit act on the selected
-//! row through their usual preview and confirmation. Each panel keeps its own scroll offset.
+//! The panels share the Repository list state: one selection walks the sections in order,
+//! every row keeps its click target and action, and stage, unstage and commit act on the
+//! selected row through their usual preview and confirmation. Each panel keeps its own
+//! scroll offset.
 use crate::{
     app::{Action, App, HitRegion, View},
     footer::KeyControl,
@@ -15,7 +17,7 @@ use crate::{
     theme::{Role, SemanticToken, Theme},
     ui_chrome::{label_value, pane_block},
     ui_table::{Cell, Column, Table, TableRow},
-    workspace::{DisplayRow, RowAction, Workspace},
+    workspace::{overview_v119, DisplayRow, OverviewLinkV119, RowAction, Workspace},
 };
 use ratatui::{
     layout::Rect,
@@ -27,71 +29,113 @@ use ratatui::{
 /// width (wider than the Inbox and Actions split, so 120-column sessions keep full-width
 /// panels).
 pub const SPLIT_MIN_WIDTH: u16 = 130;
-/// The Commits panel title (the Overview's section heading before TASK-93).
-pub const COMMITS_TITLE: &str = "Recent commits — saved versions";
-/// The Overview row that headed the commits before they had their own panel.
-const RECENT_HEADING: &str = "Recent commits — saved versions";
+/// The Commits panel title, also the hidden heading row that starts its section.
+pub const COMMITS_TITLE: &str = overview_v119::RECENT;
 /// Width of the label column in preview rows.
 const LABEL: usize = 9;
 
-/// The Files panel columns: change, where it is (index, working tree, both), and the path.
+/// The Changes panel columns: change, where it is (index, working tree, both), and the path.
 pub const FILE_COLUMNS: [Column; 3] = [
     Column::new("STATUS", 9).priority(1),
     Column::new("STAGE", 8).priority(2),
     Column::new("PATH", 12).flex(1).priority(0),
 ];
+/// Prose panels (Branch, Worktrees, Stashes, Recover) draw one text cell per row.
+const TEXT_COLUMNS: [Column; 1] = [Column::new("ITEM", 12).flex(1).priority(0)];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PanelActionV93 {
-    /// Show or collapse the untracked files in the Files panel.
+    /// Show or collapse the untracked files in the Changes panel.
     ToggleUntracked,
+    /// Show or collapse the worktree stack (TASK-118).
+    ToggleWorktrees,
+    /// Show or collapse the commits the reflogs can recover (TASK-119).
+    ToggleRecovery,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
-    Files,
+    Branch,
+    Changes,
+    Worktrees,
+    Stashes,
     Commits,
+    Recover,
 }
+/// The panels in drawing order.
+pub const PANELS: [Panel; 6] = [
+    Panel::Branch,
+    Panel::Changes,
+    Panel::Worktrees,
+    Panel::Stashes,
+    Panel::Commits,
+    Panel::Recover,
+];
 impl Panel {
-    fn index(self) -> usize {
-        match self {
-            Self::Files => 0,
-            Self::Commits => 1,
-        }
+    pub fn index(self) -> usize {
+        self as usize
+    }
+    /// The panel a hidden heading row starts.
+    fn from_heading(label: &str) -> Option<Self> {
+        Some(match label {
+            overview_v119::CHANGES => Self::Changes,
+            overview_v119::WORKTREES => Self::Worktrees,
+            overview_v119::STASHES => Self::Stashes,
+            overview_v119::RECENT => Self::Commits,
+            overview_v119::RECOVER => Self::Recover,
+            _ => return None,
+        })
     }
 }
 
-/// Panel scroll offsets and the untracked toggle. The selection itself stays in
+/// Panel scroll offsets and the collapse toggles. The selection itself stays in
 /// `App::repository_list`.
 #[derive(Clone, Debug, Default)]
 pub struct PanelsV93 {
     pub show_untracked: bool,
-    tops: [usize; 2],
-    lens: [usize; 2],
-    visible: [usize; 2],
-    /// Painted panel areas (empty when a panel is not drawn).
-    pub areas: [Rect; 2],
+    pub show_worktrees: bool,
+    pub show_recovery: bool,
+    pub tops: [usize; 6],
+    lens: [usize; 6],
+    visible: [usize; 6],
+    /// Painted panel areas, by [`Panel::index`] (empty when a panel is not drawn).
+    pub areas: [Rect; 6],
     last_selected: Option<usize>,
 }
 
-/// One painted line of a panel: a display row or the untracked toggle.
+/// One painted line of a panel: a display row, the untracked toggle, or the way back to the
+/// worktree the Repository view was showing before another one was opened.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Line93 {
     Row(usize),
     Untracked,
+    Back,
+    /// A link the panel draws itself (a button, a count, an empty section's hint): it is
+    /// clickable but outside the keyboard order. An index into the draw's link actions.
+    Link(usize),
 }
 
 /// The Overview rows sorted into panels.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sorted {
-    /// Display-row indexes shown in the Files panel, in order.
-    pub files: Vec<usize>,
-    /// Display-row indexes shown in the Commits panel, in order.
-    pub commits: Vec<usize>,
+    /// Display-row indexes shown in each panel, by [`Panel::index`], in order.
+    pub sections: [Vec<usize>; 6],
+    /// Whether the read has the section at all (Recover only when the reflogs hold any).
+    pub present: [bool; 6],
     /// Untracked file rows, shown or not.
     pub untracked: usize,
-    /// Per display row: hidden from the panels (collapsed untracked files, the old heading).
+    /// Per display row: hidden from the panels (collapsed rows, the section headings).
     pub hidden: Vec<bool>,
+}
+impl Sorted {
+    /// Display rows of the Changes panel.
+    pub fn files(&self) -> &[usize] {
+        &self.sections[Panel::Changes.index()]
+    }
+    /// Display rows of the Recent commits panel.
+    pub fn commits(&self) -> &[usize] {
+        &self.sections[Panel::Commits.index()]
+    }
 }
 
 /// Whether the Repository shows its panels: the plain Overview of a local repository.
@@ -103,7 +147,7 @@ pub fn active(app: &App) -> bool {
                 && workspace
                     .display_rows_v1()
                     .iter()
-                    .any(|row| row.action.is_none() && row.label == RECENT_HEADING)
+                    .any(|row| row.action.is_none() && row.label == COMMITS_TITLE)
         })
 }
 
@@ -122,31 +166,47 @@ fn entries(workspace: &Workspace) -> Vec<Option<&StatusEntry>> {
         .collect()
 }
 
-/// Sorts the rows into the Files and Commits panels.
-pub fn sort(workspace: &Workspace, show_untracked: bool) -> Sorted {
+/// Sorts the rows into the panels, leaving out the collapsed ones.
+pub fn sort(workspace: &Workspace, panels: &PanelsV93) -> Sorted {
     let rows = workspace.display_rows_v1();
     let entries = entries(workspace);
-    let heading = rows
-        .iter()
-        .position(|row| row.action.is_none() && row.label == RECENT_HEADING);
     let mut sorted = Sorted {
         hidden: vec![false; rows.len()],
         ..Sorted::default()
     };
-    for (index, entry) in entries.iter().enumerate().take(rows.len()) {
-        match heading {
-            Some(heading) if index == heading => sorted.hidden[index] = true,
-            Some(heading) if index > heading => sorted.commits.push(index),
-            _ => {
-                if entry.is_some_and(StatusEntry::untracked) {
+    sorted.present[Panel::Branch.index()] = true;
+    let mut panel = Panel::Branch;
+    for (index, row) in rows.iter().enumerate() {
+        if let Some(next) = Panel::from_heading(&row.label).filter(|_| row.action.is_none()) {
+            panel = next;
+            sorted.present[panel.index()] = true;
+            sorted.hidden[index] = true;
+            continue;
+        }
+        let shown = match panel {
+            Panel::Changes => {
+                if entries[index].is_some_and(StatusEntry::untracked) {
                     sorted.untracked += 1;
-                    if !show_untracked {
-                        sorted.hidden[index] = true;
-                        continue;
-                    }
+                    panels.show_untracked
+                } else {
+                    true
                 }
-                sorted.files.push(index);
             }
+            Panel::Worktrees => {
+                panels.show_worktrees
+                    || row.action
+                        == Some(RowAction::OverviewV119(OverviewLinkV119::ToggleWorktrees))
+            }
+            Panel::Recover => {
+                panels.show_recovery
+                    || row.action == Some(RowAction::OverviewV119(OverviewLinkV119::ToggleRecovery))
+            }
+            Panel::Branch | Panel::Stashes | Panel::Commits => true,
+        };
+        if shown {
+            sorted.sections[panel.index()].push(index);
+        } else {
+            sorted.hidden[index] = true;
         }
     }
     sorted
@@ -154,13 +214,7 @@ pub fn sort(workspace: &Workspace, show_untracked: bool) -> Sorted {
 
 /// Display rows the panels hide (keyboard movement skips them), when the panels are shown.
 pub fn hidden_rows(app: &App) -> Option<Vec<bool>> {
-    active(app).then(|| {
-        sort(
-            app.workspace.as_ref().unwrap(),
-            app.repository_panels_v93.show_untracked,
-        )
-        .hidden
-    })
+    active(app).then(|| sort(app.workspace.as_ref().unwrap(), &app.repository_panels_v93).hidden)
 }
 
 /// Whether the selected row is collapsed out of view (an action must not reach it).
@@ -174,60 +228,118 @@ pub fn selection_hidden(app: &App) -> bool {
 }
 
 pub fn dispatch(app: &mut App, action: PanelActionV93) {
+    let panels = &mut app.repository_panels_v93;
+    panels.last_selected = None;
     match action {
         PanelActionV93::ToggleUntracked => {
-            let panels = &mut app.repository_panels_v93;
             panels.show_untracked = !panels.show_untracked;
-            panels.last_selected = None;
-            let count = app
-                .workspace
-                .as_ref()
-                .map_or(0, |workspace| sort(workspace, true).untracked);
+            let count = app.workspace.as_ref().map_or(0, |workspace| {
+                sort(
+                    workspace,
+                    &PanelsV93 {
+                        show_untracked: true,
+                        ..PanelsV93::default()
+                    },
+                )
+                .untracked
+            });
             app.status = if app.repository_panels_v93.show_untracked {
                 format!("Showing {count} untracked files • u hides them • nothing changed")
             } else {
                 format!("{count} untracked files collapsed • u shows them • nothing changed")
             };
-            // A collapsed selection moves to the first visible row that has an action.
-            if selection_hidden(app) {
-                if let (Some(hidden), Some(workspace)) = (hidden_rows(app), app.workspace.as_ref())
-                {
-                    if let Some(index) = workspace
-                        .display_rows_v1()
-                        .iter()
-                        .enumerate()
-                        .position(|(index, row)| row.action.is_some() && !hidden[index])
-                    {
-                        app.repository_list.selected = index;
-                    }
-                }
+        }
+        PanelActionV93::ToggleWorktrees => {
+            panels.show_worktrees = !panels.show_worktrees;
+            app.status = if panels.show_worktrees {
+                "Worktrees shown • Enter or click one to open it here • nothing changed".into()
+            } else {
+                "Worktrees collapsed • nothing changed".into()
+            };
+        }
+        PanelActionV93::ToggleRecovery => {
+            panels.show_recovery = !panels.show_recovery;
+            app.status = if panels.show_recovery {
+                "Recoverable commits shown • Enter inspects one • nothing changed".into()
+            } else {
+                "Recoverable commits collapsed • nothing changed".into()
+            };
+        }
+    }
+    // A collapsed selection moves to the nearest earlier visible row that has an action
+    // (the toggle row it was opened from), or the first one.
+    if selection_hidden(app) {
+        if let (Some(hidden), Some(workspace)) = (hidden_rows(app), app.workspace.as_ref()) {
+            let rows = workspace.display_rows_v1();
+            let usable = |index: &usize| rows[*index].action.is_some() && !hidden[*index];
+            let selected = app.repository_list.selected.min(rows.len());
+            if let Some(index) = (0..selected)
+                .rev()
+                .find(usable)
+                .or_else(|| (0..rows.len()).find(usable))
+            {
+                app.repository_list.selected = index;
             }
         }
     }
 }
 
-/// The panels' own keys, added to the Repository key bar: the untracked toggle.
+/// The panels' own keys, added to the Repository key bar: the untracked toggle and the way
+/// back to the worktree shown before another one was opened.
 pub fn footer_keys(app: &App) -> Vec<KeyControl> {
     if !active(app) {
         return vec![];
     }
-    let untracked = sort(app.workspace.as_ref().unwrap(), true).untracked;
-    if untracked == 0 {
-        return vec![];
-    }
-    let shown = app.repository_panels_v93.show_untracked;
-    vec![KeyControl::new(
-        "u",
-        if shown {
-            "Hide untracked"
-        } else {
-            "Show untracked"
+    let mut keys = vec![];
+    let untracked = sort(
+        app.workspace.as_ref().unwrap(),
+        &PanelsV93 {
+            show_untracked: true,
+            ..PanelsV93::default()
         },
-        Action::RepositoryPanelsV93(PanelActionV93::ToggleUntracked),
     )
-    .with_compact("Untracked")
-    // After Compare: the panel's untracked row is its own click target at 80 columns.
-    .with_priority(25)]
+    .untracked;
+    if untracked > 0 {
+        let shown = app.repository_panels_v93.show_untracked;
+        keys.push(
+            KeyControl::new(
+                "u",
+                if shown {
+                    "Hide untracked"
+                } else {
+                    "Show untracked"
+                },
+                Action::RepositoryPanelsV93(PanelActionV93::ToggleUntracked),
+            )
+            .with_compact("Untracked")
+            // After Compare: the panel's untracked row is its own click target at 80 columns.
+            .with_priority(25),
+        );
+    }
+    // The Branch section's Push and Pull buttons by key (TASK-119); each opens its Local
+    // operation form with preview and confirmation.
+    for (_, command) in overview_v119::branch_buttons(&app.workspace.as_ref().unwrap().status) {
+        let (key, label, priority) = match command {
+            // Lowest priorities: the buttons in the Branch section stay clickable at 80 columns.
+            crate::local_actions::LocalCommand::Pull => ("L", "Pull", 41),
+            _ => ("p", "Push", 40),
+        };
+        keys.push(
+            KeyControl::new(key, label, Action::LocalCommand(command)).with_priority(priority),
+        );
+    }
+    if crate::repository_worktrees_v118::away(app).is_some() {
+        keys.push(
+            KeyControl::new(
+                "B",
+                "Back to first worktree",
+                Action::WorktreeV118(crate::repository_worktrees_v118::WorktreeActionV118::Back),
+            )
+            .with_compact("Back")
+            .with_priority(8),
+        );
+    }
+    keys
 }
 
 /// The App action of a row's click target, as the Overview list always mapped it.
@@ -287,27 +399,131 @@ fn file_row(row: &DisplayRow, entry: &StatusEntry) -> TableRow<Line93> {
     .with_tone(SemanticToken::from(row.role))
 }
 
-fn files_rows(
+/// A prose row; the stack and recovery summary rows show whether their list is open.
+fn text_row(row: &DisplayRow, panels: &PanelsV93) -> TableRow<Line93> {
+    let label = match row.action {
+        Some(RowAction::OverviewV119(OverviewLinkV119::ToggleWorktrees)) => format!(
+            "{} {}",
+            if panels.show_worktrees { "▾" } else { "▸" },
+            row.label
+        ),
+        Some(RowAction::OverviewV119(OverviewLinkV119::ToggleRecovery)) => format!(
+            "{} {}",
+            if panels.show_recovery { "▾" } else { "▸" },
+            row.label
+        ),
+        _ => row.label.clone(),
+    };
+    TableRow::text(label).with_tone(SemanticToken::from(row.role))
+}
+
+fn panel_rows(
+    app: &App,
     workspace: &Workspace,
     sorted: &Sorted,
-    show_untracked: bool,
+    panel: Panel,
+    now: u64,
+    links: &mut Vec<Action>,
 ) -> Vec<TableRow<Line93>> {
     let rows = workspace.display_rows_v1();
+    let panels = &app.repository_panels_v93;
+    let indexes = &sorted.sections[panel.index()];
+    let mut output = vec![];
+    if panel == Panel::Branch {
+        if let Some(back) = crate::repository_worktrees_v118::away(app) {
+            output.push(
+                TableRow::text(format!("◂ {back} · B"))
+                    .with_tone(SemanticToken::Reference)
+                    .with_action(Some(Line93::Back)),
+            );
+        }
+    }
+    if panel == Panel::Commits {
+        output.extend(indexes.iter().map(|index| {
+            let row = crate::repository_ui::overview_row_v91(&rows[*index], now);
+            TableRow {
+                kind: row.kind,
+                cells: row.cells,
+                tone: row.tone,
+                glyph: row.glyph,
+                actor: row.actor,
+                action: Some(Line93::Row(*index)),
+            }
+        }));
+        return output;
+    }
+    let mut link = |output: &mut Vec<TableRow<Line93>>, text: String, tone, action| {
+        output.push(
+            TableRow::text(text)
+                .with_tone(tone)
+                .with_action(Some(Line93::Link(links.len()))),
+        );
+        links.push(action);
+    };
+    if panel == Panel::Changes {
+        for (text, mode) in overview_v119::change_links(&workspace.status) {
+            link(
+                &mut output,
+                text,
+                SemanticToken::Reference,
+                Action::RepositoryMode(mode),
+            );
+        }
+    }
     let entries = entries(workspace);
-    let mut output = sorted
-        .files
-        .iter()
-        .map(|index| {
-            let row = &rows[*index];
+    for (position, index) in indexes.iter().enumerate() {
+        let row = &rows[*index];
+        output.push(
             match entries[*index] {
                 Some(entry) => file_row(row, entry),
-                None => TableRow::text(row.label.as_str()).with_tone(SemanticToken::from(row.role)),
+                None => text_row(row, panels),
             }
-            .with_action(Some(Line93::Row(*index)))
-        })
-        .collect::<Vec<_>>();
-    if sorted.untracked > 0 {
-        let text = if show_untracked {
+            .with_action(Some(Line93::Row(*index))),
+        );
+        // The Branch row is followed by its Push and Pull buttons and the last commit's full
+        // id and UTC time (a click opens it; the keyboard reaches it in Recent commits).
+        if panel == Panel::Branch && position == 0 {
+            for (text, command) in overview_v119::branch_buttons(&workspace.status) {
+                link(
+                    &mut output,
+                    format!("[{text}]"),
+                    SemanticToken::Reference,
+                    Action::LocalCommand(command),
+                );
+            }
+            if let Some(commit) = &workspace.selected_commit {
+                let last = workspace.status.head.as_deref() == Some(commit.id.as_str());
+                for text in overview_v119::commit_lines(commit, last) {
+                    link(
+                        &mut output,
+                        text,
+                        SemanticToken::Muted,
+                        Action::RepositoryRow(RowAction::Commit(commit.id.clone())),
+                    );
+                }
+            }
+        }
+    }
+    if indexes.is_empty() {
+        match panel {
+            Panel::Worktrees => link(
+                &mut output,
+                "Only this checkout · add a linked worktree to work on another branch beside it"
+                    .into(),
+                SemanticToken::Muted,
+                Action::LocalCommand(crate::local_actions::LocalCommand::AddWorktree),
+            ),
+            Panel::Stashes => link(
+                &mut output,
+                "No stashes · a stash puts unfinished changes aside for later".into(),
+                SemanticToken::Muted,
+                Action::LocalCommand(crate::local_actions::LocalCommand::StashSave),
+            ),
+            _ => {}
+        }
+    }
+    if panel == Panel::Changes && sorted.untracked > 0 {
+        let text = if panels.show_untracked {
             format!("untracked: {} shown · u hides them", sorted.untracked)
         } else {
             format!("untracked: {} hidden · u shows them", sorted.untracked)
@@ -321,29 +537,9 @@ fn files_rows(
     output
 }
 
-fn commit_rows(workspace: &Workspace, sorted: &Sorted, now: u64) -> Vec<TableRow<Line93>> {
-    let rows = workspace.display_rows_v1();
-    sorted
-        .commits
-        .iter()
-        .map(|index| {
-            let row = crate::repository_ui::overview_row_v91(&rows[*index], now);
-            TableRow {
-                kind: row.kind,
-                cells: row.cells,
-                tone: row.tone,
-                glyph: row.glyph,
-                actor: row.actor,
-                action: Some(Line93::Row(*index)),
-            }
-        })
-        .collect()
-}
-
-/// Rows of two panels that share `height`: each gets what it needs when both fit; otherwise
-/// the smaller need is met first and the other takes the rest.
+/// Rows of two panels that share `height`, each with its rule: each gets what it needs when
+/// both fit; otherwise the smaller need is met first and the other takes the rest.
 pub fn heights(height: u16, files: usize, commits: usize) -> (u16, u16) {
-    let need = |rows: usize| (rows.min(usize::from(u16::MAX - 2)) as u16).max(1) + 2;
     let (files, commits) = (need(files), need(commits));
     if files.saturating_add(commits) <= height {
         return (files, height - files);
@@ -354,60 +550,143 @@ pub fn heights(height: u16, files: usize, commits: usize) -> (u16, u16) {
     } else if commits <= height - half {
         height - commits
     } else {
-        half.max(3).min(height)
+        half.max(2).min(height)
     };
     (files, height - files)
 }
 
-/// Paints the Files and Commits panels into `area` and registers one click target per row.
+/// A panel's rows plus its titled rule.
+fn need(rows: usize) -> u16 {
+    (rows.min(usize::from(u16::MAX - 2)) as u16).max(1) + 1
+}
+
+/// Heights of the panels in `height`, by [`Panel::index`]. Branch, Stashes, Worktrees and
+/// Recover take what they need up to a share; Changes and Recent commits split the rest.
+pub fn layout(height: u16, rows: [usize; 6], present: [bool; 6]) -> [u16; 6] {
+    let mut heights_out = [0u16; 6];
+    let mut left = height;
+    // The Branch section leaves Changes and Recent commits at least a rule and a row each;
+    // the other sections leave Changes all it needs and Recent commits a few rows (on a short
+    // terminal they give way first).
+    let changes_first = need(rows[Panel::Changes.index()])
+        .min(height / 2)
+        .saturating_add(need(rows[Panel::Commits.index()]).min(4))
+        .max(4);
+    for (panel, cap) in [
+        (Panel::Branch, 9u16),
+        (Panel::Stashes, 2),
+        (Panel::Worktrees, (height / 3).max(2)),
+        (Panel::Recover, (height / 3).max(2)),
+    ] {
+        if !present[panel.index()] {
+            continue;
+        }
+        let reserve = if panel == Panel::Branch {
+            4
+        } else {
+            changes_first
+        };
+        let room = left.saturating_sub(reserve);
+        let take = need(rows[panel.index()]).min(cap).min(room);
+        if take >= 2 {
+            heights_out[panel.index()] = take;
+            left -= take;
+        }
+    }
+    let (changes, commits) = heights(
+        left,
+        rows[Panel::Changes.index()],
+        rows[Panel::Commits.index()],
+    );
+    heights_out[Panel::Changes.index()] = changes;
+    heights_out[Panel::Commits.index()] = commits;
+    heights_out
+}
+
+fn title(app: &App, workspace: &Workspace, panel: Panel) -> String {
+    match panel {
+        Panel::Branch => match crate::repository_worktrees_v118::here_label(app) {
+            Some(here) => format!("Branch · Worktree: {here}"),
+            None => "Branch".into(),
+        },
+        Panel::Changes => {
+            let counts = crate::git::ChangeCountsV118::from_status(&workspace.status);
+            if counts.clean() {
+                "Changes · clean".into()
+            } else {
+                let mut parts = vec!["Changes".to_owned()];
+                for (count, word) in [
+                    (counts.conflicted, "conflicted"),
+                    (counts.staged, "staged"),
+                    (counts.unstaged, "unstaged"),
+                    (counts.untracked, "untracked"),
+                ] {
+                    if count > 0 {
+                        parts.push(format!("{count} {word}"));
+                    }
+                }
+                parts.join(" · ")
+            }
+        }
+        Panel::Worktrees => overview_v119::WORKTREES.into(),
+        Panel::Stashes => overview_v119::STASHES.into(),
+        Panel::Commits => COMMITS_TITLE.into(),
+        Panel::Recover => overview_v119::RECOVER.into(),
+    }
+}
+
+/// Paints the panels into `area` and registers one click target per row.
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let Some(workspace) = app.workspace.as_ref() else {
         return;
     };
     let theme = app.theme();
-    let show_untracked = app.repository_panels_v93.show_untracked;
-    let sorted = sort(workspace, show_untracked);
-    let files = files_rows(workspace, &sorted, show_untracked);
-    let commits = commit_rows(workspace, &sorted, crate::storage::now());
+    let sorted = sort(workspace, &app.repository_panels_v93);
+    let now = crate::storage::now();
+    let mut links = vec![];
+    let contents: Vec<(Panel, String, Vec<TableRow<Line93>>)> = PANELS
+        .iter()
+        .map(|panel| {
+            (
+                *panel,
+                title(app, workspace, *panel),
+                panel_rows(app, workspace, &sorted, *panel, now, &mut links),
+            )
+        })
+        .collect();
     let selected = app.repository_list.selected;
     let list_focused = app.repository_content_focused && crate::list_preview_v92::list_focused(app);
-    let files_title = match workspace.status.entries.len() {
-        0 => "Files".to_string(),
-        count => format!("Files · {count} changed"),
-    };
-    let (files_height, commits_height) = heights(area.height, files.len(), commits.len());
-    let panels = [
-        (
-            Panel::Files,
-            files_title,
-            &FILE_COLUMNS[..],
-            files,
-            Rect::new(area.x, area.y, area.width, files_height),
-        ),
-        (
-            Panel::Commits,
-            COMMITS_TITLE.to_string(),
-            &crate::repository_ui::OVERVIEW_COLUMNS[..],
-            commits,
-            Rect::new(area.x, area.y + files_height, area.width, commits_height),
-        ),
-    ];
+    let mut present = sorted.present;
+    let mut counts = [0usize; 6];
+    for (panel, _, rows) in &contents {
+        counts[panel.index()] = rows.len();
+        present[panel.index()] &= !rows.is_empty() || *panel != Panel::Recover;
+    }
+    let heights = layout(area.height, counts, present);
     let selection_moved = app.repository_panels_v93.last_selected != Some(selected);
     app.repository_panels_v93.last_selected = Some(selected);
     let mut hits = vec![];
-    for (panel, title, columns, rows, rect) in panels {
+    let mut y = area.y;
+    for (panel, title, rows) in contents {
+        let height = heights[panel.index()];
+        let rect = Rect::new(area.x, y, area.width, height);
+        y += height;
         let state = &mut app.repository_panels_v93;
         state.areas[panel.index()] = Rect::default();
-        if rect.height < 3 || rect.width < 8 {
+        if rect.height < 2 || rect.width < 8 {
             continue;
         }
+        let columns: &[Column] = match panel {
+            Panel::Changes => &FILE_COLUMNS[..],
+            Panel::Commits => &crate::repository_ui::OVERVIEW_COLUMNS[..],
+            _ => &TEXT_COLUMNS[..],
+        };
         let position = rows
             .iter()
             .position(|row| row.action == Some(Line93::Row(selected)));
         let focused = list_focused && position.is_some();
         // A panel is a titled rule inside the Repository pane, not a box nested in its frame
-        // (`│╭─`/`╯││`): the rule meets the pane's side borders as `├`/`┤` junctions, and the
-        // row a bottom border would take separates the panels.
+        // (`│╭─`/`╯││`): the rule meets the pane's side borders as `├`/`┤` junctions.
         let block = pane_block(theme, &[&title], focused).borders(ratatui::widgets::Borders::TOP);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
@@ -436,8 +715,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             focused: list_focused,
             glyphs: false,
             empty: Some(match panel {
-                Panel::Files => "Working files are clean",
-                Panel::Commits => "No saved versions yet",
+                Panel::Changes => "Working files are clean",
+                Panel::Commits => "No commits yet",
+                _ => "Nothing here",
             }),
         };
         let rendered = crate::ui_table::draw_table_at(
@@ -454,6 +734,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         hits.extend(rendered.hits.into_iter().filter_map(|hit| {
             let action = match hit.action? {
                 Line93::Untracked => Action::RepositoryPanelsV93(PanelActionV93::ToggleUntracked),
+                Line93::Back => {
+                    Action::WorktreeV118(crate::repository_worktrees_v118::WorktreeActionV118::Back)
+                }
+                Line93::Link(index) => links.get(index)?.clone(),
+                // The Branch row (always the first) opens History by click.
+                Line93::Row(0)
+                    if app.workspace.as_ref()?.display_rows_v1()[0]
+                        .action
+                        .is_none() =>
+                {
+                    Action::RepositoryMode(crate::workspace::RepositoryMode::Graph)
+                }
                 Line93::Row(index) => {
                     let action = app.workspace.as_ref()?.display_rows_v1()[index]
                         .action
@@ -497,7 +789,7 @@ pub fn mouse(app: &mut App, column: u16, row: u16, wheel: Option<isize>) -> bool
     if app.overlay.is_some() || !active(app) {
         return false;
     }
-    let Some(panel) = [Panel::Files, Panel::Commits].into_iter().find(|panel| {
+    let Some(panel) = PANELS.into_iter().find(|panel| {
         app.repository_panels_v93.areas[panel.index()].contains((column, row).into())
     }) else {
         return false;
@@ -518,15 +810,12 @@ pub fn scroll_selected(app: &mut App, delta: isize) -> bool {
     if !active(app) {
         return false;
     }
-    let sorted = sort(
-        app.workspace.as_ref().unwrap(),
-        app.repository_panels_v93.show_untracked,
-    );
-    let panel = if sorted.commits.contains(&app.repository_list.selected) {
-        Panel::Commits
-    } else {
-        Panel::Files
-    };
+    let sorted = sort(app.workspace.as_ref().unwrap(), &app.repository_panels_v93);
+    let selected = app.repository_list.selected;
+    let panel = PANELS
+        .into_iter()
+        .find(|panel| sorted.sections[panel.index()].contains(&selected))
+        .unwrap_or(Panel::Changes);
     scroll(app, panel, delta);
     true
 }
@@ -654,6 +943,24 @@ pub fn preview(app: &App, theme: Theme) -> crate::list_preview_v92::Preview {
         return crate::list_preview_v92::Preview {
             item,
             title: format!("Commit {}", crate::ui_table::short_sha(&commit.id)),
+            badge: None,
+            lines,
+        };
+    }
+    if let Some(RowAction::OpenWorktree(path)) = &row.action {
+        let lines = vec![
+            Line::from(Span::styled(row.label.clone(), bold)),
+            Line::default(),
+            label_value(theme, "Folder", &path.display().to_string(), LABEL),
+            Line::default(),
+            muted(
+                theme,
+                "Enter opens this worktree here; nothing is checked out or changed",
+            ),
+        ];
+        return crate::list_preview_v92::Preview {
+            item,
+            title: "Worktree".into(),
             badge: None,
             lines,
         };

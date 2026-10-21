@@ -20,14 +20,16 @@ mod graph_v1;
 #[path = "workspace/original_saved_boundaries_v1_tests.rs"]
 mod original_saved_boundaries_v1_tests;
 pub(crate) mod original_saved_navigation_v1;
+#[path = "workspace/overview_v119.rs"]
+pub mod overview_v119;
 mod remote_handoff_v1;
 use crate::{
     git::{Commit, Comparison, ComparisonResult, GitRepository, RawPath, RepoStatus, TreeEntry},
     identity::GitRole,
     providers::runner::CancellationToken,
     repository_view::{
-        diff_rows, file_preview, workspace_rows, DiffAnchor, DiffLayout, FilePreview, SemanticRole,
-        TreeBrowser, TreeKind,
+        diff_rows, file_preview, DiffAnchor, DiffLayout, FilePreview, SemanticRole, TreeBrowser,
+        TreeKind,
     },
 };
 pub use file_history::{change_word_v1, FileAction, FileProvenance, FileSelection, ProvenanceView};
@@ -376,6 +378,17 @@ pub enum RowAction {
     Local(crate::local_actions::LocalCommand),
     /// Read-only switch of the Repository view to another listed worktree (TASK-41).
     OpenWorktree(std::path::PathBuf),
+    /// An Overview section row that opens a view or shows a collapsed list (TASK-119).
+    OverviewV119(OverviewLinkV119),
+}
+
+/// Where an Overview section row leads: a Repository mode, or the collapsed worktree stack
+/// or recovery list shown in place. Nothing here runs Git.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverviewLinkV119 {
+    Mode(RepositoryMode),
+    ToggleWorktrees,
+    ToggleRecovery,
 }
 
 #[derive(Clone, Debug)]
@@ -679,188 +692,7 @@ impl Workspace {
             rows: Vec::new(),
         };
         match mode {
-            RepositoryMode::Overview => {
-                let paused = crate::repository_view::paused_operation_rows_v1(&workspace.status);
-                workspace
-                    .rows
-                    .extend(workspace_rows(&workspace.status).into_iter().map(|row| {
-                        let action = match row.path {
-                            Some(path) if row.role == SemanticRole::Conflict => {
-                                Some(RowAction::Conflict(path))
-                            }
-                            Some(path) => Some(RowAction::WorkingFile(path)),
-                            None => paused.iter().find_map(|(label, _, command)| {
-                                (*label == row.label)
-                                    .then_some(*command)
-                                    .flatten()
-                                    .map(RowAction::Local)
-                            }),
-                        };
-                        DisplayRow {
-                            label: row.label,
-                            role: row.role,
-                            action,
-                            cells: None,
-                        }
-                    }));
-                // Saved stashes and linked worktrees are easy to forget; show them read-only.
-                let stashes = repo.stash_overview_v1().unwrap_or_default();
-                if let Some(newest) = stashes.first() {
-                    workspace.push(
-                        &format!(
-                            "Saved stashes: {} • newest {} {} • m → Apply/Apply and remove/Delete stash (F4 choose)",
-                            stashes.len(),
-                            crate::providers::runner::sanitize_terminal(
-                                newest.selector.strip_prefix("refs/").unwrap_or(&newest.selector)
-                            ),
-                            crate::providers::runner::sanitize_terminal(&newest.subject)
-                        ),
-                        SemanticRole::Reference,
-                        None,
-                    );
-                }
-                let linked = repo.linked_worktree_count_v1();
-                if linked > 0 {
-                    workspace.push(
-                        &format!(
-                            "Linked worktrees: {} besides this one • m → Add/Remove linked worktree",
-                            linked
-                        ),
-                        SemanticRole::Reference,
-                        None,
-                    );
-                    // Each other worktree: branch, lock and dirty state; Enter/click opens
-                    // it read-only in this view (TASK-41). Bounded status reads.
-                    let others = repo
-                        .worktrees()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|tree| tree.path != repo.root && !tree.bare)
-                        .take(16)
-                        .collect::<Vec<_>>();
-                    for (index, tree) in others.into_iter().enumerate() {
-                        use std::os::unix::ffi::OsStrExt;
-                        let state = if tree.prunable {
-                            "missing/prunable".to_string()
-                        } else if index >= 8 {
-                            "status not read".into()
-                        } else {
-                            match repo.worktree_dirty_v41(&tree.path) {
-                                Ok(true) => "dirty: uncommitted changes".into(),
-                                Ok(false) => "clean".into(),
-                                Err(_) => "status unavailable".into(),
-                            }
-                        };
-                        // Branch and state first: long directories truncate at the end.
-                        let branch = tree.branch.as_deref().unwrap_or("detached");
-                        let label = format!(
-                            "⎇ {} worktree • {}{} • Enter: open • {}",
-                            crate::providers::runner::sanitize_terminal(
-                                branch.strip_prefix("refs/heads/").unwrap_or(branch)
-                            ),
-                            state,
-                            if tree.locked { " • locked" } else { "" },
-                            RawPath::new(tree.path.as_os_str().as_bytes().to_vec()).display(),
-                        );
-                        let action = (!tree.prunable).then(|| RowAction::OpenWorktree(tree.path));
-                        workspace.push(&label, SemanticRole::Reference, action);
-                    }
-                }
-                workspace.push(
-                    "Recent commits — saved versions",
-                    SemanticRole::Reference,
-                    None,
-                );
-                let mut recent = vec![];
-                for commit in repo.log(12).map_err(|e| e.to_string())? {
-                    if workspace.selected_commit.is_none() {
-                        workspace.selected_commit = Some(commit.clone());
-                    }
-                    let label = format!(
-                        "● {} {} • {}",
-                        &commit.id[..8.min(commit.id.len())],
-                        commit.subject,
-                        crate::git_actor_labels_v1::commit_summary(&commit)
-                    );
-                    recent.push(commit.id.clone());
-                    let cells = CommitCellsV91 {
-                        id: commit.id.clone(),
-                        subject: commit.subject.clone(),
-                        actors: crate::git_actor_labels_v1::commit_actors(&commit),
-                        authored: commit.author.timestamp,
-                        author: crate::git_actor_labels_v1::actor_text(&commit.author),
-                        committer: crate::git_actor_labels_v1::actor_text(&commit.committer),
-                        committed: commit.committer.timestamp,
-                        actor: (commit.author.name == commit.committer.name
-                            && commit.author.email == commit.committer.email)
-                            .then(|| commit.author.clone()),
-                    };
-                    workspace.push(
-                        &label,
-                        SemanticRole::Normal,
-                        Some(RowAction::Commit(commit.id)),
-                    );
-                    if let Some(row) = workspace.rows.last_mut() {
-                        row.cells = Some(Box::new(cells));
-                    }
-                }
-                let candidates = rescue_candidates_from_reflogs_v1(repo, &recent, 8);
-                if !candidates.is_empty() {
-                    // One read-only batch check: a reflog line can outlive its
-                    // pruned commit, which is then stated, never offered.
-                    let ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
-                    let present = repo
-                        .commits_present(&ids)
-                        .unwrap_or_else(|_| vec![true; ids.len()]);
-                    workspace.push(
-                        "Left behind by amend/reset/rebase or branch moves — local reflogs only (HEAD and branches)",
-                        SemanticRole::Boundary,
-                        None,
-                    );
-                    workspace.push(
-                        "Reflog entries expire (gc.reflogExpire, default 90 days); pruned commits are gone. Not a universal undo.",
-                        SemanticRole::Boundary,
-                        None,
-                    );
-                    workspace.push(
-                        "Recover: select one, Enter to inspect it, then m → Create rescue branch (version prefilled)",
-                        SemanticRole::Boundary,
-                        None,
-                    );
-                    for (candidate, present) in candidates.into_iter().zip(present) {
-                        let subject = if candidate.subject.is_empty() {
-                            "(subject not in reflog)"
-                        } else {
-                            &candidate.subject
-                        };
-                        if present {
-                            workspace.push(
-                                &format!(
-                                    "↺ {} {} • {} • {}",
-                                    &candidate.id[..8],
-                                    subject,
-                                    candidate.reason,
-                                    candidate.selector
-                                ),
-                                SemanticRole::Changed,
-                                Some(RowAction::Commit(candidate.id)),
-                            );
-                        } else {
-                            workspace.push(
-                                &format!(
-                                    "✗ {} {} • {} • {} • pruned: commit is gone, cannot recover",
-                                    &candidate.id[..8],
-                                    subject,
-                                    candidate.reason,
-                                    candidate.selector
-                                ),
-                                SemanticRole::Boundary,
-                                None,
-                            );
-                        }
-                    }
-                }
-            }
+            RepositoryMode::Overview => workspace.overview_rows_v119(repo)?,
             RepositoryMode::Graph => workspace.initialize_graph_v1(repo)?,
             RepositoryMode::Tree => {
                 if workspace.status.head.is_none() {
@@ -1131,6 +963,9 @@ impl Workspace {
             }
             RowAction::OpenWorktree(_) => {
                 return Err("Worktree rows open a fresh repository load, not a nested read".into())
+            }
+            RowAction::OverviewV119(_) => {
+                return Err("Overview section rows open their view without a nested read".into())
             }
             RowAction::Graph(action) => return self.graph_action_v1(action, repository),
             RowAction::FileProvenance(action) => {

@@ -174,7 +174,7 @@ fn journey(mouse: bool) {
 
 const REPOSITORY_PANE: &str = "Repository • focused view";
 /// The Overview's commits panel (TASK-93): its rows carry the selection bar.
-const COMMITS_PANE: &str = "Recent commits — saved versions";
+const COMMITS_PANE: &str = "Recent commits";
 
 /// Waits for one screen line holding every part (a table row read by its cells).
 fn wait_row(session: &mut Session, parts: &[&str]) -> String {
@@ -254,9 +254,17 @@ fn overview_table(mouse: bool) {
     assert!(!row.contains(" • "), "{row}");
     // The subjects of all three commits start in one column.
     let screen = session.screen();
+    // In the Recent commits table: the Branch section's `Last commit · …` line names the
+    // newest subject too.
     let columns = ["First note", "Add the main program", "Second note"]
         .iter()
-        .map(|subject| session.locate(subject).expect(subject).0)
+        .map(|subject| {
+            screen
+                .lines()
+                .filter(|line| !line.contains("Last commit"))
+                .find_map(|line| line.find(subject).map(|byte| line[..byte].chars().count()))
+                .expect(subject)
+        })
         .collect::<Vec<_>>();
     assert!(
         columns.windows(2).all(|pair| pair[0] == pair[1]),
@@ -287,7 +295,8 @@ fn overview_table(mouse: bool) {
     // The opened commit is the saved version, by its full id, and its explanation names the
     // parent it follows.
     let first = fixture.git(&["rev-parse", "HEAD~2"]).trim().to_owned();
-    session.wait_for_screen(&format!("Viewed: {middle}"));
+    session.wait_for_screen("Selected commit · ");
+    session.wait_for_screen(&middle);
     session.wait_for_screen(&format!(
         "This saved version follows parent {}",
         &first[..8]

@@ -260,7 +260,7 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
     let first = workspace
         .rows
         .iter()
-        .position(|row| row.action == Some(RowAction::Commit(head.clone())))
+        .position(|row| row.cells.as_ref().is_some_and(|cells| cells.id == head))
         .unwrap();
     // The producer keeps its label (palette, plans) and adds the table cells.
     let row = &workspace.rows[first];
@@ -297,7 +297,10 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         let commit_lines = list_lines
             .iter()
             .enumerate()
-            .filter(|(_, line)| subjects.iter().any(|subject| line.contains(subject)))
+            .filter(|(_, line)| {
+                !line.contains("Last commit ")
+                    && subjects.iter().any(|subject| line.contains(subject))
+            })
             .collect::<Vec<_>>();
         assert_eq!(commit_lines.len(), 3, "{screen}");
         // Every subject starts in the same column, right after a 7-character id.
@@ -341,7 +344,10 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         // The UTC date leaves the narrow panel first; the full id stays in the Saved detail
         // row, and at 140 the preview shows the full id with the authored UTC time.
         assert!(!selected.contains(&date), "{screen}");
-        assert!(screen.contains(&format!("Viewed: {head}")), "{screen}");
+        assert!(
+            screen.contains("Last commit · ") && screen.contains(&format!("  {head}")),
+            "{screen}"
+        );
         assert_eq!(
             screen.contains(&format!("Commit    {head}")),
             width == 140,
@@ -356,7 +362,10 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
         let hit = app
             .hits
             .iter()
-            .find(|hit| hit.action == Action::RepositoryRow(RowAction::Commit(head.clone())))
+            .find(|hit| {
+                hit.action == Action::RepositoryRow(RowAction::Commit(head.clone()))
+                    && usize::from(hit.rect.y) == *y
+            })
             .unwrap();
         assert_eq!(usize::from(hit.rect.y), *y);
         assert_eq!(buffer[(hit.rect.x, hit.rect.y)].symbol(), "▌");
@@ -382,11 +391,9 @@ fn design_table_v91_repository_overview_commits_align_and_keep_full_sha_in_detai
                         && hit.rect.x == commit_x(&app, &head)
                 )
                 .count(),
-            3
+            6
         );
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("▶ Recent commits — saved versions ─")));
+        assert!(lines.iter().any(|line| line.contains("▶ Recent commits ─")));
     }
     // Read-only browsing leaves the checkout alone.
     assert_eq!(fs::read(dir.path().join(".git/index")).unwrap(), index);

@@ -11,7 +11,7 @@ use ghtui::local_actions::LocalCommand;
 use std::{fs, path::Path, process::Command, time::Duration};
 
 /// Mouse clicks the row's own text; keyboard moves the `▌` bar onto it and presses Enter.
-fn activate_row(session: &mut Session, mouse: bool, text: &str) {
+pub(crate) fn activate_row(session: &mut Session, mouse: bool, text: &str) {
     session.wait_for_screen(text);
     if mouse {
         let (column, row) = session.locate(text).unwrap();
@@ -79,7 +79,8 @@ fn stash_view_and_worktree(mouse: bool) {
     fs::write(fixture.repo().join("file.txt"), b"tracked work\n").unwrap();
     fs::write(fixture.repo().join("new.txt"), b"untracked work\n").unwrap();
     let mut session = launch(&fixture);
-    session.wait_for_screen("⎇ linked worktree • dirty: uncommitted changes");
+    // TASK-118: the Worktrees section summarises the stack until it is expanded.
+    session.wait_for_screen("2 worktrees: this checkout + 1 linked · 2 with changes");
     run(
         &mut session,
         mouse,
@@ -117,15 +118,18 @@ fn stash_view_and_worktree(mouse: bool) {
         b"saved\n"
     );
 
-    // Open the dirty linked worktree read-only from its Overview row.
+    // Open the dirty linked worktree read-only from the expanded stack.
     refresh(&mut session, mouse);
     activate_row(
         &mut session,
         mouse,
-        "⎇ linked worktree • dirty: uncommitted changes",
+        "2 worktrees: this checkout + 1 linked · 1 with changes",
     );
+    session.wait_for_screen("⎇ linked · 1 changed · ");
+    activate_row(&mut session, mouse, "⎇ linked · 1 changed · ");
     session.wait_for_screen("Repository loaded • read-only exploration");
-    session.wait_for_screen("⎇ main worktree • clean • Enter: open");
+    session.wait_for_screen("Branch · Worktree: linked");
+    session.wait_for_screen("⎇ main   · main checkout · clean");
     session.wait_for_screen("file.txt");
     assert_eq!(
         fs::read(linked.join("file.txt")).unwrap(),
@@ -134,8 +138,9 @@ fn stash_view_and_worktree(mouse: bool) {
     assert_eq!(git_in(&linked, &["status", "--porcelain"]), " M file.txt\n");
     assert_eq!(git_in(&linked, &["branch", "--show-current"]), "linked\n");
     // And back to the main worktree.
-    activate_row(&mut session, mouse, "⎇ main worktree • clean • Enter: open");
-    session.wait_for_screen("⎇ linked worktree • dirty: uncommitted changes");
+    activate_row(&mut session, mouse, "⎇ main   · main checkout · clean");
+    session.wait_for_screen("⎇ main   · main checkout · you are here · clean");
+    session.wait_for_screen("⎇ linked · 1 changed · ");
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["status", "--porcelain"]), "");
     assert_eq!(git_in(&linked, &["status", "--porcelain"]), " M file.txt\n");

@@ -19,8 +19,10 @@ fn journey(mouse: bool) {
     } else {
         session.send_key(b"2");
     }
-    session.wait_for_screen("core.worktree points to");
-    session.wait_for_screen("git config --unset core.worktree");
+    // TASK-118: plain words and choices; the unset command shows in its preview.
+    session.wait_for_screen("This checkout's Git settings point at another folder");
+    session.wait_for_screen(&format!("core.worktree = {}", elsewhere.path().display()));
+    session.wait_for_screen("m  Local operations: unset core.worktree (preview first)");
     // Read-only: the setting and the checkout are left exactly as they were.
     assert_eq!(
         fixture.git(&["config", "core.worktree"]).trim_end(),

@@ -242,6 +242,21 @@ pub(crate) fn choose_key_bar_or_command(
     }
 }
 fn saved_ready(session: &mut Session, selected: &str, head: &str, labels: &[&str]) {
+    // TASK-119: the plain Overview names the commit in its Branch section (`Last commit` for
+    // the checked-out one, otherwise `Selected commit`) with its full id on its own line and
+    // both roles, instead of the `Viewed:`/`In use:` rows above the other views.
+    if labels.contains(&"Recent commits") {
+        let title = if selected == head {
+            "Last commit · "
+        } else {
+            "Selected commit · "
+        };
+        let id = format!("  {selected}");
+        let mut expected = vec![title, id.as_str()];
+        expected.extend_from_slice(labels);
+        ready(session, &expected);
+        return;
+    }
     let saved = format!("Viewed: {selected}");
     let checkout = format!("In use: {head}");
     let mut expected = vec![saved.as_str(), checkout.as_str()];

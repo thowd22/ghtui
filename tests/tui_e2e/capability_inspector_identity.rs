@@ -304,7 +304,7 @@ fn identity_journey(transition: Transition, mouse: bool) {
     let git_before = git_snapshot(&fixture);
     let config_before = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
     let mut session = launch(&fixture, Scenario::AuthDenied);
-    session.wait_for_screen("Recent commits — saved versions");
+    session.wait_for_screen("Recent commits");
     activate(&mut session, mouse, "1 Inbox", b"1");
     // Each view has its own key bar: take Refresh from a completed Inbox frame, never from
     // the Repository bar that was painted before the switch.

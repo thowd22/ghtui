@@ -23,6 +23,7 @@ fn only_personal(prepared: &PreparedView) -> bool {
         status,
         remote_repository,
         workspace,
+        core_worktree_v118,
         graph_reread_retention_v3,
         original_tree_result_v1,
         repository_source_identity,
@@ -77,6 +78,7 @@ fn only_personal(prepared: &PreparedView) -> bool {
         && status.is_empty()
         && remote_repository.is_none()
         && workspace.is_none()
+        && core_worktree_v118.is_none()
         && graph_reread_retention_v3.is_none()
         && original_tree_result_v1.is_none()
         && repository_source_identity.is_none()

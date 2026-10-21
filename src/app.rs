@@ -96,6 +96,8 @@ pub enum Action {
     PrCardsV115(crate::pr_conversation_cards_v115::CardsActionV115),
     /// Repository panels (TASK-93): the untracked toggle.
     RepositoryPanelsV93(crate::repository_panels_v93::PanelActionV93),
+    /// Worktrees (TASK-118): the way back, and the stale `core.worktree` screen's choices.
+    WorktreeV118(crate::repository_worktrees_v118::WorktreeActionV118),
     /// History commit detail (TASK-99.4): select or open an item, show the SHA to copy.
     HistoryDetailV994(crate::history::detail::DetailUiActionV994),
     MenuScroll(i32),
@@ -359,6 +361,12 @@ pub struct App {
     pub repository_action: Option<crate::workspace::RowAction>,
     /// Another listed worktree to load read-only in place of the current one (TASK-41).
     pub repository_directory_request_v41: Option<std::path::PathBuf>,
+    /// The worktree shown before another one was opened from the stack (TASK-118).
+    pub repository_home_v118: Option<std::path::PathBuf>,
+    /// The stale `core.worktree` screen, while the Repository read reports one (TASK-118).
+    pub core_worktree_v118: Option<crate::repository_worktrees_v118::MismatchStateV118>,
+    /// A confirmed unset of the previewed stale `core.worktree`, for the worker.
+    pub core_worktree_unset_v118: Option<crate::git::CoreWorktreeMismatchV118>,
     /// The History query while it has keyboard focus (TASK-99.3).
     pub history_filter_input_v993: Option<String>,
     /// `owner/name` of the launch checkout's GitHub remote: PR files open File history only
@@ -644,6 +652,9 @@ impl Default for App {
             repository_load_requested: false,
             repository_action: None,
             repository_directory_request_v41: None,
+            repository_home_v118: None,
+            core_worktree_v118: None,
+            core_worktree_unset_v118: None,
             history_filter_input_v993: None,
             local_github_repository_v993: None,
             repository_content_focused: true,
@@ -1868,14 +1879,21 @@ impl App {
             Action::FileHistoryV993(target) => crate::history::entry::open(self, target),
             Action::RepositoryRow(crate::workspace::RowAction::OpenWorktree(path)) => {
                 // Read-only: a fresh Overview load of the chosen worktree; nothing is checked out.
-                self.repository_directory_request_v41 = Some(path);
-                self.repository_selection = None;
-                self.repository_mode = crate::workspace::RepositoryMode::Overview;
-                self.repository_load_requested = true;
-                self.repository_list.selected = 0;
-                self.repository_list.top = 0;
-                self.user_navigated = true;
-                self.repository_content_focused = true;
+                crate::repository_worktrees_v118::open(self, path);
+            }
+            Action::RepositoryRow(crate::workspace::RowAction::OverviewV119(link)) => {
+                use crate::{
+                    repository_panels_v93::PanelActionV93, workspace::OverviewLinkV119,
+                };
+                match link {
+                    OverviewLinkV119::Mode(mode) => self.dispatch(Action::RepositoryMode(mode)),
+                    OverviewLinkV119::ToggleWorktrees => {
+                        self.dispatch(Action::RepositoryPanelsV93(PanelActionV93::ToggleWorktrees))
+                    }
+                    OverviewLinkV119::ToggleRecovery => {
+                        self.dispatch(Action::RepositoryPanelsV93(PanelActionV93::ToggleRecovery))
+                    }
+                }
             }
             Action::RepositoryRow(action) => {
                 if let crate::workspace::RowAction::Tree(tree) = action {
@@ -2309,6 +2327,7 @@ impl App {
             Action::RepositoryPanelsV93(action) => {
                 crate::repository_panels_v93::dispatch(self, action)
             }
+            Action::WorktreeV118(action) => crate::repository_worktrees_v118::dispatch(self, action),
             Action::HistoryDetailV994(action) => crate::history::detail::dispatch(self, action),
             Action::Actions(action) => {
                 if action == crate::actions_workspace::ActionsAction::ActorProfile {
@@ -3162,6 +3181,10 @@ impl App {
                     return;
                 }
                 if self.view == View::Repository {
+                    // The stale core.worktree screen: arrows choose, Enter runs (TASK-118).
+                    if crate::repository_worktrees_v118::key(self, key) {
+                        return;
+                    }
                     if self
                         .workspace
                         .as_ref()

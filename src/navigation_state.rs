@@ -213,6 +213,10 @@ pub(crate) fn row_key(action: &RowAction) -> Result<Vec<u8>, String> {
             hash.field(b"open-worktree")?;
             hash.field(path.as_os_str().as_bytes())?;
         }
+        RowAction::OverviewV119(link) => {
+            hash.field(b"overview-link")?;
+            hash.field(format!("{link:?}").as_bytes())?;
+        }
         RowAction::Actor(role) => hash.field(match role {
             crate::identity::GitRole::Author => b"author",
             crate::identity::GitRole::Committer => b"committer",

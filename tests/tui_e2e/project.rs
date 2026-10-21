@@ -245,7 +245,7 @@ fn project(mouse: bool) {
             };
             session.wait_for_screen("Branch: main");
             if !committed_dirty {
-                session.wait_for_screen("saved version: none yet");
+                session.wait_for_screen("Branch: main · no commits yet");
             }
             assert!(session.inspect_command_journal(&fixture).is_empty());
             session.quit_and_assert_restored_terminal(mouse);

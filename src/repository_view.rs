@@ -981,7 +981,7 @@ pub fn workspace_rows(status: &RepoStatus) -> Vec<WorkspaceRow> {
     if status.shallow {
         rows.push(WorkspaceRow {
             path: None,
-            label: "Shallow clone: earlier saved versions may be unavailable".into(),
+            label: "Shallow clone: older commits may be missing".into(),
             role: SemanticRole::Boundary,
         });
     }

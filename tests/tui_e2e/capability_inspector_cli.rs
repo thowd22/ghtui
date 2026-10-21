@@ -78,7 +78,7 @@ fn journey(build: Build, mouse: bool) {
     let git_before = git_snapshot(&fixture);
     let config_before = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
     let mut session = launch(&fixture, Scenario::AuthDenied);
-    session.wait_for_screen("Recent commits — saved versions");
+    session.wait_for_screen("Recent commits");
     activate(&mut session, mouse, "1 Inbox", b"1");
     session.assert_focused_view("Inbox");
     activate(&mut session, mouse, "[r Refresh]", b"r");

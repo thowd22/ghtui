@@ -746,7 +746,7 @@ fn v1_sync(mouse: bool) {
     let (bare, remote_head) = v1_local_branches_diverged(&fixture);
     let local_head = fixture.git(&["rev-parse", "HEAD"]).trim().to_string();
     let mut session = launch(&fixture);
-    session.wait_for_screen("DIVERGED: pull with merge or rebase");
+    session.wait_for_screen("1 to push, 1 to pull · diverged: pull first");
 
     // A normal push is predicted and then reported as rejected; the remote is unchanged.
     operation(&mut session, mouse, LocalCommand::Push);
@@ -785,7 +785,8 @@ fn v1_sync(mouse: bool) {
     v1_confirm(&mut session, mouse);
     session.wait_for_screen("Completed • Pull remote branch");
     assert_eq!(fixture.git(&["rev-parse", "HEAD~1"]).trim(), remote_head);
-    session.wait_for_screen("1 commits to send, 0 commits to receive • push to share");
+    session.wait_for_screen("tracking origin/main · 1 to push");
+    session.wait_for_screen("[Push → origin/main · 1 commit to send]");
     run(
         &mut session,
         mouse,

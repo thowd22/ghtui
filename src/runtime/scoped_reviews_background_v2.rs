@@ -22,6 +22,7 @@ pub(super) fn only_reviews(p: &PreparedView) -> bool {
         context,
         status,
         workspace,
+        core_worktree_v118,
         graph_reread_retention_v3,
         original_tree_result_v1,
         repository_source_identity,
@@ -75,6 +76,7 @@ pub(super) fn only_reviews(p: &PreparedView) -> bool {
         && context.is_none()
         && status.is_empty()
         && workspace.is_none()
+        && core_worktree_v118.is_none()
         && graph_reread_retention_v3.is_none()
         && original_tree_result_v1.is_none()
         && repository_source_identity.is_none()

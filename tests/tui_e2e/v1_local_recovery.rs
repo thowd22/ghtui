@@ -4,8 +4,12 @@
 use crate::{
     local,
     local_management::{fill, operation, refresh},
+    local_management_v41::activate_row,
     support::{Fixture, Session},
 };
+
+/// The Overview entry that shows the commits the reflogs can recover (TASK-119).
+const RECOVERY_ENTRY: &str = "left behind by amend, reset, rebase or branch moves";
 use ghtui::local_actions::LocalCommand;
 use std::{fs, process::Command};
 
@@ -58,7 +62,7 @@ fn journey(mouse: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
     session.wait_for_screen("⚠ MERGE PAUSED • 1 unresolved conflict");
-    session.wait_for_screen("Saved stashes: 1 • newest stash@{0}");
+    session.wait_for_screen("1 stash · newest stash@{0}");
     session.wait_for_screen("[Abort merge]");
 
     // Continue from the banner row is refused while the conflict is unresolved.
@@ -194,21 +198,11 @@ fn rescue(mouse: bool) {
     fs::write(fixture.repo().join("file.txt"), b"important dirty work\n").unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
-    session.wait_for_screen("Left behind by amend/reset/rebase");
+    // TASK-119: the recovery list sits behind its own entry below Recent commits.
+    activate_row(&mut session, mouse, RECOVERY_ENTRY);
+    session.wait_for_screen("From local reflogs (HEAD and branches)");
     let row = format!("↺ {} draft work • before amend", &draft[..8]);
-    session.wait_for_screen(&row);
-    if mouse {
-        session.click_visible_action(&row);
-    } else {
-        // The first Down focuses the dirty file row; then two recent commits
-        // precede the left-behind commit.
-        session.send_key(b"\x1b[B");
-        session.send_key(&b"\x1b[A".repeat(32));
-        for _ in 0..3 {
-            session.send_key(b"\x1b[B");
-        }
-        session.send_key(b"\r");
-    }
+    activate_row(&mut session, mouse, &row);
     // The History detail shows the full SHA beside its `SHA` label (or on its own row).
     session.wait_for_screen(&draft);
 
@@ -467,21 +461,16 @@ fn reflog_limits(mouse: bool) {
 
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("Recent commits");
-    session.wait_for_screen("pruned commits are gone. Not a universal undo.");
+    activate_row(&mut session, mouse, RECOVERY_ENTRY);
+    session.wait_for_screen("Pruned commits are gone and cannot be recovered");
     session.wait_for_screen(&format!("✗ {} draft work • before amend", &draft[..8]));
     session.wait_for_screen("pruned: commit is gone, cannot recover");
     let row = format!(
         "↺ {} feature tip • before branch move • feature@{{0}}",
         &tip[..8]
     );
-    session.wait_for_screen(&row);
-    if mouse {
-        session.click_visible_action(&row);
-    } else {
-        // Two recent commits precede it; the pruned row has no action and is skipped.
-        session.send_key(b"\x1b[B");
-        select_row(&mut session, false, &row, 2, true);
-    }
+    // The pruned row has no action: the keyboard skips it.
+    activate_row(&mut session, mouse, &row);
     session.wait_for_screen(&tip);
 
     session.resize(80, 24);

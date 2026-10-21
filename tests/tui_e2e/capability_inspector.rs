@@ -390,7 +390,7 @@ fn journey(scenario: Scenario, mouse: bool) {
     let git_before = git_snapshot(&fixture);
     let config_before = fs::read(fixture.root.join("config/ghtui/config.toml")).unwrap();
     let mut session = launch(&fixture, scenario);
-    session.wait_for_screen("Recent commits — saved versions");
+    session.wait_for_screen("Recent commits");
     session.assert_focused_view("Repository");
     assert!(!trace(&fixture).is_empty(),"The child-only trace must witness actual local Git commands before it can prove no new ones");
     activate(&mut session, mouse, "1 Inbox", b"1");

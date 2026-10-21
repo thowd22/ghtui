@@ -10,7 +10,7 @@ use crate::support::view_title;
 const ORIGIN: &str = "git@github.invalid:example/app.git";
 const APP: &str = "example/app";
 const NEEDLE: &str = "navigation context needle";
-const COMMITS_PANE: &str = "Recent commits — saved versions";
+const COMMITS_PANE: &str = "Recent commits";
 const FILE_ROW: &str = "File src/view.rs";
 
 fn workflow_run(id: u64, name: &str, conclusion: &str, sha: char) -> Value {
