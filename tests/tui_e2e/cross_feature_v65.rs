@@ -180,8 +180,9 @@ mod review {
 
         // Offline at Submit: refused before any write; the typed summary stays in the form.
         submit(&mut session, mouse);
-        session.wait_for_screen("PR intent refused");
-        session.wait_for_screen("error connecting to github.invalid");
+        // The refusal stays in the form body; the status line may already show the late
+        // local draft-save ACK instead (the v314 contract), so it is not asserted here.
+        session.wait_for_screen("Command exited with 1: error connecting to github.invalid");
         let after_failure = records(&mut session, &fixture, refused);
         assert_eq!(
             mutation_count(&after_failure),

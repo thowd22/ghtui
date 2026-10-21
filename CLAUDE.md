@@ -74,6 +74,7 @@ Endless test-and-retry loops are the most expensive failure here. Make one meani
 - **Create view-specific SQLite tables lazily** (`CREATE TABLE IF NOT EXISTS` at first write), so PTY tests that snapshot `sqlite_master` elsewhere stay stable.
 - **runtime.rs assigns `app.status = prepared.status` after installing a GitHub workspace.** Post-install status or selection hooks run after that line; `GithubAction::PrTab` resets the list selection, so carry a selection across tabs separately.
 - **Ref snapshots must skip `refs/remotes/<remote>/HEAD`.** It is symbolic and appears to move whenever its target does.
+- **Read a PR form's refusal from the form body, not the status line.** Typing or pasting into the form queues a local draft save, and its late ACK may replace "PR intent refused" with "Draft saved locally • nothing published" (the v314 contract). Two journeys (v51, cross_feature_v65) failed this way.
 - **A bold History SHA means two things.** Unfiltered, it marks the selected commit and its ancestors (TASK-28); while filtering, only matches are bold. Check the SHA's bold state only together with the filter state.
 
 ## 6. Product invariants that are easy to break
