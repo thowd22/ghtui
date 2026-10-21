@@ -82,6 +82,8 @@ mod owned_form_prose_v120;
 mod owned_pty_cleanup_v1;
 #[path = "tui_e2e/performance.rs"]
 mod performance;
+#[path = "tui_e2e/performance_bounded_v66.rs"]
+mod performance_bounded_v66;
 #[path = "tui_e2e/mouse_hover.rs"]
 mod pointer_hover;
 #[path = "support/positive_pid_publication_v1.rs"]

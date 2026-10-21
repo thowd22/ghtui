@@ -54,20 +54,71 @@ pub(crate) const CACHED_DIFF_MS: u64 = 150;
 
 /// Separate ceilings (no doc budget: initial indexing, cold large loads, memory, idle CPU).
 const INDEXING_CEILING_MS: u64 = 120_000;
-const COLD_LARGE_LOAD_CEILING_MS: u64 = 20_000;
-const PEAK_RSS_CEILING_KIB: u64 = 1024 * 1024;
+pub(crate) const COLD_LARGE_LOAD_CEILING_MS: u64 = 20_000;
+pub(crate) const PEAK_RSS_CEILING_KIB: u64 = 1024 * 1024;
 const IDLE_CPU_CEILING_PERCENT: f64 = 50.0;
 const IDLE_WINDOW: Duration = Duration::from_secs(2);
 
-/// The doc budgets are for a release build. The PTY journeys drive the unoptimized test
-/// binary on a shared development host, so each budget is multiplied by this factor
-/// (`GHTUI_PERF_BUDGET_FACTOR` overrides it; 1 applies the doc budgets exactly).
+/// The doc budgets are for a release build. By default the PTY journeys drive the unoptimized
+/// test binary on a shared development host, so each budget is multiplied by this factor
+/// (`GHTUI_PERF_BUDGET_FACTOR` overrides it; 1 applies the doc budgets exactly). A release
+/// application named by [`PERF_BINARY_ENV`] is judged at factor 1 unless overridden.
 pub(crate) fn budget_factor() -> u64 {
     std::env::var("GHTUI_PERF_BUDGET_FACTOR")
         .ok()
         .and_then(|value| value.parse().ok())
         .filter(|factor| *factor > 0)
-        .unwrap_or(if cfg!(debug_assertions) { 10 } else { 1 })
+        .unwrap_or(if cfg!(debug_assertions) && release_binary().is_none() {
+            10
+        } else {
+            1
+        })
+}
+
+/// Names a ghtui binary built with `cargo build --release` for the performance journeys to
+/// drive instead of the test-profile binary Cargo builds for this test target.
+pub(crate) const PERF_BINARY_ENV: &str = "GHTUI_PERF_BINARY";
+
+fn release_binary() -> Option<PathBuf> {
+    std::env::var_os(PERF_BINARY_ENV)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The application the performance journeys launch: [`PERF_BINARY_ENV`] when set (it must
+/// exist), otherwise the test-profile binary.
+pub(crate) fn perf_binary() -> PathBuf {
+    match release_binary() {
+        Some(path) => {
+            assert!(
+                path.is_file(),
+                "{PERF_BINARY_ENV}={} is not a file",
+                path.display()
+            );
+            path
+        }
+        None => PathBuf::from(env!("CARGO_BIN_EXE_ghtui")),
+    }
+}
+
+/// The build profile of the application under measurement, for every report.
+pub(crate) fn app_profile() -> String {
+    match release_binary() {
+        Some(path) => format!("release ({PERF_BINARY_ENV}={})", path.display()),
+        None if cfg!(debug_assertions) => "debug (test profile)".into(),
+        None => "release (test target built with --release)".into(),
+    }
+}
+
+/// Launches [`perf_binary`] from `directory` with extra child environment.
+pub(crate) fn launch_perf(
+    fixture: &Fixture,
+    directory: &Path,
+    cols: u16,
+    rows: u16,
+    env: &[(&str, &str)],
+) -> Session {
+    Session::launch_binary_from(&perf_binary(), fixture, directory, cols, rows, env)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -158,7 +209,7 @@ impl Report {
         let report = json!({
             "test": self.name,
             "hardware": hardware(),
-            "build_profile": if cfg!(debug_assertions) { "debug (test profile)" } else { "release" },
+            "build_profile": app_profile(),
             "budget_factor": budget_factor(),
             "fixture": fixture_shape,
             "metrics": self.metrics,
@@ -246,7 +297,7 @@ pub(crate) fn proc_sample(pid: i32) -> ProcSample {
     }
 }
 
-fn live_children(pid: i32) -> usize {
+pub(crate) fn live_children(pid: i32) -> usize {
     let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else {
         return 0;
     };
@@ -631,7 +682,7 @@ const JUMP: &str = "Jump to saved path • original source";
 /// Inside the first 50,000 rows the Jump inventory admits (it lists `src/` first).
 const WIDE_TARGET: &str = "wide/d250/f50.txt";
 
-fn selected_is(frame: &vt100::Screen, sha: &str) -> bool {
+pub(crate) fn selected_is(frame: &vt100::Screen, sha: &str) -> bool {
     selected_history_row(frame).is_some_and(|row| !row.sha.is_empty() && sha.starts_with(&row.sha))
 }
 
@@ -704,7 +755,7 @@ fn there_and_back(rows: usize) -> Vec<usize> {
     (0..=rows).chain((0..rows).rev()).collect()
 }
 
-fn wait_history_at(session: &mut Session, sha: &str) {
+pub(crate) fn wait_history_at(session: &mut Session, sha: &str) {
     let sha = sha.to_owned();
     session.wait_for_cursorless_condition(
         |frame| history_ready(frame) && selected_is(frame, &sha),
@@ -771,7 +822,7 @@ fn history_journey(mouse: bool) {
 
     // Cold start: spawn -> first completed frame with the repository's recent commits.
     let spawned = Instant::now();
-    let mut s = Session::launch_from_with_env(&fixture, &fixture.repo(), 120, 40, &env);
+    let mut s = launch_perf(&fixture, &fixture.repo(), 120, 40, &env);
     s.wait_for_cursorless_condition(
         |frame| frame.contents().contains("Recent commits"),
         "first usable frame",
@@ -1054,7 +1105,7 @@ fn search_journey(mouse: bool) {
 
     // A first run creates the cache; the measured start is the warm one after it.
     let render_first = fixture.root.join("render-first.txt");
-    let mut s = Session::launch_from_with_env(
+    let mut s = launch_perf(
         &fixture,
         &fixture.repo(),
         120,
@@ -1071,7 +1122,7 @@ fn search_journey(mouse: bool) {
         (timings::ENV, render.to_str().unwrap()),
     ];
     let spawned = Instant::now();
-    let mut s = Session::launch_from_with_env(&fixture, &fixture.repo(), 120, 40, &env);
+    let mut s = launch_perf(&fixture, &fixture.repo(), 120, 40, &env);
     s.wait_for_cursorless_condition(
         |frame| frame.contents().contains("Recent commits"),
         "warm first usable frame",

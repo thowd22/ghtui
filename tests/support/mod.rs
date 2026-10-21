@@ -773,7 +773,7 @@ impl Session {
         Self::launch_binary_from(binary, fixture, &fixture.repo(), cols, rows, env)
     }
 
-    fn launch_binary_from(
+    pub fn launch_binary_from(
         binary: &Path,
         fixture: &Fixture,
         directory: &Path,
