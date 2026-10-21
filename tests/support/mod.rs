@@ -744,6 +744,25 @@ impl Session {
         )
     }
 
+    /// Launches the real binary from `directory` with extra child environment (for example
+    /// `GIT_TRACE2_EVENT`, to record every Git child independently of the product).
+    pub fn launch_from_with_env(
+        fixture: &Fixture,
+        directory: &Path,
+        cols: u16,
+        rows: u16,
+        env: &[(&str, &str)],
+    ) -> Self {
+        Self::launch_binary_from(
+            Path::new(env!("CARGO_BIN_EXE_ghtui")),
+            fixture,
+            directory,
+            cols,
+            rows,
+            env,
+        )
+    }
+
     pub fn launch_binary(
         binary: &Path,
         fixture: &Fixture,
