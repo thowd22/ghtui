@@ -278,10 +278,11 @@ impl ConversationPublicationV17 {
     }
     pub(crate) fn draft_caption_v85(&self) -> &'static str {
         match self.draft_cleanup {
-            DraftCleanupV85::Retained => "retained",
-            DraftCleanupV85::Removed => "removed after exact ACK cleanup",
+            // TASK-104: the same three words as the legacy composer outcome.
+            DraftCleanupV85::Retained => "draft retained",
+            DraftCleanupV85::Removed => "draft deleted after exact ACK cleanup",
             DraftCleanupV85::Unknown => {
-                "local cleanup not acknowledged; inspect durable state; never resend"
+                "cleanup unconfirmed (local ACK unknown) • inspect durable state; never resend"
             }
         }
     }

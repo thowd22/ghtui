@@ -1511,6 +1511,145 @@ fn ambiguous(mouse: bool) {
     assert_eq!(writes, 1);
 }
 
+#[test]
+fn composer_keyboard_late_cleanup_ack_shows_cleanup_unconfirmed() {
+    cleanup_unconfirmed(false)
+}
+#[test]
+fn composer_mouse_late_cleanup_ack_shows_cleanup_unconfirmed() {
+    cleanup_unconfirmed(true)
+}
+/// TASK-104: the confirmed comment's local cleanup DELETE is accepted by the
+/// ordered draft queue but completes long after the composer's ACK bound (a
+/// real SQLite trigger keeps the statement busy). The outcome must say
+/// "cleanup unconfirmed": the row is still stored when it is shown (so
+/// "draft deleted" would be false) and the late completion then deletes it
+/// (so "draft retained" would be false too).
+fn cleanup_unconfirmed(mouse: bool) {
+    let fixture = configured();
+    let body = "Late cleanup café comment";
+    let mut steps = initial(false);
+    steps.extend(pages().into_iter().take(7));
+    for _ in 0..3 {
+        steps.extend(legacy_guard());
+    }
+    let mut args = api("repos/org/alpha/issues/7/comments");
+    args[5] = "POST".into();
+    args.extend(["--input".into(), "-".into()]);
+    let created = json!({"id":21,"node_id":"IC21","body":body,"user":{"id":42,"login":"octocat","type":"User"},"issue_url":"https://api.github.invalid/repos/org/alpha/issues/7","html_url":"https://github.invalid/org/alpha/pull/7#issuecomment-21","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"});
+    let mut write = read(args, created.clone());
+    write.stdin = serde_json::to_vec(&json!({"body":body})).unwrap();
+    steps.push(write);
+    steps.push(read(
+        api("repos/org/alpha/issues/comments/21"),
+        created.clone(),
+    ));
+    steps.extend(identity("octocat"));
+    let mut refreshed = pages().into_iter().take(7).collect::<Vec<_>>();
+    refreshed[1].stdout = serde_json::to_vec(&json!([[created]])).unwrap();
+    steps.extend(refreshed);
+    steps.extend(identity("octocat"));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("ghtui");
+    refresh(&mut session, mouse);
+    session.wait_for_screen("Improve auth");
+    choose(&mut session, mouse, "Improve auth", b"\r");
+    session.wait_for_screen("1 comments");
+    open_comment(&mut session, mouse);
+    session.paste(body);
+    session.wait_for_screen(body);
+    session.wait_for_screen("Draft saved locally");
+    readonly_journal(&mut session, &fixture, 15);
+    let path = fixture.root.join("config/ghtui/cache.sqlite3");
+    let scope = Scope::github("github.invalid", Some(42)).unwrap();
+    let resource = "org/alpha/pull/7/composer/comment";
+    install_slow_cleanup_trigger(&path, resource);
+    if mouse {
+        session.click_visible_action("[Submit]")
+    } else {
+        session.send_key(b"\t\t\t\r")
+    }
+    session.wait_for_screen("cleanup unconfirmed (no local ACK within 3s)");
+    session.wait_for_screen("Published • Add conversation comment");
+    let screen = session.screen();
+    assert!(!screen.contains("draft deleted"), "{screen}");
+    assert!(!screen.contains("draft retained"), "{screen}");
+    // Independent stored state while the outcome is shown: still stored.
+    let cache = Cache::open(&path).unwrap();
+    let stored = cache.draft(&scope, resource).unwrap();
+    assert!(
+        stored.as_deref().is_some_and(|draft| draft.contains(body)),
+        "cleanup unconfirmed must be shown while the draft row is still stored"
+    );
+    // The accepted cleanup still owns the row and deletes it late.
+    let started = std::time::Instant::now();
+    while cache.draft(&scope, resource).unwrap().is_some() {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(120),
+            "accepted late cleanup never completed"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // The outcome was never rewritten into a retained/deleted claim.
+    session.wait_for_screen("cleanup unconfirmed");
+    assert!(!session.screen().contains("draft deleted"));
+    choose(&mut session, mouse, "[c Conversation]", b"c");
+    session.wait_for_screen("@octocat");
+    session.wait_for_screen(body);
+    journal(&mut session, &fixture, steps.len());
+    let posts = session
+        .inspect_command_journal(&fixture)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|record| record["args"][5] == "POST")
+        .count();
+    assert_eq!(posts, 1, "exactly one publication, nothing resent");
+    session.quit_and_assert_restored_terminal(mouse);
+    assert!(cache.draft(&scope, resource).unwrap().is_none());
+}
+
+/// A real BEFORE DELETE trigger on the exact composer row that keeps the
+/// worker's DELETE busy for several times the composer's 3 s ACK bound. The
+/// cost is calibrated on this host so the delay does not depend on CPU speed.
+fn install_slow_cleanup_trigger(path: &std::path::Path, resource: &str) {
+    let connection = rusqlite::Connection::open(path).unwrap();
+    connection
+        .execute_batch("CREATE TABLE task104_burn(x INTEGER NOT NULL)")
+        .unwrap();
+    let fill = |rows: u64| {
+        connection.execute("DELETE FROM task104_burn", []).unwrap();
+        connection
+            .execute(
+                "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?1)
+                 INSERT INTO task104_burn(x) SELECT x FROM n",
+                [rows],
+            )
+            .unwrap();
+    };
+    let probe = 1_500u64;
+    fill(probe);
+    let started = std::time::Instant::now();
+    let _: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM task104_burn a, task104_burn b WHERE a.x <> b.x",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let seconds = started.elapsed().as_secs_f64().max(0.001);
+    // Pairs scale with rows squared; aim for about 12 s of work.
+    let rows = ((probe as f64) * (12.0 / seconds).sqrt()).clamp(3_000.0, 200_000.0) as u64;
+    fill(rows);
+    connection
+        .execute_batch(&format!(
+            "CREATE TRIGGER task104_slow_cleanup BEFORE DELETE ON drafts
+             WHEN OLD.resource = '{resource}'
+             BEGIN SELECT count(*) FROM task104_burn a, task104_burn b WHERE a.x <> b.x; END;"
+        ))
+        .unwrap();
+}
+
 fn legacy_guard() -> Vec<GhStep> {
     let mut steps = identity("octocat");
     steps.push(read(

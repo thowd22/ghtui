@@ -475,10 +475,15 @@ pub fn present(
     let status = if confirmed {
         form.submitted = true;
         form.dirty = false;
-        match drafts.remove(form.scope(), form.resource()) {
-            Ok(()) => status,
-            Err(error) => format!("{status} • draft cleanup failed: {error}"),
-        }
+        // TASK-104: a late or lost cleanup ACK is "cleanup unconfirmed",
+        // never a retained/deleted claim about the stored body.
+        let cleanup = drafts.remove_confirmed_publication_v104(
+            database,
+            form.scope(),
+            form.resource(),
+            crate::drafts::CONFIRMED_CLEANUP_ACK_WAIT,
+        );
+        format!("{status} • {}", cleanup.caption())
     } else {
         status
     };

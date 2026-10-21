@@ -206,7 +206,7 @@ fn actual_case(fault: Fault) {
                 assert!(outcome.return_v19.is_none());
                 assert_eq!(
                     outcome.draft_caption_v85(),
-                    "local cleanup not acknowledged; inspect durable state; never resend"
+                    "cleanup unconfirmed (local ACK unknown) • inspect durable state; never resend"
                 );
                 assert_eq!(
                     current_body(&s, &form),

@@ -2784,9 +2784,12 @@ pub(crate) fn publish(
                 .unwrap_or("unknown");
             app.status = format!("{label} • ref#{}", outcome.reference.attempt_id);
             app.content[View::Inbox.index()].extend([
-                format!("Actual safe effect: {actual} • {}",outcome.observation),
-                format!("Original attempt #{} • draft {} • refresh/Inspect explicitly; no automatic retry",outcome.reference.attempt_id,
-                    outcome.draft_caption_v85()),
+                format!("Actual safe effect: {actual} • {}", outcome.observation),
+                format!(
+                    "Original attempt #{} • {} • refresh/Inspect explicitly; no automatic retry",
+                    outcome.reference.attempt_id,
+                    outcome.draft_caption_v85()
+                ),
             ]);
         }
         ResultKindV17::Failure {

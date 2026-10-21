@@ -8,10 +8,16 @@ use std::{
     thread,
 };
 
+#[path = "drafts/confirmed_cleanup_v104.rs"]
+mod confirmed_cleanup_v104;
 #[path = "drafts/conversation_open_cutoff_v20.rs"]
 mod conversation_open_cutoff_v20;
 mod corpus_preview_v4;
 mod publication_v2;
+pub use confirmed_cleanup_v104::{
+    DraftCleanupOutcome, CLEANUP_UNCONFIRMED, CONFIRMED_CLEANUP_ACK_WAIT, DRAFT_DELETED,
+    DRAFT_RETAINED,
+};
 pub(crate) use conversation_open_cutoff_v20::{
     ConversationOpenReadCutoffV20, ReadCutoffFailureV20,
 };
@@ -31,7 +37,14 @@ mod corpus_preview_v4_tests;
 enum Message {
     Save(Scope, String, String, Option<u64>),
     SaveAndWait(Scope, String, String, SyncSender<Result<(), String>>),
-    Remove(Scope, String, SyncSender<Result<(), String>>),
+    /// The optional activity is released by the worker only after the actual
+    /// SQL, so a caller that stops waiting never ends an accepted cleanup.
+    Remove(
+        Scope,
+        String,
+        SyncSender<Result<(), String>>,
+        Option<corpus_preview_v4::LegacyActivityV4>,
+    ),
     PublicationV2(Box<publication_v2::PublicationMessageV2>),
     Shutdown,
 }
@@ -79,7 +92,7 @@ impl DraftClient {
         let (sender, reply) = mpsc::sync_channel(1);
         let _activity = self.producer.begin_legacy()?;
         self.sender
-            .send(Message::Remove(scope, resource, sender))
+            .send(Message::Remove(scope, resource, sender, None))
             .map_err(|_| "Draft writer closed".to_owned())?;
         reply.recv().map_err(|_| "Draft writer closed".to_owned())?
     }
@@ -117,12 +130,13 @@ impl DraftWriter {
                             result,
                         });
                     }
-                    Message::Remove(scope, resource, reply) => {
+                    Message::Remove(scope, resource, reply, activity) => {
                         let result = cache.as_ref().map_err(Clone::clone).and_then(|cache| {
                             cache
                                 .remove_draft(&scope, &resource)
                                 .map_err(|error| error.to_string())
                         });
+                        drop(activity);
                         let _ = reply.send(result);
                     }
                     Message::SaveAndWait(scope, resource, body, reply) => {
