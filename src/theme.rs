@@ -193,6 +193,26 @@ impl SemanticToken {
 }
 
 impl SemanticToken {
+    /// The one mapping from a GitHub check run, commit status, workflow run or job state to its
+    /// semantic token, shared by Actions, PR Checks and the scoped PR resources so the same
+    /// state never shows as passed in one view and waiting in another. A conclusion decides
+    /// first (`error` is a commit status that errored); without one the live status does.
+    /// Completed rows with an unknown conclusion and unknown states are muted, not waiting.
+    pub fn ci_state(status: &str, conclusion: &str) -> Self {
+        match conclusion.to_ascii_lowercase().as_str() {
+            "success" => Self::Success,
+            "failure" | "error" | "timed_out" | "startup_failure" | "action_required" => {
+                Self::Failure
+            }
+            "cancelled" => Self::Cancelled,
+            "skipped" | "neutral" | "stale" => Self::Muted,
+            _ => match status.to_ascii_lowercase().as_str() {
+                "in_progress" => Self::Running,
+                "queued" | "waiting" | "pending" | "requested" | "expected" => Self::Pending,
+                _ => Self::Muted,
+            },
+        }
+    }
     /// The role that colors this token. Status tokens always pair the color with `symbol()`.
     pub fn role(self) -> Role {
         match self {
@@ -766,6 +786,9 @@ impl Theme {
     }
 }
 
+#[cfg(test)]
+#[path = "theme_audit_v64_tests.rs"]
+mod audit_v64_tests;
 #[cfg(test)]
 #[path = "theme_tests.rs"]
 mod tests;

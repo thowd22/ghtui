@@ -608,18 +608,9 @@ pub fn human_bytes(bytes: u64) -> String {
     }
     format!("{value:.1} {}", UNITS[unit])
 }
+/// A run, job or step state's token: the shared `SemanticToken::ci_state` mapping.
 pub fn status_role(status: &str, conclusion: &str) -> SemanticToken {
-    match conclusion {
-        "success" => SemanticToken::Success,
-        "failure" | "timed_out" | "startup_failure" | "action_required" => SemanticToken::Failure,
-        "cancelled" => SemanticToken::Cancelled,
-        "skipped" | "neutral" | "stale" => SemanticToken::Muted,
-        _ => match status {
-            "in_progress" => SemanticToken::Running,
-            "queued" | "waiting" | "pending" | "requested" => SemanticToken::Pending,
-            _ => SemanticToken::Muted,
-        },
-    }
+    SemanticToken::ci_state(status, conclusion)
 }
 /// Step rows show how long a completed step took; unparsed or still-running
 /// timestamps are shown as reported.

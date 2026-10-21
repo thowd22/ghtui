@@ -28,6 +28,8 @@ mod pr_metadata;
 mod pr_progress;
 #[path = "pr_reviews_v1.rs"]
 mod pr_reviews_v1;
+#[path = "semantic_identity_v64.rs"]
+mod semantic_identity_v64;
 
 pub(crate) fn configured() -> Fixture {
     let fixture = Fixture::new();

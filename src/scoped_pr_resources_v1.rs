@@ -1080,14 +1080,9 @@ impl ScopedPrResourceViewV1 {
                         } else {
                             "unknown repeated context"
                         };
-                        let role = match state {
-                            "success" => SemanticToken::Success,
-                            "failure" | "error" | "timed_out" | "action_required" => {
-                                SemanticToken::Failure
-                            }
-                            "cancelled" => SemanticToken::Cancelled,
-                            _ => SemanticToken::Pending,
-                        };
+                        // One state string (conclusion, else status) through the shared CI
+                        // mapping; an unknown or repeated context is muted, not waiting.
+                        let role = SemanticToken::ci_state(state, state);
                         let mut item = row(
                             format!(
                                 "{}#{} • {} • {} • {}",

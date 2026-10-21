@@ -280,9 +280,15 @@ impl PrRow {
 /// Latest decision per reviewer, in first-review order. A later plain
 /// comment does not replace an approval or change request (GitHub semantics).
 pub fn review_decisions(reviews: &[serde_json::Value]) -> String {
-    let mut latest: Vec<(String, &str)> = Vec::new();
+    // (login key, shared identity label, latest decision word)
+    let mut latest: Vec<(String, String, &str)> = Vec::new();
     for review in reviews {
-        let login = review["user"]["login"].as_str().unwrap_or("unknown");
+        // The shared identity label, read as the Conversation tab reads review authors: a
+        // deleted or missing reviewer is never shown as a username, and a bot or organization
+        // keeps its kind.
+        let actor = value_actor(&review["user"]);
+        let label = crate::identity::ActorIdentity::github("", &actor).label();
+        let login = actor.login.as_str();
         let state = review["state"].as_str().unwrap_or("");
         let word = match state {
             "APPROVED" => "approved",
@@ -292,18 +298,19 @@ pub fn review_decisions(reviews: &[serde_json::Value]) -> String {
             "PENDING" => "pending review (not submitted)",
             _ => continue,
         };
+        // Reviews without an account are never merged into one another.
         match latest
             .iter_mut()
-            .find(|(who, _)| who.eq_ignore_ascii_case(login))
+            .find(|(who, _, _)| !login.is_empty() && who.eq_ignore_ascii_case(login))
         {
             Some(entry)
                 if matches!(state, "COMMENTED" | "PENDING")
                     && matches!(
-                        entry.1,
+                        entry.2,
                         "approved" | "requested changes" | "review dismissed"
                     ) => {}
-            Some(entry) => entry.1 = word,
-            None => latest.push((login.to_owned(), word)),
+            Some(entry) => entry.2 = word,
+            None => latest.push((login.to_owned(), label, word)),
         }
     }
     if latest.is_empty() {
@@ -311,7 +318,7 @@ pub fn review_decisions(reviews: &[serde_json::Value]) -> String {
     }
     let parts: Vec<String> = latest
         .iter()
-        .map(|(who, word)| format!("@{who} {word}"))
+        .map(|(_, label, word)| format!("{label} {word}"))
         .collect();
     format!("Reviews: {}", parts.join(" • "))
 }
@@ -595,20 +602,10 @@ impl PrPage {
                                     None if required.is_some() => " • required unknown",
                                     None => "",
                                 };
-                                let role = match check.conclusion.as_str() {
-                                    "success" => SemanticToken::Success,
-                                    "failure" | "timed_out" | "action_required" => {
-                                        SemanticToken::Failure
-                                    }
-                                    "cancelled" => SemanticToken::Cancelled,
-                                    _ => {
-                                        if check.status == "in_progress" {
-                                            SemanticToken::Running
-                                        } else {
-                                            SemanticToken::Pending
-                                        }
-                                    }
-                                };
+                                // The shared CI mapping: an errored commit status fails and a
+                                // skipped check is muted here exactly as in Actions and Inbox.
+                                let role =
+                                    SemanticToken::ci_state(&check.status, &check.conclusion);
                                 PrRow {
                                     label: format!(
                                         "{} {} • {} / {} • {}{marker}",
@@ -2005,6 +2002,7 @@ mod v1_pr_reviews_tests {
     use super::review_decisions;
     use crate::forms::{PrFormKind, PrIntent};
     use crate::providers::gh::{HostIdentity, PrSummary};
+    use crate::theme::SemanticToken;
     use serde_json::json;
 
     fn summary(author: &str, state: &str, merged: bool) -> PrSummary {
@@ -2029,6 +2027,50 @@ mod v1_pr_reviews_tests {
             review_decisions(&reviews),
             "Reviews: @hubot approved • @octocat requested changes • @monalisa pending review (not submitted)"
         );
+    }
+
+    #[test]
+    fn audit_v64_review_decisions_use_the_shared_identity_label() {
+        // TASK-64 AC3: bots, deleted (ghost) and missing reviewers read as the shared identity
+        // fallback says, never as a bare `@login` and never as a fake `@unknown` account.
+        let reviews = [
+            json!({"user":{"login":"ci-helper","type":"Bot"},"state":"APPROVED"}),
+            json!({"user":null,"state":"COMMENTED"}),
+            json!({"user":null,"state":"CHANGES_REQUESTED"}),
+            json!({"user":{"login":"ghost","type":"User"},"state":"DISMISSED"}),
+            json!({"user":{"login":"acme","type":"Organization"},"state":"COMMENTED"}),
+        ];
+        let line = review_decisions(&reviews);
+        assert_eq!(
+            line,
+            "Reviews: @ci-helper [bot] approved • unknown actor [unknown] commented • \
+             unknown actor [unknown] requested changes • @ghost [deleted] review dismissed • \
+             @acme [organization] commented"
+        );
+        assert!(!line.contains("@unknown"), "{line}");
+    }
+
+    #[test]
+    fn audit_v64_pr_checks_rows_use_the_shared_ci_state_tokens() {
+        // An errored commit status fails and a skipped check is muted, as in Actions/Inbox.
+        for (status, conclusion, token) in [
+            ("completed", "error", SemanticToken::Failure),
+            ("completed", "startup_failure", SemanticToken::Failure),
+            ("completed", "skipped", SemanticToken::Muted),
+            ("completed", "neutral", SemanticToken::Muted),
+            ("completed", "success", SemanticToken::Success),
+            ("completed", "cancelled", SemanticToken::Cancelled),
+            ("in_progress", "", SemanticToken::Running),
+            ("queued", "", SemanticToken::Pending),
+            ("pending", "", SemanticToken::Pending),
+        ] {
+            assert_eq!(SemanticToken::ci_state(status, conclusion), token);
+            assert_eq!(
+                crate::actions_workspace::status_role(status, conclusion),
+                token,
+                "Actions and PR Checks share one mapping"
+            );
+        }
     }
 
     #[test]
