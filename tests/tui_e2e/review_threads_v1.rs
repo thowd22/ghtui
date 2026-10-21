@@ -3,6 +3,8 @@
 use super::*;
 #[path = "file_comments_v75.rs"]
 pub(crate) mod file_comments_v75;
+#[path = "pr_branch_edits.rs"]
+mod pr_branch_edits;
 #[path = "review_thread_publication_v1.rs"]
 mod publication_v1;
 #[path = "review_thread_suggestions_v23.rs"]

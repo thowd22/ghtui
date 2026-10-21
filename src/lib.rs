@@ -62,6 +62,7 @@ pub(crate) mod original_diff_sides_v1_test_support;
 pub mod personal_pr_entry_v13;
 pub mod pr_actions;
 pub mod pr_actor_profile_v1;
+pub mod pr_branch_edit_v27;
 pub mod pr_checks_actions;
 pub mod pr_checks_native;
 pub mod pr_checks_sql_guard;

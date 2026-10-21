@@ -36,6 +36,9 @@ fn draw_screen(frame: &mut Frame, app: &mut App) {
     app.pointer_region.clear();
     crate::notification_pr_v63::retire_invalid(app);
     crate::notifications_native_v63::retire_invalid(app);
+    if crate::pr_branch_edit_v27::draw(frame, app) {
+        return;
+    }
     if app.overlay == Some(Overlay::NotificationsV63) {
         let area = frame.area();
         crate::notifications_ui_v63::draw(frame, app, area);

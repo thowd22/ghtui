@@ -115,6 +115,8 @@ pub enum Action {
     PrFileImage(
         crate::scoped_pr_observed_tabs_v1::resources::immutable_images::ui::PrImageUiActionV1,
     ),
+    /// TASK-27: edit a PR branch file or resolve its conflicts in an isolated revision.
+    PrBranchEditV27(crate::pr_branch_edit_v27::BranchEditActionV27),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -239,6 +241,8 @@ pub struct App {
     pub scoped_threads_owner_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::native_v1::ScopedThreadsOwnerV1>>,
     pub scoped_threads_cancel_v1: bool,
     pub scoped_threads_v1: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::ui_v1::ThreadBrowserV1>,
+    /// TASK-27: the PR branch edit or conflict resolution in its isolated revision.
+    pub pr_branch_edit_v27: Option<crate::pr_branch_edit_v27::PrBranchEditViewV27>,
     pub scoped_thread_code_return_v4: Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::code_v4::ThreadCodeReturnV4>,
     pub scoped_thread_history_v1:Option<crate::scoped_pr_observed_tabs_v1::resources::threads_v1::history_v1::ui::ThreadHistoryBrowserV1>,
     pub scoped_inline_work_v1: Option<Arc<crate::scoped_pr_observed_tabs_v1::resources::immutable_images::inline_v1::native_v1::ScopedInlineWorkV1>>,
@@ -506,6 +510,7 @@ impl Default for App {
             scoped_threads_owner_v1: None,
             scoped_threads_cancel_v1: false,
             scoped_threads_v1: None,
+            pr_branch_edit_v27: None,
             scoped_thread_code_return_v4: None,
             scoped_thread_history_v1: None,
             scoped_inline_work_v1: None,
@@ -1121,6 +1126,10 @@ impl App {
         controls
     }
     pub fn dispatch(&mut self, action: Action) {
+        if let Action::PrBranchEditV27(input) = &action {
+            crate::pr_branch_edit_v27::dispatch(self, *input);
+            return;
+        }
         if let Action::NotificationsV63(input) = &action {
             crate::notifications_ui_v63::dispatch(self, *input);
             return;
@@ -1599,6 +1608,7 @@ impl App {
                 self.overlay = None;
             }
             Action::PrFileImage(_) => unreachable!("Immutable image action dispatched above"),
+            Action::PrBranchEditV27(_) => unreachable!("Branch edit action dispatched above"),
             Action::View(view) => {
                 if view != View::Inbox { self.closed_conversation_draft_v20 = None; }
                 self.clear_capability_inspector();
@@ -2341,6 +2351,10 @@ impl App {
         crate::notification_pr_v63::retire_invalid(self);
         if old_notification_pr && self.notification_pr_source_v63.is_none() && self.github.is_none()
         {
+            return;
+        }
+        // TASK-27: the open branch edit owns every key and click.
+        if crate::pr_branch_edit_v27::event(self, &event) {
             return;
         }
         if crate::notifications_ui_v63::event(self, &event) {

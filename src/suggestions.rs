@@ -348,12 +348,12 @@ pub struct ApplyRequest<'a> {
 
 /// Cancellation and time bounds shared by every Git child of one apply.
 #[derive(Clone, Copy)]
-struct Bounds<'a> {
-    cancel: Option<&'a CancellationToken>,
-    deadline: Option<Instant>,
+pub(crate) struct Bounds<'a> {
+    pub(crate) cancel: Option<&'a CancellationToken>,
+    pub(crate) deadline: Option<Instant>,
 }
 impl Bounds<'_> {
-    fn check(&self) -> Result<(), SuggestionError> {
+    pub(crate) fn check(&self) -> Result<(), SuggestionError> {
         if self.cancel.is_some_and(CancellationToken::is_cancelled) {
             return Err(SuggestionError::Cancelled);
         }
@@ -367,13 +367,34 @@ impl Bounds<'_> {
     }
 }
 
-fn git(
+pub(crate) fn git(
     bounds: Bounds<'_>,
     dir: &Path,
     args: &[&str],
     env: &[(&str, &str)],
     stdin: Option<&[u8]>,
 ) -> Result<Vec<u8>, SuggestionError> {
+    let (success, stdout, stderr) = git_output(bounds, dir, args, env, stdin)?;
+    if success {
+        Ok(stdout)
+    } else {
+        Err(SuggestionError::Git(format!(
+            "git {}: {}",
+            args.first().copied().unwrap_or(""),
+            String::from_utf8_lossy(&stderr).trim()
+        )))
+    }
+}
+
+/// One bounded Git child: whether it succeeded, its stdout and its stderr. For
+/// commands such as `merge-tree`, whose exit status is an answer.
+pub(crate) fn git_output(
+    bounds: Bounds<'_>,
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+) -> Result<(bool, Vec<u8>, Vec<u8>), SuggestionError> {
     bounds.check()?;
     let mut command = Command::new("git");
     command
@@ -440,17 +461,9 @@ fn git(
     };
     let stdout = stdout.join().unwrap_or_default();
     let stderr = stderr.join().unwrap_or_default();
-    if status.success() {
-        Ok(stdout)
-    } else {
-        Err(SuggestionError::Git(format!(
-            "git {}: {}",
-            args.first().copied().unwrap_or(""),
-            String::from_utf8_lossy(&stderr).trim()
-        )))
-    }
+    Ok((status.success(), stdout, stderr))
 }
-fn text(bytes: Vec<u8>) -> String {
+pub(crate) fn text(bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).trim().to_owned()
 }
 
@@ -464,7 +477,7 @@ impl Drop for Scratch {
 
 /// The remote's own explanation of a refused push: the `remote:` lines a hook
 /// or the host printed, else Git's whole message, on one line.
-fn rejection_reason(message: &str) -> String {
+pub(crate) fn rejection_reason(message: &str) -> String {
     let text = message.strip_prefix("git push: ").unwrap_or(message);
     let remote: Vec<String> = text
         .lines()

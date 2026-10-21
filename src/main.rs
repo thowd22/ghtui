@@ -3001,6 +3001,16 @@ fn run() -> Result<()> {
             });
         }
         ghtui::suggestion_apply_v1::tick(&mut app, &paths.database);
+        ghtui::pr_branch_edit_v27::tick(&mut app, &paths.database);
+        if let Some(work) = ghtui::pr_branch_edit_v27::take_editor_request(&mut app) {
+            let edited = edit_file_in_place(&mut guard, &work);
+            // Fullscreen re-entry needs a complete repaint.
+            terminal.resize(terminal.size()?.into())?;
+            ghtui::pr_branch_edit_v27::editor_finished(
+                &mut app,
+                edited.map_err(|error| format!("{error:#}")),
+            );
+        }
         let render_started = render_timings.start();
         let drawn = terminal.draw(|frame| ui::draw(frame, &mut app))?.area;
         render_timings.record(render_started, drawn.width, drawn.height);
@@ -3118,6 +3128,34 @@ fn verify_search_identity(
         || current.account_id.is_none()
     {
         return Err("Account changed during remote search • private results hidden; no prior scope is unlocked".into());
+    }
+    Ok(())
+}
+
+/// TASK-27: opens an existing work file of a PR branch edit in `$VISUAL` or
+/// `$EDITOR`. The file stays where it is whatever the editor does.
+fn edit_file_in_place(guard: &mut TerminalGuard, path: &std::path::Path) -> Result<()> {
+    let editor = std::env::var("VISUAL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var("EDITOR").ok())
+        .unwrap_or_else(|| "vi".into());
+    let args = shell_words::split(&editor).map_err(anyhow::Error::msg)?;
+    let program = args
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("EDITOR is empty"))?;
+    guard.suspend()?;
+    let status = std::process::Command::new(program)
+        .args(&args[1..])
+        .arg(path)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+    guard.resume()?;
+    let status = status?;
+    if !status.success() {
+        bail!("{program} exited with {status}");
     }
     Ok(())
 }

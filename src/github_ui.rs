@@ -211,6 +211,9 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
                 .with_priority(50)
                 .disabled_by(reason),
         );
+        // TASK-27: edit the selected file, or resolve the PR's conflicts, in an isolated
+        // revision. Lowest priority: they leave a narrow bar first; Commands lists them.
+        keys.extend(crate::pr_branch_edit_v27::footer_keys(app));
     }
     keys.extend(crate::pr_metadata_quick_v1::footer_keys(app));
     // While the page is loading, `Esc Cancel` joins the bar and Refresh replaces the read in

@@ -1170,7 +1170,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Draws the shared list avatar (image or initials chip) and its gap at the
 /// start of `rect`; returns the cells used.
-fn avatar_lead(
+pub(crate) fn avatar_lead(
     frame: &mut Frame,
     avatars: &crate::actor_avatar_states_v1::ActorAvatarStatesV1,
     theme: crate::theme::Theme,
