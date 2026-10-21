@@ -56,6 +56,15 @@ pub struct Corpus {
     pub documents: Vec<Document>,
     pub coverage: Coverage,
 }
+/// The document consumer of [`Corpus::collect_with`] and what it has been handed.
+struct Sink<'a> {
+    visit: &'a mut dyn FnMut(&mut Vec<Document>) -> bool,
+    /// Documents admitted to the corpus (some may have been taken by `visit`).
+    admitted: usize,
+    /// Files enumerated for reading, so an early stop can say how many it left unread.
+    enumerated: usize,
+    stopped: bool,
+}
 struct FileInput {
     path: RawPath,
     revision: Option<String>,
@@ -70,11 +79,32 @@ impl Corpus {
         limits: &CorpusLimits,
         cancellation: &CancellationToken,
     ) -> Result<Self, QueryError> {
+        Self::collect_with(scope, selections, limits, cancellation, &mut |_| true)
+    }
+    /// [`Corpus::collect`] that hands every admitted document to `sink` as soon as it is
+    /// read (TASK-112). Selections are visited in the given order and each one's files in
+    /// sorted path order, so with selections sorted by repository a sink that stops early
+    /// (returns `false`) has seen exactly the first documents of the full sorted corpus. The sink may take documents out of `documents`; whatever it leaves stays in
+    /// the returned corpus. After a stop, coverage is partial and names how many of the
+    /// enumerated files were read, so the totals never overstate what was searched.
+    pub fn collect_with(
+        scope: Scope,
+        selections: &[RepositorySelection],
+        limits: &CorpusLimits,
+        cancellation: &CancellationToken,
+        sink: &mut dyn FnMut(&mut Vec<Document>) -> bool,
+    ) -> Result<Self, QueryError> {
         if limits.max_file_bytes == 0 || limits.max_documents == 0 || limits.max_total_bytes == 0 {
             return Err(QueryError(
                 "Search resource limits must be greater than zero".into(),
             ));
         }
+        let mut sink = Sink {
+            visit: sink,
+            admitted: 0,
+            enumerated: 0,
+            stopped: false,
+        };
         let mut corpus = Self {
             scope,
             documents: Vec::new(),
@@ -84,6 +114,7 @@ impl Corpus {
                 ..Default::default()
             },
         };
+        let mut unreached = 0usize;
         for selection in selections {
             validate_repository(&selection.repository)
                 .map_err(|error| QueryError(error.to_string()))?;
@@ -96,11 +127,16 @@ impl Corpus {
                 .coverage
                 .repositories
                 .push(selection.repository.clone());
+            if sink.stopped {
+                // Still in the selected scope, just never reached.
+                unreached += 1;
+                continue;
+            }
             if cancellation.is_cancelled() {
                 corpus.cancel();
                 break;
             }
-            let result = corpus.collect_repository(selection, limits, cancellation);
+            let result = corpus.collect_repository(selection, limits, cancellation, &mut sink);
             if let Err(error) = result {
                 corpus.coverage.complete = false;
                 corpus.coverage.deletion_authoritative = false;
@@ -118,7 +154,21 @@ impl Corpus {
                 break;
             }
         }
-        corpus.coverage.documents = corpus.documents.len();
+        corpus.coverage.documents = sink.admitted;
+        if sink.stopped {
+            corpus.coverage.complete = false;
+            corpus.coverage.deletion_authoritative = false;
+            corpus.coverage.reasons.push(format!(
+                "Reading stopped with the scan budget: {} of {} enumerated files read{}; later files were not searched",
+                sink.admitted,
+                sink.enumerated,
+                if unreached == 0 {
+                    String::new()
+                } else {
+                    format!(", {unreached} selected repositories not reached")
+                }
+            ));
+        }
         corpus.documents.sort_by(|a, b| {
             (
                 &a.key.repository,
@@ -242,6 +292,7 @@ impl Corpus {
         selection: &RepositorySelection,
         limits: &CorpusLimits,
         cancellation: &CancellationToken,
+        sink: &mut Sink<'_>,
     ) -> Result<(), QueryError> {
         let repository =
             GitRepository::discover_with_cancellation(&selection.directory, cancellation.clone())
@@ -271,10 +322,13 @@ impl Corpus {
                 }
                 let root =
                     fs::canonicalize(&repository.root).map_err(|e| QueryError(e.to_string()))?;
+                // Enumerate first and read in the corpus's sorted path order, so a sink that
+                // stops early has seen exactly the first documents (TASK-112).
+                let mut files = Vec::new();
                 for entry in walker(&root, limits).build() {
                     if cancellation.is_cancelled() {
                         self.cancel();
-                        break;
+                        return Ok(());
                     }
                     let entry = entry.map_err(|e| QueryError(e.to_string()))?;
                     if entry.file_type().is_some_and(|kind| kind.is_dir()) {
@@ -287,10 +341,22 @@ impl Corpus {
                     let relative = entry
                         .path()
                         .strip_prefix(&root)
-                        .map_err(|e| QueryError(e.to_string()))?;
-                    let path = RawPath::new(relative.as_os_str().as_bytes().to_vec());
-                    let metadata = fs::symlink_metadata(entry.path())
-                        .map_err(|e| QueryError(e.to_string()))?;
+                        .map_err(|e| QueryError(e.to_string()))?
+                        .as_os_str()
+                        .as_bytes()
+                        .to_vec();
+                    files.push((relative, entry.into_path()));
+                }
+                files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+                sink.enumerated += files.len();
+                for (relative, full) in files {
+                    if cancellation.is_cancelled() {
+                        self.cancel();
+                        break;
+                    }
+                    let path = RawPath::new(relative);
+                    let metadata =
+                        fs::symlink_metadata(&full).map_err(|e| QueryError(e.to_string()))?;
                     if metadata.len() > limits.max_file_bytes as u64 {
                         self.coverage.skipped_large += 1;
                         self.coverage.complete = false;
@@ -303,7 +369,7 @@ impl Corpus {
                     let mut file = OpenOptions::new()
                         .read(true)
                         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                        .open(entry.path())
+                        .open(&full)
                         .map_err(|e| QueryError(e.to_string()))?;
                     if !file
                         .metadata()
@@ -341,7 +407,11 @@ impl Corpus {
                             history_overrides: history_overrides.clone(),
                         },
                         limits,
+                        sink,
                     )?;
+                    if sink.stopped {
+                        break;
+                    }
                 }
                 self.coverage.reasons.push(format!("{} working files: ignores {} and hidden paths {}; mutable files are not a saved-version index",selection.repository,if limits.include_ignored{"included"}else{"excluded"},if limits.include_hidden{"included"}else{"excluded"}));
             }
@@ -365,6 +435,7 @@ impl Corpus {
                         })
                         .collect::<Vec<_>>();
                     self.coverage.skipped_special += batch.len() - regular.len();
+                    sink.enumerated += regular.len();
                     let ids = regular
                         .iter()
                         .map(|entry| entry.id.clone())
@@ -420,7 +491,11 @@ impl Corpus {
                                     history_overrides: history_overrides.clone(),
                                 },
                                 limits,
+                                sink,
                             )?;
+                            if sink.stopped {
+                                return Ok(());
+                            }
                         }
                     }
                 }
@@ -453,6 +528,7 @@ impl Corpus {
         directory: &std::path::Path,
         input: FileInput,
         limits: &CorpusLimits,
+        sink: &mut Sink<'_>,
     ) -> Result<(), QueryError> {
         let FileInput {
             path,
@@ -530,6 +606,10 @@ impl Corpus {
         };
         document.validate(&self.scope)?;
         self.documents.push(document);
+        sink.admitted += 1;
+        if !(sink.visit)(&mut self.documents) {
+            sink.stopped = true;
+        }
         Ok(())
     }
     fn cancel(&mut self) {

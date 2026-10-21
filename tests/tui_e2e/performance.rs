@@ -1236,6 +1236,15 @@ fn search_journey(mouse: bool) {
         |frame| search_settled(frame, &["results • Exact", ".rs"]),
     );
     report.budget("search_exact_first_page", exact, SEARCH_FIRST_PAGE_MS);
+    // TASK-112: the first page stopped reading once its 1,000 matches were found (one per
+    // file, in path order), and its totals count only the files it read.
+    let screen = s.screen();
+    report.require(
+        "search_exact_first_page_bounded",
+        screen.contains("1000 results • Exact")
+            && screen.contains("PARTIAL • 1000 documents across 1 repositories"),
+        screen.clone(),
+    );
 
     // Ranked, first query: the index builds (indexing, measured separately). A keypress made
     // while it builds is served at input-to-render speed.

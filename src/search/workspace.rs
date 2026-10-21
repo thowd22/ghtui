@@ -345,6 +345,25 @@ impl SearchWorkspace {
             ));
         }
         let (mut query, selections) = self.prepare_selections(input)?;
+        // TASK-112: working files alone stream into the scan, which stops reading once the
+        // first page is full; the hits equal a full collection's first page.
+        if self.metadata_sources.is_empty()
+            && !selections.is_empty()
+            && selections
+                .iter()
+                .all(|selection| selection.source == LocalSource::Worktree)
+        {
+            let page = super::scan::exact_search_streaming(
+                self.scope.clone(),
+                &selections,
+                &self.ranked_file_limits(0, 0),
+                &query,
+                &self.scan_limits,
+                cancellation,
+            )?;
+            self.accept_page(input, selections, page);
+            return Ok(());
+        }
         let (corpus, _) = self.collect_combined(&query, &selections, cache, cancellation)?;
         Self::resolve_file_filter(&mut query, &corpus);
         let page = exact_search(&corpus, &query, &self.scan_limits, cancellation)?;

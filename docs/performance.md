@@ -68,6 +68,14 @@ is not used, because initial indexing of 100k documents does not fit the 2-minut
 for the PTY suite in a debug build. Ranked first-page timing is warm: it is measured on the
 second query, after the index for this corpus has been built.
 
+Exact search reads and scans the working files one at a time in sorted path order and stops
+reading once its 1,000-match page is full (TASK-112). The page is the one a full read would
+give, because the collected corpus is searched in that same order. Its totals count only the
+files read (`PARTIAL • 1000 documents across 1 repositories`), and a coverage note says how
+many of the enumerated files were left unread. A release profile of the old path: reading all
+5,000 files took about 84 ms of the in-process 89 ms (about 27 ms of it repository discovery
+child processes); the scan itself took about 1 ms.
+
 ### Warm Ranked reuse (TASK-106)
 
 The warmed Ranked first page is held to the warmed search budget (`search_ranked_warm_first_page`,
@@ -163,7 +171,7 @@ Interactive budgets (keyboard / mouse journey):
 | Render cost 80x24, History journey | p95 16 | p95 2.8 (n=11) | p95 2.8 (n=21) | met |
 | Render cost 120x40, Search journey | p95 16 | p95 0.6 (n=283) | p95 0.7 (n=178) | met |
 | Keypress while the ranked index builds | 50 | 2 | 4 | met |
-| Exact search first page (matches all 5,000 files) | 100 | 123 | 125 | **over** |
+| Exact search first page (matches all 5,000 files) | 100 | 81 | 82 | met after TASK-112 (was 123 / 125) |
 | 50k-file tree path search first page | 100 | 42 | 42 | met |
 | Cached 5 MB diff reopen | 150 | 214 (TASK-110; was 554) | 219 (TASK-110; was 516) | **over** (known gap) |
 | Warmed Ranked first page | 100 | 1,376 | 1,622 | **over** before TASK-106 reuse landed; not yet re-measured in release |
@@ -212,9 +220,6 @@ change passed in debug but has not been run against the release binary yet.
 
 ## Known gaps
 
-- **Exact search first page** misses its 100 ms budget in release (123 to 125 ms) for a query
-  that matches all 5,000 files. Selective queries are well within it.
-
 - **History loses the reader's place after the next page loads.** Scrolling past the 200th
   commit loads 200 more (`400 commits loaded · showing 1–200`), but the table returns to the
   newest commit, with the bar on row 0 (`history_after_next_page` in the report). Responsiveness
@@ -252,8 +257,8 @@ GHTUI_PERF_BINARY=$CARGO_TARGET_DIR/release/ghtui GHTUI_PERF_BUDGET_FACTOR=1 \
   --nocapture --test-threads=1
 ```
 
-Under factor 1, the exact-search and cached-diff gaps above count as violations, so the two
-History/diff journeys and the two Search journeys fail this run as expected. The warmed Ranked
+Under factor 1, the cached-diff gap above counts as a violation, so the two History/diff
+journeys fail this run as expected. The warmed Ranked
 gap is only printed. The JSON reports are the record. The debug gate (factor 10) is the one that
 must pass.
 

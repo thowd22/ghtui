@@ -557,6 +557,145 @@ fn exact_search_real_worktree_and_saved_commit_preserve_paths_coordinates_and_us
     );
 }
 
+/// One comparable row per hit: repository, path, coordinates, snippet and highlight.
+fn hit_rows(page: &ghtui::search::scan::SearchPage) -> Vec<(String, String, usize, usize, String)> {
+    page.hits
+        .iter()
+        .map(|hit| {
+            (
+                hit.document.key.repository.clone(),
+                hit.document.title.clone(),
+                hit.line,
+                hit.column,
+                format!("{} {:?}", hit.snippet, hit.highlights),
+            )
+        })
+        .collect()
+}
+
+/// TASK-112: the streaming first page reads only until the match budget is full, and its hits
+/// equal a full collection followed by the scan, across repositories given out of order and
+/// paths whose walk order differs from byte order (`a.txt` sorts before `a/b.txt`).
+#[test]
+fn exact_search_streaming_first_page_equals_full_scan_and_stops_reading_when_full() {
+    let alpha = git_support::Fixture::linear();
+    let zeta = git_support::Fixture::linear();
+    let names = [
+        "z.txt",
+        "a/c/d.txt",
+        "b/a.txt",
+        "a.txt",
+        "b-1.txt",
+        "a/b.txt",
+    ];
+    for fixture in [&alpha, &zeta] {
+        for name in names {
+            fixture.write(
+                name,
+                format!("streamneedle {name}\nthen streamneedle again\n").as_bytes(),
+            );
+        }
+    }
+    let status = |fixture: &git_support::Fixture| {
+        git_support::git(&fixture.root, ["status", "--porcelain=v1", "-z"]).stdout
+    };
+    let before = (status(&alpha), status(&zeta), alpha.head(), zeta.head());
+    let scope = Scope::new("github.invalid", "alice").unwrap();
+    let selection = |repository: &str, fixture: &git_support::Fixture| RepositorySelection {
+        repository: repository.into(),
+        directory: fixture.root.clone(),
+        source: LocalSource::Worktree,
+        sets: vec![],
+    };
+    let selections = vec![selection("org/zeta", &zeta), selection("org/alpha", &alpha)];
+    let limits = CorpusLimits::default();
+    let cancel = CancellationToken::default();
+    let query = Query::parse("streamneedle", SearchMode::Exact).unwrap();
+    let full_corpus = Corpus::collect(scope.clone(), &selections, &limits, &cancel).unwrap();
+    for max_matches in [1, 3, 7, 12, 1000] {
+        let scan = ScanLimits {
+            max_matches,
+            ..Default::default()
+        };
+        let full = exact_search(&full_corpus, &query, &scan, &cancel).unwrap();
+        let streamed = ghtui::search::scan::exact_search_streaming(
+            scope.clone(),
+            &selections,
+            &limits,
+            &query,
+            &scan,
+            &cancel,
+        )
+        .unwrap();
+        assert_eq!(
+            hit_rows(&streamed),
+            hit_rows(&full),
+            "max_matches {max_matches}"
+        );
+        assert_eq!(streamed.coverage.complete, full.coverage.complete);
+        assert_eq!(streamed.coverage.repositories, ["org/alpha", "org/zeta"]);
+        if max_matches == 3 {
+            // Two matches per file: the third match ends the page inside the second file.
+            assert_eq!(
+                hit_rows(&streamed)
+                    .iter()
+                    .map(|row| (row.0.as_str(), row.1.as_str(), row.2))
+                    .collect::<Vec<_>>(),
+                [
+                    ("org/alpha", "a.txt", 1),
+                    ("org/alpha", "a.txt", 2),
+                    ("org/alpha", "a/b.txt", 1)
+                ]
+            );
+            assert_eq!(streamed.coverage.documents, 2, "only the files read count");
+            assert!(full.coverage.documents > 2 * names.len());
+            assert!(!streamed.coverage.complete && !streamed.coverage.deletion_authoritative);
+            let reasons = streamed.coverage.reasons.join("\n");
+            assert!(
+                reasons.contains("Reading stopped with the scan budget: 2 of ")
+                    && reasons.contains(
+                        "enumerated files read, 1 selected repositories not reached; later files were not searched"
+                    )
+                    && reasons.contains("reached its match budget"),
+                "{reasons}"
+            );
+        }
+        if max_matches == 1000 {
+            // A page that never fills reads everything and reports the full totals.
+            assert_eq!(streamed.coverage.documents, full.coverage.documents);
+            assert_eq!(streamed.coverage.scanned_bytes, full.coverage.scanned_bytes);
+            let sorted = |reasons: &[String]| {
+                let mut reasons = reasons.to_vec();
+                reasons.sort();
+                reasons
+            };
+            assert_eq!(
+                sorted(&streamed.coverage.reasons),
+                sorted(&full.coverage.reasons)
+            );
+            assert_eq!(streamed.hits.len(), 4 * names.len());
+        }
+    }
+    // A cancelled streaming scan reads nothing and says so.
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    let page = ghtui::search::scan::exact_search_streaming(
+        scope,
+        &selections,
+        &limits,
+        &query,
+        &ScanLimits::default(),
+        &cancelled,
+    )
+    .unwrap();
+    assert!(page.hits.is_empty() && page.coverage.cancelled && !page.coverage.complete);
+    // Read-only: neither checkout's working tree, index or HEAD changed.
+    assert_eq!(
+        (status(&alpha), status(&zeta), alpha.head(), zeta.head()),
+        before
+    );
+}
+
 #[test]
 fn exact_search_explicit_exclusions_regex_multiline_and_cancellation_are_observable() {
     let fixture = corpus_fixture();
