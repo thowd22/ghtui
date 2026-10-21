@@ -199,6 +199,12 @@ impl NotificationWorkV63 {
     pub(crate) fn read_phase_v63(&self) -> NotificationReadPhaseV63 {
         self.phase
     }
+    /// The action of this phase's exact approved Preview, if it has one.
+    pub(crate) fn approval_requested_v63(
+        &self,
+    ) -> Option<crate::storage::NotificationRequestedV63> {
+        self.approval.as_ref().map(|preview| preview.requested())
+    }
     pub(crate) fn expired(&self) -> bool {
         self.cancellation.is_cancelled() || Instant::now() >= self.deadline
     }
@@ -250,6 +256,8 @@ pub struct PreparedNotificationsV63 {
     pub(crate) detail: Option<(String, Arc<PreparedFormTextV1>)>,
     pub(crate) coverage: Arc<str>,
     pub(crate) attempts: Vec<Arc<crate::storage::NotificationWriteMarkerV63>>,
+    /// Every page answered `304 Not Modified`: the rows are the last read's.
+    pub(crate) unchanged: bool,
 }
 pub struct PreparedNotificationResultV63 {
     original: Arc<NotificationWorkV63>,
@@ -743,6 +751,7 @@ pub(crate) fn execute(
             None
         };
         let coverage = access.coverage();
+        let unchanged = coverage.unchanged();
         let actors_note = match actors.status {
             crate::providers::gh::NotificationActorsStatusV63::Read
             | crate::providers::gh::NotificationActorsStatusV63::NoneEligible => String::new(),
@@ -754,7 +763,7 @@ pub(crate) fn execute(
             }
         };
         let label = format!(
-            "{} | {} | {} observed | {}{} | {} raw, {} duplicates, {} unverified repo",
+            "{} | {} | {} observed | {}{} | {}{} raw, {} duplicates, {} unverified repo",
             if work.query.include_read {
                 "Including read"
             } else {
@@ -772,6 +781,12 @@ pub(crate) fn execute(
                 "Partial query; absence unknown"
             },
             actors_note,
+            // An Unread-only queue's observed count IS its unread count.
+            if work.query.include_read {
+                format!("{} unread, ", rows.iter().filter(|row| row.unread).count())
+            } else {
+                String::new()
+            },
             coverage.raw_rows,
             coverage.duplicates,
             coverage.unverified_repository_rows,
@@ -797,6 +812,7 @@ pub(crate) fn execute(
                 detail,
                 coverage,
                 attempts: history_attempts,
+                unchanged,
             },
         ))
     })();

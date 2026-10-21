@@ -96,6 +96,7 @@ fn run() -> Result<()> {
     app.settings_set = config.active_set.clone().unwrap_or_default();
     app.settings_theme = config.theme.index();
     app.density = config.density;
+    app.notifications_watch_seconds_v63 = config.refresh_seconds;
     app.set_bindings(config.resolved_bindings()?);
     let mut background = Background::new();
     let runner = CommandRunner::default();
@@ -249,6 +250,7 @@ fn run() -> Result<()> {
                         ghtui::repository_catalogue_workspace_v1::CatalogueLocalMappingsV1::from_config(&config),
                     );
                     next_refresh = Instant::now() + Duration::from_secs(config.refresh_seconds);
+                    app.notifications_watch_seconds_v63 = config.refresh_seconds;
                     app.set_bindings(config.resolved_bindings()?);
                     app.no_color = options.no_color
                         || std::env::var_os("NO_COLOR").is_some()

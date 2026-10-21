@@ -608,7 +608,12 @@ fn filters(mouse: bool) {
     ready(&mut session, after, "Unread only");
     let after = session.completed_cells_end();
     choose(&mut session, mouse, "[a Include read]", b"a");
-    ready(&mut session, after, "Including read");
+    let body = ready(&mut session, after, "Including read");
+    // A queue that includes read threads also counts its unread ones.
+    assert!(
+        body.contains("1 observed | Complete query | 1 unread, 1 raw"),
+        "{body}"
+    );
     let after = session.completed_cells_end();
     choose(&mut session, mouse, "[p Participating]", b"p");
     ready(&mut session, after, "Participating only");

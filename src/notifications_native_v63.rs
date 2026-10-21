@@ -97,11 +97,15 @@ pub(crate) fn watch(app: &mut App) {
     {
         return;
     }
+    let configured = app.notifications_watch_seconds_v63;
     let Some(view) = app.notifications_v63.as_mut().filter(|view| !view.detail) else {
         return;
     };
     if let Some(prepared) = &view.prepared {
-        match prepared.source.begin_watch_v63() {
+        match prepared
+            .source
+            .begin_watch_v63(configured, std::time::Instant::now())
+        {
             Ok(watch) => {
                 app.status=format!("Read-only notification watch • at most {} further polls • server cooldown respected",watch.remaining());
                 view.watch = Some(watch);
@@ -113,6 +117,11 @@ pub(crate) fn watch(app: &mut App) {
     }
 }
 pub(crate) fn tick(app: &mut App) {
+    tick_at(app, std::time::Instant::now());
+}
+/// One watch step at `now`: queues ONE conditional re-read once the watch's
+/// configured/server cooldown has passed, and nothing before that.
+pub(crate) fn tick_at(app: &mut App, now: std::time::Instant) {
     if newer_intent(app)
         || app.notifications_work_v63.is_some()
         || app.notifications_owner_v63.is_some()
@@ -131,7 +140,7 @@ pub(crate) fn tick(app: &mut App) {
         .notifications_v63
         .as_mut()
         .and_then(|view| view.watch.as_mut())
-        .is_some_and(|watch| watch.claim_due(std::time::Instant::now()));
+        .is_some_and(|watch| watch.claim_due(now));
     if due {
         request(app, NotificationReadPhaseV63::Refresh);
     }
@@ -147,6 +156,10 @@ pub(crate) fn request(app: &mut App, phase: NotificationReadPhaseV63) {
     let Some(view) = app.notifications_v63.as_mut() else {
         return;
     };
+    if phase != NotificationReadPhaseV63::Load {
+        // Only the re-read a confirmed write queues reports that write.
+        view.after_write_v63 = None;
+    }
     if phase == NotificationReadPhaseV63::Refresh
         && view
             .watch
@@ -397,9 +410,61 @@ pub(crate) fn publish(
         let message=match state {
             crate::providers::gh::NotificationPublicationStateV63::NotStarted=>"Notification write not started; inspect any protected claim before a new action",
             crate::providers::gh::NotificationPublicationStateV63::Unknown=>"Notification outcome uncertain; protected attempt retained • inspect, never auto resend",
-            crate::providers::gh::NotificationPublicationStateV63::Confirmed=>"Notification state observed confirmed; old snapshot retired • refresh explicitly",
+            crate::providers::gh::NotificationPublicationStateV63::Confirmed=>"Notification state observed confirmed; old snapshot retired • queue re-read",
             crate::providers::gh::NotificationPublicationStateV63::ConfirmedSourceUnavailable=>"Notification state observed; current account/source unavailable • old snapshot retired",
         };
+        let confirmed = state == crate::providers::gh::NotificationPublicationStateV63::Confirmed
+            && app
+                .notifications_v63
+                .as_ref()
+                .is_some_and(|view| view.original.owns(app));
+        if confirmed {
+            // The write's closing reads re-verified the SAME numeric account,
+            // so the queue stays open: retire the old snapshot and re-read the
+            // SAME query, so its rows and counts show the server's new state.
+            let after_write = match owner.approval_requested_v63() {
+                Some(crate::storage::NotificationRequestedV63::MarkRead) => {
+                    "Marked read • this queue was re-read from GitHub"
+                }
+                Some(crate::storage::NotificationRequestedV63::Ignore) => {
+                    "Thread ignored • this queue was re-read from GitHub"
+                }
+                Some(crate::storage::NotificationRequestedV63::Unignore) => {
+                    "Thread no longer ignored • this queue was re-read from GitHub"
+                }
+                None => "Notification state confirmed • this queue was re-read",
+            };
+            if let Some(view) = &mut app.notifications_v63 {
+                view.prepared = None;
+                view.saved = None;
+                view.action_preview = None;
+                view.painted_preview = None;
+                view.confirm_rendered = false;
+                view.detail = false;
+                view.hits.clear();
+                view.after_write_v63 = Some(after_write);
+            }
+            if app
+                .notifications_owner_v63
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, owner))
+            {
+                app.notifications_owner_v63 = None;
+            }
+            request(app, NotificationReadPhaseV63::Load);
+            let queued = app.notifications_work_v63.is_some();
+            if let Some(view) = &mut app.notifications_v63 {
+                if !queued {
+                    view.after_write_v63 = None;
+                    view.message = "Notification state confirmed • r Refresh re-reads this queue";
+                }
+            }
+            app.status = attempt.map_or_else(
+                || message.into(),
+                |id| format!("{message} • local attempt #{id}"),
+            );
+            return;
+        }
         if hide_private {
             app.github = None;
             app.content[View::Inbox.index()].clear();
@@ -467,7 +532,12 @@ pub(crate) fn publish(
     match outcome {
         Ok(PreparedNotificationWorkV63::Read(prepared)) => {
             if let Some(watch) = view.watch.as_mut() {
-                if prepared.source.complete_watch_v63(watch).is_err() || watch.remaining() == 0 {
+                if prepared
+                    .source
+                    .complete_watch_v63(watch, std::time::Instant::now())
+                    .is_err()
+                    || watch.remaining() == 0
+                {
                     watch.stop();
                     view.watch = None;
                 }
@@ -481,11 +551,21 @@ pub(crate) fn publish(
             view.prepared = Some(prepared);
             view.scroll = 0;
             view.viewport = Default::default();
-            view.message="Observed notifications • acting user is not supplied by GitHub • Enter inspects selected row";
-            if view.watch.is_some() {
-                view.message =
-                    "Finite read-only watch • W Stop • server/configured cooldown applies";
-            }
+            let unchanged = view
+                .prepared
+                .as_ref()
+                .is_some_and(|p| p.unchanged && p.detail.is_none());
+            view.message = if let Some(message) = view.after_write_v63.take() {
+                message
+            } else if unchanged && view.watch.is_some() {
+                "Watch poll: unchanged since last read (HTTP 304) • W Stop"
+            } else if unchanged {
+                "Unchanged since last read (HTTP 304) • rows kept"
+            } else if view.watch.is_some() {
+                "Finite read-only watch • W Stop • server/configured cooldown applies"
+            } else {
+                "Observed notifications • acting user is not supplied by GitHub • Enter inspects selected row"
+            };
             app.status = "Notifications observed • no Git/PR/run changes".into();
         }
         Ok(PreparedNotificationWorkV63::Preview(preview)) => {
@@ -533,6 +613,7 @@ pub(crate) fn publish(
             unreachable!("handled exact PR follow above")
         }
         Err(message) => {
+            view.after_write_v63 = None;
             view.prepared = None;
             view.saved = None;
             view.action_preview = None;
@@ -566,6 +647,7 @@ pub(crate) fn failed(app: &mut App, owner: &Arc<NotificationWorkV63>) {
         return;
     }
     if let Some(view) = app.notifications_v63.as_mut() {
+        view.after_write_v63 = None;
         view.prepared = None;
         if let Some(mut watch) = view.watch.take() {
             watch.stop();

@@ -220,6 +220,10 @@ pub struct App {
     pub notifications_work_v63: Option<Arc<crate::notifications_v63::NotificationWorkV63>>,
     pub notifications_owner_v63: Option<Arc<crate::notifications_v63::NotificationWorkV63>>,
     pub notifications_cancel_v63: bool,
+    /// The configured refresh interval (`refresh_seconds`). A notification
+    /// watch never polls faster than this (at least 15 seconds) nor faster
+    /// than the server's `X-Poll-Interval`/`Retry-After`.
+    pub notifications_watch_seconds_v63: u64,
     pub scoped_actions_v1: Option<crate::scoped_actions_native_v1::ScopedActionsStateV1>,
     pub scoped_actions_work_v1: Option<Arc<crate::scoped_actions_v1::ScopedActionsWorkV1>>,
     pub scoped_actions_owner_v1: Option<Arc<crate::scoped_actions_native_v1::ScopedActionsOwnerV1>>,
@@ -497,6 +501,7 @@ impl Default for App {
             notifications_work_v63: None,
             notifications_owner_v63: None,
             notifications_cancel_v63: false,
+            notifications_watch_seconds_v63: 60,
             scoped_threads_work_v1: None,
             scoped_threads_owner_v1: None,
             scoped_threads_cancel_v1: false,

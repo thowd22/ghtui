@@ -106,6 +106,9 @@ pub struct NotificationBrowserV63 {
     pub(crate) focus: Option<usize>,
     pub(crate) hits: Vec<(Rect, NotificationActionV63)>,
     pub(crate) follow_return_v63: Option<NotificationReturnV63>,
+    /// Set by a confirmed Mark read/Ignore/Unignore: the message shown when
+    /// the queue's automatic re-read completes.
+    pub(crate) after_write_v63: Option<&'static str>,
     body: Rect,
 }
 pub(crate) struct NotificationReturnV63 {
@@ -138,6 +141,7 @@ impl NotificationBrowserV63 {
             focus: None,
             hits: vec![],
             follow_return_v63: None,
+            after_write_v63: None,
             body: Rect::default(),
         }
     }

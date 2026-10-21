@@ -36,6 +36,7 @@ fn notifications_native_v63_genuine_read_cannot_impersonate_follow_closed_result
         detail: actual.detail.clone(),
         coverage: actual.coverage.clone(),
         attempts: actual.attempts.clone(),
+        unchanged: actual.unchanged,
     };
     app.dispatch(crate::app::Action::NotificationsV63(
         ui::NotificationActionV63::FollowPr,
@@ -65,12 +66,17 @@ fn identity(uid: u64) -> HostIdentity {
         gh_version: String::new(),
     }
 }
-pub(crate) fn steps(final_uid: u64) -> Vec<GhStep> {
+/// The one fixture notification thread, as the list and thread GETs return it.
+fn thread_value(unread: bool) -> serde_json::Value {
     let mut repository = support::row(0);
     repository["url"] = json!("https://github.invalid/api/v3/repos/example/repo0000");
-    let row = json!({"id":"9007199254740993","unread":true,"reason":"review_requested","updated_at":"2026-10-15T18:00:00Z","last_read_at":null,
+    json!({"id":"9007199254740993","unread":unread,"reason":"review_requested","updated_at":"2026-10-15T18:00:00Z",
+        "last_read_at":if unread { serde_json::Value::Null } else { json!("2026-10-15T18:01:00Z") },
         "url":"https://github.invalid/api/v3/notifications/threads/9007199254740993","subscription_url":"https://github.invalid/api/v3/notifications/threads/9007199254740993/subscription",
-        "repository":repository,"subject":{"title":"PRIVATE_NOTIFICATION_ACTUAL_SOURCE 界","url":"https://github.invalid/api/v3/repos/example/repo0000/pulls/7","latest_comment_url":"https://github.invalid/api/v3/repos/example/repo0000/issues/comments/99","type":"PullRequest"}});
+        "repository":repository,"subject":{"title":"PRIVATE_NOTIFICATION_ACTUAL_SOURCE 界","url":"https://github.invalid/api/v3/repos/example/repo0000/pulls/7","latest_comment_url":"https://github.invalid/api/v3/repos/example/repo0000/issues/comments/99","type":"PullRequest"}})
+}
+pub(crate) fn steps(final_uid: u64) -> Vec<GhStep> {
+    let row = thread_value(true);
     let mut steps = support::principal(42);
     steps.push(GhStep::read(
         &[
@@ -871,4 +877,329 @@ fn notifications_native_v63_latest_actor_line_labels_subject_author_and_unknown_
         ),
         "Latest activity: Acting user unavailable • no latest comment observed"
     );
+}
+
+const THREAD: &str = "9007199254740993";
+fn subscription_value(ignored: bool) -> serde_json::Value {
+    json!({"subscribed":!ignored,"ignored":ignored,"reason":null,"created_at":"2026-10-15T18:00:00Z",
+        "url":format!("https://github.invalid/api/v3/notifications/threads/{THREAD}/subscription"),
+        "thread_url":format!("https://github.invalid/api/v3/notifications/threads/{THREAD}")})
+}
+/// The Preview's (and again the Confirm's) fresh selected-thread reads.
+fn write_pre(ignore: bool) -> Vec<GhStep> {
+    let mut steps = support::principal(42);
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    for _ in 0..2 {
+        steps.push(support::get(
+            &format!("notifications/threads/{THREAD}"),
+            thread_value(true),
+        ));
+        if ignore {
+            steps.push(support::get(
+                &format!("notifications/threads/{THREAD}/subscription"),
+                subscription_value(false),
+            ));
+        }
+    }
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.extend(support::principal(42));
+    steps
+}
+/// ONE write, its exact readback and the closing account/repository checks.
+fn write_post(ignore: bool) -> Vec<GhStep> {
+    let endpoint = if ignore {
+        format!("notifications/threads/{THREAD}/subscription")
+    } else {
+        format!("notifications/threads/{THREAD}")
+    };
+    let mut args = vec![
+        "api",
+        endpoint.as_str(),
+        "--hostname",
+        support::HOST,
+        "--method",
+        if ignore { "PUT" } else { "PATCH" },
+        "--include",
+    ];
+    let raw = if ignore {
+        args.extend(["--input", "-"]);
+        format!("HTTP/2.0 200 OK\n\r\n{}", subscription_value(true))
+    } else {
+        "HTTP/2.0 205 Reset Content\nContent-Length: 0\r\n\r\n".into()
+    };
+    let mut write = GhStep::read(&args, &raw);
+    if ignore {
+        write.stdin = serde_json::to_vec(&json!({"ignored":true})).unwrap();
+    }
+    let mut repo = support::row(0);
+    repo["url"] = json!("https://github.invalid/api/v3/repos/example/repo0000");
+    vec![
+        write,
+        support::get(
+            &endpoint,
+            if ignore {
+                subscription_value(true)
+            } else {
+                thread_value(false)
+            },
+        ),
+        support::get("user", json!({"id":42,"login":"actual"})),
+        support::get("repos/example/repo0000", repo),
+        support::get("user", json!({"id":42,"login":"actual"})),
+    ]
+}
+/// Every child matched in order with its exact argv and stdin, writes included.
+fn exact_mixed(f: &Fixture, steps: &[GhStep]) -> usize {
+    let rows = std::fs::read_to_string(f.root.join("gh-fixture/commands.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), steps.len(), "no missing or additional gh child");
+    let mut writes = 0;
+    for (index, (actual, expected)) in rows.iter().zip(steps).enumerate() {
+        assert_eq!(actual["step"], index);
+        assert_eq!(actual["matched"], true);
+        assert_eq!(actual["args"], json!(expected.args));
+        let hex = expected
+            .stdin
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        assert_eq!(actual["stdin_hex"], hex);
+        if !support::graphql_read(expected)
+            && expected
+                .args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "PATCH" | "PUT" | "POST" | "DELETE"))
+        {
+            writes += 1;
+        }
+    }
+    writes
+}
+fn run(app: &mut App, provider: &GithubProvider, f: &Fixture) {
+    let work = app
+        .notifications_work_v63
+        .take()
+        .expect("one explicit phase captured before queue");
+    let result = execute(work.clone(), provider, &support::database(f));
+    crate::notifications_native_v63::publish(app, &work, result);
+}
+fn confirmed_write_rereads_queue(ignore: bool) {
+    let f = Fixture::new();
+    let mut expected = steps(42);
+    expected.extend(write_pre(ignore));
+    expected.extend(write_pre(ignore));
+    expected.extend(write_post(ignore));
+    // The automatic re-read of the SAME query: Mark read leaves the
+    // Unread-only queue empty; Ignore keeps the (still unread) thread.
+    if ignore {
+        expected.extend(steps(42));
+    } else {
+        expected.extend(support::principal(42));
+        expected.push(GhStep::read(
+            &[
+                "api",
+                "notifications?all=false&participating=false&per_page=50&page=1",
+                "--hostname",
+                support::HOST,
+                "--method",
+                "GET",
+                "--include",
+            ],
+            "HTTP/2 200 OK\nETag: \"after\"\r\nX-Poll-Interval: 60\r\n\r\n[]",
+        ));
+        expected.extend(support::principal(42));
+    }
+    f.scripted_gh(&expected);
+    let provider = support::provider(&f);
+    let mut app = app();
+    let load = captured(&mut app);
+    app.notifications_work_v63 = Some(load);
+    run(&mut app, &provider, &f);
+    let before = paint(&mut app, 120, 40);
+    assert!(
+        before.contains("1 observed | Complete query | 1 raw"),
+        "{before}"
+    );
+    ui::dispatch(
+        &mut app,
+        if ignore {
+            ui::NotificationActionV63::Ignore
+        } else {
+            ui::NotificationActionV63::MarkRead
+        },
+    );
+    run(&mut app, &provider, &f);
+    // The Preview body must be painted before Confirm draws enabled: the
+    // first frame paints the Preview, the second draws Confirm enabled.
+    paint(&mut app, 120, 40);
+    paint(&mut app, 120, 40);
+    ui::dispatch(&mut app, ui::NotificationActionV63::Confirm);
+    assert_eq!(
+        app.notifications_work_v63.as_ref().unwrap().phase,
+        NotificationReadPhaseV63::Publish
+    );
+    run(&mut app, &provider, &f);
+    // Confirmed: the queue stays open on the same account and ONE fresh
+    // (unconditional) read of the SAME query is queued.
+    assert_eq!(app.overlay, Some(crate::app::Overlay::NotificationsV63));
+    assert!(app.github.is_some());
+    let reread = app
+        .notifications_work_v63
+        .as_ref()
+        .expect("confirmed write re-reads its queue");
+    assert_eq!(reread.phase, NotificationReadPhaseV63::Load);
+    assert!(reread.previous.is_none());
+    assert!(reread.query == NotificationQueryV63::default());
+    run(&mut app, &provider, &f);
+    let after = paint(&mut app, 120, 40);
+    if ignore {
+        assert!(
+            after.contains("Thread ignored • this queue was re-read from GitHub"),
+            "{after}"
+        );
+        assert!(
+            after.contains("1 observed | Complete query | 1 raw"),
+            "{after}"
+        );
+        assert!(
+            after.contains("PRIVATE_NOTIFICATION_ACTUAL_SOURCE"),
+            "{after}"
+        );
+    } else {
+        assert!(
+            after.contains("Marked read • this queue was re-read from GitHub"),
+            "{after}"
+        );
+        assert!(
+            after.contains("0 observed | Complete query | 0 raw"),
+            "{after}"
+        );
+        assert!(after.contains("No notifications observed"), "{after}");
+        assert!(
+            !after.contains("PRIVATE_NOTIFICATION_ACTUAL_SOURCE"),
+            "{after}"
+        );
+    }
+    assert!(app.notifications_work_v63.is_none());
+    assert_eq!(exact_mixed(&f, &expected), 1);
+    let db = rusqlite::Connection::open(support::database(&f)).unwrap();
+    let (action, state): (String, String) = db
+        .query_row(
+            "SELECT action,state FROM notification_write_attempts_v63",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (action.as_str(), state.as_str()),
+        (if ignore { "ignore" } else { "mark_read" }, "confirmed")
+    );
+}
+#[test]
+fn notifications_native_v63_confirmed_mark_read_rereads_queue_rows_and_counts() {
+    confirmed_write_rereads_queue(false);
+}
+#[test]
+fn notifications_native_v63_confirmed_ignore_rereads_queue_rows_and_counts() {
+    confirmed_write_rereads_queue(true);
+}
+#[test]
+fn notifications_native_v63_mark_unread_stays_disabled_with_reason_and_no_child() {
+    let f = Fixture::new();
+    let expected = steps(42);
+    f.scripted_gh(&expected);
+    let provider = support::provider(&f);
+    let mut app = app();
+    let load = captured(&mut app);
+    app.notifications_work_v63 = Some(load);
+    run(&mut app, &provider, &f);
+    ui::dispatch(&mut app, ui::NotificationActionV63::MarkUnread);
+    assert!(app.notifications_work_v63.is_none());
+    let frame = paint(&mut app, 120, 40);
+    assert!(
+        frame.contains("Mark unread unavailable: GitHub has no API to mark a thread unread"),
+        "{frame}"
+    );
+    support::exact(&f, &expected);
+}
+/// The 304 a watch poll gets back, then the closing checks.
+fn watch_poll_304() -> Vec<GhStep> {
+    let mut steps = support::principal(42);
+    let mut page = GhStep::read(
+        &[
+            "api",
+            "notifications?all=false&participating=false&per_page=50&page=1",
+            "--hostname",
+            support::HOST,
+            "--method",
+            "GET",
+            "--include",
+            "--header",
+            "If-None-Match: \"actual\"",
+        ],
+        "HTTP/2 304 Not Modified\nETag: \"actual\"\r\nX-Poll-Interval: 120\r\n\r\n",
+    );
+    page.status = 1;
+    page.stderr = b"gh: HTTP 304\n".to_vec();
+    steps.push(page);
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.push(actors_step());
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.extend(support::principal(42));
+    steps
+}
+#[test]
+fn notifications_native_v63_watch_polls_once_after_server_interval_on_fake_clock_and_keeps_304_rows(
+) {
+    let f = Fixture::new();
+    let mut expected = steps(42);
+    expected.extend(watch_poll_304());
+    f.scripted_gh(&expected);
+    let provider = support::provider(&f);
+    let mut app = app();
+    // A short configured refresh never beats the server's X-Poll-Interval.
+    app.notifications_watch_seconds_v63 = 15;
+    let load = captured(&mut app);
+    app.notifications_work_v63 = Some(load);
+    run(&mut app, &provider, &f);
+    ui::dispatch(&mut app, ui::NotificationActionV63::Watch);
+    let now = Instant::now();
+    // Server interval 60 s: nothing at +59 s (fake clock), however often.
+    for _ in 0..5 {
+        crate::notifications_native_v63::tick_at(&mut app, now + Duration::from_secs(59));
+        assert!(app.notifications_work_v63.is_none());
+    }
+    crate::notifications_native_v63::tick_at(&mut app, now + Duration::from_secs(61));
+    let poll = app
+        .notifications_work_v63
+        .as_ref()
+        .expect("ONE conditional poll after the server interval");
+    assert_eq!(poll.phase, NotificationReadPhaseV63::Refresh);
+    assert!(poll.previous.is_some());
+    // While the poll is outstanding no second poll starts.
+    crate::notifications_native_v63::tick_at(&mut app, now + Duration::from_secs(10_000));
+    run(&mut app, &provider, &f);
+    let frame = paint(&mut app, 120, 40);
+    assert!(
+        frame.contains("Watch poll: unchanged since last read (HTTP 304) • W Stop"),
+        "{frame}"
+    );
+    assert!(
+        frame.contains("PRIVATE_NOTIFICATION_ACTUAL_SOURCE"),
+        "{frame}"
+    );
+    assert!(
+        frame.contains("1 observed | Complete query | 1 raw"),
+        "{frame}"
+    );
+    let view = app.notifications_v63.as_ref().unwrap();
+    assert_eq!(view.watch.as_ref().unwrap().remaining(), 28);
+    // The 304's longer X-Poll-Interval (120 s) now governs.
+    let now = Instant::now();
+    crate::notifications_native_v63::tick_at(&mut app, now + Duration::from_secs(119));
+    assert!(app.notifications_work_v63.is_none());
+    support::exact(&f, &expected);
 }

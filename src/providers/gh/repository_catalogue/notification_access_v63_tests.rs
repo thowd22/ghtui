@@ -668,3 +668,164 @@ fn notifications_journal_v63_original_token_clock_database_and_changed_attempt_a
     phase.finish(&cache, &token).unwrap();
     support::exact(&f, &steps);
 }
+
+/// One notifications page GET with exactly these conditional headers.
+fn page_with(number: usize, raw: &str, headers: &[&str]) -> GhStep {
+    let endpoint = format!("notifications?all=false&participating=false&per_page=50&page={number}");
+    let mut args = vec![
+        "api",
+        endpoint.as_str(),
+        "--hostname",
+        support::HOST,
+        "--method",
+        "GET",
+        "--include",
+    ];
+    for header in headers {
+        args.extend(["--header", header]);
+    }
+    let mut step = GhStep::read(&args, raw);
+    if raw.starts_with("HTTP/2 304") {
+        step.status = 1;
+        step.stderr = b"gh: HTTP 304\n".to_vec();
+    }
+    step
+}
+const LAST_MODIFIED: &str = "Thu, 15 Oct 2026 18:00:00 GMT";
+#[test]
+fn notifications_core_v63_last_modified_sends_if_modified_since_and_watch_waits_server_interval_on_fake_clock(
+) {
+    let f = Fixture::new();
+    let mut steps = support::principal(42);
+    steps.push(page_with(
+        1,
+        &format!(
+            "HTTP/2 200 OK\nLast-Modified: {LAST_MODIFIED}\r\nETag: \"snap\"\r\nX-Poll-Interval: 120\r\n\r\n{}",
+            json!([row()])
+        ),
+        &[],
+    ));
+    for _ in 0..2 {
+        steps.push(support::get("repos/example/repo0000", support::row(0)));
+    }
+    steps.extend(support::principal(42));
+    // The poll: BOTH validators go back; the server answers 304 and asks for
+    // a longer interval.
+    steps.extend(support::principal(42));
+    let if_modified = format!("If-Modified-Since: {LAST_MODIFIED}");
+    steps.push(page_with(
+        1,
+        &format!("HTTP/2 304 Not Modified\nLast-Modified: {LAST_MODIFIED}\r\nETag: \"snap\"\r\nX-Poll-Interval: 300\r\n\r\n"),
+        &[&if_modified, "If-None-Match: \"snap\""],
+    ));
+    for _ in 0..2 {
+        steps.push(support::get("repos/example/repo0000", support::row(0)));
+    }
+    steps.extend(support::principal(42));
+    f.scripted_gh(&steps);
+    let mut cache = Cache::open(&support::database(&f)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let p = bounded(&f, deadline);
+    let token = CancellationToken::default();
+    let original = load(&f, &mut cache, &p, &token, deadline);
+    assert!(!original.coverage().unchanged());
+    assert_eq!(original.poll.interval_seconds, Some(120));
+    // Fake clock: configured 15 s, server 120 s. The server interval wins.
+    let t0 = Instant::now();
+    let mut watch = original.begin_watch_v63(15, t0).unwrap();
+    assert_eq!(watch.remaining(), 29);
+    assert!(!watch.claim_due(t0));
+    assert!(!watch.claim_due(t0 + Duration::from_secs(119)));
+    assert!(watch.claim_due(t0 + Duration::from_secs(120)));
+    // While one poll is in flight a second never starts.
+    assert!(!watch.claim_due(t0 + Duration::from_secs(10_000)));
+    let pending = p
+        .begin_notification_read_v63(
+            original.query(),
+            &expected(),
+            &mut cache,
+            Some(&original),
+            &token,
+            deadline,
+        )
+        .unwrap();
+    assert_eq!(pending.coverage().not_modified, 1);
+    let current = pending.finish(&cache, &token).unwrap();
+    assert!(current.coverage().unchanged());
+    assert!(Arc::ptr_eq(&original.pages[0].rows, &current.pages[0].rows));
+    assert_eq!(current.rows().len(), 1);
+    // The 304's longer X-Poll-Interval now governs the next poll.
+    let t1 = t0 + Duration::from_secs(120);
+    current.complete_watch_v63(&mut watch, t1).unwrap();
+    assert!(!watch.claim_due(t1 + Duration::from_secs(299)));
+    assert!(watch.claim_due(t1 + Duration::from_secs(300)));
+    assert_eq!(watch.remaining(), 27);
+    // A configured interval longer than the server's is honoured too (plus
+    // at most 4 s of jitter), and a configured value below 15 s is raised.
+    let mut slow = current.begin_watch_v63(900, t0).unwrap();
+    assert!(!slow.claim_due(t0 + Duration::from_secs(899)));
+    assert!(slow.claim_due(t0 + Duration::from_secs(904)));
+    assert!(current.begin_watch_v63(1, t0).is_ok());
+    support::exact(&f, &steps);
+}
+#[test]
+fn notifications_core_v63_threads_repeated_across_pages_are_counted_once() {
+    let f = Fixture::new();
+    let first = row();
+    let mut second = row();
+    let other = "9007199254740994";
+    second["id"] = json!(other);
+    second["url"] = json!(format!(
+        "https://github.invalid/api/v3/notifications/threads/{other}"
+    ));
+    second["subscription_url"] = json!(format!(
+        "https://github.invalid/api/v3/notifications/threads/{other}/subscription"
+    ));
+    let mut steps = support::principal(42);
+    steps.push(page_with(
+        1,
+        &format!(
+            "HTTP/2 200 OK\nETag: \"p1\"\r\nX-Poll-Interval: 60\r\nLink: <https://github.invalid/api/v3/notifications?all=false&participating=false&per_page=50&page=2>; rel=\"next\"\r\n\r\n{}",
+            json!([first])
+        ),
+        &[],
+    ));
+    // The thread moved between pages while paging: page 2 repeats it.
+    steps.push(page_with(
+        2,
+        &format!(
+            "HTTP/2 200 OK\nETag: \"p2\"\r\nX-Poll-Interval: 60\r\n\r\n{}",
+            json!([first, second])
+        ),
+        &[],
+    ));
+    for _ in 0..2 {
+        steps.push(support::get("repos/example/repo0000", support::row(0)));
+    }
+    steps.extend(support::principal(42));
+    f.scripted_gh(&steps);
+    let mut cache = Cache::open(&support::database(&f)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let p = bounded(&f, deadline);
+    let token = CancellationToken::default();
+    let pending = p
+        .begin_notification_read_v63(
+            &NotificationQueryV63::default(),
+            &expected(),
+            &mut cache,
+            None,
+            &token,
+            deadline,
+        )
+        .unwrap();
+    let coverage = pending.coverage().clone();
+    assert_eq!(coverage.pages, 2);
+    assert_eq!(coverage.raw_rows, 3);
+    assert_eq!(coverage.duplicates, 1);
+    assert_eq!(coverage.not_modified, 0);
+    assert!(coverage.complete);
+    let source = pending.finish(&cache, &token).unwrap();
+    let ids = source.rows().iter().map(|r| r.id()).collect::<Vec<_>>();
+    assert_eq!(ids, ["9007199254740993", other]);
+    support::exact(&f, &steps);
+}

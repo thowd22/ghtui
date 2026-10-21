@@ -60,6 +60,15 @@ pub(crate) struct NotificationCoverageV63 {
     pub(crate) duplicates: usize,
     pub(crate) unverified_repository_rows: usize,
     pub(crate) complete: bool,
+    /// Pages the server answered `304 Not Modified` to our conditional GET.
+    /// Equal to `pages` means the whole query was unchanged since the last read.
+    pub(crate) not_modified: usize,
+}
+impl NotificationCoverageV63 {
+    /// Every page of this read was a `304 Not Modified` answer.
+    pub(crate) fn unchanged(&self) -> bool {
+        self.pages > 0 && self.not_modified == self.pages
+    }
 }
 struct NotificationCachedPageV63 {
     rows: Arc<Vec<NotificationRowV63>>,
@@ -151,22 +160,31 @@ impl ClosedNotificationReadV63 {
     pub(crate) fn coverage(&self) -> &NotificationCoverageV63 {
         &self.coverage
     }
-    pub(crate) fn begin_watch_v63(&self) -> GithubResult<notifications_v63::NotificationWatchV63> {
+    /// Starts a finite watch whose first poll waits for the LONGER of the
+    /// configured refresh interval (at least 15 seconds) and this read's
+    /// server `X-Poll-Interval`/`Retry-After`.
+    pub(crate) fn begin_watch_v63(
+        &self,
+        configured_seconds: u64,
+        now: Instant,
+    ) -> GithubResult<notifications_v63::NotificationWatchV63> {
         if !(1..=4).contains(&self.coverage.pages) {
             return Err(refused());
         }
-        let mut watch = notifications_v63::NotificationWatchV63::new(60)?;
-        if !watch.claim_due(Instant::now()) {
+        let mut watch =
+            notifications_v63::NotificationWatchV63::new(configured_seconds.clamp(15, 86400))?;
+        if !watch.claim_due(now) {
             return Err(refused());
         }
-        self.complete_watch_v63(&mut watch)?;
+        self.complete_watch_v63(&mut watch, now)?;
         Ok(watch)
     }
     pub(crate) fn complete_watch_v63(
         &self,
         watch: &mut notifications_v63::NotificationWatchV63,
+        now: Instant,
     ) -> GithubResult<()> {
-        watch.complete(Instant::now(), &self.poll, self.witness.generation())
+        watch.complete(now, &self.poll, self.witness.generation())
     }
     #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 {
@@ -351,6 +369,7 @@ impl GithubProvider {
         let mut pages = Vec::with_capacity(4);
         let mut cached_bytes = 0usize;
         let mut exhausted = false;
+        let mut not_modified = 0usize;
         let mut last_poll = NotificationPollMetadataV63 {
             validators: NotificationValidatorsV63::default(),
             interval_seconds: None,
@@ -407,6 +426,7 @@ impl GithubProvider {
                     (cache, metadata)
                 }
                 NotificationHttpPageV63::NotModified { poll } => {
+                    not_modified += 1;
                     let old = old
                         .filter(|old| {
                             old.validators.etag.is_some() || old.validators.last_modified.is_some()
@@ -577,6 +597,7 @@ impl GithubProvider {
             duplicates: accumulated.duplicates,
             unverified_repository_rows: omitted,
             complete: exhausted && omitted == 0,
+            not_modified,
         };
         live(token, deadline)?;
         Ok(NotificationReadAccessV63 {

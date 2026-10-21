@@ -301,11 +301,18 @@ fn publish(mouse: bool, action: Action) {
     steps.extend(pre(action));
     steps.extend(pre(action));
     steps.extend(post(action));
+    // The confirmed write re-reads the SAME Unread-only query once: Mark read
+    // empties it; Ignore/Unignore leave the still-unread thread in it.
+    steps.extend(phase(false, false, false, action == Action::Read));
     let f = fixture(&steps);
     let mut session = start(&f);
     let before = witness(&f);
     let after = open(&mut session, mouse);
-    ready(&mut session, after, PRIVATE);
+    let body = ready(&mut session, after, PRIVATE);
+    assert!(
+        body.contains("1 observed | Complete query | 1 raw"),
+        "{body}"
+    );
     let initial = session.inspect_command_journal(&f);
     control(&mut session, mouse, "[U Mark unread unavailable]", b"U");
     ready(
@@ -318,17 +325,32 @@ fn publish(mouse: bool, action: Action) {
     assert_eq!(witness(&f), before);
     let after = session.completed_cells_end();
     control(&mut session, mouse, "[C Confirm]", b"\r");
-    session.wait_for_new_cursorless_condition(
+    // The queue stays open and shows the server's state after ONE re-read:
+    // its rows and counts change with the write.
+    let body = ready(
+        &mut session,
         after,
-        |frame| {
-            let text = frame.contents();
-            !text.contains(PRIVATE)
-                && !text.contains(TITLE)
-                && text.contains("Notification state observed confirmed")
+        match action {
+            Action::Read => "Marked read • this queue was re-read from GitHub",
+            Action::Ignore => "Thread ignored • this queue was re-read from GitHub",
+            Action::Unignore => "Thread no longer ignored • this queue was re-read from GitHub",
         },
-        "Actual typed notification state confirmed and exact old private snapshot retired",
-        Duration::from_secs(8),
     );
+    if action == Action::Read {
+        assert!(body.contains("No notifications observed"), "{body}");
+        assert!(
+            body.contains("0 observed | Complete query | 0 raw"),
+            "{body}"
+        );
+        assert!(!body.contains(PRIVATE), "{body}");
+    } else {
+        assert!(body.contains(PRIVATE), "{body}");
+        assert!(
+            body.contains("1 observed | Complete query | 1 raw"),
+            "{body}"
+        );
+    }
+    session.capture_completed_terminal_v1("notifications-after-confirmed-write-reread-120");
     exact_writes(&session, &f, &steps, 1);
     independently_unchanged(
         &f,
@@ -340,8 +362,9 @@ fn publish(mouse: bool, action: Action) {
         },
         "confirmed",
     );
-    assert_sql_generation(&f, &[1]);
-    session.quit_and_assert_restored_terminal(mouse);
+    // The re-read is a new observation of the same query: generation 2.
+    assert_sql_generation(&f, &[2]);
+    quit(&mut session, mouse);
 }
 fn cancel_before_invocation(mouse: bool) {
     let mut steps = empty_inbox_steps("octocat");
@@ -549,6 +572,98 @@ fn watch_stop(mouse: bool) {
     assert_eq!(witness(&f), before);
     assert_sql_generation(&f, &[1]);
     quit(&mut session, mouse);
+}
+const LAST_MODIFIED: &str = "Thu, 15 Oct 2026 18:00:00 GMT";
+/// The finite watch's first poll: a conditional GET carrying BOTH validators
+/// of the first read, answered 304. It waits for the longer of the configured
+/// refresh and the server's X-Poll-Interval (both 15 s here).
+fn watch_unchanged_304(mouse: bool) {
+    let mut first = phase(false, false, false, false);
+    first[2] = GhStep::read(
+        &first[2].args.iter().map(String::as_str).collect::<Vec<_>>(),
+        &format!(
+            "HTTP/2 200 OK\nLast-Modified: {LAST_MODIFIED}\r\nETag: \"snap\"\r\nX-Poll-Interval: 15\r\n\r\n{}",
+            json!([row(ID)])
+        ),
+    );
+    let mut poll = phase(false, false, false, false);
+    let if_modified = format!("If-Modified-Since: {LAST_MODIFIED}");
+    let mut args = poll[2].args.iter().map(String::as_str).collect::<Vec<_>>();
+    args.extend([
+        "--header",
+        &if_modified,
+        "--header",
+        "If-None-Match: \"snap\"",
+    ]);
+    poll[2] = GhStep::read(
+        &args,
+        // The server then asks for 60 s, so no second poll follows here.
+        &format!("HTTP/2 304 Not Modified\nLast-Modified: {LAST_MODIFIED}\r\nETag: \"snap\"\r\nX-Poll-Interval: 60\r\n\r\n"),
+    );
+    poll[2].status = 1;
+    poll[2].stderr = b"gh: HTTP 304\n".to_vec();
+    let mut steps = empty_inbox_steps("octocat");
+    steps.extend(first);
+    let polled = steps.len() + 1;
+    steps.extend(poll);
+    let f = fixture(&steps);
+    let path = f.root.join("config/ghtui/config.toml");
+    let mut config = ghtui::config::Config::load(&path).unwrap();
+    config.refresh_seconds = 15;
+    config.save(&path).unwrap();
+    let mut session = start(&f);
+    let before = witness(&f);
+    let after = open(&mut session, mouse);
+    ready(&mut session, after, PRIVATE);
+    let loaded = session.inspect_command_journal(&f).lines().count();
+    assert_eq!(loaded, polled - 1);
+    let after = session.completed_cells_end();
+    let started = Instant::now();
+    control(&mut session, mouse, "[W Watch / Stop]", b"W");
+    ready(&mut session, after, "Finite read-only watch");
+    // No poll before the interval: watch the journal until the poll's page
+    // child appears, then check when it appeared.
+    let end = started + Duration::from_secs(40);
+    let first_poll = loop {
+        session.poll_output(Duration::from_millis(50));
+        if session.inspect_command_journal(&f).lines().count() >= polled {
+            break Instant::now();
+        }
+        assert!(Instant::now() < end, "No watch poll within 40 s");
+    };
+    assert!(
+        first_poll.duration_since(started) >= Duration::from_secs(15),
+        "Watch polled after {:?}, before the 15 s interval",
+        first_poll.duration_since(started)
+    );
+    let body = ready(
+        &mut session,
+        0,
+        "Watch poll: unchanged since last read (HTTP 304) • W Stop",
+    );
+    assert!(body.contains(PRIVATE), "{body}");
+    assert!(
+        body.contains("1 observed | Complete query | 1 raw"),
+        "{body}"
+    );
+    session.capture_completed_terminal_v1("notifications-watch-poll-304-80");
+    // Exactly one poll (its conditional page carries both validators), no write.
+    exact_writes(&session, &f, &steps, 0);
+    assert_eq!(witness(&f), before);
+    assert_sql_generation(&f, &[2]);
+    let after = session.completed_cells_end();
+    control(&mut session, mouse, "[W Watch / Stop]", b"W");
+    ready(&mut session, after, "Finite notification watch stopped");
+    exact_writes(&session, &f, &steps, 0);
+    quit(&mut session, mouse);
+}
+#[test]
+fn notifications_v63_keyboard_watch_waits_interval_then_unchanged_304_poll() {
+    watch_unchanged_304(false)
+}
+#[test]
+fn notifications_v63_mouse_watch_waits_interval_then_unchanged_304_poll() {
+    watch_unchanged_304(true)
 }
 #[test]
 fn notifications_v63_keyboard_mark_read_exact205_one_post_readback_effects() {
