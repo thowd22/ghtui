@@ -45,7 +45,7 @@ Installer options (each also has an environment variable):
 Pass options through `bash -s --`, for example to pin a version:
 
 ```sh
-curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://github.com/thowd22/ghtui/releases/latest/download/install.sh | bash -s -- --version v0.1.1
 ```
 
 ghtui never updates itself. To upgrade, run the installer again: it installs
@@ -79,7 +79,7 @@ tampered with. When the repository is public, each release asset also has a
 GitHub build provenance attestation that you can check with `gh`:
 
 ```sh
-gh attestation verify ghtui-v0.1.0-x86_64-unknown-linux-musl.tar.gz --repo thowd22/ghtui
+gh attestation verify ghtui-v0.1.1-x86_64-unknown-linux-musl.tar.gz --repo thowd22/ghtui
 ```
 
 `curl | bash` runs whatever the server sends, so you are trusting that
@@ -100,7 +100,7 @@ for your CPU from the release page, then:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
-tar -xzf ghtui-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+tar -xzf ghtui-v0.1.1-x86_64-unknown-linux-musl.tar.gz
 install -m 755 ghtui ~/.local/bin/ghtui
 ```
 
