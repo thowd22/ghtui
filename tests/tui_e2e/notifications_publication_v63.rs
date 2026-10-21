@@ -475,8 +475,15 @@ fn unknown_restart_inspect_ack(mouse: bool) {
     );
     let sentence = "Explicit LOCAL acknowledgement only releases this exact unresolved local barrier. It never resends, restores a draft, deletes history or claims a remote effect.";
     assert!(sentence.is_ascii());
-    let split = usize::from(ghtui::prepared_form_text_v1::FORM_COLUMNS_V1[1]);
-    let expected_rows = [&sentence[..split], &sentence[split..]];
+    // Prepared form text wraps between words (TASK-67): the row ends at the last space that
+    // fits, and the next row starts with the following word.
+    let width = usize::from(ghtui::prepared_form_text_v1::FORM_COLUMNS_V1[1]);
+    let split = sentence[..=width].rfind(' ').unwrap();
+    assert!(
+        width - split <= 16,
+        "the carried word stays within the 16-cell carry"
+    );
+    let expected_rows = [&sentence[..split], &sentence[split + 1..]];
     session.wait_for_new_cursorless_condition(
         before_resize,
         |frame| {
