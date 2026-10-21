@@ -198,6 +198,23 @@ fn subject_spans(
         return vec![(subject.to_owned(), base)];
     };
     let lower = subject.to_lowercase();
+    // A fuzzy match (TASK-122) highlights its matched characters, like every finder.
+    if !lower.contains(query) {
+        return match crate::fuzzy_finder::word_positions_v1(query, subject) {
+            Some(positions) => crate::fuzzy_finder::highlight_spans_v1(
+                subject,
+                &positions,
+                0,
+                usize::MAX / 4,
+                base,
+                hit,
+            )
+            .into_iter()
+            .map(|span| (span.content.into_owned(), span.style))
+            .collect(),
+            None => vec![(subject.to_owned(), base)],
+        };
+    }
     // Byte offsets only line up when lowercasing kept every length.
     if lower.len() != subject.len() {
         return vec![(subject.to_owned(), base)];

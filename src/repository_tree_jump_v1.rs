@@ -4,10 +4,6 @@ use crate::{
     git::{OriginalTreeIntentV1, OriginalTreeInventoryV1, OriginalTreeMemberV1},
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
 };
-use nucleo_matcher::{
-    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
-    Matcher, Utf32Str,
-};
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -87,23 +83,15 @@ impl OriginalTreeFrameV1 {
         if !Arc::ptr_eq(inventory.intent(), &request.intent) {
             return Err("Original tree inventory belongs to another source request".into());
         }
-        let pattern = Pattern::new(
-            &request.query,
-            CaseMatching::Smart,
-            Normalization::Smart,
-            AtomKind::Fuzzy,
-        );
-        let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
-        let mut chars = vec![];
+        // The shared TASK-122 finder: contiguous words first, then score.
+        let mut finder = crate::fuzzy_finder::FuzzyQueryV1::new(&request.query);
         let mut scores = vec![];
         for (index, row) in inventory.members().iter().enumerate() {
             operation.check()?;
             if request.query.is_empty() {
-                scores.push((index, 0));
-            } else if let Some(score) =
-                pattern.score(Utf32Str::new(row.matching_text(), &mut chars), &mut matcher)
-            {
-                scores.push((index, score));
+                scores.push((index, (false, 0)));
+            } else if let Some(key) = finder.rank_key(row.matching_text()) {
+                scores.push((index, key));
             }
         }
         if !request.query.is_empty() {

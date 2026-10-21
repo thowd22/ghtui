@@ -319,6 +319,10 @@ impl OriginalTreeLayoutV1 {
         } else if state.selected >= state.list_scroll + self.list.height as usize {
             state.list_scroll = state.selected + 1 - self.list.height.max(1) as usize;
         }
+        let mut finder = Some(state.query.text.trim())
+            .filter(|query| !query.is_empty())
+            .map(crate::fuzzy_finder::FuzzyQueryV1::new);
+        let mark = crate::fuzzy_finder::mark_style_v1(theme);
         if let Some(source) = &state.frame {
             for (offset, row) in source
                 .matches()
@@ -333,12 +337,36 @@ impl OriginalTreeLayoutV1 {
                     self.list.width,
                     1,
                 );
+                let style = if offset == state.selected {
+                    theme.selected(SemanticToken::Reference)
+                } else {
+                    theme.base()
+                };
+                // The path part of "kind · path" carries the shared finder's
+                // highlighted matched characters (TASK-122).
+                let label = row.label();
+                let (skip, path) = label
+                    .split_once(" · ")
+                    .map_or((0, label), |(kind, path)| (kind.chars().count() + 3, path));
+                let positions: Vec<usize> = finder
+                    .as_mut()
+                    .and_then(|finder| finder.positions(path))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|position| position + skip)
+                    .collect();
                 frame.render_widget(
-                    Paragraph::new(row.label()).style(if offset == state.selected {
-                        theme.selected(SemanticToken::Reference)
-                    } else {
-                        theme.base()
-                    }),
+                    Paragraph::new(ratatui::text::Line::from(
+                        crate::fuzzy_finder::highlight_spans_v1(
+                            label,
+                            &positions,
+                            0,
+                            usize::from(rect.width),
+                            style,
+                            mark,
+                        ),
+                    ))
+                    .style(style),
                     rect,
                 );
                 if let Some(ticket) = source.ticket(offset) {

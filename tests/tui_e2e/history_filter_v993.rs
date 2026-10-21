@@ -480,3 +480,107 @@ fn history_filter_v993_mouse_detached_no_color_chips_scope_and_clear_at_140x42_a
     s.quit_and_assert_restored_terminal(true);
     assert_eq!(repo.state(), baseline);
 }
+
+/// TASK-122: plain typing is fuzzy through the shared finder. `cfg` is no substring of any
+/// commit, yet it finds both "config" commits (each typed word inside one subject word), the
+/// matched letters are highlighted, the count and dimming work as for text, and a match is
+/// chosen by Enter or by a click. Nothing is written and no gh command runs.
+fn fuzzy_journey(mouse: bool) {
+    let fixture = Fixture::new();
+    let repo = HistoryRepo::build(&fixture, HistoryOptions::default());
+    let baseline = repo.state();
+    let mut s = launch(&fixture, 140, 42, false);
+    s.wait_for_screen("Recent commits");
+    s.choose(mouse, "[g History]", b"g");
+    s.wait_for_history_ready();
+    s.wait_for_settled_footer();
+    s.wait_for_history_selected(repo.sha("tweak"));
+    assert!(text_matches(&repo, "cfg").is_empty(), "cfg is no substring");
+    if mouse {
+        s.click_visible_action("[/ Search]");
+    } else {
+        s.send_key(b"/");
+    }
+    s.wait_for_history_filter("filter row", |row| row.text.starts_with('/'));
+    type_text(&mut s, "cfg");
+    let config: HashSet<String> = [repo.short("parser1"), repo.short("parser2")]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(config, text_matches(&repo, "config"));
+    wait_count(&mut s, config.len());
+    assert_eq!(check_highlight(&s, &config, true), config);
+    // c, f and g of "config" are highlighted; the o between them is not.
+    let screen_now = screen(&s);
+    let parser1 = history_rows(screen_now)
+        .into_iter()
+        .find(|row| row.sha == repo.short("parser1"))
+        .unwrap();
+    let x = locate_in_row(screen_now, parser1.y, "config").unwrap();
+    let underline = |offset: u16| screen_now.cell(parser1.y, x + offset).unwrap().underline();
+    assert!(
+        underline(0) && underline(3) && underline(5) && !underline(1),
+        "fuzzy letters highlighted\n{}",
+        s.screen()
+    );
+    if mouse {
+        // A click on the border's `n next` steps onto a match, the same as `n`.
+        let (count_x, count_y) = s.locate("n next").unwrap();
+        s.click(count_x, count_y);
+        s.wait_for_cursorless_condition(
+            |screen| selected_history_row(screen).is_some_and(|row| config.contains(&row.sha)),
+            "click stepped onto a fuzzy match",
+            Duration::from_secs(10),
+        );
+        // At 140 columns the commit's own actions fill the bar; at 80x24 Esc Clear is painted.
+        s.resize(80, 24);
+        s.wait_for_main_frame();
+        s.wait_for_history_ready();
+        s.wait_for_settled_footer();
+        s.click_visible_action("[Esc Clear]");
+    } else {
+        // Enter moves to the first match below HEAD; n steps to the other one.
+        s.send_key(b"\r");
+        s.wait_for_cursorless_condition(
+            |screen| selected_history_row(screen).is_some_and(|row| config.contains(&row.sha)),
+            "selection on a fuzzy match",
+            Duration::from_secs(10),
+        );
+        let first = selected_sha(&mut s);
+        s.send_key(b"n");
+        s.wait_for_cursorless_condition(
+            |screen| {
+                selected_history_row(screen)
+                    .is_some_and(|row| config.contains(&row.sha) && row.sha != first)
+            },
+            "n steps to the other fuzzy match",
+            Duration::from_secs(10),
+        );
+        s.send_key(b"\x1b");
+    }
+    s.wait_for_cursorless_condition(
+        |screen| history_ready(screen) && history_filter_row(screen).is_none(),
+        "filter cleared",
+        Duration::from_secs(10),
+    );
+    if mouse {
+        s.resize(140, 42);
+        s.wait_for_main_frame();
+        s.wait_for_history_ready();
+    }
+    assert_eq!(s.history_rows().len(), 17);
+    assert_eq!(repo.state(), baseline);
+    assert!(s.inspect_command_journal(&fixture).is_empty());
+    s.quit_and_assert_restored_terminal(mouse);
+    assert_eq!(repo.state(), baseline);
+}
+
+#[test]
+fn history_filter_v122_keyboard_fuzzy_abbreviation_highlight_enter_n_esc() {
+    fuzzy_journey(false);
+}
+
+#[test]
+fn history_filter_v122_mouse_fuzzy_abbreviation_highlight_click_clear() {
+    fuzzy_journey(true);
+}

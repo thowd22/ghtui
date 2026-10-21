@@ -8,10 +8,6 @@ use crate::{
     },
     providers::local_git_navigation_read_v1::LocalGitNavigationReadV1,
 };
-use nucleo_matcher::{
-    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
-    Matcher, Utf32Str,
-};
 use std::sync::Arc;
 
 pub struct OriginalDiffQueryV1 {
@@ -88,23 +84,15 @@ impl OriginalDiffFrameV1 {
         if !Arc::ptr_eq(source.intent(), &request.intent) {
             return Err("Comparison source/query binding changed".into());
         }
-        let pattern = Pattern::new(
-            &request.text,
-            CaseMatching::Smart,
-            Normalization::Smart,
-            AtomKind::Fuzzy,
-        );
-        let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
-        let mut scratch = vec![];
+        // The shared TASK-122 finder: contiguous words first, then score.
+        let mut finder = crate::fuzzy_finder::FuzzyQueryV1::new(&request.text);
         let mut matches = vec![];
         for member in source.members() {
             operation.check()?;
             if request.text.is_empty() {
-                matches.push((member.index(), 0));
-            } else if let Some(score) =
-                pattern.score(Utf32Str::new(member.matching(), &mut scratch), &mut matcher)
-            {
-                matches.push((member.index(), score));
+                matches.push((member.index(), (false, 0)));
+            } else if let Some(key) = finder.rank_key(member.matching()) {
+                matches.push((member.index(), key));
             }
         }
         if !request.text.is_empty() {

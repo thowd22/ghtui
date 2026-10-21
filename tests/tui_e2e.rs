@@ -26,6 +26,8 @@ mod design_theme_v98;
 mod editor_viewport;
 #[path = "tui_e2e/file_history.rs"]
 mod file_history;
+#[path = "tui_e2e/fuzzy_finder_v122.rs"]
+mod fuzzy_finder_v122;
 #[path = "tui_e2e/git_maintenance_v1.rs"]
 mod git_maintenance_v1;
 #[path = "tui_e2e/git_provider_sparse_v1.rs"]

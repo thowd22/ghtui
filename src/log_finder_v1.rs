@@ -3,10 +3,6 @@
 //! Git. Fuzzy (nucleo, smart case) is the default; exact text and regex stay
 //! optional toggles that share the same bounded snapshot limits.
 use crate::pr_checks_native::scoped::choices::continuations_v2::LoadedLogSearchModeV2 as Mode;
-use nucleo_matcher::{
-    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
-    Matcher, Utf32Str,
-};
 use std::time::Instant;
 
 /// At most this many ranked lines are retained for the live list; the count
@@ -55,15 +51,6 @@ fn expired(deadline: Instant) -> Result<(), String> {
     }
 }
 
-pub(crate) fn fuzzy_pattern_v1(query: &str) -> Pattern {
-    Pattern::new(
-        query,
-        CaseMatching::Smart,
-        Normalization::Smart,
-        AtomKind::Fuzzy,
-    )
-}
-
 pub(crate) fn bounded_regex_v1(query: &str) -> Result<regex::Regex, String> {
     regex::RegexBuilder::new(query)
         .size_limit(1024 * 1024)
@@ -73,23 +60,13 @@ pub(crate) fn bounded_regex_v1(query: &str) -> Result<regex::Regex, String> {
 }
 
 /// Whether one line matches in fuzzy mode (used by the shared indices helper).
-pub(crate) struct FuzzyLineMatcherV1 {
-    pattern: Pattern,
-    matcher: Matcher,
-    buf: Vec<char>,
-}
+pub(crate) struct FuzzyLineMatcherV1(crate::fuzzy_finder::FuzzyQueryV1);
 impl FuzzyLineMatcherV1 {
     pub(crate) fn new(query: &str) -> Self {
-        Self {
-            pattern: fuzzy_pattern_v1(query),
-            matcher: Matcher::new(nucleo_matcher::Config::DEFAULT),
-            buf: Vec::new(),
-        }
+        Self(crate::fuzzy_finder::FuzzyQueryV1::new(query))
     }
     pub(crate) fn is_match(&mut self, line: &str) -> bool {
-        self.pattern
-            .score(Utf32Str::new(line, &mut self.buf), &mut self.matcher)
-            .is_some()
+        self.0.score(line).is_some()
     }
 }
 
@@ -127,59 +104,27 @@ pub fn rank_log_lines_v1(
     let mut total = 0usize;
     match mode {
         Mode::Fuzzy => {
-            let pattern = fuzzy_pattern_v1(query);
-            let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
-            let mut buf = Vec::new();
-            // Lines that contain every typed word as written (smart case)
-            // rank before scattered fuzzy matches, like a finder user expects:
-            // "##[error]" beats "e r r o r" even when nucleo's word-boundary
-            // bonuses favour the scattered letters.
-            let sensitive = query.chars().any(char::is_uppercase);
-            let words: Vec<String> = query
-                .split_whitespace()
-                .map(|w| {
-                    if sensitive {
-                        w.to_owned()
+            // The shared TASK-122 finder: lines that contain every typed word
+            // as written (smart case) rank before scattered fuzzy matches, like
+            // a finder user expects: "##[error]" beats "e r r o r" even when
+            // nucleo's word-boundary bonuses favour the scattered letters.
+            let (count, ranked) =
+                crate::fuzzy_finder::rank_v1(query, logs.lines(), cap, |index| {
+                    if index % 256 == 0 {
+                        expired(deadline)
                     } else {
-                        w.to_lowercase()
+                        Ok(())
                     }
+                })?;
+            total = count;
+            hits = ranked
+                .into_iter()
+                .map(|hit| FinderHitV1 {
+                    line: hit.index,
+                    score: hit.score,
+                    positions: hit.positions,
                 })
                 .collect();
-            let mut scored = Vec::new();
-            for (index, line) in logs.lines().enumerate() {
-                if index % 256 == 0 {
-                    expired(deadline)?;
-                }
-                if let Some(score) = pattern.score(Utf32Str::new(line, &mut buf), &mut matcher) {
-                    let folded = if sensitive {
-                        std::borrow::Cow::Borrowed(line)
-                    } else {
-                        std::borrow::Cow::Owned(line.to_lowercase())
-                    };
-                    let whole = words.iter().all(|w| folded.contains(w.as_str()));
-                    scored.push((index, whole, score));
-                }
-            }
-            total = scored.len();
-            scored.sort_by(|(a, wa, sa), (b, wb, sb)| wb.cmp(wa).then(sb.cmp(sa)).then(a.cmp(b)));
-            scored.truncate(cap);
-            let all: Vec<&str> = logs.lines().collect();
-            for (line, _, score) in scored {
-                let mut indices = Vec::new();
-                pattern.indices(
-                    Utf32Str::new(all[line], &mut buf),
-                    &mut matcher,
-                    &mut indices,
-                );
-                let mut positions: Vec<usize> = indices.into_iter().map(|i| i as usize).collect();
-                positions.sort_unstable();
-                positions.dedup();
-                hits.push(FinderHitV1 {
-                    line,
-                    score,
-                    positions,
-                });
-            }
         }
         Mode::ExactText => {
             for (index, line) in logs.lines().enumerate() {

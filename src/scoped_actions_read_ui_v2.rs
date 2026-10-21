@@ -1240,9 +1240,7 @@ fn draw_finder(frame: &mut Frame, e: &mut ReadEditorV2, theme: crate::theme::The
         } else {
             theme.style(T::Normal)
         };
-        let mark = theme
-            .style(T::Accent)
-            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        let mark = crate::fuzzy_finder::mark_style_v1(theme);
         let mut spans = vec![Span::styled(
             gutter,
             if selected {
@@ -1251,30 +1249,14 @@ fn draw_finder(frame: &mut Frame, e: &mut ReadEditorV2, theme: crate::theme::The
                 theme.style(T::Muted)
             },
         )];
-        let mut run = String::new();
-        let mut run_marked = false;
-        let mut wanted = hit.positions.iter().peekable();
-        for (i, ch) in text.chars().enumerate().skip(start).take(avail) {
-            while wanted.peek().is_some_and(|p| **p < i) {
-                wanted.next();
-            }
-            let marked = wanted.peek().is_some_and(|p| **p == i);
-            if marked != run_marked && !run.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut run),
-                    if run_marked { base.patch(mark) } else { base },
-                ));
-            }
-            run_marked = marked;
-            // Control characters (tabs, escapes) print as spaces.
-            run.push(if ch.is_control() { ' ' } else { ch });
-        }
-        if !run.is_empty() {
-            spans.push(Span::styled(
-                run,
-                if run_marked { base.patch(mark) } else { base },
-            ));
-        }
+        spans.extend(crate::fuzzy_finder::highlight_spans_v1(
+            text,
+            &hit.positions,
+            start,
+            avail,
+            base,
+            mark,
+        ));
         frame.render_widget(Paragraph::new(Line::from(spans)).style(base), rect);
         e.hits.push((rect, ReadUiActionV2::Pick(index)));
     }

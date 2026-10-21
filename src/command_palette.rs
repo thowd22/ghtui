@@ -11,10 +11,6 @@ use crate::{
     theme::{SemanticToken, Theme},
 };
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
-use nucleo_matcher::{
-    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
-    Matcher, Utf32Str,
-};
 use ratatui::{
     layout::{Position, Rect},
     text::{Line, Span},
@@ -455,34 +451,28 @@ impl CommandPalette {
             self.visible = available.into_iter().chain(unavailable).collect();
         } else {
             let folded = query.to_lowercase();
-            let pattern = Pattern::new(
-                query,
-                CaseMatching::Smart,
-                Normalization::Smart,
-                AtomKind::Fuzzy,
-            );
-            let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
-            let mut buffer = vec![];
+            // The shared TASK-122 finder: the same fuzzy match and contiguous-
+            // words-first ranking as every other list filter and picker.
+            let mut finder = crate::fuzzy_finder::FuzzyQueryV1::new(query);
             let mut scores = self
                 .entries
                 .iter()
                 .enumerate()
                 .filter_map(|(index, entry)| {
                     let exact = entry.exact_keywords.iter().any(|word| word == &folded);
-                    let score =
-                        pattern.score(Utf32Str::new(&entry.search, &mut buffer), &mut matcher);
+                    let key = finder.rank_key(&entry.search);
                     // A match in the label/keywords/ID outranks one found only
                     // in an unavailable command's explanation text.
                     let primary = exact
-                        || entry.exact_keywords.iter().any(|word| {
-                            pattern
-                                .score(Utf32Str::new(word, &mut buffer), &mut matcher)
-                                .is_some()
-                        });
-                    (exact || score.is_some()).then_some((
+                        || entry
+                            .exact_keywords
+                            .iter()
+                            .any(|word| finder.score(word).is_some());
+                    let (whole, score) = key.unwrap_or((false, 0));
+                    (exact || key.is_some()).then_some((
                         index,
-                        (exact, primary, !entry.explanation),
-                        score.unwrap_or(0),
+                        (exact, primary, !entry.explanation, whole),
+                        score,
                     ))
                 })
                 .collect::<Vec<_>>();
@@ -851,8 +841,9 @@ impl CommandPalette {
         let caption = Rect::new(inner.x, inner.y + 2, inner.width, 1);
         frame.render_widget(
             Paragraph::new(format!(
-                "{} matching · {} focused",
+                "{} matching of {} · {} focused",
                 self.visible.len(),
+                self.entries.len(),
                 self.focus.label()
             ))
             .style(theme.style(SemanticToken::Muted)),
@@ -882,6 +873,10 @@ impl CommandPalette {
             };
             frame.render_widget(Paragraph::new(line(text)), self.list_area);
         }
+        let mut finder = Some(self.query.text.trim())
+            .filter(|query| !query.is_empty())
+            .map(crate::fuzzy_finder::FuzzyQueryV1::new);
+        let mark = crate::fuzzy_finder::mark_style_v1(theme);
         for (position, index) in self
             .visible
             .iter()
@@ -911,15 +906,34 @@ impl CommandPalette {
             } else {
                 theme.style(role)
             };
-            frame.render_widget(
-                Paragraph::new(line(&format!(
-                    "{} {}{suffix}",
-                    if position == self.selected { ">" } else { " " },
-                    entry.label
-                )))
-                .style(style),
-                rect,
-            );
+            // Matched characters of the label are highlighted like every
+            // other finder (TASK-122); the explanation suffix stays plain.
+            let positions = finder
+                .as_mut()
+                .and_then(|finder| finder.positions(&entry.label))
+                .unwrap_or_default();
+            let width = usize::from(inner.width);
+            let mut spans = vec![Span::styled(
+                if position == self.selected {
+                    "> "
+                } else {
+                    "  "
+                },
+                style,
+            )];
+            spans.extend(crate::fuzzy_finder::highlight_spans_v1(
+                &entry.label,
+                &positions,
+                0,
+                width.saturating_sub(2),
+                style,
+                mark,
+            ));
+            let used = 2 + display_width(&entry.label);
+            if !suffix.is_empty() && used < width {
+                spans.push(Span::styled(display_line(suffix, 0, width - used), style));
+            }
+            frame.render_widget(Paragraph::new(Line::from(spans)).style(style), rect);
             let key_width = display_width(&entry.shortcut) as u16;
             if !entry.explanation
                 && key_width > 0

@@ -16,6 +16,72 @@ fn local_picker_mouse_cancel_nomatch_stale_ref_immutable_stash_and_raw_worktree(
     journey(true);
 }
 
+#[test]
+fn local_picker_v122_keyboard_fuzzy_branch_abbreviation_highlight_count_and_switch() {
+    fuzzy_branch_journey(false);
+}
+
+#[test]
+fn local_picker_v122_mouse_fuzzy_branch_abbreviation_highlight_count_and_switch() {
+    fuzzy_branch_journey(true);
+}
+
+/// TASK-122: the branch picker uses the shared fuzzy finder. `rvw` (no substring) leaves
+/// only the review branch with a "1 of N" count and its matched letters highlighted; Enter or
+/// a click chooses it, and Preview and Confirm switch to it. Nothing else changes.
+fn fuzzy_branch_journey(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("file.txt", b"saved bytes\n", "initial saved version");
+    fixture.git(&["branch", "review"]);
+    fixture.git(&["branch", "release-notes"]);
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let mut session = Session::launch(&fixture, 120, 40);
+    session.wait_for_screen("Recent commits");
+    local_management::operation(&mut session, mouse, LocalCommand::SwitchBranch);
+    open(&mut session, mouse, "name");
+    filter(&mut session, mouse, "rvw");
+    session.wait_for_screen("Filter: rvw  1 of ");
+    session.wait_for_screen("refs/heads/review");
+    assert!(!session.screen().contains("refs/heads/release-notes"));
+    assert!(!session.screen().contains("refs/heads/main"));
+    // Exactly the typed letters are highlighted, in order, inside the result row.
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    let spelled = loop {
+        session.poll_output(Duration::from_millis(10));
+        let screen = session.completed_cursorless_screen().unwrap();
+        if let Some((x, y)) = crate::support::locate_screen(screen, "refs/heads/review") {
+            let (_, width) = screen.size();
+            let spelled: String = (x..width)
+                .filter_map(|column| screen.cell(y, column))
+                .filter(|cell| cell.underline())
+                .map(|cell| cell.contents())
+                .collect();
+            if !spelled.is_empty() {
+                break spelled;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "highlighted result\n{}",
+            session.screen()
+        );
+    };
+    assert_eq!(spelled, "rvw", "{}", session.screen());
+    choose(&mut session, mouse, "name", "refs/heads/review");
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "main\n");
+    local::preview(&mut session, mouse);
+    local::confirm(&mut session, mouse, 1);
+    session.wait_for_screen("Completed • Switch branch");
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "review\n");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert!(fixture
+        .git(&["branch", "--list", "release-notes"])
+        .contains("release-notes"));
+    assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
 fn open(session: &mut Session, mouse: bool, field: &str) {
     if mouse {
         session.click_visible_action("[F4 Choose]");

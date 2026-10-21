@@ -3,8 +3,6 @@ use crate::{
     editor::TextBuffer,
     git::{GitRepository, RawPath},
     local_actions::{LocalCommand, LocalInventory},
-    providers::runner::CancellationToken,
-    search::fuzzy::{pick, PickerItem},
     theme::{SemanticToken, Theme},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -382,6 +380,11 @@ pub enum PickerOutcome {
     Closed,
 }
 
+/// The text one target is matched on: its label, a space, its detail.
+fn choice_text(choice: &LocalChoice) -> String {
+    format!("{} {}", choice.label, choice.detail)
+}
+
 #[derive(Clone, Debug)]
 pub struct PickerHit {
     pub rect: Rect,
@@ -524,38 +527,36 @@ impl LocalPicker {
 
     fn filter(&mut self) {
         self.retire_details();
-        let items = self
-            .options
-            .iter()
-            .enumerate()
-            .map(|(index, choice)| PickerItem {
-                id: index.to_string(),
-                label: format!("{} {}", choice.label, choice.detail),
-            })
-            .collect::<Vec<_>>();
-        match pick(
-            &self.query.text,
-            &items,
-            1000,
-            &CancellationToken::default(),
-        ) {
-            Ok(page) => {
-                self.visible = page
-                    .hits
-                    .into_iter()
-                    .filter_map(|hit| hit.item.id.parse().ok())
-                    .collect();
-                self.message = if self.visible.is_empty() {
-                    "No matching targets. Scope was not broadened.".into()
-                } else if !page.complete {
-                    "Showing 1000 matches; filter further to narrow the inventory.".into()
-                } else {
-                    "Choose an exact target; labels are not parsed into commands.".into()
-                };
-            }
-            Err(error) => {
-                self.visible.clear();
-                self.message = error.to_string();
+        // The shared TASK-122 finder: live fuzzy results, contiguous words
+        // first, then score, then inventory order. An empty filter lists all.
+        if self.query.text.chars().count() > 128 {
+            self.visible.clear();
+            self.message = "Picker limits: 128 query characters".into();
+        } else if self.query.text.trim().is_empty() {
+            self.visible = (0..self.options.len()).take(1000).collect();
+            self.message = "Choose an exact target; labels are not parsed into commands.".into();
+        } else {
+            let texts: Vec<String> = self.options.iter().map(choice_text).collect();
+            match crate::fuzzy_finder::rank_v1(
+                &self.query.text,
+                texts.iter().map(String::as_str),
+                1000,
+                |_| Ok(()),
+            ) {
+                Ok((total, hits)) => {
+                    self.visible = hits.into_iter().map(|hit| hit.index).collect();
+                    self.message = if self.visible.is_empty() {
+                        "No matching targets. Scope was not broadened.".into()
+                    } else if total > self.visible.len() {
+                        "Showing 1000 matches; filter further to narrow the inventory.".into()
+                    } else {
+                        "Choose an exact target; labels are not parsed into commands.".into()
+                    };
+                }
+                Err(error) => {
+                    self.visible.clear();
+                    self.message = error;
+                }
             }
         }
         self.selected = 0;
@@ -705,8 +706,12 @@ impl LocalPicker {
         }
         let filter = Rect::new(inner.x, inner.y, inner.width.saturating_sub(16), 1);
         frame.render_widget(
-            Paragraph::new(format!("Filter: {}", self.query.text))
-                .style(theme.style(SemanticToken::Focus)),
+            Paragraph::new(format!(
+                "Filter: {}  {} matching",
+                self.query.text,
+                crate::fuzzy_finder::count_label_v1(self.visible.len(), self.options.len())
+            ))
+            .style(theme.style(SemanticToken::Focus)),
             filter,
         );
         if !filter.is_empty() {
@@ -732,6 +737,10 @@ impl LocalPicker {
             });
         }
         self.page_size = usize::from(inner.height.saturating_sub(3)).max(1);
+        let mut finder = Some(self.query.text.trim())
+            .filter(|query| !query.is_empty())
+            .map(crate::fuzzy_finder::FuzzyQueryV1::new);
+        let mark = crate::fuzzy_finder::mark_style_v1(theme);
         for (offset, index) in (self.scroll..self.visible.len())
             .take(self.page_size)
             .enumerate()
@@ -744,29 +753,71 @@ impl LocalPicker {
                 continue;
             };
             let row = Rect::new(inner.x, inner.y + offset as u16 + 1, inner.width, 1);
-            let label = format!(
-                "{} {} • {}{}",
-                if index == self.selected { ">" } else { " " },
-                if matches!(choice.value, LocalValue::Worktree { .. }) {
-                    crate::local_identity_readability_v1::compact_context(
-                        &choice.label,
-                        row.width.saturating_sub(3).min(48),
-                    )
-                } else {
-                    choice.label.clone()
-                },
-                choice.detail,
-                choice
-                    .disabled_reason
-                    .as_ref()
-                    .map_or(String::new(), |reason| format!(" [disabled: {reason}]"))
-            );
+            let compacted = matches!(choice.value, LocalValue::Worktree { .. });
+            let shown_label = if compacted {
+                crate::local_identity_readability_v1::compact_context(
+                    &choice.label,
+                    row.width.saturating_sub(3).min(48),
+                )
+            } else {
+                choice.label.clone()
+            };
+            // Matched characters are highlighted like every other finder
+            // (TASK-122): positions over "label detail" split onto each part.
+            let positions = finder
+                .as_mut()
+                .and_then(|finder| finder.positions(&choice_text(choice)))
+                .unwrap_or_default();
+            let label_chars = choice.label.chars().count();
+            let label_marks: Vec<usize> = if compacted {
+                vec![]
+            } else {
+                positions
+                    .iter()
+                    .copied()
+                    .filter(|p| *p < label_chars)
+                    .collect()
+            };
+            let detail_marks: Vec<usize> = positions
+                .iter()
+                .filter(|p| **p > label_chars)
+                .map(|p| p - label_chars - 1)
+                .collect();
+            let style = if index == self.selected {
+                theme.selected(SemanticToken::Reference)
+            } else {
+                theme.style(SemanticToken::Reference)
+            };
+            let mut spans = vec![ratatui::text::Span::styled(
+                if index == self.selected { "> " } else { "  " },
+                style,
+            )];
+            let wide = usize::MAX / 4;
+            spans.extend(crate::fuzzy_finder::highlight_spans_v1(
+                &shown_label,
+                &label_marks,
+                0,
+                wide,
+                style,
+                mark,
+            ));
+            spans.push(ratatui::text::Span::styled(" • ", style));
+            spans.extend(crate::fuzzy_finder::highlight_spans_v1(
+                &choice.detail,
+                &detail_marks,
+                0,
+                wide,
+                style,
+                mark,
+            ));
+            if let Some(reason) = &choice.disabled_reason {
+                spans.push(ratatui::text::Span::styled(
+                    format!(" [disabled: {reason}]"),
+                    style,
+                ));
+            }
             frame.render_widget(
-                Paragraph::new(label).style(if index == self.selected {
-                    theme.selected(SemanticToken::Reference)
-                } else {
-                    theme.style(SemanticToken::Reference)
-                }),
+                Paragraph::new(ratatui::text::Line::from(spans)).style(style),
                 row,
             );
             hits.push(PickerHit {

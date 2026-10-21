@@ -26,6 +26,7 @@ pub mod drafts;
 pub mod editor;
 pub mod footer;
 pub mod forms;
+pub mod fuzzy_finder;
 pub mod git;
 pub mod git_actor_labels_v1;
 pub mod github_ui;

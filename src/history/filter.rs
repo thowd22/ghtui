@@ -186,6 +186,14 @@ pub fn text_matches(text: &str, message: &str, author: &GitActor, id: &str) -> b
             && id.starts_with(text))
 }
 
+/// Plain typing is also fuzzy (TASK-122): each typed word matches inside one word of the
+/// subject through the shared finder, so `cfg` finds "config" and `prsr` finds "parser",
+/// while letters scattered across a whole sentence do not. `text` is already lowercase, so
+/// the shared smart case folds the subject.
+pub fn fuzzy_subject_matches(text: &str, subject: &str) -> bool {
+    crate::fuzzy_finder::word_positions_v1(text, subject).is_some()
+}
+
 /// Where the cached flags came from: one graph state, its chip ids and the text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CacheKey {
@@ -317,7 +325,9 @@ impl HistoryFilterV993 {
         {
             return false;
         }
-        text.is_empty() || text_matches(text, observed.message(), &commit.author, &commit.id)
+        text.is_empty()
+            || text_matches(text, observed.message(), &commit.author, &commit.id)
+            || fuzzy_subject_matches(text, &commit.subject)
     }
     /// Per loaded commit (topology order): does it match? None while nothing filters or the
     /// flags belong to another walk.

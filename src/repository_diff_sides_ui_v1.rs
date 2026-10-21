@@ -268,6 +268,10 @@ impl OriginalDiffLayoutV1 {
         } else if state.selected >= state.list_scroll + self.list.height as usize {
             state.list_scroll = state.selected + 1 - self.list.height.max(1) as usize;
         }
+        let mut finder = Some(state.query.text.trim())
+            .filter(|query| !query.is_empty())
+            .map(crate::fuzzy_finder::FuzzyQueryV1::new);
+        let mark = crate::fuzzy_finder::mark_style_v1(theme);
         if let Some(source) = state.frame() {
             for visible in
                 state.list_scroll..(state.list_scroll + self.list.height as usize).min(source.len())
@@ -281,12 +285,28 @@ impl OriginalDiffLayoutV1 {
                     self.list.width,
                     1,
                 );
+                let style = if visible == state.selected {
+                    theme.selected(SemanticToken::Reference)
+                } else {
+                    theme.base()
+                };
+                // Matched characters carry the shared finder's highlight (TASK-122).
+                let positions = finder
+                    .as_mut()
+                    .and_then(|finder| finder.positions(member.label()))
+                    .unwrap_or_default();
                 frame.render_widget(
-                    Paragraph::new(member.label()).style(if visible == state.selected {
-                        theme.selected(SemanticToken::Reference)
-                    } else {
-                        theme.base()
-                    }),
+                    Paragraph::new(ratatui::text::Line::from(
+                        crate::fuzzy_finder::highlight_spans_v1(
+                            member.label(),
+                            &positions,
+                            0,
+                            usize::from(rect.width),
+                            style,
+                            mark,
+                        ),
+                    ))
+                    .style(style),
                     rect,
                 );
                 if let Some(ticket) = source.ticket(visible, Side::New) {
