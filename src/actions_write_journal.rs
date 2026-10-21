@@ -472,6 +472,12 @@ impl ActionsWriteJournal {
         let mut connection = Connection::open(&path)?;
         crate::storage::busy_v1::install(&connection)?;
         connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
+        // TASK-102 follow-up: an open with nothing to create must not queue for the write
+        // lock behind a concurrent draft save's slow commit (the confirmation of a local-only
+        // intent failed with "database is locked" that way). The check itself only reads.
+        if Self::schema_present(&connection)? {
+            return Ok(Self { connection, path });
+        }
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS actions_write_attempts(
           attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,host TEXT NOT NULL,principal TEXT NOT NULL,
@@ -489,6 +495,32 @@ impl ActionsWriteJournal {
           CREATE INDEX IF NOT EXISTS actions_write_unresolved_scope ON actions_write_attempts(host,principal,state,attempt_id);")?;
         transaction.commit()?;
         Ok(Self { connection, path })
+    }
+    /// Whether every table and index [`Self::open`] creates already exists, by name, as its
+    /// `CREATE ... IF NOT EXISTS` statements would decide.
+    fn schema_present(connection: &Connection) -> Result<bool> {
+        const OBJECTS: [(&str, &str); 4] = [
+            ("table", "actions_write_attempts"),
+            ("table", "actions_write_resources"),
+            ("table", "actions_write_generations"),
+            ("index", "actions_write_unresolved_scope"),
+        ];
+        let present: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE (type,name) IN
+            (VALUES (?1,?2),(?3,?4),(?5,?6),(?7,?8))",
+            params![
+                OBJECTS[0].0,
+                OBJECTS[0].1,
+                OBJECTS[1].0,
+                OBJECTS[1].1,
+                OBJECTS[2].0,
+                OBJECTS[2].1,
+                OBJECTS[3].0,
+                OBJECTS[3].1
+            ],
+            |row| row.get(0),
+        )?;
+        Ok(present == OBJECTS.len() as i64)
     }
     pub fn blocking(
         &self,

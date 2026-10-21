@@ -269,6 +269,35 @@ fn actions_run_control_journal_single_use_changed_payload_and_database_isolation
 }
 
 #[test]
+fn actions_run_control_journal_open_of_a_current_journal_skips_the_write_lock_and_repairs_a_missing_index(
+) {
+    let dir = directory();
+    let path = dir.path().join("cache.sqlite3");
+    drop(ActionsWriteJournal::open(&path).unwrap());
+    // A concurrent writer (e.g. a draft save with a slow commit) holds the write lock.
+    let holder = Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let started = std::time::Instant::now();
+    let reopened = ActionsWriteJournal::open(&path).unwrap();
+    assert!(started.elapsed() < crate::storage::busy_v1::BUSY_BUDGET);
+    drop(reopened);
+    holder
+        .execute_batch("DROP INDEX actions_write_unresolved_scope; COMMIT")
+        .unwrap();
+    let repaired = ActionsWriteJournal::open(&path).unwrap();
+    let restored: bool = repaired
+        .connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master
+            WHERE type='index' AND name='actions_write_unresolved_scope')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(restored);
+}
+
+#[test]
 fn actions_run_control_journal_claim_transaction_failure_cannot_be_mislabeled_confirmed() {
     let dir = directory();
     let scope = target(run("example/repo"));
