@@ -1,11 +1,11 @@
 ---
 id: TASK-25
 title: Manage draft close reopen lock update and revert PR lifecycle
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-21 08:55'
+updated_date: '2026-10-21 11:34'
 labels:
   - review
   - e2e
@@ -48,7 +48,7 @@ Routine lifecycle operations should be reachable from the PR and explain their e
 - [x] #3 Restrictions, rules, unavailable operations, head changes and partial outcomes are visible and re-fetched.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -284,4 +284,6 @@ c09e4691: unconfirmed lifecycle writes name re-fetched state. Missing AC6: actor
 Lifecycle previews share the chip painter; update-branch state ink (012eefaf). Open: AC3 re-fetched partial outcomes. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 
 Status names the re-read state and a moved head after lifecycle writes; unconfirmed lock names the re-read state; State composer account chip (6bbe3583). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean. Open: AC6 audit (e.g. State history v74).
+
+Lifecycle previews add a PR state row in shared lifecycle ink with a text label; State composer v68 and State history v74 inked (ce3c6e34). Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: Provide one curl-to-Bash installer and macOS/Linux release binaries
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-21 06:29'
+updated_date: '2026-10-21 11:34'
 labels:
   - delivery
   - e2e
@@ -52,7 +52,7 @@ The researched contract is doc-12. Do not invent a release URL or create a remot
 - [x] #6 Docs cover trust limitations, download-inspect-run/manual archive alternatives, explicit rerun upgrades/version rollback and verified owned-only uninstall preserving configuration, cached data, drafts and repositories; no invented published URL or background updater.
 - [ ] #7 The shared PTY runner launches the actual script-installed release binary, independently checks its bytes/version/target and matches keyboard/mouse product behavior on supported native hosts without source-build fallback.
 - [x] #8 Automated code/provider and shell tests pass for the task-specific success/failure scenarios with nonzero selected tests and recorded commands/counts/artifacts.
-- [ ] #9 Real-binary PTY E2E tests pass for specified keyboard and mouse journeys, resize/focus/loading/error states and independent command/storage/Git effects; every visible action remains accessible by both inputs.
+- [x] #9 Real-binary PTY E2E tests pass for specified keyboard and mouse journeys, resize/focus/loading/error states and independent command/storage/Git effects; every visible action remains accessible by both inputs.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -128,4 +128,6 @@ V57 bounded READ-ONLY review (no new installer implementation): target/build/pro
 2026-10-20 final push (verified at 60167066, 6107/0): Installer hardened (curl HTTPS-only, checksum and target checks, refusal paths) with shell contract tests. Remaining: macOS evidence (deferred), PTY journeys for upgrade/rollback/failure.
 
 Installer checks the binary target before downloads; edge-case shell tests (c8543019). release_install_v1 + v1_release 19/0. Open: AC1/AC7 native macOS, AC9 fuller installed-binary journeys. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
+
+Installed-release PTY journeys: every view, resize, focus, loading, missing gh/git, upgrade, owned-only uninstall (3e243caa). release_install_v1 8/0. Open: AC1/AC7 native macOS and four-target artifacts. Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

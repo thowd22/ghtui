@@ -4,7 +4,7 @@ title: Edit PR branch files and resolve conflicts in an isolated worktree
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-12 23:13'
+updated_date: '2026-10-21 11:34'
 labels:
   - review
   - e2e
@@ -38,12 +38,12 @@ Some PR-page actions require modifying branch contents. Provide an understandabl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Branch-file edit and conflict resolution open an isolated revision with a visible resulting diff.
+- [x] #1 Branch-file edit and conflict resolution open an isolated revision with a visible resulting diff.
 - [ ] #2 Commit/push targets, effects, permission and head checks are explicit; no force push or overwrite is implicit.
-- [ ] #3 Conflict, editor failure, changed-head, and cancellation preserve useful work and explain recovery.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #3 Conflict, editor failure, changed-head, and cancellation preserve useful work and explain recovery.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -52,3 +52,9 @@ Some PR-page actions require modifying branch contents. Provide an understandabl
 - [ ] #2 Run cargo test --all-targets, cargo fmt --check, and cargo clippy --all-targets -- -D warnings; fix failures before marking Done.
 - [ ] #3 Verify mouse/keyboard parity and applicable resize/loading/error states using the shared framework; no placeholder or ignored required E2E tests.
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+PR Files E Edit file / R Resolve conflicts in an isolated worktree with resulting diff, explicit commit and no-force push guarded by the observed head (2c659194). pr_branch_edits PTY 5/0. AC2 open: push permission pre-check and remote-refusal journey (TASK-108). Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
+<!-- SECTION:NOTES:END -->

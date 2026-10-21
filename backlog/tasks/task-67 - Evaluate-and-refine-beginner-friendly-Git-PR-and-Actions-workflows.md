@@ -4,7 +4,7 @@ title: Evaluate and refine beginner-friendly Git PR and Actions workflows
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 14:09'
+updated_date: '2026-10-21 11:34'
 labels:
   - delivery
   - e2e
@@ -35,9 +35,9 @@ The product must be usable by someone with little Git knowledge. A polished feat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Evaluate locate-my-PR, explain-merge, compare-saved-versions, browse-old-file, resolve-conflict and find-failing-step tasks.
+- [x] #1 Evaluate locate-my-PR, explain-merge, compare-saved-versions, browse-old-file, resolve-conflict and find-failing-step tasks.
 - [ ] #2 Record user success/time/wrong turns and confusing terms; revise interaction labels/layout from the evidence.
-- [ ] #3 Required tasks work without memorizing shortcuts using mouse and discoverable keyboard navigation.
+- [x] #3 Required tasks work without memorizing shortcuts using mouse and discoverable keyboard navigation.
 - [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
@@ -185,4 +185,6 @@ Additional actual Linux/offline terminal observation during TASK79 full native r
 2026-10-17 Root READ-ONLY visual review, no Task67 implementation/AC/status/dependency change: full Linux5597/fmt/strict/audits passed at source1530/039a0886bb631aa461a06fd0007154a8fbec1757faaf25c5ea24b941b6dc5edf. Same-source actual completed offline mouse captures rendered/visually reviewed in target/screenshots/task6-all-5qvSgi; report target/build/task6-screenshots-current-2026-10-17T15-02-32-299Z.json SHA3983f2f7aef7c281e21101de21f517f193b5bc39c62de55974161c1bc08e3782. Repository history120x40 shows a crowded author/committer line and clipped long actor text; narrow Actions80x24 has dense controls, truncated source/runner explanation and long run metadata. Future beginner-UX work must improve disclosure/layout and verify exact source access, focus and click/keyboard equivalence at both widths. Native diff120x40 is the deliberately exercised no-color/plain-patch fallback, not evidence that semantic diff colors are broken. Screenshots are not a novice study, live GitHub, native macOS or final usability acceptance. Existing Task67 gates and dependencies remain mandatory.
 
 2026-10-20 audit at 74360e48 (0/5 ACs met): No usability evaluation done; the existing novice_usability tests cover only Actions dispatch wording. The six journeys, evaluation records, label/layout revisions and their PTY regressions remain. Remaining: AC1/AC2: no evaluation of locate-my-PR, explain-merge, compare-saved-versions, browse-old-file, resolve-conflict or find-failing-step, and no recorded success, time, wrong turns or confusing terms. The task notes say only screenshot UX debt was observed (debug/enum text, mid-word wraps, crowded Actions toolbar, dense diff captions), and it is not fixed. AC3: no test shows the six required tasks working without memorized shortcuts. AC4/AC5: no PTY journeys exist for the six evaluated tasks; the e
+
+Six beginner tasks covered by discoverable-only keyboard+mouse PTY at 80x24; jargon labels replaced; docs/beginner-walkthrough-v67.md (edb3adc3). AC2 needs real users. Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

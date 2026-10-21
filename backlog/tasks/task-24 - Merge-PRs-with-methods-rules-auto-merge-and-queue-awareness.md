@@ -1,11 +1,11 @@
 ---
 id: TASK-24
 title: Merge PRs with methods rules auto-merge and queue awareness
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-21 08:55'
+updated_date: '2026-10-21 11:34'
 labels:
   - review
   - e2e
@@ -51,7 +51,7 @@ Merging is a major PR action and its outcome is not always an immediate merge. T
 - [x] #3 Merge, queue, enable/disable auto-merge, and queue cancellation have verified distinct outcomes; admin bypass is never implicit.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -116,4 +116,6 @@ c09e4691: merge provider scenarios. Missing AC6: Disable auto-merge enabler / qu
 PrAction previews paint Account/Enabled by/Enqueued by actors with the shared chip, merge states in semantic ink (012eefaf). pr_actions + pr_create PTY 178/0. Open: AC4 re-audit. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 
 Provider tests for denied methods, read-only permission, draft refusal, queue races, merge-context provenance (6bbe3583). Gate 17 (node scripts/test-all.mjs at 1c39e689): 6353 passed / 0 failed; fmt + clippy clean. Open: AC6 actor/colour audit across all merge surfaces.
+
+Merge/auto-merge/queue forms draw the requester with the shared avatar or [?] fallback, no bare @login (ce3c6e34). Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

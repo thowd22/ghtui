@@ -4,7 +4,7 @@ title: Audit full PR Actions Git and interaction coverage
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-17 15:17'
+updated_date: '2026-10-21 11:34'
 labels:
   - delivery
   - e2e
@@ -37,9 +37,9 @@ Broad feature promises need concrete release evidence. Audit native actions, hos
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PR and Actions inventories map every row to implemented native behavior, tests and limitations.
+- [x] #1 PR and Actions inventories map every row to implemented native behavior, tests and limitations.
 - [ ] #2 Local Git operation coverage and all exposed action mouse/keyboard paths are enumerated and verified.
-- [ ] #3 Every actor view uses shared identity/avatar fallback and every Git/CI state follows the semantic theme.
+- [x] #3 Every actor view uses shared identity/avatar fallback and every Git/CI state follows the semantic theme.
 - [ ] #4 Opt-in disposable-repo verification records real host compatibility; browser links do not count as native support.
 - [ ] #5 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [ ] #6 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -70,4 +70,6 @@ A1 concrete source-bound continuation review proposal prepared after the frozen 
 2026-10-16 Root current-scope READONLY refresh after V206: reread Doc5, Tasks64-69, immutable currentV65 provider inventory and actual compiled capability inspector/lib/app registration. Original A1/A2 no-continuation audit describes older source, not current: genuine Source-owned Actions dispatch84code40PTY and Workflow57code24PTY actualV206PASS, scoped read/publication/history adapters now included; cannot keep claiming initial Actions navigation absent. Static capability_inventory explicitly describes TRANSPORT presence only and inspector calls it neither native parity nor current permission; true pr-lifecycle/pr-merge rows do NOT prove native lifecycle/merge integration. Current lib still does not declare staged pr_state_model/lifecycle observation, so Tasks24/25 remain real native gaps. Broader org/settings/runner/deployment capability slices, full W9edit/PR history, cross-repoCI, exact row-level test mapping, nativeMac/live-host/usability/performance/installer/CI remain required; do not reduce full Actions/PR contract to passing dispatch/workflow cohorts. New sourceonly W9negativeV66 child12declarations is reviewed but uncompiled/unregistered/unrun. This is targeted read-only audit evidence, no source/AC/status/dependency changes or Task64Done.
 
 2026-10-17 Linux foundation inventory checkpoint only: Task6 accepted its structured transport/auth/requirement/diagnostic inspector gates; Doc14 records all28public-operation/source/guard/task rows and executed fixture SUBSETS at source1530/039a, full5597/fmt/strict/audits. This does not satisfy Task64 AC1 or AC4 and none of its AC/status is changed. Actual native behavior/roles/host/API-version/plan/rule coverage remains required. Explicit current product gaps include suggestion application(Task23), isolated PR editing/conflicts(Task27), and complete native metadata/project/merge/Actions settings paths. Current public docs may default2026-03-10; existing application header remains unchanged, and real target compatibility cannot be inferred from current docs. Native macOS remains mandatory; live writes require an explicitly configured disposable repository. Do not count browser links, local-conflict tests, static flags or this ledger as native/live parity.
+
+docs/coverage-v1.md maps PR/Actions inventory rows to behavior, tests and limits, checked by tests/coverage_inventory_v64.rs (ea16e1ba); actor/theme audit lib tests with a justified allowlist (bdd54dfe). Open: AC2 dedicated keys for some Actions commands and overlay probes; AC4 disposable live repo. Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

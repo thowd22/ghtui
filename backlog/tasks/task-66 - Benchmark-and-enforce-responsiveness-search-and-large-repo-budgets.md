@@ -4,6 +4,7 @@ title: Benchmark and enforce responsiveness search and large-repo budgets
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
+updated_date: '2026-10-21 11:34'
 labels:
   - delivery
   - e2e
@@ -33,11 +34,11 @@ Super fast must be measured across the UI and its background workloads. Rust, as
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Record cold/warm startup, input-to-render/render cost, cached diff, first search page, RSS/CPU/disk and subprocess counts.
+- [x] #1 Record cold/warm startup, input-to-render/render cost, cached diff, first search page, RSS/CPU/disk and subprocess counts.
 - [ ] #2 Use documented release fixtures/hardware and p95 budgets from the architecture; indexing/network timing is separate.
 - [ ] #3 Large histories/diffs/corpora/avatars/Actions logs remain bounded and responsive while work runs.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -46,3 +47,9 @@ Super fast must be measured across the UI and its background workloads. Rust, as
 - [ ] #2 Run cargo test --all-targets, cargo fmt --check, and cargo clippy --all-targets -- -D warnings; fix failures before marking Done.
 - [ ] #3 Verify mouse/keyboard parity and applicable resize/loading/error states using the shared framework; no placeholder or ignored required E2E tests.
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Real-binary perf budgets in tests/tui_e2e performance journeys, docs/performance.md (df8e48db). Known gap: warm Ranked first page (TASK-106); large logs refused at the cap (TASK-107). Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
+<!-- SECTION:NOTES:END -->
