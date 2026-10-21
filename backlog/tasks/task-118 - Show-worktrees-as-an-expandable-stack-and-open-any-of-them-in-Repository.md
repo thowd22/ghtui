@@ -1,9 +1,10 @@
 ---
 id: TASK-118
 title: Show worktrees as an expandable stack and open any of them in Repository
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 17:54'
+updated_date: '2026-10-21 21:26'
 labels:
   - usability
 dependencies: []
@@ -19,8 +20,14 @@ User report: errors when worktrees are used; wants first-class worktree support.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Repository lists all worktrees as an expandable stack with status, branch and short path, by key and click
-- [ ] #2 Selecting a worktree switches the Repository view to it in place; returning works
-- [ ] #3 A core.worktree mismatch shows choices instead of only an error; unsetting it requires preview and confirmation
-- [ ] #4 Keyboard+mouse PTY journeys on temp repos with 3+ linked worktrees and a mismatched core.worktree; read-only paths change no Git state
+- [x] #1 Repository lists all worktrees as an expandable stack with status, branch and short path, by key and click
+- [x] #2 Selecting a worktree switches the Repository view to it in place; returning works
+- [x] #3 A core.worktree mismatch shows choices instead of only an error; unsetting it requires preview and confirmation
+- [x] #4 Keyboard+mouse PTY journeys on temp repos with 3+ linked worktrees and a mismatched core.worktree; read-only paths change no Git state
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 24 (node scripts/test-all.mjs 6551/1; the 1 was a test-helper SIGCONT race, fixed and its 4 modules rerun 40/0), fmt and clippy clean.
+<!-- SECTION:NOTES:END -->

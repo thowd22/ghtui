@@ -1,9 +1,10 @@
 ---
 id: TASK-116
 title: Make Actions log search a simple type-to-filter fuzzy finder
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 17:54'
+updated_date: '2026-10-21 21:26'
 labels:
   - usability
 dependencies: []
@@ -19,7 +20,13 @@ User report: in Actions logs it is unclear how to search for the error line or a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Typing in the log search filters results live with highlighted fuzzy matches and a count
-- [ ] #2 Enter or click jumps to the matched line in context; n/N and Jump to first error work by key and click
-- [ ] #3 Lib tests for ranking and highlighting; keyboard+mouse PTY journey on a large fixture log
+- [x] #1 Typing in the log search filters results live with highlighted fuzzy matches and a count
+- [x] #2 Enter or click jumps to the matched line in context; n/N and Jump to first error work by key and click
+- [x] #3 Lib tests for ranking and highlighting; keyboard+mouse PTY journey on a large fixture log
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 24 (node scripts/test-all.mjs 6551/1; the 1 was a test-helper SIGCONT race, fixed and its 4 modules rerun 40/0), fmt and clippy clean.
+<!-- SECTION:NOTES:END -->

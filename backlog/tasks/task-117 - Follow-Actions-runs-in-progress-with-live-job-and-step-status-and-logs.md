@@ -1,9 +1,10 @@
 ---
 id: TASK-117
 title: Follow Actions runs in progress with live job and step status and logs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 17:54'
+updated_date: '2026-10-21 21:26'
 labels:
   - usability
 dependencies: []
@@ -19,7 +20,13 @@ User request: view logs of runs while they are in progress. GitHub's REST API se
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An in-progress run shows live job and step status that updates without manual refresh and stops polling when done or left
-- [ ] #2 Logs of completed jobs appear while other jobs still run; the running job explains when its log will be available
-- [ ] #3 Keyboard+mouse PTY journey with a strict fake gh run that progresses queued -> in_progress -> completed
+- [x] #1 An in-progress run shows live job and step status that updates without manual refresh and stops polling when done or left
+- [x] #2 Logs of completed jobs appear while other jobs still run; the running job explains when its log will be available
+- [x] #3 Keyboard+mouse PTY journey with a strict fake gh run that progresses queued -> in_progress -> completed
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 24 (node scripts/test-all.mjs 6551/1; the 1 was a test-helper SIGCONT race, fixed and its 4 modules rerun 40/0), fmt and clippy clean. Running job's lines appear only when it finishes (gh limit).
+<!-- SECTION:NOTES:END -->
