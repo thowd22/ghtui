@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - review
   - e2e
@@ -49,7 +49,7 @@ Merging is a major PR action and its outcome is not always an immediate merge. T
 - [x] #1 Available merge/squash/rebase methods reflect repository settings and caller permissions.
 - [x] #2 Preview uses fresh head/check state and supported expected-head protection; branch deletion is a separate explicit choice.
 - [x] #3 Merge, queue, enable/disable auto-merge, and queue cancellation have verified distinct outcomes; admin bypass is never implicit.
-- [ ] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
+- [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 - [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
@@ -110,4 +110,8 @@ V68 read-only current-source proposal frozen: manifest target/build/provider-pr-
 2026-10-20 final push (verified at 60167066, 6107/0): AC1 closed: merge forms read allowed methods and write permission; merge queue enqueue/dequeue with keyboard+mouse journeys. Remaining: merge-async endpoint, 80x24 variants, who enabled auto-merge (AC6), rulesets not read in advance.
 
 2026-10-20 round: Verified existing work and closed gaps. AC1: the merge and auto-merge forms already offer only the methods the repository allows and refuse without write permission (lib test plus the merge_workflows squash-only and no-permission PTY journeys pass). AC3: Disable auto-merge now reads the merge context when its form opens. It refuses when GitHub reports no pending request or viewerCanDisableAutoMerge=false, and an admin capability never implies it. New PTY journey: when GitHub accepts a merge but the PR is neither merged nor queued, the journal stays 'uncertain', the status never says Published, and a second Ctrl-S sends no second write. The existing merge, queued-merge, enqueue, dequeue and enable/disable auto-merge journeys each produce a distinct outcome, and none uses --admin. AC5: new 80x24 keyboard and mouse journeys for enqueue and for a changed head. AC6 is only partly done: the Disable auto-merge preview names who enabled it ('Auto-merge (squash) was enabled by @alice at <UTC>'), with an 'unknown actor' fallback. Gates: cargo test --lib merge_workflows 2/0; cargo test --test tui_e2e -- merge_workflows v1_pr_lifecycle 30 passed, 2 failed (the new journeys failed only at quit because the uncertain form was still open; fixed by closing it first); cargo test --test tui_e2e -- accepted_but_unmerged 2/0. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+c09e4691: merge provider scenarios. Missing AC6: Disable auto-merge enabler / queue enqueuer show plain @login, no actor chip.
+
+PrAction previews paint Account/Enabled by/Enqueued by actors with the shared chip, merge states in semantic ink (012eefaf). pr_actions + pr_create PTY 178/0. Open: AC4 re-audit. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

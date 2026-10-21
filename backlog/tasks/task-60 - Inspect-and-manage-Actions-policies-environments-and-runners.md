@@ -1,11 +1,11 @@
 ---
 id: TASK-60
 title: Inspect and manage Actions policies environments and runners
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - actions
   - e2e
@@ -44,10 +44,10 @@ Full Actions support needs access to relevant operational settings when the acco
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Read/edit supported Actions allowlists/token permissions and environment protection settings with explicit scope/effect preview.
-- [ ] #2 Runner/group inventory shows labels/availability/associations and supports verified permitted label/association/removal operations.
+- [x] #2 Runner/group inventory shows labels/availability/associations and supports verified permitted label/association/removal operations.
 - [x] #3 Unsupported host/plan/org-admin capabilities explain limitations; no runner service provisioning or broad hidden change.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -97,4 +97,8 @@ Root native regression fixes and retained evidence: source_transition checked fi
 2026-10-20 final push (verified at 60167066, 6107/0): Untouched in this push.
 
 2026-10-20 round: Runner groups in a repository scope now show 'Runner groups belong to an organization…' and send no request. Before, this was a bare error. A 403, 404 or unsupported read of runners, runner groups, policies or environments shows the admin, plan or host requirement, and that page's mutation controls are disabled with the same reason (Action unavailable dialog, no request). Runner group rows now show repository visibility, whether public repositories are allowed, and workflow restrictions. New: 2 unit tests, plus keyboard and mouse PTY journeys (actions_settings_*_runner_groups_need_organization_and_denied_runners_disable_controls). Same gates. AC2 and AC5 are still open: there is no PTY journey for an org-scope runner-group association replace or a confirmed runner removal. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+Org runner-group associations, confirmed runner removal PTY (f803ef08). 24/0.
+
+Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

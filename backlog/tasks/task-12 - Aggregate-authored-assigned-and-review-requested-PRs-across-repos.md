@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 23:44'
+updated_date: '2026-10-21 04:24'
 labels:
   - inbox
   - e2e
@@ -113,4 +113,6 @@ READ-ONLY V121 OrgD1-D3 material design frozen /home/admin2/CODE/ghtui/target/bu
 2026-10-20 final push (verified at 60167066, 6107/0): AC2 not done: Inbox REST search/issues lacks review decision and check rollup; adding a gh call needs a fixture migration across ~30 test files.
 
 2026-10-20 round: AC2: Inbox rows now show review state and check rollup in a new STATUS column (src/inbox_status_v1.rs; github_ui INBOX_COLUMNS). It is the last column and the first to leave at narrow widths, so titles are never cut for it; when it leaves, the Comfortable detail line carries the status instead. The state comes only from PR pages read in this session: the latest decisive review per reviewer and the head's check runs and statuses. It adds no gh call, so no fixture migration was needed. Rows never opened show 'review/checks not loaded'. A newer queue updated_at marks the state '(stale)'. A new head drops the old checks. The memo is private to the account that read it and is cleared on account change or hidden identity. Repo, title, age, [draft], identity and refresh-selection were already in place. Gates: cargo test --lib -- inbox_status_v1 design_table_v91 design_density_v96 design_footer_v90 list_preview: 59/0 (5 new inbox_status_v1 tests). cargo test --test tui_e2e -- pr_details_pr_diff_pr_checks design_table_v91_inbox design_density_v96 navigation_inbox personal_inbox: 16/0. pr_details keyboard and mouse now assert 'not loaded' before opening and 'Changes requested, checks pass' on org/alpha#7 after Back at 80x24, with the exact strict gh journal and SQL unchanged. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+Inbox rows show review decision + check rollup at load via one GraphQL batch per 50 rows (3188c1fb); ~20 PTY fixtures migrated, avatar fixtures in 4f9959cb. Gate 13: 6243/14 (14 = unmigrated avatar fixtures, fixed; identity:: 96/0).
 <!-- SECTION:NOTES:END -->

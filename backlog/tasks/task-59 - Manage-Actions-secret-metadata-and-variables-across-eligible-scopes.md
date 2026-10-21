@@ -1,11 +1,11 @@
 ---
 id: TASK-59
 title: Manage Actions secret metadata and variables across eligible scopes
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - actions
   - e2e
@@ -42,7 +42,7 @@ Actions configuration includes repository/environment/organization secrets and v
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Metadata lists and variables CRUD support verified eligible repo/environment/org scopes.
+- [x] #1 Metadata lists and variables CRUD support verified eligible repo/environment/org scopes.
 - [x] #2 Secret set/delete use transient masked input through gh with no cache/log/persisted value.
 - [x] #3 Scope/selected-repo policies, permissions and read-back state are explicit and clickable.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
@@ -82,4 +82,8 @@ Checked task-specific command passed: env CARGO_TARGET_DIR=/tmp/ghtui-provider-c
 2026-10-20 final push (verified at 60167066, 6107/0): Variable scope journeys added (create/delete). See commit 6d8636b3.
 
 2026-10-20 round: A secret or variable metadata read that fails with 403, 404 or unsupported now shows an explanation row ('Secret metadata unavailable: GitHub denied this account (HTTP 403)… repository admin…'). It never shows an empty list. Set/Delete secret and Set/Delete variable are disabled with the same reason: by key or click they open an 'Action unavailable' dialog and send nothing. Refresh clears the explanation once access is granted. New: 1 unit test, plus keyboard and mouse PTY journeys (actions_secrets_vars_*_denied_metadata_read_*). Same gates, 49/0 and 20/0. AC1 (environment-scope secrets in PTY) was not addressed. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+Environment secrets PTY coverage (f803ef08).
+
+Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

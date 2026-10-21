@@ -6,7 +6,7 @@ assignee:
   - '@root'
   - '@foundation_resume'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 04:24'
 labels:
   - inbox
   - e2e
@@ -288,4 +288,6 @@ V83 checked gate now TERMINAL0, original41400 consumed: target/build/root-person
 2026-10-20 final push (verified at 60167066, 6107/0): Not done in this push: required checks still unidentified.
 
 2026-10-20 round: AC#1: the Inbox PR Checks tab now also reads the base branch's required checks, using GET repos/{r}/branches/{base} for classic protection and GET rules/branches/{base} (paginated) for active rulesets. The code is in the new src/providers/gh/required_checks_v1.rs. Each check row is marked required, not required, or required unknown. A required context that no check reported for the head gets its own row labelled 'expected', placed after the check rows so check_at stays one-to-one. The Head line keeps the full SHA and adds a summary such as 'Required on main: N failing, N pending, N not reported, N passed', shown in its semantic colour. If either source can't be read the result is Unavailable and no check is called optional. Auth failures, a missing gh and cancellation still propagate, so private pages are hidden. Check runs must now match the exact head SHA; a prefix match is no longer accepted. Fixtures: github.rs pages() and pr_checks_bridge startup each gained 2 GETs (bridge counts went 16/32/41 to 18/34/43). Gate: cargo test --offline --lib --test provider_contracts --test tui_e2e -- required_checks design_table_v91_pr_checks pr_checks_native pr_checks_bridge pr_details_pr_diff_pr_checks: lib 16/0, provider 21/0, PTY 8/0 (keyboard and mouse). Second run, provider_contracts/pr_legacy_contract/pr_ui_contracts filtered on commit_checks_keep_latest and checks: 28/0. The scoped repository-catalogue Checks view still shows 'Required rules unavailable'. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+Scoped catalogue PR Checks view shows base-branch required checks (f79ac081). scoped_checks + scoped_pr_resource lib 199/0, tui_e2e subtree passes.
 <!-- SECTION:NOTES:END -->

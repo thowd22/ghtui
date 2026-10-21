@@ -4,7 +4,7 @@ title: Find why two mouse journeys lose a click under full-suite load
 status: In Progress
 assignee: []
 created_date: '2026-10-20 17:42'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - bug
 dependencies: []
@@ -44,4 +44,6 @@ Gates:
 AC#3 (two consecutive full gates) has not been run; it is for the coordinator. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
 
 2026-10-20: cause found (clicks located on half-drawn frames; [? Help] matched Inbox hint text). Session::wait_for_control now uses the latest completed frame (55b0516d). Both journeys passed in gates 8, 9 and 10; AC3 needs two consecutive clean gates.
+
+Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean. (clean gate 1 of 2 for AC3).
 <!-- SECTION:NOTES:END -->

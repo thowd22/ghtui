@@ -4,7 +4,7 @@ title: Add GitHub CI and CD for testing building and releasing ghtui
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-21 06:29'
 labels:
   - delivery
   - e2e
@@ -43,7 +43,7 @@ This project needs its own GitHub CI/CD near the end of delivery. Automate the e
 - [ ] #2 Protected release jobs build and natively verify supported x86_64/aarch64 macOS/Linux artifacts, the one Bash bootstrap, exact-version metadata and SHA-256 files, with tag/Cargo/binary versions agreeing.
 - [ ] #3 CI invokes TASK-68's script to install the exact release artifacts and runs the shared keyboard/mouse PTY journeys against those installed paths before publication, including safe update/rollback/failure recovery.
 - [ ] #4 Publish the script and tested archives/checksums to a draft GitHub release, promoting stable Latest only after all required gates pass; native package installers, Windows artifacts and extra updater services are not required.
-- [ ] #5 Workflow permissions/caches/concurrency and pinned actions/tools are explicit; fork PRs receive no write/signing credentials. Publish build provenance attestations when the configured repository/plan supports them and document honest verification/trust boundaries without bootstrap login.
+- [x] #5 Workflow permissions/caches/concurrency and pinned actions/tools are explicit; fork PRs receive no write/signing credentials. Publish build provenance attestations when the configured repository/plan supports them and document honest verification/trust boundaries without bootstrap login.
 - [ ] #6 Pipeline verification distinguishes local validation, cross-compiled artifacts and actual native/hosted GitHub run evidence after remote setup; no remote or invented installation URL is created by local planning.
 - [ ] #7 Automated code/provider workflow tests and genuine installed-release keyboard/mouse PTY journeys pass with nonzero selected counts, independent effects and actual commands/artifacts recorded.
 <!-- AC:END -->
@@ -85,4 +85,6 @@ User explicitly approved separate Linux development readiness and final native m
 2026-10-18 a15: added .github/workflows/ci.yml (fmt, clippy -D warnings, shellcheck, test-all.mjs with RUST_TEST_THREADS=2, PTY suites run headless) and release.yml (v* tag: cargo-zigbuild musl x86_64/aarch64 on native runners, --version/static check, file:// install check, gh release create). Not yet run on GitHub; shape test v1_release_workflows_* passes.
 
 2026-10-20 final push (verified at 60167066, 6107/0): ci.yml saves failure logs; release.yml installs each exact archive with install.sh and runs keyboard/mouse PTY journeys before upload; single-archive releases refused. Remaining: actions pinned to tags not SHAs; new release steps not yet run on GitHub; macOS deferred.
+
+Actions pinned to SHAs, least-privilege permissions, publication gated on tested bytes (bb49db80); ci_workflow_contracts + actionlint clean. Open: hosted-run evidence (AC6), macOS archives. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

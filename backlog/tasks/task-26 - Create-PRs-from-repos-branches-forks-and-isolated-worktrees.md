@@ -1,11 +1,11 @@
 ---
 id: TASK-26
 title: Create PRs from repos branches forks and isolated worktrees
-status: In Progress
+status: Done
 assignee:
   - '@github_provider'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - review
   - e2e
@@ -49,7 +49,7 @@ Authors need to create PRs from the same tool and understand what will be propos
 - [x] #3 Cancelled or failed publication preserves draft; success returns the canonical PR and appears in authored queue.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
-- [ ] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
+- [x] #6 All displayed actors use the shared username/avatar or honest fallback; Git and CI states use the shared semantic colors with redundant labels.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -81,4 +81,8 @@ Actual verification checkpoint: env CARGO_TARGET_DIR=/tmp/ghtui-provider-check.g
 2026-10-20 final push (verified at 60167066, 6107/0): Fork parent chooser and Reviewers field (logins or org/team) in create PR; authored queue refreshed after create. See commit 0bebb7b2.
 
 2026-10-20 round: Added PTY journeys v1_pr_create_{keyboard,mouse}_new_pr_appears_in_authored_queue in tests/tui_e2e/pr_create_v1.rs. Each loads the Inbox, creates a PR from Repository and returns to the Inbox. The Inbox reloads once with no Refresh, and the new PR is listed under Created by me. The journey checks for exactly one POST and an unchanged checkout. Fixed a real race in src/main.rs: a late draft-save ack replaced a Local form's failure status ('Pull request not created • draft kept locally') with 'Draft saved locally'. This made the keyboard failed-POST journey fail under load. The existing fork, reviewers, failed-POST, unpushed and cancel-then-publish journeys cover AC1, AC3, AC4 and AC5. Gate: node scripts/test-task.mjs v1_pr_create: 8 lib + 10 PTY passed, 0 failed. AC6 (shared actor chips in the create preview) is not verified. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+c09e4691: actor chips in create-PR preview. pr_create/lifecycle/merge PTY 78/0.
+
+Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

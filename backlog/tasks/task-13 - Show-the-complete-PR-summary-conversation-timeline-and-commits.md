@@ -1,11 +1,11 @@
 ---
 id: TASK-13
 title: Show the complete PR summary conversation timeline and commits
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - inbox
   - e2e
@@ -37,7 +37,7 @@ Reviewers need one coherent context for a PR before deciding what to do. Missing
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Summary, metadata, event timeline, comments, reviews, and commits load all pages with source URLs.
-- [ ] #2 Permissions, requested reviewers, linked items, base/head SHA, fork origin, and loading/error states are visible.
+- [x] #2 Permissions, requested reviewers, linked items, base/head SHA, fork origin, and loading/error states are visible.
 - [x] #3 Detail tabs and timeline items connect to files/checks/repo while preserving selection and return context.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -145,4 +145,6 @@ Root frozen combined Timeline + saved-native-diff + long-local-identity checkpoi
 2026-10-20 final push (verified at 60167066, 6107/0): Closing-keyword linked issues listed in Metadata. Remaining AC3: Timeline items do not navigate to files or checks.
 
 2026-10-20 round: AC3: Timeline items now open their own record in another tab. A commented or reviewed event opens its comment or review in Conversation (the comment row is selected). An older commit opens in Commits, scrolled to its row. The current head commit opens Checks (its two check reads). To select an item, use ↑/↓ or click its row. To open it, press Enter or click 'Enter Go to item'. 't' returns to the same Timeline row, and Back still returns to the selected Inbox row. Links exist only for records the PR details actually hold. Linked rows are interactive only on personal (unscoped) PR pages. New files: src/pr_timeline_links_v13.rs and its tests file; PrRow.link/PrRowLinkV13 added in github_workspace.rs; runtime after-install hook. Gates: `cargo test --lib timeline` passed 15/0. `cargo test --test tui_e2e -- pr_timeline_links_v13 timeline_actor pr_details_pr_diff` passed 14/0 (new keyboard and mouse journeys at 120x40 then 80x24, with exact gh journal 14 then 16, Git refs/index/diff, config and SQL drafts/records unchanged). `cargo test --lib github` passed 50/0. AC2: linked closing-keyword issues were already shown in Metadata (unit test v1_pr_metadata_lists_issues_linked_by_closing_keywords). I did not add a PTY check for that, so AC2 is not claimed here. Merged to main by 11eb1ced; full gate 6206 passed, 2 load-only failures elsewhere (TASK-102).
+
+Summary shows Metadata loading/read errors, three-state permissions, fork origin, linked issues (eaf2dd31). github::pr_summary_context_v13 + metadata_tab_v51 PTY 16/0. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

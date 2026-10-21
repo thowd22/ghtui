@@ -4,7 +4,7 @@ title: Show usernames avatars and verified actor identity everywhere
 status: In Progress
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 23:45'
+updated_date: '2026-10-21 06:29'
 labels:
   - foundation
   - e2e
@@ -42,7 +42,7 @@ Who did what must be visible across GitHub and local Git. Use one identity prese
 - [x] #2 Local authors and committers remain distinct; GitHub links require verified associations.
 - [x] #3 Bounded background avatar loading/cache and terminal image fallback never delay navigation or expose credentials.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
-- [ ] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
+- [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -225,4 +225,8 @@ Root-approved next SOURCE-ONLY Task20 native review avatar successor (after immu
 2026-10-20 final push (verified at 60167066, 6107/0): Not done: actor profiles exist only for local Git authors/committers; PR, comment and run actor profiles need a new view.
 
 2026-10-20 round: an actor-profile slice (@ / click on author rows) was merged then reverted: making author headings selectable broke 15 journeys (read-only Summary scrolling, avatar colours, exact row targets) and its own keyboard PTY never passed. Redo with a selection model that keeps Summary non-interactive by default.
+
+Read-only actor profiles open from PR author and comment/review-comment authors (f10bc6db) without changing row targets. Missing: commit author/committer and Actions run actor profiles.
+
+Commit author/committer and Actions run actor profiles by key and click (c12fc688), honest 'No GitHub account' fallback. Open: one cross-surface identity journey. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->

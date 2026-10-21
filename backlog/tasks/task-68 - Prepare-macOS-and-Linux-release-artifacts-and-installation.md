@@ -4,7 +4,7 @@ title: Provide one curl-to-Bash installer and macOS/Linux release binaries
 status: To Do
 assignee: []
 created_date: '2026-10-12 23:13'
-updated_date: '2026-10-20 18:20'
+updated_date: '2026-10-21 06:29'
 labels:
   - delivery
   - e2e
@@ -45,13 +45,13 @@ The researched contract is doc-12. Do not invent a release URL or create a remot
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 One documented Bash 3.2-compatible curl-to-Bash entry point selects versioned x86_64/aarch64 macOS/Linux binaries; unsupported platforms fail clearly, with no native package installers or Windows scope.
-- [ ] #2 Latest is resolved once to an exact version shared by all asset requests; explicit version pinning and install-directory override work without Rust, Node or jq on the user's machine.
-- [ ] #3 Certificate-verified HTTPS/HTTPS-only redirects, bounded transport, exact SHA-256 and target/version checks occur before extraction or execution; malformed metadata, unsafe archive members and corrupt artifacts fail without installing.
-- [ ] #4 Per-user no-sudo install and same-filesystem atomic upgrades preserve the prior executable on failure, handle interruption/concurrency, and refuse unrelated/symlinked targets; repeating the same verified version is safe.
-- [ ] #5 gh/git remain external and auth belongs to gh; missing-dependency/PATH guidance is actionable, shell profiles are not silently edited, and local Git stays independent of GitHub login. Optional avatar/diff features retain clear fallbacks.
-- [ ] #6 Docs cover trust limitations, download-inspect-run/manual archive alternatives, explicit rerun upgrades/version rollback and verified owned-only uninstall preserving configuration, cached data, drafts and repositories; no invented published URL or background updater.
+- [x] #2 Latest is resolved once to an exact version shared by all asset requests; explicit version pinning and install-directory override work without Rust, Node or jq on the user's machine.
+- [x] #3 Certificate-verified HTTPS/HTTPS-only redirects, bounded transport, exact SHA-256 and target/version checks occur before extraction or execution; malformed metadata, unsafe archive members and corrupt artifacts fail without installing.
+- [x] #4 Per-user no-sudo install and same-filesystem atomic upgrades preserve the prior executable on failure, handle interruption/concurrency, and refuse unrelated/symlinked targets; repeating the same verified version is safe.
+- [x] #5 gh/git remain external and auth belongs to gh; missing-dependency/PATH guidance is actionable, shell profiles are not silently edited, and local Git stays independent of GitHub login. Optional avatar/diff features retain clear fallbacks.
+- [x] #6 Docs cover trust limitations, download-inspect-run/manual archive alternatives, explicit rerun upgrades/version rollback and verified owned-only uninstall preserving configuration, cached data, drafts and repositories; no invented published URL or background updater.
 - [ ] #7 The shared PTY runner launches the actual script-installed release binary, independently checks its bytes/version/target and matches keyboard/mouse product behavior on supported native hosts without source-build fallback.
-- [ ] #8 Automated code/provider and shell tests pass for the task-specific success/failure scenarios with nonzero selected tests and recorded commands/counts/artifacts.
+- [x] #8 Automated code/provider and shell tests pass for the task-specific success/failure scenarios with nonzero selected tests and recorded commands/counts/artifacts.
 - [ ] #9 Real-binary PTY E2E tests pass for specified keyboard and mouse journeys, resize/focus/loading/error states and independent command/storage/Git effects; every visible action remains accessible by both inputs.
 <!-- AC:END -->
 
@@ -126,4 +126,6 @@ V57 bounded READ-ONLY review (no new installer implementation): target/build/pro
 2026-10-18 a15: added scripts/install.sh (Linux x86_64/aarch64 musl, sha256-verified, ~/.local/bin, no sudo, truncation-safe) and scripts/package-release.sh; gate: node scripts/test-task.mjs v1_release -> 8 code + 2 PTY (keyboard+mouse) passed. macOS binaries still deferred.
 
 2026-10-20 final push (verified at 60167066, 6107/0): Installer hardened (curl HTTPS-only, checksum and target checks, refusal paths) with shell contract tests. Remaining: macOS evidence (deferred), PTY journeys for upgrade/rollback/failure.
+
+Installer checks the binary target before downloads; edge-case shell tests (c8543019). release_install_v1 + v1_release 19/0. Open: AC1/AC7 native macOS, AC9 fuller installed-binary journeys. Gate 15 (node scripts/test-all.mjs, merged round 3 + 41672d74): 6303 passed / 0 failed; fmt + clippy clean.
 <!-- SECTION:NOTES:END -->
