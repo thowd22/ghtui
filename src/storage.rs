@@ -23,6 +23,7 @@ pub(crate) use state_filter_v68::{
 };
 pub(crate) use state_filter_v68::{StateAckCacheEpochV77, StateAckQueueBoundaryV78};
 pub(crate) mod busy_v1;
+pub(crate) mod init_gate_v111;
 mod metric_trends_v1;
 pub use metric_trends_v1::{METRIC_TREND_PAYLOAD_BYTES, METRIC_TREND_RETAINED_DAYS};
 mod metrics_retention;
@@ -216,7 +217,11 @@ impl Cache {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .with_context(|| format!("Open cache {}", path.display()))?;
+        // TASK-111: queue behind another thread's schema check or creation for this file
+        // instead of spending the lock budget on its write transaction.
+        let gate = init_gate_v111::enter(path);
         let cache = Self::initialize(connection)?;
+        drop(gate);
         drop(private_files);
         Ok(cache)
     }
@@ -289,6 +294,8 @@ impl Cache {
             WHERE kind IN ('corpus-mapping-v1','corpus-recovery-v1');
             DELETE FROM records WHERE kind IN ('corpus-mapping-v1','corpus-recovery-v1');",
         )?;
+        #[cfg(test)]
+        init_gate_v111::test_pause::reached(transaction.path());
         transaction.commit()?;
         Ok(Self { connection })
     }

@@ -216,6 +216,8 @@ fn readonly_at(
     {
         bail!("Original State queue database privacy identity unavailable");
     }
+    // TASK-111: never read while this process is still creating the schema.
+    super::init_gate_v111::wait(path);
     let connection = Connection::open_with_flags(
         path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
