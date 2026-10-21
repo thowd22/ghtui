@@ -133,7 +133,67 @@ fn clipboard_copy_focused_explains_when_nothing_is_focused() {
 }
 
 #[test]
-fn clipboard_y_in_actions_logs_copies_the_selected_log_line() {
+fn clipboard_footer_y_copy_is_lowest_priority_and_never_displaces_a_control() {
+    let mut app = actions_logs_app();
+    let controls = crate::footer::main_controls(&app);
+    let copy = controls
+        .iter()
+        .position(|control| control.key == "y")
+        .expect("y Copy in the Actions logs bar");
+    assert_eq!(controls[copy].label, "Copy");
+    assert_eq!(
+        controls[copy].action,
+        Action::Clipboard(ClipboardAction::CopyFocused)
+    );
+    assert!(controls
+        .iter()
+        .all(|control| control.priority <= COPY_PRIORITY));
+    // `y` means exactly one control.
+    assert_eq!(
+        controls.iter().filter(|control| control.key == "y").count(),
+        1
+    );
+    let mut without = controls.clone();
+    without.remove(copy);
+    let tokens = |controls: &[crate::footer::KeyControl], width: u16| {
+        crate::footer::layout(controls, width)
+            .into_iter()
+            .map(|placed| controls[placed.index].token(placed.compact))
+            .filter(|token| token != "y Copy")
+            .collect::<Vec<_>>()
+    };
+    for width in [40u16, 60, 80, 100, 120, 140, 200] {
+        assert_eq!(
+            tokens(&controls, width),
+            tokens(&without, width),
+            "y Copy displaced a control at {width}"
+        );
+    }
+    let wide = crate::footer::layout(&controls, 200);
+    assert!(wide.iter().any(|placed| placed.index == copy));
+    // The token's click runs the same copy as the key.
+    app.dispatch(controls[copy].action.clone());
+    assert!(app.status.starts_with("Copied log line"), "{}", app.status);
+    // Nothing to copy, a released mouse or an open form: no token.
+    app.copy_v120.mouse_released = true;
+    assert!(crate::footer::main_controls(&app)
+        .iter()
+        .all(|control| control.key != "y"));
+    app.copy_v120.mouse_released = false;
+    app.actions.as_mut().unwrap().rows.clear();
+    assert!(crate::footer::main_controls(&app)
+        .iter()
+        .all(|control| control.key != "y"));
+    let empty = App {
+        view: View::Repository,
+        ..Default::default()
+    };
+    assert!(crate::footer::main_controls(&empty)
+        .iter()
+        .all(|control| control.key != "y"));
+}
+
+fn actions_logs_app() -> App {
     use crate::actions_workspace::{ActionsCells, ActionsRow, ActionsView, ActionsWorkspace};
     let mut actions = ActionsWorkspace::new(
         crate::providers::gh::HostIdentity {
@@ -156,11 +216,16 @@ fn clipboard_y_in_actions_logs_copies_the_selected_log_line() {
         })
         .collect();
     actions.selected = 1;
-    let mut app = App {
+    App {
         view: View::Actions,
         actions: Some(actions),
         ..Default::default()
-    };
+    }
+}
+
+#[test]
+fn clipboard_y_in_actions_logs_copies_the_selected_log_line() {
+    let mut app = actions_logs_app();
     assert_eq!(
         focused_target(&app).unwrap(),
         CopyTarget::new("log line", "ERROR fixture assertion failed")

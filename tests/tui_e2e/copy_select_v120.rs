@@ -177,6 +177,108 @@ fn journey(mouse: bool) {
     s.quit_and_assert_restored_terminal(mouse);
 }
 
+/// Refs, status and index bytes of a plain fixture repository.
+fn plain_state(fixture: &Fixture) -> (String, String, Option<Vec<u8>>) {
+    (
+        fixture.git(&["for-each-ref"]),
+        fixture.git(&["status", "--porcelain"]),
+        std::fs::read(fixture.repo().join(".git/index")).ok(),
+    )
+}
+
+/// The key bar row of the latest completed frame.
+fn key_bar(s: &Session) -> String {
+    footer(s)
+}
+
+/// Repository Overview: choose the changed file's row, then `y` (keyboard) or the `y Copy`
+/// key-bar token (mouse) copies exactly its repository path. At 80x24 the key bar keeps its
+/// Global tail. Nothing in Git changes and no gh command runs.
+fn repository_path_journey(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file("notes.txt", b"first\n", "First note");
+    std::fs::write(fixture.repo().join("notes.txt"), b"edited\n").unwrap();
+    let baseline = plain_state(&fixture);
+    // The Repository bar fills 120 columns, so the lowest-priority y Copy shows from 160.
+    let mut s = Session::launch(&fixture, 160, 40);
+    s.wait_for_screen("Recent commits");
+    s.wait_for_screen("Changes · 1 unstaged");
+    if mouse {
+        crate::local_management_v41::activate_row(&mut s, mouse, "notes.txt");
+    } else {
+        // The changed file is the first row of the keyboard order (Up from it stays there),
+        // so one Down then Ups select it without counting rows; Enter chooses it once the
+        // bar is on it.
+        s.send_key(b"\x1b[B");
+        s.send_key(&b"\x1b[A".repeat(8));
+        s.try_wait_for_condition(
+            |screen| {
+                screen
+                    .lines()
+                    .any(|line| line.contains("notes.txt") && line.contains('▌'))
+            },
+            "the changed file row selected",
+            Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}\n{}", s.screen()));
+        s.send_key(b"\r");
+    }
+    // Choosing the row reinstalls the workspace, whose status line would replace a copy's
+    // confirmation: wait until it is in place.
+    s.wait_for_screen("Selected working file: notes.txt");
+    s.wait_for_settled_footer();
+    s.wait_for_cursorless_condition(
+        |screen| {
+            screen
+                .contents()
+                .lines()
+                .rev()
+                .find(|row| !row.trim().is_empty())
+                .is_some_and(|row| row.contains("y Copy") && row.contains("q Quit"))
+        },
+        "y Copy in the Repository key bar",
+        Duration::from_secs(8),
+    );
+    let before = s.transcript.len();
+    if mouse {
+        s.click_visible_action("[y Copy]");
+    } else {
+        s.send_key(b"y");
+    }
+    s.wait_for_output_bytes(before, &osc52("notes.txt"), "OSC 52 copy of the file path");
+    s.wait_for_screen("Copied path (9 chars) via terminal OSC 52");
+    assert_eq!(plain_state(&fixture), baseline);
+
+    // At 80x24 the bar still ends with the Global tail; y Copy is the first to leave it.
+    s.resize(80, 24);
+    s.wait_for_settled_footer();
+    let bar = key_bar(&s);
+    for token in ["? Help", ": Cmds", "q Quit"] {
+        assert!(bar.contains(token), "{token} missing at 80x24: {bar}");
+    }
+    assert!(!bar.contains('['), "{bar}");
+    assert!(
+        !bar.contains("y Copy"),
+        "y Copy leaves a full bar first: {bar}"
+    );
+    s.resize(160, 40);
+    s.wait_for_settled_footer();
+    assert_eq!(plain_state(&fixture), baseline);
+    assert!(s.inspect_command_journal(&fixture).is_empty());
+    s.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn copy_select_v120_keyboard_y_copies_repository_file_path() {
+    repository_path_journey(false);
+}
+
+#[test]
+fn copy_select_v120_mouse_y_copy_token_copies_repository_file_path() {
+    repository_path_journey(true);
+}
+
 #[test]
 fn copy_select_v120_keyboard_y_copies_sha_and_f12_toggles_mouse() {
     journey(false);

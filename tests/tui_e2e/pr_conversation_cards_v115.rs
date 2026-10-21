@@ -259,6 +259,97 @@ fn cards_journey(mouse: bool) {
     s.quit_and_assert_restored_terminal(mouse);
 }
 
+/// TASK-120 on the actual Conversation: with the existing comment selected, `y` (keyboard) or
+/// the `y Copy` key-bar token (mouse) copies its exact body, and a mouse drag across the
+/// painted body copies exactly the highlighted text on release, with no extra key. Each copy
+/// is an OSC 52 escape in the PTY output; no gh command, SQL row or Git state changes.
+fn copy_journey(mouse: bool) {
+    let steps = initial_steps(true);
+    let initial = steps.len();
+    let f = resource_configured(&steps);
+    seed_independent(&f);
+    let git = git_state(&f);
+    let mut s = launch(&f, mouse);
+    enter(&mut s, &f, true, mouse, initial, false, &steps[..initial]);
+    let kept = protected(&f);
+    select_current(&mut s, mouse, OLD);
+    s.wait_for_settled_footer();
+    s.wait_for_cursorless_condition(
+        |screen| {
+            screen
+                .contents()
+                .lines()
+                .rev()
+                .find(|row| !row.trim().is_empty())
+                .is_some_and(|row| row.contains("y Copy") && row.contains("q Quit"))
+        },
+        "y Copy in the Conversation key bar",
+        Duration::from_secs(8),
+    );
+    let before = s.transcript.len();
+    if mouse {
+        s.click_visible_action("[y Copy]");
+    } else {
+        s.send_key(b"y");
+    }
+    s.wait_for_output_bytes(
+        before,
+        &crate::copy_select_v120::osc52(OLD),
+        "OSC 52 copy of the comment body",
+    );
+    s.wait_for_screen(&format!(
+        "Copied comment body ({} chars) via terminal OSC 52",
+        OLD.len()
+    ));
+    if mouse {
+        // Drag across the painted body; release alone copies the highlighted text.
+        let (x, y) = s.locate(OLD).expect("the comment body is painted");
+        let columns = x..x + OLD.len() as u16;
+        // The selected row may already be reversed (no colour); a selection flips each cell.
+        let unselected = {
+            let screen = s.completed_cursorless_screen().unwrap();
+            columns
+                .clone()
+                .map(|column| screen.cell(y, column).is_some_and(|cell| cell.inverse()))
+                .collect::<Vec<_>>()
+        };
+        let before = s.transcript.len();
+        s.drag((x, y), (x + OLD.len() as u16 - 1, y));
+        s.wait_for_output_bytes(
+            before,
+            &crate::copy_select_v120::osc52(OLD),
+            "OSC 52 copy of the dragged comment text",
+        );
+        s.wait_for_screen(&format!(
+            "Copied selection ({} chars) via terminal OSC 52",
+            OLD.len()
+        ));
+        let screen = s.completed_cursorless_screen().unwrap();
+        assert!(
+            columns.zip(unselected).all(|(column, was)| screen
+                .cell(y, column)
+                .is_some_and(|cell| cell.inverse() != was)),
+            "the dragged comment text is highlighted\n{}",
+            s.screen()
+        );
+    }
+    exact(&s, &f, &steps[..initial]);
+    assert_eq!(protected(&f), kept);
+    assert_eq!(git_state(&f), git);
+    assert_read_only_git(&f);
+    s.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn conversation_cards_v115_keyboard_y_copies_the_comment_body() {
+    copy_journey(false);
+}
+
+#[test]
+fn conversation_cards_v115_mouse_copy_token_and_drag_copy_the_comment_body() {
+    copy_journey(true);
+}
+
 #[test]
 fn conversation_cards_v115_keyboard_add_comment_react_edit_and_quote_reply() {
     cards_journey(false);

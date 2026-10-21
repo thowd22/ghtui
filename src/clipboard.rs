@@ -274,6 +274,33 @@ pub fn footer_control(app: &App) -> Option<crate::footer::KeyControl> {
     })
 }
 
+/// The key bar's `y Copy` priority: the lowest, so it is the first token to leave a narrow bar.
+pub const COPY_PRIORITY: u8 = 99;
+
+/// `y Copy` after the view's own controls while the focused item has a value to copy. It is
+/// left out while the mouse is released, a form is open, or the view already binds `y` (a
+/// confirmation), so a key press always means exactly one control.
+pub fn copy_control(
+    app: &App,
+    view_controls: &[crate::footer::KeyControl],
+) -> Option<crate::footer::KeyControl> {
+    if app.copy_v120.mouse_released
+        || app.form.is_some()
+        || view_controls.iter().any(|control| control.key == "y")
+        || focused_target(app).is_err()
+    {
+        return None;
+    }
+    Some(
+        crate::footer::KeyControl::new(
+            "y",
+            "Copy",
+            Action::Clipboard(ClipboardAction::CopyFocused),
+        )
+        .with_priority(COPY_PRIORITY),
+    )
+}
+
 /// The focused item's natural value in the current view.
 pub fn focused_target(app: &App) -> Result<CopyTarget, String> {
     match app.view {
@@ -309,6 +336,19 @@ fn repository_target(app: &App) -> Result<CopyTarget, String> {
         Some(RowAction::OpenWorktree(path)) => {
             CopyTarget::new("worktree path", path.to_string_lossy())
         }
+        // A saved-tree row copies its repository path, not the painted marker and kind.
+        Some(RowAction::Tree(
+            crate::workspace::OriginalTreeNavigationActionV1::Toggle(ticket)
+            | crate::workspace::OriginalTreeNavigationActionV1::Directory(ticket),
+        )) if ticket.member().is_some() => CopyTarget::new(
+            "path",
+            ticket
+                .member()
+                .unwrap()
+                .path()
+                .as_os_str()
+                .to_string_lossy(),
+        ),
         Some(RowAction::DiffLine(_)) => CopyTarget::new("diff line", row.label.trim_end()),
         _ => CopyTarget::new("row", row.label.trim()),
     })

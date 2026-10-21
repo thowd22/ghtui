@@ -703,6 +703,8 @@ fn global_id(action: &Action) -> Option<&'static str> {
         Action::Refresh => "global.refresh",
         Action::Cancel => "global.cancel",
         Action::Quit => "global.quit",
+        Action::Clipboard(crate::clipboard::ClipboardAction::CopyFocused) => "global.copy",
+        Action::Clipboard(crate::clipboard::ClipboardAction::ToggleMouseCapture) => "global.mouse",
         _ => return None,
     })
 }

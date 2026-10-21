@@ -243,6 +243,7 @@ A loaded Dashboard's keys are covered by
 | Inbox (3 PRs) | `?` | Help | key bar, Commands |
 | Inbox (3 PRs) | `:` | Commands | key bar, Commands |
 | Inbox (3 PRs) | `q` | Quit | key bar, Commands |
+| Inbox (3 PRs) | `y` | Copy | key bar, Commands |
 | PR Summary | `b` | Back | key bar, Commands |
 | PR Summary | `p` | PR actions | key bar, Commands |
 | PR Summary | `J` | Thread history | key bar, Commands |
@@ -261,6 +262,7 @@ A loaded Dashboard's keys are covered by
 | PR Summary | `?` | Help | key bar, Commands |
 | PR Summary | `:` | Commands | key bar, Commands |
 | PR Summary | `q` | Quit | key bar, Commands |
+| PR Summary | `y` | Copy | key bar, Commands |
 | PR Conversation | `b` | Back | key bar, Commands |
 | PR Conversation | `p` | PR actions | key bar, Commands |
 | PR Conversation | `r` | Refresh | key bar, Commands |
@@ -287,6 +289,7 @@ A loaded Dashboard's keys are covered by
 | PR Conversation | `+` | React | Commands (explains) |
 | PR Conversation | `E` | Edit | Commands (explains) |
 | PR Conversation | `D` | Delete | Commands (explains) |
+| PR Conversation | `y` | Copy | key bar, Commands |
 | PR Commits | `b` | Back | key bar, Commands |
 | PR Commits | `p` | PR actions | key bar, Commands |
 | PR Commits | `r` | Refresh | key bar, Commands |
@@ -303,6 +306,7 @@ A loaded Dashboard's keys are covered by
 | PR Commits | `?` | Help | key bar, Commands |
 | PR Commits | `:` | Commands | key bar, Commands |
 | PR Commits | `q` | Quit | key bar, Commands |
+| PR Commits | `y` | Copy | key bar, Commands |
 | PR Files | `b` | Back | key bar, Commands |
 | PR Files | `p` | PR actions | key bar, Commands |
 | PR Files | `f` | File history | Commands (explains) |
@@ -321,6 +325,7 @@ A loaded Dashboard's keys are covered by
 | PR Files | `?` | Help | key bar, Commands |
 | PR Files | `:` | Commands | key bar, Commands |
 | PR Files | `q` | Quit | key bar, Commands |
+| PR Files | `y` | Copy | key bar, Commands |
 | PR Checks | `b` | Back | key bar, Commands |
 | PR Checks | `Enter` | Open check | Commands (explains) |
 | PR Checks | `p` | PR actions | key bar, Commands |
@@ -337,6 +342,7 @@ A loaded Dashboard's keys are covered by
 | PR Checks | `?` | Help | key bar, Commands |
 | PR Checks | `:` | Commands | key bar, Commands |
 | PR Checks | `q` | Quit | key bar, Commands |
+| PR Checks | `y` | Copy | key bar, Commands |
 | PR Timeline | `b` | Back | key bar, Commands |
 | PR Timeline | `Enter` | Go to item | Commands (explains) |
 | PR Timeline | `p` | PR actions | key bar, Commands |
@@ -353,6 +359,7 @@ A loaded Dashboard's keys are covered by
 | PR Timeline | `?` | Help | key bar, Commands |
 | PR Timeline | `:` | Commands | key bar, Commands |
 | PR Timeline | `q` | Quit | key bar, Commands |
+| PR Timeline | `y` | Copy | key bar, Commands |
 | PR Metadata | `b` | Back | key bar, Commands |
 | PR Metadata | `p` | PR actions | key bar, Commands |
 | PR Metadata | `r` | Refresh | key bar, Commands |
@@ -369,6 +376,7 @@ A loaded Dashboard's keys are covered by
 | PR Metadata | `?` | Help | key bar, Commands |
 | PR Metadata | `:` | Commands | key bar, Commands |
 | PR Metadata | `q` | Quit | key bar, Commands |
+| PR Metadata | `y` | Copy | key bar, Commands |
 | PR Review progress | `b` | Back | key bar, Commands |
 | PR Review progress | `p` | PR actions | key bar, Commands |
 | PR Review progress | `r` | Refresh | key bar, Commands |
@@ -384,6 +392,7 @@ A loaded Dashboard's keys are covered by
 | PR Review progress | `?` | Help | key bar, Commands |
 | PR Review progress | `:` | Commands | key bar, Commands |
 | PR Review progress | `q` | Quit | key bar, Commands |
+| PR Review progress | `y` | Copy | key bar, Commands |
 | Repository (none) | `r` | Refresh | key bar, Commands |
 | Repository (none) | `s` | Settings | key bar, Commands |
 | Repository (none) | `?` | Help | key bar, Commands |
@@ -417,6 +426,7 @@ A loaded Dashboard's keys are covered by
 | Repository Overview | `:` | Commands | key bar, Commands |
 | Repository Overview | `q` | Quit | key bar, Commands |
 | Repository Overview | `p` | Push | key bar, Commands |
+| Repository Overview | `y` | Copy | key bar, Commands |
 | Repository Graph | `o` | Overview | tab strip, Commands |
 | Repository Graph | `g` | History | tab strip, Commands |
 | Repository Graph | `t` | Tree | tab strip, Commands |
@@ -455,6 +465,7 @@ A loaded Dashboard's keys are covered by
 | Repository Graph | `?` | Help | key bar, Commands |
 | Repository Graph | `:` | Commands | key bar, Commands |
 | Repository Graph | `q` | Quit | key bar, Commands |
+| Repository Graph | `y` | Copy | key bar, Commands |
 | Repository Tree | `o` | Overview | tab strip, Commands |
 | Repository Tree | `g` | History | tab strip, Commands |
 | Repository Tree | `t` | Tree | tab strip, Commands |
@@ -479,6 +490,7 @@ A loaded Dashboard's keys are covered by
 | Repository Tree | `?` | Help | key bar, Commands |
 | Repository Tree | `:` | Commands | key bar, Commands |
 | Repository Tree | `q` | Quit | key bar, Commands |
+| Repository Tree | `y` | Copy | key bar, Commands |
 | Repository Working | `o` | Overview | tab strip, Commands |
 | Repository Working | `g` | History | tab strip, Commands |
 | Repository Working | `t` | Tree | tab strip, Commands |
@@ -508,6 +520,7 @@ A loaded Dashboard's keys are covered by
 | Repository Working | `?` | Help | key bar, Commands |
 | Repository Working | `:` | Commands | key bar, Commands |
 | Repository Working | `q` | Quit | key bar, Commands |
+| Repository Working | `y` | Copy | key bar, Commands |
 | Repository Staged | `o` | Overview | tab strip, Commands |
 | Repository Staged | `g` | History | tab strip, Commands |
 | Repository Staged | `t` | Tree | tab strip, Commands |
@@ -537,6 +550,7 @@ A loaded Dashboard's keys are covered by
 | Repository Staged | `?` | Help | key bar, Commands |
 | Repository Staged | `:` | Commands | key bar, Commands |
 | Repository Staged | `q` | Quit | key bar, Commands |
+| Repository Staged | `y` | Copy | key bar, Commands |
 | Repository Uncommitted | `o` | Overview | tab strip, Commands |
 | Repository Uncommitted | `g` | History | tab strip, Commands |
 | Repository Uncommitted | `t` | Tree | tab strip, Commands |
@@ -566,6 +580,7 @@ A loaded Dashboard's keys are covered by
 | Repository Uncommitted | `:` | Commands | key bar, Commands |
 | Repository Uncommitted | `q` | Quit | key bar, Commands |
 | Search | `F` | Fuzzy | tab strip, Commands |
+| Repository Uncommitted | `y` | Copy | key bar, Commands |
 | Search | `e` | Exact | tab strip, Commands |
 | Search | `x` | Regex | tab strip, Commands |
 | Search | `n` | Ranked | tab strip, Commands |
@@ -636,6 +651,7 @@ A loaded Dashboard's keys are covered by
 | Actions Runs | `?` | Help | key bar, Commands |
 | Actions Runs | `:` | Commands | key bar, Commands |
 | Actions Runs | `q` | Quit | key bar, Commands |
+| Actions Runs | `y` | Copy | key bar, Commands |
 | Actions Workflows | `R` | Runs | tab strip, Commands |
 | Actions Workflows | `W` | Workflows | tab strip, Commands |
 | Actions Workflows | `c` | Caches | tab strip, Commands |
@@ -656,6 +672,7 @@ A loaded Dashboard's keys are covered by
 | Actions Workflows | `?` | Help | key bar, Commands |
 | Actions Workflows | `:` | Commands | key bar, Commands |
 | Actions Workflows | `q` | Quit | key bar, Commands |
+| Actions Workflows | `y` | Copy | key bar, Commands |
 | Actions Caches | `R` | Runs | tab strip, Commands |
 | Actions Caches | `W` | Workflows | tab strip, Commands |
 | Actions Caches | `c` | Caches | tab strip, Commands |
@@ -678,6 +695,7 @@ A loaded Dashboard's keys are covered by
 | Actions Caches | `?` | Help | key bar, Commands |
 | Actions Caches | `:` | Commands | key bar, Commands |
 | Actions Caches | `q` | Quit | key bar, Commands |
+| Actions Caches | `y` | Copy | key bar, Commands |
 | Actions Secrets | `R` | Runs | tab strip, Commands |
 | Actions Secrets | `W` | Workflows | tab strip, Commands |
 | Actions Secrets | `c` | Caches | tab strip, Commands |
@@ -700,6 +718,7 @@ A loaded Dashboard's keys are covered by
 | Actions Secrets | `?` | Help | key bar, Commands |
 | Actions Secrets | `:` | Commands | key bar, Commands |
 | Actions Secrets | `q` | Quit | key bar, Commands |
+| Actions Secrets | `y` | Copy | key bar, Commands |
 | Actions Variables | `R` | Runs | tab strip, Commands |
 | Actions Variables | `W` | Workflows | tab strip, Commands |
 | Actions Variables | `c` | Caches | tab strip, Commands |
@@ -722,6 +741,7 @@ A loaded Dashboard's keys are covered by
 | Actions Variables | `?` | Help | key bar, Commands |
 | Actions Variables | `:` | Commands | key bar, Commands |
 | Actions Variables | `q` | Quit | key bar, Commands |
+| Actions Variables | `y` | Copy | key bar, Commands |
 | Actions Environments | `R` | Runs | tab strip, Commands |
 | Actions Environments | `W` | Workflows | tab strip, Commands |
 | Actions Environments | `c` | Caches | tab strip, Commands |
@@ -743,6 +763,7 @@ A loaded Dashboard's keys are covered by
 | Actions Environments | `?` | Help | key bar, Commands |
 | Actions Environments | `:` | Commands | key bar, Commands |
 | Actions Environments | `q` | Quit | key bar, Commands |
+| Actions Environments | `y` | Copy | key bar, Commands |
 | Actions Policies | `R` | Runs | tab strip, Commands |
 | Actions Policies | `W` | Workflows | tab strip, Commands |
 | Actions Policies | `c` | Caches | tab strip, Commands |
@@ -770,6 +791,7 @@ A loaded Dashboard's keys are covered by
 | Actions Policies | `?` | Help | key bar, Commands |
 | Actions Policies | `:` | Commands | key bar, Commands |
 | Actions Policies | `q` | Quit | key bar, Commands |
+| Actions Policies | `y` | Copy | key bar, Commands |
 | Actions Runners | `R` | Runs | tab strip, Commands |
 | Actions Runners | `W` | Workflows | tab strip, Commands |
 | Actions Runners | `c` | Caches | tab strip, Commands |
@@ -792,6 +814,7 @@ A loaded Dashboard's keys are covered by
 | Actions Runners | `?` | Help | key bar, Commands |
 | Actions Runners | `:` | Commands | key bar, Commands |
 | Actions Runners | `q` | Quit | key bar, Commands |
+| Actions Runners | `y` | Copy | key bar, Commands |
 | Actions Runner groups | `R` | Runs | tab strip, Commands |
 | Actions Runner groups | `W` | Workflows | tab strip, Commands |
 | Actions Runner groups | `c` | Caches | tab strip, Commands |
@@ -817,6 +840,7 @@ A loaded Dashboard's keys are covered by
 | Actions Runner groups | `?` | Help | key bar, Commands |
 | Actions Runner groups | `:` | Commands | key bar, Commands |
 | Actions Runner groups | `q` | Quit | key bar, Commands |
+| Actions Runner groups | `y` | Copy | key bar, Commands |
 | Actions Usage | `R` | Runs | tab strip, Commands |
 | Actions Usage | `W` | Workflows | tab strip, Commands |
 | Actions Usage | `c` | Caches | tab strip, Commands |
@@ -837,6 +861,7 @@ A loaded Dashboard's keys are covered by
 | Actions Usage | `?` | Help | key bar, Commands |
 | Actions Usage | `:` | Commands | key bar, Commands |
 | Actions Usage | `q` | Quit | key bar, Commands |
+| Actions Usage | `y` | Copy | key bar, Commands |
 | Actions Approvals | `R` | Runs | tab strip, Commands |
 | Actions Approvals | `W` | Workflows | tab strip, Commands |
 | Actions Approvals | `c` | Caches | tab strip, Commands |
@@ -859,6 +884,7 @@ A loaded Dashboard's keys are covered by
 | Actions Approvals | `?` | Help | key bar, Commands |
 | Actions Approvals | `:` | Commands | key bar, Commands |
 | Actions Approvals | `q` | Quit | key bar, Commands |
+| Actions Approvals | `y` | Copy | key bar, Commands |
 | Actions Run | `R` | Runs | tab strip, Commands |
 | Actions Run | `W` | Workflows | tab strip, Commands |
 | Actions Run | `c` | Caches | tab strip, Commands |
@@ -893,6 +919,7 @@ A loaded Dashboard's keys are covered by
 | Actions Run | `?` | Help | key bar, Commands |
 | Actions Run | `:` | Commands | key bar, Commands |
 | Actions Run | `q` | Quit | key bar, Commands |
+| Actions Run | `y` | Copy | key bar, Commands |
 | Actions Logs | `R` | Runs | tab strip, Commands |
 | Actions Logs | `W` | Workflows | tab strip, Commands |
 | Actions Logs | `c` | Caches | tab strip, Commands |
@@ -916,6 +943,7 @@ A loaded Dashboard's keys are covered by
 | Actions Logs | `?` | Help | key bar, Commands |
 | Actions Logs | `:` | Commands | key bar, Commands |
 | Actions Logs | `q` | Quit | key bar, Commands |
+| Actions Logs | `y` | Copy | key bar, Commands |
 | Actions Artifact | `R` | Runs | tab strip, Commands |
 | Actions Artifact | `W` | Workflows | tab strip, Commands |
 | Actions Artifact | `c` | Caches | tab strip, Commands |
@@ -939,6 +967,7 @@ A loaded Dashboard's keys are covered by
 | Actions Artifact | `?` | Help | key bar, Commands |
 | Actions Artifact | `:` | Commands | key bar, Commands |
 | Actions Artifact | `q` | Quit | key bar, Commands |
+| Actions Artifact | `y` | Copy | key bar, Commands |
 | Actions Workflow definition | `R` | Runs | tab strip, Commands |
 | Actions Workflow definition | `W` | Workflows | tab strip, Commands |
 | Actions Workflow definition | `c` | Caches | tab strip, Commands |
@@ -964,6 +993,7 @@ A loaded Dashboard's keys are covered by
 | Actions Workflow definition | `?` | Help | key bar, Commands |
 | Actions Workflow definition | `:` | Commands | key bar, Commands |
 | Actions Workflow definition | `q` | Quit | key bar, Commands |
+| Actions Workflow definition | `y` | Copy | key bar, Commands |
 | Actions Publications | `R` | Runs | tab strip, Commands |
 | Actions Publications | `W` | Workflows | tab strip, Commands |
 | Actions Publications | `c` | Caches | tab strip, Commands |
@@ -984,6 +1014,7 @@ A loaded Dashboard's keys are covered by
 | Actions Publications | `?` | Help | key bar, Commands |
 | Actions Publications | `:` | Commands | key bar, Commands |
 | Actions Publications | `q` | Quit | key bar, Commands |
+| Actions Publications | `y` | Copy | key bar, Commands |
 | Dashboard (not loaded) | `r` | Refresh | key bar, Commands |
 | Dashboard (not loaded) | `s` | Settings | key bar, Commands |
 | Dashboard (not loaded) | `?` | Help | key bar, Commands |

@@ -407,6 +407,16 @@ pub fn main_controls(app: &App) -> Vec<KeyControl> {
         }
         _ => transitional_keys(app),
     };
+    // TASK-120: `y Copy` where the focused item has a natural value (lowest priority).
+    if app.overlay.is_none()
+        && matches!(
+            app.view,
+            crate::app::View::Inbox | crate::app::View::Actions | crate::app::View::Repository
+        )
+    {
+        let copy = crate::clipboard::copy_control(app, &controls);
+        controls.extend(copy);
+    }
     controls.extend(global_tail(app));
     controls
 }

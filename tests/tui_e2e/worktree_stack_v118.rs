@@ -136,7 +136,10 @@ fn stack_journey(mouse: bool) {
     session.resize(80, 24);
     session.wait_for_screen("Branch · Worktree: agent/two");
     session.wait_for_screen("◂ Back to ");
-    session.resize(120, 40);
+    // TASK-119: at 140x42 the sections and the stack stay whole and every row still acts.
+    session.resize(140, 42);
+    session.wait_for_screen("Branch · Worktree: agent/two");
+    session.wait_for_screen("Changes · 1 unstaged");
     session.wait_for_screen("◂ Back to ");
     if mouse {
         session.click_visible_action("◂ Back to ");
@@ -145,6 +148,23 @@ fn stack_journey(mouse: bool) {
     }
     session.wait_for_screen("main checkout · you are here · clean");
     wait_without(&mut session, "Worktree: agent/two");
+    session.wait_for_screen("Branch: main · no upstream yet");
+    session.wait_for_screen("Changes · clean");
+    session.wait_for_screen("No stashes");
+    session.wait_for_screen("Recent commits");
+    activate_row(&mut session, mouse, "· clean · …/one");
+    session.wait_for_screen("Branch · Worktree: agent/one");
+    session.wait_for_screen("you are here · clean · …/one");
+    assert_eq!(witness(&fixture.repo(), &linked), before);
+    session.resize(120, 40);
+    session.wait_for_screen("◂ Back to ");
+    if mouse {
+        session.click_visible_action("◂ Back to ");
+    } else {
+        session.send_key(b"B");
+    }
+    session.wait_for_screen("main checkout · you are here · clean");
+    wait_without(&mut session, "Worktree: agent/one");
     session.wait_for_screen("Branch: main · no upstream yet");
     assert_eq!(witness(&fixture.repo(), &linked), before);
     assert!(session.inspect_command_journal(&fixture).is_empty());

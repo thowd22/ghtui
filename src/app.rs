@@ -3107,10 +3107,13 @@ impl App {
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                     && matches!(self.view, View::Inbox | View::Actions | View::Repository)
-                    // The stale core.worktree screen owns `y Confirm` (TASK-118).
-                    && !(self.view == View::Repository
-                        && self.workspace.is_none()
-                        && self.core_worktree_v118.is_some())
+                    // A view that binds `y` itself (the core.worktree `y Confirm unset`)
+                    // keeps it: the key does what its painted control says.
+                    && !crate::footer::main_controls(self).iter().any(|control| {
+                        control.key == "y"
+                            && control.action
+                                != Action::Clipboard(crate::clipboard::ClipboardAction::CopyFocused)
+                    })
                 {
                     self.dispatch(Action::Clipboard(
                         crate::clipboard::ClipboardAction::CopyFocused,
