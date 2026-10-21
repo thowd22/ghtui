@@ -1965,7 +1965,18 @@ impl GithubProvider {
         )?;
         let result = self.after_pr_write(target, self.issue_metadata(target, cancel))?;
         if result["locked"].as_bool() != Some(lock) {
-            return Err(self.ambiguous_pr(target, "PR lock state did not match server read-back"));
+            // Partial outcome (TASK-25 AC3): name what GitHub re-read.
+            let observed = match result["locked"].as_bool() {
+                Some(true) => "locked",
+                Some(false) => "unlocked",
+                None => "of unknown lock state",
+            };
+            return Err(self.ambiguous_pr(
+                target,
+                &format!(
+                    "PR lock not confirmed: GitHub re-read the conversation as {observed}; reconcile before retrying"
+                ),
+            ));
         }
         Ok(result)
     }
@@ -2037,7 +2048,12 @@ impl GithubProvider {
         if n == target.pr.number || created.pr.url != url || created.base_ref != target.base_ref {
             return Err(self.ambiguous_pr(
                 target,
-                "The reverting PR read back does not match the mutation result; reconcile",
+                &format!(
+                    "The reverting PR read back does not match the mutation result: GitHub re-read #{} into {} ({}); reconcile",
+                    created.pr.number,
+                    crate::providers::runner::sanitize_terminal(&created.base_ref),
+                    crate::providers::runner::sanitize_terminal(&created.pr.url),
+                ),
             ));
         }
         Ok(created)

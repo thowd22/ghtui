@@ -5289,6 +5289,13 @@ fn pr_lifecycle_revert_readback_must_match_the_mutation_result() {
         )
         .unwrap_err();
     assert!(matches!(error.kind, GithubErrorKind::AmbiguousWrite));
+    // TASK-25 AC3: the partial outcome names the PR GitHub re-read.
+    assert!(
+        error
+            .message
+            .contains("GitHub re-read #8 into main (https://github.invalid/example/repo/pull/8)"),
+        "{error:?}"
+    );
     assert_eq!(journal(&fixture).len(), 5);
 }
 
@@ -5545,6 +5552,222 @@ fn pr_lifecycle_unconfirmed_close_reports_refetched_state_and_never_resends() {
             .filter(|row| row["args"][0] == "pr" && row["args"][1] == "close")
             .count(),
         1
+    );
+}
+
+/// TASK-24 testing step 1, the scenarios the scenario test above leaves out:
+/// caller permission and allowed methods, a method GitHub denies, a draft PR,
+/// queue states (already queued, head race, changed entry), auto-merge state
+/// and merge-context provenance. Each refusal sends no write; the denied
+/// method blocks a second attempt.
+#[test]
+fn merge_workflows_provider_denied_methods_permissions_and_queue_states_never_guess() {
+    use ghtui::providers::gh::MergeMethod;
+    let cancel = CancellationToken::default();
+    let graphql_rows = |fixture: &Fixture| {
+        journal(fixture)
+            .into_iter()
+            .filter(|row| row["args"][1] == "graphql")
+            .count()
+    };
+
+    // Caller permission: read-only access never counts as write; methods the
+    // repository disables are refused and unreported ones stay allowed.
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[step(
+        api_args("repos/example/repo"),
+        json!({"full_name":"example/repo","default_branch":"main","allow_merge_commit":false,"allow_squash_merge":false,"allow_rebase_merge":true,"allow_auto_merge":false,"permissions":{"pull":true,"push":false,"maintain":false,"admin":false}}),
+    )]);
+    let settings = provider(&fixture)
+        .repository_merge_settings("example/repo", &cancel)
+        .unwrap();
+    assert!(!settings.can_write(), "pull-only is not write permission");
+    assert!(!settings.allows(MergeMethod::Merge));
+    assert!(!settings.allows(MergeMethod::Squash));
+    assert!(settings.allows(MergeMethod::Rebase));
+    assert_eq!(settings.allow_auto_merge, Some(false));
+
+    // Denied method: GitHub refuses the rebase. The exited write stays an
+    // unknown outcome, names GitHub's reason, and is never resent.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut denied = merge_cli("--rebase", false);
+    denied.status = 1;
+    denied.stderr = b"X Pull request example/repo#7 is not mergeable: Rebase merges are not allowed on this repository.\n".to_vec();
+    steps.push(denied);
+    steps.extend(guard_steps());
+    fixture.scripted_gh(&steps);
+    let gh = provider(&fixture);
+    let first = gh
+        .merge(&identity(), &target(), MergeMethod::Rebase, false, &cancel)
+        .unwrap_err();
+    assert!(matches!(first.kind, GithubErrorKind::AmbiguousWrite));
+    assert!(
+        first.message.contains("Rebase merges are not allowed"),
+        "{first:?}"
+    );
+    let again = gh
+        .merge(&identity(), &target(), MergeMethod::Rebase, false, &cancel)
+        .unwrap_err();
+    assert!(matches!(again.kind, GithubErrorKind::AmbiguousWrite));
+    assert_eq!(merge_rows(&fixture).len(), 1, "denied method not resent");
+    assert_eq!(journal(&fixture).len(), steps.len());
+
+    // A draft PR is refused before any merge command.
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    let mut draft = pr(7, "example/repo");
+    draft["draft"] = json!(true);
+    steps[2] = step(api_args("repos/example/repo/pulls/7"), draft);
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .merge(&identity(), &target(), MergeMethod::Merge, false, &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::InvalidTarget));
+    assert!(merge_rows(&fixture).is_empty());
+
+    // Already queued: enqueue inspects the existing entry, sends nothing.
+    let queued = json!({"id":"MQ1","state":"QUEUED","position":1,"jump":false});
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[merge_context_step(queued.clone(), Value::Null)]);
+    let error = provider(&fixture)
+        .enqueue_pr(&identity(), &target(), false, &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::InvalidTarget));
+    assert_eq!(journal(&fixture).len(), 1);
+
+    // Queue head race: the PR head moved after the queue read, so the
+    // expected-head enqueue mutation is never sent.
+    let fixture = Fixture::new();
+    let mut steps = vec![merge_context_step(Value::Null, Value::Null)];
+    let mut moved = pr(7, "example/repo");
+    moved["head"]["sha"] = json!("cccccccccccccccccccccccccccccccccccccccc");
+    steps.extend(guard_steps());
+    steps[3] = step(api_args("repos/example/repo/pulls/7"), moved);
+    fixture.scripted_gh(&steps);
+    let error = provider(&fixture)
+        .enqueue_pr(&identity(), &target(), false, &cancel)
+        .unwrap_err();
+    assert!(
+        matches!(error.kind, GithubErrorKind::StaleHead),
+        "{error:?}"
+    );
+    assert_eq!(journal(&fixture).len(), 4);
+    assert_eq!(graphql_rows(&fixture), 1, "only the queue read, no enqueue");
+
+    // Queue cancellation against a changed entry is refused before writing.
+    let fixture = Fixture::new();
+    let mut other = queued.clone();
+    other["id"] = json!("MQ2");
+    fixture.scripted_gh(&[merge_context_step(other, Value::Null)]);
+    let observed = ghtui::providers::gh::MergeQueueEntry {
+        id: "MQ1".into(),
+        state: "QUEUED".into(),
+        position: 1,
+        head_sha: None,
+        base_sha: None,
+        enqueuer: Actor::default(),
+        enqueued_at: String::new(),
+        jump: false,
+    };
+    let error = provider(&fixture)
+        .dequeue_pr(&identity(), &target(), &observed, &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::StaleHead));
+    assert_eq!(journal(&fixture).len(), 1);
+
+    // Auto-merge that is not enabled cannot be disabled.
+    let fixture = Fixture::new();
+    fixture.scripted_gh(&[merge_context_step(Value::Null, Value::Null)]);
+    let error = provider(&fixture)
+        .disable_auto_merge(&identity(), &target(), &cancel)
+        .unwrap_err();
+    assert!(matches!(error.kind, GithubErrorKind::InvalidTarget));
+    assert_eq!(journal(&fixture).len(), 1);
+
+    // Merge-context provenance: missing viewer flags are unsupported (no
+    // permission is inferred) and another head's context is stale.
+    let mut missing = merge_context_value(Value::Null, Value::Null);
+    missing["data"]["node"]
+        .as_object_mut()
+        .unwrap()
+        .remove("viewerCanEnableAutoMerge");
+    let mut stale = merge_context_value(Value::Null, Value::Null);
+    stale["data"]["node"]["headRefOid"] = json!("cccccccccccccccccccccccccccccccccccccccc");
+    for (value, kind) in [
+        (missing, GithubErrorKind::Unsupported),
+        (stale, GithubErrorKind::StaleHead),
+    ] {
+        let fixture = Fixture::new();
+        fixture.scripted_gh(&[graphql_step(
+            PR_MERGE_CONTEXT_QUERY,
+            json!({"id":target().pr.id}),
+            value,
+        )]);
+        let error = provider(&fixture)
+            .merge_context(&target(), &cancel)
+            .unwrap_err();
+        assert_eq!(
+            std::mem::discriminant(&error.kind),
+            std::mem::discriminant(&kind),
+            "{error:?}"
+        );
+    }
+}
+
+/// TASK-25 AC3: partial lifecycle outcomes name what GitHub re-read and are
+/// never resent.
+#[test]
+fn pr_lifecycle_partial_lock_names_refetched_state_and_never_resends() {
+    let cancel = CancellationToken::default();
+    let lock_step = || {
+        write_step(
+            "repos/example/repo/issues/7/lock",
+            "PUT",
+            Some(json!({"lock_reason":"off-topic"})),
+            Value::Null,
+        )
+    };
+    let fixture = Fixture::new();
+    let mut steps = guard_steps();
+    steps.extend([
+        lock_step(),
+        step(
+            api_args("repos/example/repo/issues/7"),
+            json!({"number":7,"locked":false}),
+        ),
+    ]);
+    steps.extend(guard_steps());
+    fixture.scripted_gh(&steps);
+    let gh = provider(&fixture);
+    let lock = |gh: &GithubProvider| {
+        gh.lock_pr(
+            &identity(),
+            &target(),
+            Some(LockReason::OffTopic),
+            true,
+            &cancel,
+        )
+        .unwrap_err()
+    };
+    let first = lock(&gh);
+    assert!(matches!(first.kind, GithubErrorKind::AmbiguousWrite));
+    assert!(
+        first
+            .message
+            .contains("GitHub re-read the conversation as unlocked"),
+        "{first:?}"
+    );
+    let again = lock(&gh);
+    assert!(matches!(again.kind, GithubErrorKind::AmbiguousWrite));
+    let rows = journal(&fixture);
+    assert_eq!(rows.len(), steps.len());
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["args"][1] == "repos/example/repo/issues/7/lock")
+            .count(),
+        1,
+        "no second lock write"
     );
 }
 

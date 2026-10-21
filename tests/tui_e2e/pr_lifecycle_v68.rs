@@ -231,6 +231,14 @@ fn state_preview_cancel(mouse: bool) {
                 && body.contains("Independent issue #2007")
                 && body.contains("requested closed")
         );
+        // TASK-25 AC6: the requesting account is its own preview row with
+        // the shared filled initials chip, like the PR action previews. The
+        // mouse launch runs under NO_COLOR, where the chip is `[OC] octocat`.
+        crate::pr_actions::wait_preview_actor_chips(
+            &mut s,
+            &[crate::pr_actions::ACCOUNT_ROW],
+            mouse,
+        );
         assert_eq!(
             all_rows(&f),
             stable,

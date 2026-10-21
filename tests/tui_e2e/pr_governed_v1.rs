@@ -579,6 +579,92 @@ fn unlock() -> Flow {
         cancel: false,
     }
 }
+/// TASK-25 AC3, partial outcome: the lock request runs, but GitHub re-reads
+/// the conversation as unlocked. The form names the re-read state, the
+/// journal records `uncertain` (never confirmed), and confirming again sends
+/// no second lock.
+fn unconfirmed_lock(mouse: bool) {
+    let fixture = configured();
+    let git = local_git_witness(&fixture);
+    let mut steps = initial();
+    steps.extend(details(vec![starter()]));
+    let opened = steps.len();
+    steps.push(issue(false));
+    steps.extend(guard());
+    let previewed = steps.len();
+    steps.extend(guard());
+    steps.extend(guard());
+    steps.push(write(
+        "repos/example/repo/issues/7/lock",
+        "PUT",
+        Some(json!({"lock_reason":"off-topic"})),
+        Value::Null,
+    ));
+    steps.push(issue(false));
+    fixture.scripted_gh(&steps);
+    let mut session = Session::launch(&fixture, 120, 40);
+    open_summary(&mut session, mouse);
+    records(&mut session, &fixture, opened);
+    menu(&mut session, mouse, "Lock conversation");
+    session.wait_for_screen("Local PR intent ready");
+    choose(&mut session, mouse, "[off-topic]", b" ");
+    session.wait_for_screen("Lock reason • off-topic");
+    preview(&mut session, mouse);
+    session.wait_for_screen("Locks the conversation (reason: off-topic)");
+    assert_eq!(writes(&records(&mut session, &fixture, previewed)), 0);
+    confirm(&mut session, mouse);
+    session.wait_for_screen("Uncertain publication");
+    session.wait_for_screen("GitHub re-read the conversation as unlocked");
+    assert!(!session.screen().contains("Published • Lock conversation"));
+    let locks = |records: &[Value]| {
+        records
+            .iter()
+            .filter(|record| record["args"][1] == "repos/example/repo/issues/7/lock")
+            .count()
+    };
+    let after = records(&mut session, &fixture, steps.len());
+    assert_eq!(locks(&after), 1, "exactly one lock request");
+    assert_eq!(writes(&after), 1);
+    let database = Connection::open(cache_path(&fixture)).unwrap();
+    let states: Vec<(String, String)> = database
+        .prepare("SELECT state, observed_head FROM pr_write_attempts")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        states,
+        [("uncertain".to_string(), HEAD.to_string())],
+        "an unconfirmed lock is never confirmed"
+    );
+    // Ctrl-S again (the invalidated plan hides the button) sends nothing.
+    session.send_key(b"\x13");
+    session.poll_output(Duration::from_millis(300));
+    assert_eq!(locks(&records(&mut session, &fixture, steps.len())), 1);
+    choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
+    session.wait_for_cursorless_condition(
+        |frame| {
+            let text = frame.contents();
+            !text.contains("READ-ONLY PREVIEW")
+                && text.contains("Native collaboration")
+                && crate::support::controls::main_footer_visible(frame)
+        },
+        "PR view restored after closing the uncertain lock form",
+        Duration::from_secs(8),
+    );
+    assert_eq!(locks(&records(&mut session, &fixture, steps.len())), 1);
+    assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
+    session.quit_and_assert_restored_terminal(false);
+}
+#[test]
+fn pr_lifecycle_keyboard_unconfirmed_lock_names_refetched_state_without_resend() {
+    unconfirmed_lock(false)
+}
+#[test]
+fn pr_lifecycle_mouse_unconfirmed_lock_names_refetched_state_without_resend() {
+    unconfirmed_lock(true)
+}
 fn already_locked() -> Flow {
     Flow {
         opening: vec![issue(true)],

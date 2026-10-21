@@ -420,10 +420,21 @@ pub fn present(
             publication,
             effect,
         } => {
+            let head = |workspace: &GithubWorkspace| {
+                workspace
+                    .pr
+                    .as_ref()
+                    .map(|page| page.details.summary.head_sha.clone())
+                    .unwrap_or_default()
+            };
+            let prepared_head = head(&workspace);
             workspace = *updated;
-            let note = effect
-                .outcome_note()
-                .map_or(String::new(), |note| format!(" • {note}"));
+            let moved = crate::pr_actions::refetched_head_note(&prepared_head, &head(&workspace));
+            let note = moved
+                .into_iter()
+                .chain(effect.outcome_note())
+                .map(|note| format!(" • {note}"))
+                .collect::<String>();
             let cached = crate::pr_projection::persist_confirmed_snapshot(
                 database,
                 &workspace,

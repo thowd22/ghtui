@@ -305,7 +305,7 @@ fn wait_preview_paint(session: &mut Session, actors: ActorRows, states: StateRow
     }
 }
 /// The account row every PR action preview starts with.
-const ACCOUNT_ROW: (&str, &str, &str, &str) = (
+pub(crate) const ACCOUNT_ROW: (&str, &str, &str, &str) = (
     "Account: ",
     "OC",
     "octocat on github.invalid • numeric identity 42",
@@ -363,7 +363,7 @@ fn preview_actor_chips_painted(
         })
     })
 }
-fn wait_preview_actor_chips(
+pub(crate) fn wait_preview_actor_chips(
     session: &mut Session,
     rows: &[(&str, &str, &str, &str)],
     no_color: bool,

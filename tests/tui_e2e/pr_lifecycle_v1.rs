@@ -64,11 +64,12 @@ fn open_summary(session: &mut Session, mouse: bool) {
     session.wait_for_screen("1 comments");
 }
 fn journey(case: Case, mouse: bool) {
-    journey_in(case, mouse, false)
+    journey_in(case, mouse, false);
 }
 /// `no_color` runs the same journey under NO_COLOR, where actor chips print
-/// as the bracketed `[AB] login` text form.
-fn journey_in(case: Case, mouse: bool, no_color: bool) {
+/// as the bracketed `[AB] login` text form. Returns the fixture so a caller
+/// can check durable storage after the session ends.
+fn journey_in(case: Case, mouse: bool, no_color: bool) -> Fixture {
     let fixture = configured();
     let git = local_git_witness(&fixture);
     let mut steps = with_pr(initial(), &case.before);
@@ -159,6 +160,7 @@ fn journey_in(case: Case, mouse: bool, no_color: bool) {
     assert_eq!(writes, 1, "exactly one lifecycle write");
     assert_eq!(local_git_witness(&fixture), git, "local checkout untouched");
     session.quit_and_assert_restored_terminal(mouse);
+    fixture
 }
 
 fn ready_case() -> Case {
@@ -279,6 +281,47 @@ fn update_merge_case() -> Case {
         tab: None,
         opening: vec![],
     }
+}
+
+/// TASK-25 AC3, head change after a write: GitHub merges the base into the
+/// head branch, so the re-fetched PR has a new head. The status names the
+/// moved head (prepared and new short SHAs) and the state GitHub re-read.
+fn update_merge_moved_case() -> Case {
+    let moved = pr_with(|v| {
+        v["mergeable_state"] = json!("behind");
+        v["head"]["sha"] = json!(MOVED);
+    });
+    Case {
+        after: moved,
+        done: "head moved aaaaaaa → ddddddd",
+        ..update_merge_case()
+    }
+}
+const MOVED: &str = "dddddddddddddddddddddddddddddddddddddddd";
+fn moved_head_update(mouse: bool) {
+    let fixture = journey_in(update_merge_moved_case(), mouse, false);
+    let database = Connection::open(cache_path(&fixture)).unwrap();
+    let rows: Vec<(String, String, String)> = database
+        .prepare("SELECT state, observed_head, confirmed_json FROM pr_write_attempts")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 1, "one durable attempt: {rows:?}");
+    let (state, head, receipt) = &rows[0];
+    assert_eq!(state, "confirmed");
+    assert_eq!(head, HEAD, "the attempt stays bound to the previewed head");
+    let receipt: Value = serde_json::from_str(receipt).unwrap();
+    assert_eq!(receipt["resource_id"], "update-requested");
+}
+#[test]
+fn v1_pr_lifecycle_keyboard_update_branch_names_moved_head() {
+    moved_head_update(false)
+}
+#[test]
+fn v1_pr_lifecycle_mouse_update_branch_names_moved_head() {
+    moved_head_update(true)
 }
 
 const COMMITS: Option<(&str, &[u8], &str)> =
@@ -580,11 +623,11 @@ fn v1_pr_lifecycle_mouse_disables_auto_merge() {
 /// Without colour the enabler and account chips print as `[AB] login`.
 #[test]
 fn v1_pr_lifecycle_keyboard_no_color_disables_auto_merge_with_text_chips() {
-    journey_in(disable_auto_merge_case(), false, true)
+    journey_in(disable_auto_merge_case(), false, true);
 }
 #[test]
 fn v1_pr_lifecycle_mouse_no_color_disables_auto_merge_with_text_chips() {
-    journey_in(disable_auto_merge_case(), true, true)
+    journey_in(disable_auto_merge_case(), true, true);
 }
 #[test]
 fn v1_pr_lifecycle_keyboard_rebases_branch_onto_base() {

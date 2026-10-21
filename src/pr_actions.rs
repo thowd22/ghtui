@@ -2434,9 +2434,35 @@ impl PrActionEffect {
             Self::Project { added: false, item } => {
                 format!("removed from project {}", item.project.label())
             }
+            // TASK-25 AC3: a lifecycle write names the state GitHub re-read.
+            Self::State(summary) => format!(
+                "GitHub re-read it as {}{} at {}",
+                if summary.merged {
+                    "merged"
+                } else {
+                    summary.pr.state.as_str()
+                },
+                if summary.pr.draft { " (draft)" } else { "" },
+                short_sha(&summary.head_sha)
+            ),
             _ => return None,
         })
     }
+}
+fn short_sha(sha: &str) -> &str {
+    sha.get(..7).unwrap_or(sha)
+}
+/// TASK-25 AC3: after a confirmed write the PR is re-fetched; a head that
+/// moved since the preview (an update branch, or a push meanwhile) is named
+/// with both short SHAs so the change is never silent.
+pub fn refetched_head_note(prepared: &str, refreshed: &str) -> Option<String> {
+    (!prepared.is_empty() && !refreshed.is_empty() && prepared != refreshed).then(|| {
+        format!(
+            "head moved {} → {}",
+            short_sha(&sanitize_terminal(prepared)),
+            short_sha(&sanitize_terminal(refreshed))
+        )
+    })
 }
 fn merge_method_name(method: MergeMethod) -> &'static str {
     match method {
@@ -2709,6 +2735,38 @@ mod v1_pr_lifecycle_tests {
         let fields = fields_v17(PrCommand::UpdateBranch, None, &[], None, None);
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].choices.len(), 2);
+    }
+
+    /// TASK-25 AC3: a confirmed lifecycle write names the state GitHub
+    /// re-read, and a head that moved since the preview is named with both
+    /// short SHAs; an unchanged or unknown head adds nothing.
+    #[test]
+    fn v1_pr_lifecycle_refetched_state_and_moved_head_are_named() {
+        let mut after = target();
+        after.pr.draft = true;
+        assert_eq!(
+            PrActionEffect::State(Box::new(after.clone()))
+                .outcome_note()
+                .as_deref(),
+            Some("GitHub re-read it as open (draft) at aaaaaaa")
+        );
+        after.merged = true;
+        after.pr.state = "closed".into();
+        after.pr.draft = false;
+        assert_eq!(
+            PrActionEffect::State(Box::new(after))
+                .outcome_note()
+                .as_deref(),
+            Some("GitHub re-read it as merged at aaaaaaa")
+        );
+        let (old, new) = ("a".repeat(40), "d".repeat(40));
+        assert_eq!(
+            refetched_head_note(&old, &new).as_deref(),
+            Some("head moved aaaaaaa → ddddddd")
+        );
+        assert_eq!(refetched_head_note(&old, &old), None);
+        assert_eq!(refetched_head_note("", &new), None);
+        assert_eq!(refetched_head_note(&old, ""), None);
     }
 }
 

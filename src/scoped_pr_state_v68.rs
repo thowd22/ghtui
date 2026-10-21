@@ -133,6 +133,27 @@ impl StatePreviewSaveV78<'_> {
         self.check(cancel)
     }
 }
+const ACCOUNT_PREFIX_V25: &str = "Account: ";
+const ACCOUNT_ROW_V25: usize = 1;
+/// TASK-25 AC6: the State composer names the requesting account on its own
+/// preview row with the same filled initials chip as the PR action previews
+/// (`[AB] login` under NO_COLOR). Display only; it grants nothing.
+pub(crate) fn account_paint_v25(form: &Form) -> Option<crate::pr_actions::PrPreviewPaintV1> {
+    let state = state(form)?;
+    Some(crate::pr_actions::PrPreviewPaintV1 {
+        host: state.identity.host.clone(),
+        actors: vec![crate::pr_actions::PrPreviewActorRowV1 {
+            row: ACCOUNT_ROW_V25,
+            prefix: ACCOUNT_PREFIX_V25,
+            actor: crate::providers::gh::Actor {
+                login: state.identity.login.clone(),
+                actor_type: "User".into(),
+                ..Default::default()
+            },
+        }],
+        states: Vec::new(),
+    })
+}
 pub(crate) fn state(form: &Form) -> Option<&StateComposerStateV68> {
     match &form.purpose {
         FormPurpose::PrCollaborationV17(s) => match &s.mode {
@@ -245,6 +266,11 @@ pub(crate) fn open(
                 );
                 let lines:Arc<[String]>=vec![
                 format!("{} • exact one PR lifecycle effect",command.label()),
+                // Row ACCOUNT_ROW_V25: painted with the shared actor chip.
+                format!("{ACCOUNT_PREFIX_V25}{} on {} • numeric identity {}",
+                    crate::git::display_bytes(actual.identity().login.as_bytes()),
+                    actual.identity().host,
+                    actual.identity().account_id.map_or_else(|| "unavailable".into(), |id| id.to_string())),
                 format!("{}#{} • repository #{} / PR #{}",parent.repository(),parent.number(),parent.repository_id(),parent.database_id()),
                 format!("Independent issue #{} • {}",actual.observed().issue_id(),actual.capability().label()),
                 format!("Observed {} • requested {} • draft {} • merged {}",parent.summary().pr.state,

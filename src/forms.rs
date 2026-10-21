@@ -3343,6 +3343,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 FormPurpose::PrAction(intent) => {
                     intent.plan.as_ref().map(|plan| plan.paint.clone())
                 }
+                // The native State composer (Close/Reopen from Summary and
+                // Conversation) paints its account row the same way.
+                FormPurpose::PrCollaborationV17(_) => {
+                    crate::scoped_pr_collaboration_ui_v17::state_v68::account_paint_v25(form)
+                }
                 _ => None,
             };
             let mut summary_viewport_v7 =
