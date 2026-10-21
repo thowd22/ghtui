@@ -1,5 +1,6 @@
 //! Account-scoped SQLite source records, review drafts, and saved searches.
 use std::{
+    collections::HashSet,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -227,6 +228,11 @@ impl Cache {
     fn initialize(mut connection: Connection) -> Result<Self> {
         crate::storage::busy_v1::install(&connection)?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        // TASK-102: an open that has nothing to create or migrate must not queue for the write
+        // lock behind slow commits; the check itself only reads.
+        if Self::already_initialized(&connection)? {
+            return Ok(Self { connection });
+        }
         let transaction =
             connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let version: u32 =
@@ -285,6 +291,44 @@ impl Cache {
         )?;
         transaction.commit()?;
         Ok(Self { connection })
+    }
+
+    /// Whether `connection` already holds everything [`Self::initialize`] creates or migrates:
+    /// the current schema version, every table and index it creates (by name, as
+    /// `CREATE ... IF NOT EXISTS` would decide) and no legacy corpus records left to move.
+    fn already_initialized(connection: &Connection) -> Result<bool> {
+        static REFERENCE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+        fn objects(connection: &Connection) -> Result<Vec<(String, String)>> {
+            let mut statement = connection.prepare(
+                "SELECT type,name FROM sqlite_master WHERE type IN ('table','index')
+                AND name NOT LIKE 'sqlite_%'",
+            )?;
+            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        }
+        let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version != 4 {
+            return Ok(false);
+        }
+        let reference = match REFERENCE.get() {
+            Some(reference) => reference,
+            None => {
+                let fresh = Self::memory()?;
+                let reference = objects(&fresh.connection)?;
+                REFERENCE.get_or_init(|| reference)
+            }
+        };
+        let present: HashSet<(String, String)> = objects(connection)?.into_iter().collect();
+        if !reference.iter().all(|object| present.contains(object)) {
+            return Ok(false);
+        }
+        let legacy: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM records
+            WHERE kind IN ('corpus-mapping-v1','corpus-recovery-v1'))",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(!legacy)
     }
 
     /// Publish one source atomically. An older/repeated generation cannot replace
@@ -1601,6 +1645,33 @@ mod tests {
             .sync_frame(&scope, "discussion:PR_one")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn cache_storage_open_of_a_current_cache_skips_the_write_lock_and_repairs_a_missing_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new/private/cache.sqlite3");
+        drop(Cache::open(&path).unwrap());
+        let holder = Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let started = std::time::Instant::now();
+        let reopened = Cache::open(&path).unwrap();
+        assert!(started.elapsed() < crate::storage::busy_v1::BUSY_BUDGET);
+        drop(reopened);
+        holder
+            .execute_batch("DROP TABLE notification_write_attempts_v63; COMMIT")
+            .unwrap();
+        let repaired = Cache::open(&path).unwrap();
+        let restored: bool = repaired
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master
+                WHERE name='notification_write_attempts_v63')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(restored);
     }
 
     #[test]
