@@ -277,6 +277,16 @@ A loaded Dashboard's keys are covered by
 | PR Conversation | `?` | Help | key bar, Commands |
 | PR Conversation | `:` | Commands | key bar, Commands |
 | PR Conversation | `q` | Quit | key bar, Commands |
+| PR Conversation | `n` | Comment | key bar, Commands |
+| PR Conversation | `A` | Approve | key bar, Commands |
+| PR Conversation | `X` | Request changes | key bar, Commands |
+| PR Conversation | `M` | Merge | key bar, Commands |
+| PR Conversation | `Z` | Close | key bar, Commands |
+| PR Conversation | `Y` | Ready | Commands (explains) |
+| PR Conversation | `Q` | Quote reply | Commands (explains) |
+| PR Conversation | `+` | React | Commands (explains) |
+| PR Conversation | `E` | Edit | Commands (explains) |
+| PR Conversation | `D` | Delete | Commands (explains) |
 | PR Commits | `b` | Back | key bar, Commands |
 | PR Commits | `p` | PR actions | key bar, Commands |
 | PR Commits | `r` | Refresh | key bar, Commands |
@@ -406,6 +416,7 @@ A loaded Dashboard's keys are covered by
 | Repository Overview | `?` | Help | key bar, Commands |
 | Repository Overview | `:` | Commands | key bar, Commands |
 | Repository Overview | `q` | Quit | key bar, Commands |
+| Repository Overview | `p` | Push | key bar, Commands |
 | Repository Graph | `o` | Overview | tab strip, Commands |
 | Repository Graph | `g` | History | tab strip, Commands |
 | Repository Graph | `t` | Tree | tab strip, Commands |

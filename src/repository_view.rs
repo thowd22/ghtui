@@ -1148,7 +1148,7 @@ mod tests {
         assert!(rows[0].label.contains("none yet"));
         assert!(rows
             .iter()
-            .any(|row| row.label.contains("earlier saved versions")));
+            .any(|row| row.label.contains("older commits may be missing")));
         assert!(rows.iter().any(|row| row.label.contains("Sparse checkout")));
         assert!(rows.iter().any(|row| row.label.contains("clean")));
     }

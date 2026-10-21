@@ -3107,6 +3107,10 @@ impl App {
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                     && matches!(self.view, View::Inbox | View::Actions | View::Repository)
+                    // The stale core.worktree screen owns `y Confirm` (TASK-118).
+                    && !(self.view == View::Repository
+                        && self.workspace.is_none()
+                        && self.core_worktree_v118.is_some())
                 {
                     self.dispatch(Action::Clipboard(
                         crate::clipboard::ClipboardAction::CopyFocused,

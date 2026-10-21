@@ -29,9 +29,10 @@ const COLOR_ALLOWLIST: [(&str, usize, &str); 2] = [
 /// Files that format a login as `@{…}` in text, with the exact count and why that is not an
 /// actor row. Actor rows draw through `ActorIdentity` (label, chip, avatar fallback); these are
 /// the signed-in operator, an exact account echo beside an identity row, or a team mention.
-const ACTOR_ALLOWLIST: [(&str, usize, &str); 27] = [
+const ACTOR_ALLOWLIST: [(&str, usize, &str); 28] = [
     ("identity.rs", 2, "the shared ActorIdentity::label itself"),
     ("providers/gh.rs", 1, "provider Actor::label: the plain username ActorIdentity wraps"),
+    ("pr_conversation_cards_v115.rs", 1, "quote reply body text sent to GitHub (`> @author wrote:`), not a drawn actor"),
     ("pr_actor_profile_v1.rs", 2, "shared profile: Username and Signed-in account lines"),
     ("providers/gh/repository_catalogue/local_commit_actor_v1.rs", 1, "kind-aware host report label"),
     ("forms.rs", 5, "principal context and PR effect sentence of review/lifecycle/merge forms (owned by the merge/lifecycle forms task)"),
