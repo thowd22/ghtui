@@ -62,6 +62,7 @@ pub(super) fn only_notifications_v63(p: &PreparedView) -> bool {
         local_actor_result,
         remote_scope,
         remote_scope_source,
+        personal_readmission_v105,
     } = p;
     notifications_v63.is_some()
         && scoped_pr_collaboration_v17.is_none()
@@ -116,6 +117,7 @@ pub(super) fn only_notifications_v63(p: &PreparedView) -> bool {
         && local_actor_result.is_none()
         && remote_scope.is_none()
         && remote_scope_source.is_none()
+        && personal_readmission_v105.is_none()
 }
 impl Background {
     pub fn tick_notifications_v63(&mut self, app: &mut App) {

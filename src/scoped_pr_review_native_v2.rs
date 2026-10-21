@@ -1460,7 +1460,11 @@ pub fn publish(
         ResultKind::OperationPublished(result) => {
             let state = result.state();
             let safe = result.safe_effect();
+            let readmission = (state == ScopedReviewPublicationStateV2::ConfirmedSnapshotRetired)
+                .then(|| crate::personal_readmission_v105::capture(app))
+                .flatten();
             retire_private(app, background);
+            crate::personal_readmission_v105::record(app, readmission);
             use operations_v3::execute_v3::ReviewOperationSafeEffectV3;
             app.status = match state {
                 ScopedReviewPublicationStateV2::ConfirmedSnapshotRetired => match safe {
@@ -1563,7 +1567,11 @@ pub fn publish(
         ResultKind::Published(result) => {
             let id = result.confirmed_review_id();
             let state = result.state();
+            let readmission = (state == ScopedReviewPublicationStateV2::ConfirmedSnapshotRetired)
+                .then(|| crate::personal_readmission_v105::capture(app))
+                .flatten();
             retire_private(app, background);
+            crate::personal_readmission_v105::record(app, readmission);
             app.status = publication_status(state, id);
         }
     }

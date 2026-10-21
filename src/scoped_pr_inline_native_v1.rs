@@ -733,7 +733,12 @@ pub fn publish(
             let id = result.confirmed_comment_id();
             let state = result.state();
             if result.hide_private() || result.source_retired() {
+                let readmission = (state
+                    == ScopedInlinePublicationStateV1::ConfirmedSnapshotRetired)
+                    .then(|| crate::personal_readmission_v105::capture(app))
+                    .flatten();
                 retire_private(app, background);
+                crate::personal_readmission_v105::record(app, readmission);
             }
             app.status=match state {
                 ScopedInlinePublicationStateV1::ConfirmedSnapshotRetired=>id.filter(|id|*id>0).map_or_else(||"Comment posted; confirmed ID unavailable • refresh explicitly".into(),|id|format!("Comment posted #{id}; original snapshot retired—refresh explicitly")),

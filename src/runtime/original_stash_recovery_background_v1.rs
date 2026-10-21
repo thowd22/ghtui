@@ -205,6 +205,7 @@ pub(super) fn only_stash(p: &PreparedView) -> bool {
         local_actor_result,
         remote_scope,
         remote_scope_source,
+        personal_readmission_v105,
         remote_repository,
     } = p;
     original_stash_recovery_v1.is_some()
@@ -257,5 +258,6 @@ pub(super) fn only_stash(p: &PreparedView) -> bool {
         && local_actor_result.is_none()
         && remote_scope.is_none()
         && remote_scope_source.is_none()
+        && personal_readmission_v105.is_none()
         && remote_repository.is_none()
 }

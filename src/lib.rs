@@ -60,6 +60,7 @@ pub mod origin_repository;
 #[cfg(test)]
 pub(crate) mod original_diff_sides_v1_test_support;
 pub mod personal_pr_entry_v13;
+pub mod personal_readmission_v105;
 pub mod pr_actions;
 pub mod pr_actor_profile_v1;
 pub mod pr_branch_edit_v27;

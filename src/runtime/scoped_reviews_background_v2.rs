@@ -61,6 +61,7 @@ pub(super) fn only_reviews(p: &PreparedView) -> bool {
         local_actor_result,
         remote_scope,
         remote_scope_source,
+        personal_readmission_v105,
         remote_repository,
     } = p;
     scoped_reviews_v2.is_some()
@@ -113,6 +114,7 @@ pub(super) fn only_reviews(p: &PreparedView) -> bool {
         && local_actor_result.is_none()
         && remote_scope.is_none()
         && remote_scope_source.is_none()
+        && personal_readmission_v105.is_none()
         && remote_repository.is_none()
 }
 

@@ -62,6 +62,7 @@ fn only_personal(prepared: &PreparedView) -> bool {
         local_actor_result,
         remote_scope,
         remote_scope_source,
+        personal_readmission_v105,
     } = prepared;
     scoped_actions_v1.is_none()
         && scoped_threads_v1.is_none()
@@ -118,6 +119,7 @@ fn only_personal(prepared: &PreparedView) -> bool {
         && local_actor_result.is_none()
         && remote_scope.is_none()
         && remote_scope_source.is_none()
+        && personal_readmission_v105.is_none()
 }
 
 #[cfg(test)]

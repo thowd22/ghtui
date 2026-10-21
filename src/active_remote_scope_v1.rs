@@ -340,6 +340,10 @@ impl ActiveRemoteScopeV1 {
         }
         Ok(())
     }
+    /// The original host + numeric principal this intent was created for.
+    pub(crate) fn original_scope(&self) -> Option<&Scope> {
+        self.original_scope.as_ref()
+    }
     /// Personal queues across all repositories: no repository narrowing intent.
     pub fn is_default_personal(&self) -> bool {
         matches!(self.state, State::DefaultPersonal)
@@ -408,6 +412,10 @@ fn selected_observations<'a>(
         .filter(|repo| wanted.contains(&repo.id))
         .map(|repo| (repo.id, repo))
         .collect()
+}
+/// TASK-105 re-admission compares principals with the SAME normalization.
+pub(crate) fn numeric_scope_v105(identity: &HostIdentity) -> Result<Scope, RemoteScopeErrorV1> {
+    numeric_scope(identity)
 }
 fn numeric_scope(identity: &HostIdentity) -> Result<Scope, RemoteScopeErrorV1> {
     // Hostnames alone are ASCII-case-insensitive. Repository names are copied

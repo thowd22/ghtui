@@ -82,6 +82,9 @@ pub struct PreparedView {
     /// Closed navigation observations, not renewed authentication or permission.
     pub remote_scope: Option<Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>>,
     pub remote_scope_source: Option<Arc<crate::storage::CatalogueIntentSource>>,
+    /// TASK-105: principal-first Personal re-admission after a confirmed write.
+    pub personal_readmission_v105:
+        Option<crate::personal_readmission_v105::PersonalReadmissionResultV105>,
 }
 
 #[path = "remote_repository_background_v1.rs"]
@@ -1607,6 +1610,15 @@ impl Background {
             }
             match completion.result {
                 Ok(mut prepared) => {
+                    if let Some(result) = prepared.personal_readmission_v105.take() {
+                        // Refused, or the fence it answered is no longer current:
+                        // nothing private is installed and the fence stays.
+                        if !crate::personal_readmission_v105::accept(app, result) {
+                            app.hits.clear();
+                            changed = true;
+                            continue;
+                        }
+                    }
                     if completion.remote_repository_owner.is_some() {
                         if let Some(result) = prepared.remote_repository.take() {
                             crate::remote_repository_native_v1::accept(app, result);

@@ -6,6 +6,10 @@
 //! resize of the review browser between 120x40 and 80x24. Declared from the Personal images
 //! module so it shares the genuine Personal queue/Files/images fixtures; see
 //! `cross_feature_v65.rs` for the other journeys and the AC3 recovery journeys.
+//!
+//! TASK-105: both writes happen in ONE session. The confirmed Add fences the Personal scope;
+//! Refresh re-admits it by reading the signed-in account first (same numeric id) and then the
+//! ordinary Personal startup read. A changed account after the Add stays fenced and says why.
 use super::*;
 
 const ADDED: &str = "Cross-feature inline note on old lines 1-2 界";
@@ -349,6 +353,11 @@ fn attempt_state(s: &mut Session, fixture: &Fixture, command: &str) -> String {
     }
 }
 
+/// TASK-105: the re-admission reads the signed-in account before any Personal queue query.
+fn readmission(login: &str) -> Vec<GhStep> {
+    identity(login)
+}
+
 fn journey(mouse: bool) {
     let fixture = configured();
     let h = history::GitImagesV1::create(&fixture.repo(), false);
@@ -362,9 +371,13 @@ fn journey(mouse: bool) {
     let add_confirm = steps.len() + add_confirm;
     steps.extend(add);
     let added = steps.len();
-    let (mut again, reopened) = complete_steps();
+    // TASK-105: Refresh after the confirmed Add checks the account, then reads the same
+    // Personal startup steps a fresh launch would.
+    let mut again = readmission("octocat");
+    let (fresh, reopened) = complete_steps();
+    let reopened = steps.len() + again.len() + reopened;
+    again.extend(fresh);
     bind(&mut again, &h);
-    let reopened = steps.len() + reopened;
     steps.extend(again);
     let refiled = steps.len();
     let (approve, approve_confirm) = approve_phase(&h);
@@ -471,12 +484,9 @@ fn journey(mouse: bool) {
         "confirmed"
     );
 
-    // The confirmed write fences the original Personal scope, so an in-session Refresh sends
-    // nothing ("no fallback or query sent"). Restart from a fresh scope, as a user would, and
-    // continue the same strict script: Inbox -> PR -> Files -> F10 Reviews -> resume.
-    s.quit_and_assert_restored_terminal(mouse);
-    let mut s = Session::launch(&fixture, 120, 40);
-    s.wait_for_screen("ghtui");
+    // TASK-105: the confirmed write fenced the original Personal scope. Refresh in the SAME
+    // session (key or click) re-reads the same account's Personal scope: account first, then
+    // the ordinary Personal queue. Continue Inbox -> PR -> Files -> F10 Reviews -> resume.
     open_files(&mut s, &fixture, mouse, reopened, refiled);
     let before = s.completed_cursorless_end();
     choose(&mut s, mouse, "[F10 Reviews]", b"\x1b[21~");
@@ -576,6 +586,126 @@ fn journey(mouse: bool) {
     );
 }
 
+/// TASK-105 AC2: the Add is confirmed, then another account signs in. Refresh reads only the
+/// account (2 gh steps), keeps the Personal scope fenced and says why; a second Refresh sends
+/// nothing at all. No private page, queue query or second write follows.
+fn changed_account_journey(mouse: bool) {
+    let fixture = configured();
+    let h = history::GitImagesV1::create(&fixture.repo(), false);
+    let (mut steps, opened) = complete_steps();
+    bind(&mut steps, &h);
+    let files = steps.len();
+    let images = phase(&h);
+    steps.extend(images.clone());
+    let imaged = steps.len();
+    let (add, add_confirm) = add_phase(&h, &images);
+    let add_confirm = steps.len() + add_confirm;
+    steps.extend(add);
+    let added = steps.len();
+    steps.extend(readmission("bob"));
+    fixture.scripted_gh(&steps);
+    let refs = fixture.git(&["show-ref"]);
+    let head = fs::read(fixture.repo().join(".git/HEAD")).unwrap();
+
+    let mut s = Session::launch(&fixture, 120, 40);
+    s.wait_for_screen("ghtui");
+    open_files(&mut s, &fixture, mouse, opened, files);
+    choose(&mut s, mouse, "[N Next file]", b"N");
+    s.wait_for_screen("▌ File src/界.rs");
+    let before = s.completed_cursorless_end();
+    choose(&mut s, mouse, "[O Old image]", b"O");
+    frame(&mut s, before, |f| f.contains("Immutable file images"));
+    journal(&mut s, &fixture, imaged);
+    owned(&mut s, mouse, "Immutable file images", "[O Old]", b"O");
+    s.wait_for_screen("Selection LEFT 1–1");
+    s.send_key(b"\x1b[1;2B");
+    s.wait_for_screen("Selection LEFT 1–2");
+    owned(&mut s, mouse, "Immutable file images", "[R Range]", b"R");
+    s.wait_for_screen("READ-ONLY LEFT 1–2");
+    let before = s.completed_cursorless_end();
+    owned(&mut s, mouse, "Immutable file images", "[V Batch]", b"V");
+    frame(&mut s, before, |f| {
+        f.contains("Scoped reviews") && f.contains("[G Add selected range]")
+    });
+    resume(&mut s, mouse);
+    let title = format!("Add comment to exact server PENDING review — not submitted • {REPO}#7");
+    choose(&mut s, mouse, "[G Add selected range]", b"G");
+    s.wait_for_screen("Add comment to exact server PENDING review — not submitted");
+    s.wait_for_screen("[Confirm action]");
+    if mouse {
+        s.click_owned_form_field("PR INTENT • Preview first", "Exact server PENDING comment");
+    }
+    s.send_key(b"\x01");
+    s.paste(ADDED);
+    s.wait_for_screen(ADDED);
+    let before = s.completed_cursorless_end();
+    owned_control(&mut s, mouse, &title, "[Preview]");
+    s.wait_for_new_cursorless_condition(
+        before,
+        |screen| {
+            let text = screen.contents();
+            text.contains("READ-ONLY PREVIEW") && text.contains("[Confirm action]")
+        },
+        "Add Preview offers Confirm",
+        Duration::from_secs(8),
+    );
+    journal(&mut s, &fixture, add_confirm);
+    let before = s.completed_cursorless_end();
+    owned_control(&mut s, mouse, &title, "[Confirm action]");
+    frame(&mut s, before, |f| {
+        crate::support::controls::text_has_control(f, "[q Quit]")
+            && f.contains("confirmed")
+            && !f.contains("Scoped reviews")
+            && !f.contains(ADDED)
+    });
+    journal(&mut s, &fixture, added);
+    assert_eq!(
+        attempt_state(&mut s, &fixture, "review-pending-comment-add-v3"),
+        "confirmed"
+    );
+
+    // Refresh: the account check finds bob (#43), not octocat (#42). Nothing else is read.
+    let reason = "Account changed since the review write (octocat → bob (#43))";
+    let before = s.completed_cursorless_end();
+    choose(&mut s, mouse, "1 Inbox", b"1");
+    frame(&mut s, before, |f| f.contains("Inbox • focused view"));
+    let before = s.completed_cursorless_end();
+    choose(&mut s, mouse, "[r Refresh]", b"r");
+    frame(&mut s, before, |f| {
+        f.contains(reason) && f.contains("Personal scope stays fenced") && !f.contains(BODY)
+    });
+    journal(&mut s, &fixture, added + 2);
+    // A second Refresh repeats the reason and sends nothing.
+    let before = s.completed_cursorless_end();
+    choose(&mut s, mouse, "1 Inbox", b"1");
+    frame(&mut s, before, |f| f.contains("Inbox • focused view"));
+    let before = s.completed_cursorless_end();
+    choose(&mut s, mouse, "[r Refresh]", b"r");
+    frame(&mut s, before, |f| f.contains(reason) && !f.contains(BODY));
+    let rows: Vec<Value> = s
+        .inspect_command_journal(&fixture)
+        .lines()
+        .map(|row| serde_json::from_str(row).unwrap())
+        .collect();
+    assert_eq!(rows.len(), steps.len(), "only the account was read");
+    for (row, step) in rows.iter().zip(&steps) {
+        assert_eq!(row["matched"], true);
+        assert_eq!(row["args"], json!(step.args));
+    }
+    assert_eq!(writes(&rows), 1, "only the confirmed Add was written");
+    s.quit_and_assert_restored_terminal(mouse);
+    assert_eq!(fixture.git(&["show-ref"]), refs);
+    assert_eq!(fs::read(fixture.repo().join(".git/HEAD")).unwrap(), head);
+}
+
+#[test]
+fn complete_journeys_v105_keyboard_changed_account_after_review_write_stays_fenced() {
+    changed_account_journey(false)
+}
+#[test]
+fn complete_journeys_v105_mouse_changed_account_after_review_write_stays_fenced() {
+    changed_account_journey(true)
+}
 #[test]
 fn complete_journeys_v65_keyboard_inbox_files_inline_add_to_pending_review_then_approve() {
     journey(false)

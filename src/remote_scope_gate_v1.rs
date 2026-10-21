@@ -352,9 +352,13 @@ pub fn enforce_stopped_intent(app: &mut App, background: &mut Background) -> boo
         || app.view != View::Repository
             && !(app.view == View::Search && local_request)
             && app.refresh_requested;
+    // TASK-105: the explicit principal-first Personal re-admission read owns
+    // the Inbox slot; it installs nothing unless the same account is verified.
+    let readmitting = crate::personal_readmission_v105::in_flight(app);
     let stale_page = [View::Inbox, View::Actions, View::Search, View::Dashboard]
         .into_iter()
         .filter(|view| *view != View::Search || !local)
+        .filter(|view| *view != View::Inbox || !readmitting)
         .any(|view| app.loading[view.index()] || app.content[view.index()] != [reason.label()]);
     // A quiescent stopped scope must not continuously dismiss a newly opened
     // read-only explanation or a preserved Local form/search each frame.

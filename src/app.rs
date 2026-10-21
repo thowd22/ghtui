@@ -424,6 +424,12 @@ pub struct App {
     pub catalogue_cancel_requested: bool,
     pub remote_scope: Option<std::sync::Arc<crate::active_remote_scope_v1::ActiveRemoteScopeV1>>,
     pub remote_scope_source: Option<std::sync::Arc<crate::storage::CatalogueIntentSource>>,
+    /// TASK-105: ticket for a Personal scope fenced by a confirmed review write.
+    pub personal_readmission_v105:
+        Option<crate::personal_readmission_v105::PersonalReadmissionV105>,
+    /// TASK-105: configured host + repository scope of Personal startup reads.
+    pub personal_repository_scope_v105:
+        crate::personal_readmission_v105::PersonalRepositoryScopeV105,
     pub personal_pr_entry_work_v13:
         Option<std::sync::Arc<crate::personal_pr_entry_v13::PersonalPrEntryWorkV13>>,
     pub personal_pr_entry_owner_v13:
@@ -670,6 +676,8 @@ impl Default for App {
             catalogue_cancel_requested: false,
             remote_scope: None,
             remote_scope_source: None,
+            personal_readmission_v105: None,
+            personal_repository_scope_v105: Default::default(),
             personal_pr_entry_work_v13: None,
             personal_pr_entry_owner_v13: None,
             personal_pr_entry_cancel_v13: false,

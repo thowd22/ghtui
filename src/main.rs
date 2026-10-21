@@ -94,6 +94,8 @@ fn run() -> Result<()> {
     );
     app.settings_host = config.host.clone();
     app.settings_set = config.active_set.clone().unwrap_or_default();
+    app.personal_repository_scope_v105 =
+        personal_repository_scope_v105(&config, options.repository.as_ref());
     app.settings_theme = config.theme.index();
     app.density = config.density;
     app.notifications_watch_seconds_v63 = config.refresh_seconds;
@@ -143,6 +145,62 @@ fn run() -> Result<()> {
         if app.local_actor_cancel_requested {
             app.local_actor_cancel_requested = false;
             background.cancel(ghtui::app::View::Repository);
+        }
+        // TASK-105: an explicit Refresh after a confirmed scoped review write
+        // re-admits ONLY the same host + numeric account + repository scope,
+        // reading the current principal before any Personal queue query.
+        if let ghtui::personal_readmission_v105::ReadmissionV105::Submit(request) =
+            ghtui::personal_readmission_v105::take_refresh(
+                &mut app,
+                &personal_repository_scope_v105(&config, options.repository.as_ref()),
+            )
+        {
+            let runner = runner.clone();
+            let database = paths.database.clone();
+            let exclusions = config.excluded_repositories.iter().cloned().collect();
+            next_refresh = Instant::now()
+                + Duration::from_secs(config.refresh_seconds + (std::process::id() as u64 % 3));
+            background.submit(&mut app, ghtui::app::View::Inbox, move |cancel| {
+                let provider = GithubProvider::new(request.host())
+                    .map_err(|error| error.to_string())?
+                    .with_runner(runner);
+                let current = provider
+                    .identity(&cancel)
+                    .map_err(|error| error.to_string())?;
+                if let Err(reason) = request.verify(&current) {
+                    return Ok(PreparedView {
+                        status: reason.clone(),
+                        personal_readmission_v105: Some(request.refused(reason)),
+                        ..PreparedView::default()
+                    });
+                }
+                let workspace = ghtui::github_workspace::GithubWorkspace::legacy_startup_v80(
+                    &provider,
+                    request.repositories.clone(),
+                    exclusions,
+                    &database,
+                    &cancel,
+                )
+                .map_err(|error| error.to_string())?;
+                // The startup read observed the principal again: re-check it
+                // before any private page can be installed.
+                if let Err(reason) = request.verify(&workspace.identity) {
+                    return Ok(PreparedView {
+                        status: reason.clone(),
+                        personal_readmission_v105: Some(request.refused(reason)),
+                        ..PreparedView::default()
+                    });
+                }
+                let pending = Some(ghtui::pr_ui::pending_message(&database, &workspace)?);
+                Ok(PreparedView {
+                    context: Some(workspace.context()),
+                    status: workspace.freshness.label(),
+                    pr_pending_message: pending,
+                    github: Some(workspace),
+                    personal_readmission_v105: Some(request.admitted()),
+                    ..PreparedView::default()
+                })
+            });
         }
         ghtui::remote_scope_gate_v1::enforce_stopped_intent(&mut app, &mut background);
         if app.form.as_ref().is_some_and(|form| {
@@ -247,6 +305,8 @@ fn run() -> Result<()> {
                         }
                     }
                     config = updated;
+                    app.personal_repository_scope_v105 =
+                        personal_repository_scope_v105(&config, options.repository.as_ref());
                     catalogue_local_mappings = std::sync::Arc::new(
                         ghtui::repository_catalogue_workspace_v1::CatalogueLocalMappingsV1::from_config(&config),
                     );
@@ -3209,6 +3269,25 @@ fn external_editor_bounded(guard: &mut TerminalGuard, text: &str, limit: usize) 
     String::from_utf8(bytes).map_err(Into::into)
 }
 
+/// TASK-105: the host and repository scope a Personal startup read uses.
+fn personal_repository_scope_v105(
+    config: &Config,
+    repository: Option<&String>,
+) -> ghtui::personal_readmission_v105::PersonalRepositoryScopeV105 {
+    ghtui::personal_readmission_v105::PersonalRepositoryScopeV105 {
+        host: config.host.clone(),
+        repositories: repository
+            .cloned()
+            .map(|repository| vec![repository])
+            .or_else(|| {
+                config
+                    .active_set
+                    .as_ref()
+                    .and_then(|set| config.repository_sets.get(set).cloned())
+            })
+            .unwrap_or_default(),
+    }
+}
 fn main() {
     ghtui::providers::runner::initialize_workflow_environment_v9();
     if let Err(error) = run() {

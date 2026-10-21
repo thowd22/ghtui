@@ -237,6 +237,7 @@ fn only_empty(p: &PreparedView) -> bool {
         local_actor_result: None,
         remote_scope: None,
         remote_scope_source: None,
+        personal_readmission_v105: None,
     } = p
     else {
         return false;

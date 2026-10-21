@@ -58,6 +58,7 @@ pub(super) fn only_actions(p: &PreparedView) -> bool {
         local_actor_result,
         remote_scope,
         remote_scope_source,
+        personal_readmission_v105,
         remote_repository,
     } = p;
     scoped_actions_v1.is_some()
@@ -111,6 +112,7 @@ pub(super) fn only_actions(p: &PreparedView) -> bool {
         && local_actor_result.is_none()
         && remote_scope.is_none()
         && remote_scope_source.is_none()
+        && personal_readmission_v105.is_none()
         && remote_repository.is_none()
 }
 
