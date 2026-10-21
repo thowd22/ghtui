@@ -499,6 +499,7 @@ fn run_app() -> App {
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     actions.view = ActionsView::Run;

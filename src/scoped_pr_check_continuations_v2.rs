@@ -755,6 +755,7 @@ fn remote(
                     .as_mut()
                     .ok_or_else(|| safe_failure(GithubErrorKind::InvalidTarget))?;
                 page.logs = Some(capture.logs().into());
+                page.logs_skipped_bytes = 0;
                 page.selected_job = Some(capture.captured_target_v2().job_id());
                 workspace.view = ActionsView::Logs;
                 next_capture = Some(capture);

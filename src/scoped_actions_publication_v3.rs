@@ -558,6 +558,7 @@ fn tiny_workspace(
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     Ok(workspace)

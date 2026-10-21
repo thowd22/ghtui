@@ -416,6 +416,7 @@ fn actions_run_control_membership_durable_accepted_or_uncertain_original_job_ref
             },
             selected_job: Some(501),
             logs: None,
+            logs_skipped_bytes: 0,
             annotations: vec![],
         });
         let plan = ActionsPlan::prepare(

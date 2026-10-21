@@ -56,6 +56,7 @@ impl PreparedPrCheckActions {
             attempt: link.attempt().as_ref().clone(),
             selected_job: Some(link.selected_job()),
             logs: None,
+            logs_skipped_bytes: 0,
             annotations: Vec::new(),
         });
         workspace.fetched_at = Some(observation.observed_through());

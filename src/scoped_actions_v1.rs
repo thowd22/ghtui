@@ -1166,6 +1166,7 @@ fn execute_inner_v2(
             attempt: model.as_ref().clone(),
             selected_job: Some(snapshot.job().id()),
             logs: Some(snapshot.text().into()),
+            logs_skipped_bytes: 0,
             annotations: vec![],
         });
         workspace.warnings.push(format!("Loaded snapshot only • run {} attempt {} job {} • no reload or review/source coordinates",snapshot.run().run().id,snapshot.run().run().attempt,snapshot.job().id()));
@@ -1260,6 +1261,7 @@ fn execute_inner_v2(
             attempt: model.as_ref().clone(),
             selected_job: work.job.as_ref().map(|job| job.id()),
             logs: None,
+            logs_skipped_bytes: 0,
             annotations: vec![],
         });
         workspace.view = view;
@@ -1502,6 +1504,7 @@ fn execute_inner_v2(
                     attempt,
                     selected_job,
                     logs: None,
+                    logs_skipped_bytes: 0,
                     annotations: vec![],
                 };
                 let mut loaded = None;

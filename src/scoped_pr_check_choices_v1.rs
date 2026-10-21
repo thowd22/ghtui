@@ -598,6 +598,7 @@ fn other_logs(
             .ok_or_else(|| safe_failure(GithubErrorKind::InvalidTarget))?;
         if let Some(log) = observed.into_read_v2() {
             page.logs = Some(log.logs().into());
+            page.logs_skipped_bytes = 0;
             page.selected_job = Some(log.captured_target_v2().job_id());
             captured = Some(Arc::new(log));
             workspace.view = ActionsView::Logs;

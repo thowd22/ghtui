@@ -37,6 +37,7 @@ fn workspace(jobs: Vec<Value>) -> ActionsWorkspace {
         attempt,
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace.view = ActionsView::Run;
@@ -199,6 +200,40 @@ fn v1_actions_runs_logs_mark_error_lines_as_failure_jump_targets() {
     assert!(!green.controls.iter().any(|c| c.label == NEXT_FAILURE));
     assert_eq!(press(KeyCode::Char('>'), &green), None);
     assert!(!footer_keys(&green).iter().any(|control| control.key == ">"));
+}
+#[test]
+fn v1_actions_logs_truncated_tail_leads_with_notice_that_opens_export() {
+    let mut workspace = workspace(vec![job(1, "lint", "failure", true)]);
+    {
+        let page = workspace.run.as_mut().unwrap();
+        page.logs = Some("late line\n##[error]boom\n".into());
+        page.logs_skipped_bytes = 16 * 1024 * 1024 + 7;
+        page.selected_job = Some(1);
+    }
+    workspace.view = ActionsView::Logs;
+    workspace.prepare_rows();
+    workspace.select(0);
+    // The notice comes first, names how much was skipped and that Export has it all.
+    assert_eq!(workspace.rows.len(), 3);
+    assert_eq!(
+        workspace.rows[0].label,
+        "▲ Truncated: first 16.0 MiB skipped • x Export log saves the full log"
+    );
+    assert_eq!(workspace.rows[0].role, SemanticToken::Pending);
+    assert_eq!(workspace.rows[2].role, SemanticToken::Failure);
+    // Enter (and a click, which activates the same row action) opens Export.
+    let export = Some(ActionsAction::Compose(ActionsCommand::ExportLogs));
+    assert_eq!(workspace.selected_action(), export);
+    assert_eq!(press(KeyCode::Enter, &workspace), export);
+    assert_eq!(press(KeyCode::Char('x'), &workspace), export);
+    assert!(workspace
+        .disabled_reason(ActionsCommand::ExportLogs)
+        .is_none());
+    // A complete log has no notice row.
+    workspace.run.as_mut().unwrap().logs_skipped_bytes = 0;
+    workspace.prepare_rows();
+    assert_eq!(workspace.rows.len(), 2);
+    assert_eq!(workspace.rows[0].label, "late line");
 }
 fn workspace_green() -> ActionsWorkspace {
     workspace(vec![job(1, "lint", "success", false)])

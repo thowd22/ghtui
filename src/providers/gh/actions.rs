@@ -5,7 +5,12 @@ mod attempt_jobs_v1;
 mod scoped_dispatch_v7;
 mod scoped_dispatch_write_v7;
 pub(crate) use scoped_dispatch_write_v7::ScopedDispatchInvocationV7;
+mod log_tail_v107;
 mod scoped_history_v5;
+pub use log_tail_v107::{
+    log_size_label, run_log_tail_from_raw, stream_readable_run_log, RunLogTail,
+    LOG_EXPORT_DISK_LIMIT_V107,
+};
 mod scoped_loaded_logs_v2;
 mod scoped_read_v1;
 mod scoped_rerun_job_v4;
@@ -508,13 +513,13 @@ impl GithubProvider {
             })
             .collect())
     }
-    pub fn run_logs_at(
+    /// `gh run view --log` for one exact attempt (and optionally one of its jobs).
+    pub(crate) fn run_log_args(
         &self,
         repo: &str,
         target: &WorkflowRun,
         job: Option<&ActionsJob>,
-        cancel: &CancellationToken,
-    ) -> GithubResult<String> {
+    ) -> GithubResult<Vec<String>> {
         validate_pr(repo, target.id)?;
         if target.attempt == 0 {
             return Err(error(
@@ -544,6 +549,16 @@ impl GithubProvider {
             }
             args.extend(["--job".into(), job.id.to_string()]);
         }
+        Ok(args)
+    }
+    pub fn run_logs_at(
+        &self,
+        repo: &str,
+        target: &WorkflowRun,
+        job: Option<&ActionsJob>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<String> {
+        let args = self.run_log_args(repo, target, job)?;
         self.execute(args, None, None, cancel).map(|v| {
             super::super::runner::redact(
                 &super::super::runner::sanitize_terminal(&readable_run_log(
@@ -753,23 +768,45 @@ impl GithubProvider {
 /// placeholder and GitHub's 28-character timestamp prefix are omitted.
 pub(crate) fn readable_run_log(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len() / 2);
-    let mut current: Option<(&str, &str)> = None;
     let jobs = raw
         .lines()
         .filter_map(|line| line.split_once('\t').map(|(job, _)| job))
         .collect::<std::collections::BTreeSet<_>>()
         .len();
+    let mut readable = ReadableRunLog::new(jobs > 1);
     for line in raw.lines() {
+        readable.push(line, &mut out);
+    }
+    out
+}
+/// One-line-at-a-time form of `readable_run_log`, so a log streamed from disk is
+/// rendered exactly like a loaded one without holding it in memory (TASK-107).
+pub(crate) struct ReadableRunLog {
+    multi_job: bool,
+    current: Option<(String, String)>,
+}
+impl ReadableRunLog {
+    pub(crate) fn new(multi_job: bool) -> Self {
+        Self {
+            multi_job,
+            current: None,
+        }
+    }
+    pub(crate) fn push(&mut self, line: &str, out: &mut String) {
         let mut parts = line.splitn(3, '\t');
         let (Some(job), Some(step), Some(text)) = (parts.next(), parts.next(), parts.next()) else {
             out.push_str(line);
             out.push('\n');
-            continue;
+            return;
         };
-        if current != Some((job, step)) {
-            current = Some((job, step));
+        if self
+            .current
+            .as_ref()
+            .is_none_or(|(j, s)| j != job || s != step)
+        {
+            self.current = Some((job.to_owned(), step.to_owned()));
             let step = (step != "UNKNOWN STEP").then_some(step);
-            let header = match (jobs > 1, step) {
+            let header = match (self.multi_job, step) {
                 (true, Some(step)) => Some(format!("── {job} › {step} ──")),
                 (true, None) => Some(format!("── {job} ──")),
                 (false, Some(step)) => Some(format!("── {step} ──")),
@@ -783,7 +820,6 @@ pub(crate) fn readable_run_log(raw: &str) -> String {
         out.push_str(strip_log_timestamp(text));
         out.push('\n');
     }
-    out
 }
 fn strip_log_timestamp(text: &str) -> &str {
     // GitHub's log files begin with a UTF-8 byte-order mark before the first stamp.

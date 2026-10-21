@@ -236,6 +236,7 @@ fn actions_run_control_plan_targets_snapshot_ids_not_display_row_strings() {
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace.view = ActionsView::Run;
@@ -268,6 +269,7 @@ fn actions_log_search_regex_is_bounded_and_semantic_highlights_survive_reprepare
         },
         selected_job: None,
         logs: Some("compile ok\nerror 42\nerror 7\n".into()),
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace.prepare_rows();
@@ -344,6 +346,7 @@ fn actions_key_bar_keeps_every_available_or_unavailable_action_inspectable() {
             },
             selected_job: None,
             logs: None,
+            logs_skipped_bytes: 0,
             annotations: vec![],
         });
         workspace.prepare_rows();
@@ -540,6 +543,7 @@ fn actions_run_control_uncertain_target_blocks_remote_plans_but_keeps_reads_and_
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace.mark_uncertain(
@@ -604,6 +608,7 @@ fn actions_approvals_reviewer_history_rows_keep_canonical_gate_selection_and_dis
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace
@@ -747,6 +752,7 @@ fn actions_approvals_partial_acceptance_blocks_repeat_and_labels_unavailable_his
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace

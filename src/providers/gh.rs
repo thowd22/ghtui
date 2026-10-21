@@ -637,6 +637,41 @@ impl GithubProvider {
             .map(|o| o.stdout)
             .map_err(Into::into)
     }
+    /// TASK-107: a read whose memory holds only the last `output_limit` stdout bytes.
+    /// Returns the kept tail and how many earlier bytes were dropped.
+    fn execute_tail(
+        &self,
+        args: Vec<String>,
+        cancel: &CancellationToken,
+    ) -> GithubResult<(Vec<u8>, u64)> {
+        let mut spec = self.spec(args);
+        spec.stdout_sink_v107 = super::runner::StdoutSinkV107::Tail;
+        self.runner
+            .run(spec, cancel)
+            .map(|o| (o.stdout, o.stdout_skipped_bytes))
+            .map_err(Into::into)
+    }
+    /// TASK-107: a read streamed straight to `file` (nothing kept in memory), up to
+    /// `disk_limit` bytes and within `timeout`.
+    fn execute_to_file(
+        &self,
+        args: Vec<String>,
+        file: std::fs::File,
+        disk_limit: usize,
+        timeout: std::time::Duration,
+        cancel: &CancellationToken,
+    ) -> GithubResult<()> {
+        let mut spec = self.spec(args);
+        if self.scoped_read_window.is_none() {
+            spec.timeout = spec.timeout.max(timeout);
+        }
+        spec.output_limit = disk_limit;
+        spec.stdout_sink_v107 = super::runner::StdoutSinkV107::File(std::sync::Arc::new(file));
+        self.runner
+            .run(spec, cancel)
+            .map(|_| ())
+            .map_err(Into::into)
+    }
     /// A failed post-write observation is not proof that the mutation failed.
     fn after_write<T>(&self, resource: &str, observed: GithubResult<T>) -> GithubResult<T> {
         observed.map_err(|failure| {

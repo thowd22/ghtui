@@ -664,6 +664,14 @@ impl std::fmt::Debug for SecretValue {
         f.write_str("[REDACTED]")
     }
 }
+/// TASK-107: the exact attempt (and job) whose whole log Export re-reads to disk.
+#[derive(Clone, Debug)]
+struct FullLogSource {
+    repository: String,
+    run: WorkflowRun,
+    job: Option<ActionsJob>,
+    skipped_bytes: u64,
+}
 #[derive(Clone, Debug)]
 enum ActionsOperation {
     Filter(RunFilter),
@@ -685,6 +693,9 @@ enum ActionsOperation {
         text: String,
         context: String,
         destination: PathBuf,
+        /// TASK-107: set when only the log's tail is loaded; Export then re-reads the
+        /// whole log from gh straight to disk instead of writing the tail.
+        full: Option<Box<FullLogSource>>,
     },
     Run {
         run: WorkflowRun,
@@ -954,7 +965,29 @@ impl ActionsPlan {
                     .run
                     .as_ref()
                     .ok_or_else(|| plain_error("Inspect an exact run attempt first"))?;
+                let full = (page.logs_skipped_bytes > 0)
+                    .then(|| {
+                        let job = page
+                            .selected_job
+                            .map(|id| {
+                                page.attempt
+                                    .jobs
+                                    .iter()
+                                    .find(|job| job.id == id)
+                                    .cloned()
+                                    .ok_or_else(|| plain_error("Job belongs to another attempt"))
+                            })
+                            .transpose()?;
+                        Ok::<_, GithubError>(Box::new(FullLogSource {
+                            repository: page.repository.clone(),
+                            run: page.attempt.run.clone(),
+                            job,
+                            skipped_bytes: page.logs_skipped_bytes,
+                        }))
+                    })
+                    .transpose()?;
                 ActionsOperation::LogExport {
+                    full,
                     text: page
                         .logs
                         .clone()
@@ -1410,6 +1443,15 @@ impl ActionsPlan {
             }
             _ => {}
         }
+        if let ActionsOperation::LogExport {
+            full: Some(full), ..
+        } = &operation
+        {
+            preview.push(format!(
+                "Only the end of this log is loaded (first {} skipped). Export re-reads the full log from GitHub and streams it to the file.",
+                crate::providers::gh::log_size_label(full.skipped_bytes)
+            ));
+        }
         if let ActionsOperation::Deployment { review, .. } = &operation {
             for id in &review.environment_ids {
                 if let Some(gate) = workspace
@@ -1563,6 +1605,7 @@ impl ActionsPlan {
                             page.attempt.jobs.clear();
                             page.selected_job = None;
                             page.logs = None;
+                            page.logs_skipped_bytes = 0;
                             page.annotations.clear();
                         }
                         page.attempt.run = updated;
@@ -1607,9 +1650,28 @@ impl ActionsPlan {
                 outcome.explanation
             }
             ActionsOperation::LogExport {
+                full: Some(full),
+                context,
+                destination,
+                ..
+            } => {
+                let lines = gh.export_run_log_at(
+                    &full.repository,
+                    &full.run,
+                    full.job.as_ref(),
+                    destination,
+                    cancel,
+                )?;
+                format!(
+                    "Full log for {context} ({lines} lines, re-read from GitHub) written to {}; nothing was overwritten",
+                    destination.display()
+                )
+            }
+            ActionsOperation::LogExport {
                 text,
                 context,
                 destination,
+                full: None,
             } => {
                 export_log_new(text, destination)?;
                 format!(

@@ -1,8 +1,8 @@
 //! TASK-66 `performance`: a 20 MB Actions job log stays bounded and the interface stays
 //! responsive while it loads. The strict fake gh holds the log request for a fixed delay, so a
 //! Help keypress answered before that delay ends was provably served while the load ran. The
-//! log exceeds the 4 MiB command output cap: the application refuses it with a visible reason
-//! instead of buffering it, and its memory does not grow by the log's size.
+//! log exceeds the 4 MiB command output cap: the application keeps only its last 4 MiB and says
+//! how much it skipped (TASK-107), so its memory does not grow by the log's size.
 use super::*;
 use crate::performance::{
     measure, perf_lock, proc_sample, Report, INPUT_TO_RENDER_P95_MS, RENDER_P95_MS,
@@ -12,7 +12,7 @@ use std::time::Instant;
 
 const LOG_BYTES: usize = 20 * 1024 * 1024;
 const LOG_DELAY_MS: u64 = 3000;
-/// The application may not keep more than this much extra memory for a refused 20 MB log.
+/// The application may not keep more than this much extra memory for a 20 MB log's tail.
 const LOG_RSS_GROWTH_CEILING_KIB: u64 = 64 * 1024;
 const HELP_TITLE: &str = "Help • keyboard and mouse";
 
@@ -115,9 +115,9 @@ fn journey(mouse: bool) {
     session.choose(mouse, "[Esc Close]", b"\x1b");
     session.wait_for_overlay_close(HELP_TITLE);
 
-    // The oversized log is refused with its reason, after the delay, without buffering it.
+    // The oversized log shows its tail and a truncation notice, after the delay (TASK-107).
     if let Err(error) = session.try_wait_for(
-        "exceeded its bounded capture",
+        "▲ Truncated: first 16.0 MiB skipped",
         std::time::Duration::from_millis(LOG_DELAY_MS + 15_000),
     ) {
         session.save_artifacts();

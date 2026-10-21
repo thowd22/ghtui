@@ -23,6 +23,8 @@ mod lease_selection;
 mod limitations_v1;
 #[path = "actions/log_export_v1.rs"]
 mod log_export_v1;
+#[path = "actions/log_tail_v107.rs"]
+mod log_tail_v107;
 #[path = "actions/optional_attempt_v1.rs"]
 mod optional_attempt_v1;
 #[path = "actions/origin_default_v1.rs"]

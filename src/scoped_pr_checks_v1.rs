@@ -798,6 +798,7 @@ pub fn apply_v1(
                 .as_mut()
                 .ok_or_else(|| safe_failure(GithubErrorKind::InvalidTarget))?;
             page.logs = Some(logs.logs().to_owned());
+            page.logs_skipped_bytes = 0;
             page.selected_job = job;
             captured = Some(Arc::new(logs));
             workspace.view = ActionsView::Logs;

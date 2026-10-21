@@ -515,6 +515,7 @@ pub fn apply(
                     .as_mut()
                     .ok_or("Original attempt unavailable")?;
                 page.logs = Some(logs.logs().to_owned());
+                page.logs_skipped_bytes = 0;
                 page.selected_job = job;
                 workspace.identity = logs.identity().clone();
                 workspace.view = ActionsView::Logs;

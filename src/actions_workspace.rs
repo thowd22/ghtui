@@ -528,6 +528,9 @@ pub struct RunPage {
     pub attempt: RunAttempt,
     pub selected_job: Option<u64>,
     pub logs: Option<String>,
+    /// TASK-107: raw log bytes before the bounded tail in `logs` (0 = complete log).
+    /// Export re-reads the whole log straight to disk when this is nonzero.
+    pub logs_skipped_bytes: u64,
     pub annotations: Vec<CheckAnnotation>,
 }
 #[derive(Clone, Debug)]
@@ -621,6 +624,14 @@ fn step_timing(started: &str, completed: &str) -> String {
         _ if completed.is_empty() => format!("started {started}"),
         _ => format!("{started} → {completed}"),
     }
+}
+/// TASK-107: the first Logs row when only the tail of a log is held. The key facts
+/// come first so they survive an 80-column cut.
+pub fn log_truncation_notice(skipped_bytes: u64) -> String {
+    format!(
+        "▲ Truncated: first {} skipped • x Export log saves the full log",
+        crate::providers::gh::log_size_label(skipped_bytes)
+    )
 }
 fn plain_error(message: impl Into<String>) -> GithubError {
     GithubError {
@@ -1147,6 +1158,7 @@ impl ActionsWorkspace {
                     attempt: gh.run_attempt(repository, *id, *attempt, cancel)?,
                     selected_job: None,
                     logs: None,
+                    logs_skipped_bytes: 0,
                     annotations: vec![],
                 });
                 self.view = ActionsView::Run;
@@ -1189,8 +1201,10 @@ impl ActionsWorkspace {
                             .ok_or_else(|| plain_error("Job belongs to another attempt"))
                     })
                     .transpose()?;
-                page.logs =
-                    Some(gh.run_logs_at(&page.repository, &page.attempt.run, job, cancel)?);
+                // TASK-107: a log over the capture bound shows its last part, never nothing.
+                let tail = gh.run_logs_tail_at(&page.repository, &page.attempt.run, job, cancel)?;
+                page.logs = Some(tail.text);
+                page.logs_skipped_bytes = tail.skipped_bytes;
                 page.selected_job = *id;
                 self.view = ActionsView::Logs;
                 self.selected = 0;
@@ -1786,10 +1800,19 @@ impl ActionsWorkspace {
             Logs => self
                 .run
                 .as_ref()
-                .and_then(|page| page.logs.as_ref())
-                .map(|logs| {
-                    logs.lines()
-                        .map(|line| ActionsRow {
+                .and_then(|page| Some((page.logs.as_ref()?, page.logs_skipped_bytes)))
+                .map(|(logs, skipped)| {
+                    // TASK-107: a truncated log says so first; the notice row opens Export.
+                    (skipped > 0)
+                        .then(|| ActionsRow {
+                            role: SemanticToken::Pending,
+                            ..ActionsRow::clickable(
+                                log_truncation_notice(skipped),
+                                ActionsAction::Compose(ActionsCommand::ExportLogs),
+                            )
+                        })
+                        .into_iter()
+                        .chain(logs.lines().map(|line| ActionsRow {
                             // Runner error markers stand out and are jump targets.
                             role: if line.contains("##[error]") {
                                 SemanticToken::Failure
@@ -1797,7 +1820,7 @@ impl ActionsWorkspace {
                                 SemanticToken::Normal
                             },
                             ..ActionsRow::text(line)
-                        })
+                        }))
                         .collect()
                 })
                 .unwrap_or_default(),

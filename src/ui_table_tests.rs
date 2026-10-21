@@ -385,6 +385,7 @@ fn design_table_v91_actions_run_details_keep_full_sha_and_utc_with_a_jobs_table(
         },
         selected_job: None,
         logs: None,
+        logs_skipped_bytes: 0,
         annotations: vec![],
     });
     workspace.prepare_rows();

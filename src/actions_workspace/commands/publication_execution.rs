@@ -63,6 +63,7 @@ fn adopt_run_result_v3(
                 page.attempt.jobs.clear();
                 page.selected_job = None;
                 page.logs = None;
+                page.logs_skipped_bytes = 0;
                 page.annotations.clear();
             }
             page.attempt.run = updated;

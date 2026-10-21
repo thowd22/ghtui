@@ -82,6 +82,30 @@ pub struct CommandSpec {
     /// Only actual fixed W9 Git factories can mint this sealed replay token.
     pub(crate) workflow_environment_v9:
         Option<Arc<crate::git::workflow_edit_v9::WorkflowGitEnvironmentV9>>,
+    /// TASK-107: where stdout goes. Bounded (default) refuses output over
+    /// `output_limit`; Tail keeps only its last `output_limit` bytes in memory;
+    /// File streams every byte to disk (up to `output_limit` bytes there).
+    pub(crate) stdout_sink_v107: StdoutSinkV107,
+}
+/// TASK-107: how a command's stdout is captured. Stderr always stays bounded.
+#[derive(Clone, Default)]
+pub(crate) enum StdoutSinkV107 {
+    #[default]
+    Bounded,
+    /// Memory holds at most `output_limit` bytes: the LAST ones. Earlier bytes are
+    /// counted in `CommandOutput::stdout_skipped_bytes` and dropped.
+    Tail,
+    /// Every byte is written to this file and nothing is kept in memory.
+    File(Arc<std::fs::File>),
+}
+impl StdoutSinkV107 {
+    fn key(&self) -> u8 {
+        match self {
+            Self::Bounded => 0,
+            Self::Tail => 1,
+            Self::File(_) => 2,
+        }
+    }
 }
 impl CommandSpec {
     pub fn new(program: impl Into<OsString>) -> Self {
@@ -102,6 +126,7 @@ impl CommandSpec {
             sensitive_values: Vec::new(),
             workflow_worktree_mask_v9: None,
             workflow_environment_v9: None,
+            stdout_sink_v107: StdoutSinkV107::Bounded,
         }
     }
     pub fn args<I, S>(mut self, args: I) -> Self
@@ -152,6 +177,8 @@ pub struct CommandOutput {
     pub exit_code: i32,
     pub elapsed: Duration,
     pub capture: CommandCapture,
+    /// TASK-107: stdout bytes a Tail sink dropped before the kept tail (else 0).
+    pub stdout_skipped_bytes: u64,
 }
 /// Kept pipe bytes BEFORE redaction/sanitization, not discarded or wire bytes.
 /// Only the runner can construct this metadata.
@@ -226,6 +253,7 @@ struct ReadKey {
     absolute_deadline_v1: Option<Instant>,
     output_limit: usize,
     sensitive_values: Vec<String>,
+    stdout_sink: u8,
 }
 impl From<&CommandSpec> for ReadKey {
     fn from(s: &CommandSpec) -> Self {
@@ -240,6 +268,7 @@ impl From<&CommandSpec> for ReadKey {
             absolute_deadline_v1: s.absolute_deadline_v1,
             output_limit: s.output_limit,
             sensitive_values: s.sensitive_values.clone(),
+            stdout_sink: s.stdout_sink_v107.key(),
         }
     }
 }
@@ -283,7 +312,10 @@ impl CommandRunner {
         if let Some(budget) = spec.scoped_read_budget.clone() {
             return budget.run(spec, cancellation);
         }
-        if matches!(spec.kind, CommandKind::Read) && !spec.coalesce_read {
+        // A file sink owns its destination; it never shares another read's output.
+        if matches!(spec.kind, CommandKind::Read)
+            && (!spec.coalesce_read || matches!(spec.stdout_sink_v107, StdoutSinkV107::File(_)))
+        {
             return execute(&spec, cancellation, None);
         }
         let started = Instant::now();
@@ -713,7 +745,20 @@ fn execute_mode_v63(
             output
         })
     };
-    let stdout_thread = read_pipe(Box::new(stdout), size.clone());
+    // TASK-107: 0 = fine, SINK_OVER = file sink passed its disk bound,
+    // SINK_FAILED = file sink could not be written.
+    let sink_state = Arc::new(AtomicUsize::new(0));
+    let skipped = Arc::new(AtomicUsize::new(0));
+    let stdout_thread = match &spec.stdout_sink_v107 {
+        StdoutSinkV107::Bounded => read_pipe(Box::new(stdout), size.clone()),
+        sink => {
+            let (sink, stop) = (sink.clone(), io_stop.clone());
+            let (state, skipped) = (sink_state.clone(), skipped.clone());
+            thread::spawn(move || {
+                read_stdout_sink_v107(Box::new(stdout), &sink, limit, &stop, &state, &skipped)
+            })
+        }
+    };
     let stderr_thread = read_pipe(Box::new(stderr), size.clone());
     let mut stopped = None;
     let mut status = None;
@@ -735,8 +780,12 @@ fn execute_mode_v63(
                 .is_some_and(|claim| claim.original_deadline_expired())
         {
             stopped = Some(FailureKind::Timeout);
-        } else if size.load(Ordering::Relaxed) > limit {
+        } else if size.load(Ordering::Relaxed) > limit
+            || sink_state.load(Ordering::Acquire) == SINK_OVER
+        {
             stopped = Some(FailureKind::OutputLimit);
+        } else if sink_state.load(Ordering::Acquire) == SINK_FAILED {
+            stopped = Some(FailureKind::Spawn);
         }
         if stopped.is_some() {
             terminate(group);
@@ -792,8 +841,13 @@ fn execute_mode_v63(
         &spec.sensitive_values,
     )
     .into_bytes();
-    if stopped.is_none() && size.load(Ordering::Relaxed) > limit {
+    if stopped.is_none()
+        && (size.load(Ordering::Relaxed) > limit || sink_state.load(Ordering::Acquire) == SINK_OVER)
+    {
         stopped = Some(FailureKind::OutputLimit);
+    }
+    if stopped.is_none() && sink_state.load(Ordering::Acquire) == SINK_FAILED {
+        stopped = Some(FailureKind::Spawn);
     }
     let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
     if let Some(kind) = stopped {
@@ -845,7 +899,72 @@ fn execute_mode_v63(
         exit_code,
         elapsed: start.elapsed(),
         capture,
+        stdout_skipped_bytes: skipped.load(Ordering::Acquire) as u64,
     })
+}
+const SINK_OVER: usize = 1;
+const SINK_FAILED: usize = 2;
+/// TASK-107: stdout for a Tail or File sink. Tail memory never exceeds twice
+/// `limit` while reading and `limit` once done; File keeps nothing in memory.
+fn read_stdout_sink_v107(
+    mut pipe: Box<dyn Read + Send>,
+    sink: &StdoutSinkV107,
+    limit: usize,
+    stop: &AtomicBool,
+    state: &AtomicUsize,
+    skipped: &AtomicUsize,
+) -> Vec<u8> {
+    let mut tail = Vec::new();
+    let mut written = 0usize;
+    let mut buffer = [0; 8192];
+    loop {
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        let n = match pipe.read(&mut buffer) {
+            Ok(0) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            }
+            Err(_) => break,
+            Ok(n) => n,
+        };
+        match sink {
+            StdoutSinkV107::File(file) => {
+                written = written.saturating_add(n);
+                if written > limit {
+                    state.store(SINK_OVER, Ordering::Release);
+                    break;
+                }
+                if (&**file).write_all(&buffer[..n]).is_err() {
+                    state.store(SINK_FAILED, Ordering::Release);
+                    break;
+                }
+            }
+            _ => {
+                let bound = limit.saturating_mul(2).max(limit + buffer.len());
+                if tail.len() + n > limit && tail.capacity() < bound + buffer.len() {
+                    tail.reserve_exact(bound + buffer.len() - tail.len());
+                }
+                tail.extend_from_slice(&buffer[..n]);
+                // Compact only once twice the bound is held, so each byte moves O(1) times.
+                if tail.len() > bound {
+                    let cut = tail.len() - limit;
+                    tail.drain(..cut);
+                    skipped.fetch_add(cut, Ordering::AcqRel);
+                }
+            }
+        }
+    }
+    if tail.len() > limit {
+        let cut = tail.len() - limit;
+        tail.drain(..cut);
+        tail.shrink_to_fit();
+        skipped.fetch_add(cut, Ordering::AcqRel);
+    }
+    tail
 }
 fn terminate(group: u32) {
     #[cfg(unix)]

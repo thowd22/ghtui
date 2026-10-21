@@ -220,6 +220,7 @@ mod tests {
             },
             selected_job: None,
             logs: None,
+            logs_skipped_bytes: 0,
             annotations: vec![],
         });
         assert!(
