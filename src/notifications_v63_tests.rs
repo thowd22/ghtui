@@ -28,6 +28,8 @@ fn notifications_native_v63_genuine_read_cannot_impersonate_follow_closed_result
             .iter()
             .map(|row| PreparedNotificationRowV63 {
                 label: row.label.clone(),
+                lead: row.lead,
+                actor: row.actor.clone(),
                 unread: row.unread,
             })
             .collect(),
@@ -85,11 +87,37 @@ pub(crate) fn steps(final_uid: u64) -> Vec<GhStep> {
             json!([row])
         ),
     ));
-    for _ in 0..2 {
-        steps.push(support::get("repos/example/repo0000", support::row(0)));
-    }
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.push(actors_step());
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
     steps.extend(support::principal(final_uid));
     steps
+}
+/// The list's ONE batched latest-actor read for the single fixture row.
+pub(crate) const ACTORS_QUERY: &str = "query{n0:repository(owner:\"example\",name:\"repo0000\"){issueOrPullRequest(number:7){...L}}}fragment L on IssueOrPullRequest{...on Issue{author{login __typename}comments(last:1){nodes{author{login __typename}createdAt}}}...on PullRequest{author{login __typename}comments(last:1){nodes{author{login __typename}createdAt}}reviews(last:1){nodes{author{login __typename}submittedAt}}}}";
+pub(crate) fn actors_step_with(response: serde_json::Value) -> GhStep {
+    let mut step = GhStep::read(
+        &[
+            "api",
+            "graphql",
+            "--hostname",
+            support::HOST,
+            "--method",
+            "POST",
+            "--input",
+            "-",
+        ],
+        &response.to_string(),
+    );
+    step.stdin = serde_json::to_vec(&json!({ "query": ACTORS_QUERY })).unwrap();
+    step
+}
+/// The latest issue comment (alice-liddell) is newer than the last review.
+pub(crate) fn actors_step() -> GhStep {
+    actors_step_with(json!({"data":{"n0":{"issueOrPullRequest":{
+        "author":{"login":"pr-author","__typename":"User"},
+        "comments":{"nodes":[{"author":{"login":"alice-liddell","__typename":"User"},"createdAt":"2026-10-15T17:00:00Z"}]},
+        "reviews":{"nodes":[{"author":{"login":"old-reviewer","__typename":"User"},"submittedAt":"2026-10-14T17:00:00Z"}]}}}}}))
 }
 pub(crate) fn app() -> App {
     App {
@@ -166,6 +194,40 @@ fn notifications_native_v63_genuine_source_watch_respects_server_cooldown_and_st
     support::exact(&f, &expected);
 }
 #[test]
+fn notifications_native_v63_failed_batched_actor_read_keeps_rows_and_says_unknown() {
+    let f = Fixture::new();
+    let mut expected = steps(42);
+    assert!(support::graphql_read(&expected[4]));
+    expected[4] = actors_step_with(json!({"errors":[{"message":"rate limited"}]}));
+    f.scripted_gh(&expected);
+    let mut app = app();
+    let work = captured(&mut app);
+    let result = execute(work.clone(), &support::provider(&f), &support::database(&f));
+    crate::notifications_native_v63::publish(&mut app, &work, result);
+    let prepared = app
+        .notifications_v63
+        .as_ref()
+        .unwrap()
+        .prepared
+        .as_ref()
+        .unwrap();
+    assert!(prepared.rows[0].actor.is_none());
+    assert!(
+        prepared
+            .coverage
+            .contains("Complete query | actors unavailable | 1 raw"),
+        "{}",
+        prepared.coverage
+    );
+    let frame = paint(&mut app, 120, 40);
+    assert!(
+        frame.contains("Review requested • PR #7 • — • PRIVATE_NOTIFICATION_ACTUAL_SOURCE"),
+        "{frame}"
+    );
+    assert!(!frame.contains("pr-author") && !frame.contains("alice-liddell"));
+    support::exact(&f, &expected);
+}
+#[test]
 fn notifications_native_v63_actual_read_prepared_display_and_resize_do_zero_more_io() {
     let f = Fixture::new();
     let expected = steps(42);
@@ -200,6 +262,36 @@ fn notifications_native_v63_actual_read_prepared_display_and_resize_do_zero_more
         "{label}"
     );
     assert!(label.ends_with(" • example/repo0000"), "{label}");
+    // The batched read named the latest commenter (newer than the review),
+    // never the PR author; the row draws its chip before the title.
+    let row = &app
+        .notifications_v63
+        .as_ref()
+        .unwrap()
+        .prepared
+        .as_ref()
+        .unwrap()
+        .rows[0];
+    let actor = row
+        .actor
+        .as_ref()
+        .expect("latest actor from the batched read");
+    assert_eq!(actor.login.as_deref(), Some("alice-liddell"));
+    let chip = crate::identity::InitialsChip::text(actor, app.theme().mode);
+    let wide = paint(&mut app, 120, 40);
+    assert!(
+        wide.contains(&format!(
+            "Review requested • PR #7 • {chip} alice-liddell • PRIVATE_NOTIFICATION_ACTUAL_SOURCE"
+        )),
+        "{wide}"
+    );
+    let narrow = paint(&mut app, 80, 24);
+    assert!(
+        narrow.contains(&format!(
+            "Review requested • PR #7 • {chip} PRIVATE_NOTIFICATION_ACTUAL_SOURCE"
+        )),
+        "{narrow}"
+    );
     let before = std::fs::read(f.root.join("gh-fixture/commands.jsonl")).unwrap();
     for (w, h) in [(80, 24), (120, 40), (40, 18), (120, 40)] {
         let frame = paint(&mut app, w, h);
@@ -356,7 +448,7 @@ fn notifications_native_v63_actual_focus_is_unique_for_tab_backtab_enter_and_mou
                 .as_ref()
                 .unwrap()
                 .message
-                .contains("bulk PUT is not an inverse"));
+                .contains("GitHub has no API to mark a thread unread"));
             assert!(app.notifications_work_v63.is_none());
             assert!(app.notifications_owner_v63.is_none());
             check_focus(&mut app, Some(ui::NotificationActionV63::MarkUnread));
@@ -684,6 +776,7 @@ fn details_steps(actor: GhStep) -> Vec<GhStep> {
     page.stderr = b"gh: HTTP 304\n".to_vec();
     steps.push(page);
     steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.push(actors_step());
     steps.push(actor);
     steps.push(support::get("repos/example/repo0000", support::row(0)));
     steps.extend(support::principal(42));

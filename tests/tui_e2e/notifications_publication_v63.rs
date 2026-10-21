@@ -189,6 +189,10 @@ fn exact_writes(session: &Session, f: &Fixture, steps: &[GhStep], writes: usize)
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
         assert_eq!(actual["stdin_hex"], expected_stdin);
+        // The list's batched actor query is a read, never a counted write.
+        if graphql_read(expected) {
+            continue;
+        }
         count += usize::from(
             expected
                 .args
@@ -304,7 +308,11 @@ fn publish(mouse: bool, action: Action) {
     ready(&mut session, after, PRIVATE);
     let initial = session.inspect_command_journal(&f);
     control(&mut session, mouse, "[U Mark unread unavailable]", b"U");
-    ready(&mut session, 0, "bulk PUT is not an inverse");
+    ready(
+        &mut session,
+        0,
+        "Mark unread unavailable: GitHub has no API to mark a thread unread",
+    );
     assert_eq!(session.inspect_command_journal(&f), initial);
     prepared(&mut session, mouse, action);
     assert_eq!(witness(&f), before);
@@ -384,7 +392,7 @@ fn unknown_restart_inspect_ack(mouse: bool) {
     bad.stdout = b"HTTP/2.0 200 OK\nContent-Length: 0\r\n\r\n".to_vec();
     steps.push(bad);
     let first_count = steps.len();
-    assert_eq!(first_count, 31);
+    assert_eq!(first_count, 32);
     steps.extend(empty_inbox_steps("octocat"));
     steps.extend(phase(false, false, false, false));
     steps.extend(not_modified_phase());

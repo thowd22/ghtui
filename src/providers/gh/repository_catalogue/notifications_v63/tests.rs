@@ -46,6 +46,68 @@ fn notifications_v63_actual_schema_actor_unknown_and_minimal_repo_not_permission
     );
 }
 #[test]
+fn notifications_v63_latest_actors_plan_is_one_bounded_deduplicated_query() {
+    let pr = parsed(&raw_row("1"));
+    // Same PR again: shares the alias, so one query names it once.
+    let same = parsed(&raw_row("2"));
+    let mut issue_raw = raw_row("3");
+    issue_raw["subject"]["type"] = json!("Issue");
+    issue_raw["subject"]["url"] = json!("https://api.github.com/repos/example/repo/issues/8");
+    issue_raw["subject"]["latest_comment_url"] =
+        json!("https://api.github.com/repos/example/repo/issues/8");
+    let issue = parsed(&issue_raw);
+    let mut quiet_raw = raw_row("4");
+    quiet_raw["subject"]["latest_comment_url"] = Value::Null;
+    let quiet = parsed(&quiet_raw);
+    let mut late_raw = raw_row("5");
+    late_raw["subject"]["url"] = json!("https://api.github.com/repos/example/repo/pulls/9");
+    let late = parsed(&late_raw);
+    let rows = vec![pr, same, issue, quiet, late];
+    let (query, plan) = parse::latest_actors_plan(&rows, 4).unwrap();
+    assert_eq!(
+        plan,
+        vec![
+            Some((0, false)),
+            Some((0, false)),
+            Some((1, true)),
+            None,
+            None
+        ]
+    );
+    assert!(query.starts_with(
+        "query{n0:repository(owner:\"example\",name:\"repo\"){issueOrPullRequest(number:7){...L}}n1:repository(owner:\"example\",name:\"repo\"){issueOrPullRequest(number:8){...L}}}fragment L on IssueOrPullRequest{"
+    ));
+    assert!(!query.contains("number:9"), "beyond the bound: {query}");
+    assert!(!query.contains("mutation"));
+    assert!(parse::latest_actors_plan(&rows[3..4], 4).is_none());
+    let value = json!({"data":{
+        "n0":{"issueOrPullRequest":{"author":{"login":"pr-author","__typename":"User"},
+            "comments":{"nodes":[{"author":{"login":"alice","__typename":"User"},"createdAt":"2026-10-15T17:00:00Z"}]},
+            "reviews":{"nodes":[{"author":{"login":"rev-bot","__typename":"Bot"},"submittedAt":"2026-10-16T17:00:00Z"}]}}},
+        "n1":{"issueOrPullRequest":{"author":{"login":"issue-author","__typename":"User"},
+            "comments":{"nodes":[]}}}}});
+    // The review is newer than the comment, so its author is the latest actor.
+    let latest = parse::latest_actors(&value, 0, false).unwrap();
+    assert_eq!(
+        (latest.login.as_str(), latest.actor_type.as_str()),
+        ("rev-bot", "Bot")
+    );
+    // The latest activity is the subject itself: its author.
+    assert_eq!(
+        parse::latest_actors(&value, 1, true).unwrap().login,
+        "issue-author"
+    );
+    // No comment or review found, a deleted author, a missing alias or an
+    // unsafe login is never guessed.
+    assert!(parse::latest_actors(&value, 1, false).is_none());
+    assert!(parse::latest_actors(&value, 7, false).is_none());
+    let ghost = json!({"data":{"n0":{"issueOrPullRequest":{"author":null}}}});
+    assert!(parse::latest_actors(&ghost, 0, true).is_none());
+    let unsafe_login =
+        json!({"data":{"n0":{"issueOrPullRequest":{"author":{"login":"a\u{1b}[2J"}}}}});
+    assert!(parse::latest_actors(&unsafe_login, 0, true).is_none());
+}
+#[test]
 fn notifications_v63_latest_comment_endpoint_is_closed_same_repository_and_actor_strict() {
     let row = parsed(&raw_row("5"));
     assert_eq!(

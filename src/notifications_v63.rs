@@ -237,6 +237,11 @@ impl NotificationWorkV63 {
 
 pub struct PreparedNotificationRowV63 {
     pub(crate) label: Arc<str>,
+    /// Byte offset in `label` after the state, freshness, reason and resource:
+    /// the latest actor's chip and login are drawn there, before the title.
+    pub(crate) lead: usize,
+    /// The latest actor from the list's one batched read; `None` is unknown.
+    pub(crate) actor: Option<crate::identity::ActorIdentity>,
     pub(crate) unread: bool,
 }
 pub struct PreparedNotificationsV63 {
@@ -366,15 +371,29 @@ pub(crate) fn row_label_v63(
     repository: &str,
     subject: &str,
 ) -> String {
+    format!(
+        "{}{} • {}",
+        row_lead_v63(unread, updated_at, now, reason, subject),
+        title,
+        sanitize_terminal(repository),
+    )
+}
+/// The leading fields of a list row, up to where the latest actor is drawn:
+/// `Unread   5d Review requested • PR #7 • `.
+pub(crate) fn row_lead_v63(
+    unread: bool,
+    updated_at: &str,
+    now: u64,
+    reason: &str,
+    subject: &str,
+) -> String {
     let age = crate::ui_table::age_at(updated_at, now).unwrap_or_else(|| "—".into());
     format!(
-        "{:<6} {:>4} {} • {} • {} • {}",
+        "{:<6} {:>4} {} • {} • ",
         if unread { "Unread" } else { "Read" },
         age,
         reason_label_v63(reason),
         subject,
-        title,
-        sanitize_terminal(repository),
     )
 }
 /// The Details actor line: the shared initials chip and `@login` first, then
@@ -548,7 +567,10 @@ pub(crate) fn execute(
         let mut rows = Vec::with_capacity(access.rows().len());
         let mut retained = 0usize;
         let now = crate::storage::now();
-        for row in access.rows() {
+        // ONE batched read names the latest actor of every visible-page row.
+        let actors = access.latest_actors_v63(&provider);
+        alive(&work)?;
+        for (row, actor) in access.rows().iter().zip(&actors.actors) {
             alive(&work)?;
             // This is bounded display preparation in the original worker, not
             // draw-time formatting or a claim about an absent acting user.
@@ -565,9 +587,25 @@ pub(crate) fn execute(
                 row.repository_label(),
                 &row.subject_short_v63(),
             );
+            let lead = row_lead_v63(
+                row.unread(),
+                row.updated_at(),
+                now,
+                row.reason(),
+                &row.subject_short_v63(),
+            )
+            .len();
+            let actor = actor.as_ref().map(|actor| {
+                crate::identity::ActorIdentity::github(&work.original.scope.host, actor)
+            });
             retained = retained
                 .checked_add(
                     label.capacity()
+                        + actor.as_ref().map_or(0, |a| {
+                            std::mem::size_of::<crate::identity::ActorIdentity>()
+                                + a.login.as_ref().map_or(0, String::capacity)
+                                + a.name.capacity()
+                        })
                         + row.id().len()
                         + std::mem::size_of::<PreparedNotificationRowV63>(),
                 )
@@ -577,6 +615,8 @@ pub(crate) fn execute(
             }
             rows.push(PreparedNotificationRowV63 {
                 label: Arc::from(label),
+                lead,
+                actor,
                 unread: row.unread(),
             });
         }
@@ -703,8 +743,18 @@ pub(crate) fn execute(
             None
         };
         let coverage = access.coverage();
+        let actors_note = match actors.status {
+            crate::providers::gh::NotificationActorsStatusV63::Read
+            | crate::providers::gh::NotificationActorsStatusV63::NoneEligible => String::new(),
+            crate::providers::gh::NotificationActorsStatusV63::FirstRows(limit) => {
+                format!(" | actors: first {limit} rows")
+            }
+            crate::providers::gh::NotificationActorsStatusV63::Unavailable => {
+                " | actors unavailable".into()
+            }
+        };
         let label = format!(
-            "{} | {} | {} observed | {} | {} raw, {} duplicates, {} unverified repo",
+            "{} | {} | {} observed | {}{} | {} raw, {} duplicates, {} unverified repo",
             if work.query.include_read {
                 "Including read"
             } else {
@@ -721,9 +771,10 @@ pub(crate) fn execute(
             } else {
                 "Partial query; absence unknown"
             },
+            actors_note,
             coverage.raw_rows,
             coverage.duplicates,
-            coverage.unverified_repository_rows
+            coverage.unverified_repository_rows,
         );
         let coverage: Arc<str> = Arc::from(label);
         // ALL bounded private preparation precedes closing repository/SQL and

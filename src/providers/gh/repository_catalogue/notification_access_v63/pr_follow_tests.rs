@@ -187,7 +187,7 @@ fn notifications_pr_follow_v63_genuine_parent_member_and_actual_patch_close_same
 fn notifications_pr_follow_v63_patch_failure_or_inherited_64k_256k_cap_never_issues_native_work() {
     for cap in [None, Some(64 * 1024), Some(256 * 1024)] {
         let (f, _h, mut steps) = app_fixture();
-        let patch = &mut steps[7 + 6];
+        let patch = &mut steps[8 + 6];
         if let Some(cap) = cap {
             patch.stdout = vec![b'x'; cap + 1];
         } else {
@@ -300,7 +300,7 @@ fn notifications_pr_follow_v63_actual_raw_patch_projection_peak_refuses_before_p
 fn notifications_pr_follow_v63_actual_empty_files_and_empty_patch_remain_browsable_without_native_member(
 ) {
     let (f, h, mut steps) = app_fixture();
-    for index in [7 + 4, 7 + 7] {
+    for index in [8 + 4, 8 + 7] {
         let mut parent: Value = serde_json::from_slice(&steps[index].stdout).unwrap();
         // Both exact endpoints are the SAME actual Git commit, not a guessed
         // empty diff for differing immutable objects or fabricated file row.
@@ -308,11 +308,11 @@ fn notifications_pr_follow_v63_actual_empty_files_and_empty_patch_remain_browsab
         parent["changed_files"] = json!(0);
         steps[index] = support::get("repos/example/repo0000/pulls/7", parent);
     }
-    steps[7 + 5] = support::get(
+    steps[8 + 5] = support::get(
         "repos/example/repo0000/pulls/7/files?per_page=100&page=1",
         json!([]),
     );
-    steps[7 + 6].stdout.clear();
+    steps[8 + 6].stdout.clear();
     f.scripted_gh(&steps);
     let (mut app, p) = actual_app(&f);
     let before = git(&f);
@@ -597,6 +597,9 @@ fn app_fixture() -> (Fixture, history::GitImagesV1, Vec<GhStep>) {
     let f = Fixture::new();
     let h = history::GitImagesV1::create(&f.repo(), false);
     let mut steps = collection(false, 42);
+    // The App list load makes the ONE batched latest-actor read between its
+    // two repository checks; direct provider reads (`setup`) make none.
+    steps.insert(4, crate::notifications_v63::tests::actors_step());
     steps.extend(follow(&h));
     f.scripted_gh(&steps);
     drop(Cache::open(&support::database(&f)).unwrap());

@@ -294,6 +294,134 @@ pub(in crate::providers::gh::repository_catalogue) fn latest_actor(
         actor_type: kind.into(),
     })
 }
+/// How many leading list rows get a latest-actor read: a visible page at
+/// 120x40, not the whole bounded query.
+pub(in crate::providers::gh::repository_catalogue) const LATEST_ACTOR_ROWS: usize = 40;
+const LATEST_ACTOR_FIELDS: &str =
+    "author{login __typename}comments(last:1){nodes{author{login __typename}createdAt}}";
+/// One row's place in the batched read: its alias and whether the latest
+/// activity is the subject itself. `None` means the row is not read.
+pub(in crate::providers::gh::repository_catalogue) type LatestActorTargetV63 =
+    Option<(usize, bool)>;
+/// The ONE batched read of the list's latest actors: a GraphQL query with an
+/// alias per distinct issue or pull request among the first `limit` rows.
+/// Returns the query and, per row, the alias it reads and whether the latest
+/// activity is the subject itself. Rows without a latest-comment URL, other
+/// subject kinds and unsafe repository names get no alias, so no actor.
+pub(in crate::providers::gh::repository_catalogue) fn latest_actors_plan(
+    rows: &[NotificationRowV63],
+    limit: usize,
+) -> Option<(String, Vec<LatestActorTargetV63>)> {
+    let safe = |part: &str| {
+        !part.is_empty()
+            && part.len() <= 100
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    };
+    let mut subjects: Vec<(&str, u64)> = Vec::new();
+    let mut aliases = String::new();
+    let mut plan = Vec::with_capacity(rows.len());
+    for (index, row) in rows.iter().enumerate() {
+        let number = match row.subject {
+            NotificationSubjectV63::PullRequest { number }
+            | NotificationSubjectV63::Issue { number } => Some(number),
+            _ => None,
+        };
+        let target = number.filter(|_| index < limit).and_then(|number| {
+            let latest = row.latest_comment_url.as_deref()?;
+            let (owner, name) = row.repository.full_name.split_once('/')?;
+            (safe(owner) && safe(name)).then_some(())?;
+            let key = (row.repository.full_name.as_str(), number);
+            let alias = match subjects.iter().position(|seen| *seen == key) {
+                Some(alias) => alias,
+                None => {
+                    aliases.push_str(&format!(
+                        "n{}:repository(owner:\"{owner}\",name:\"{name}\"){{issueOrPullRequest(number:{number}){{...L}}}}",
+                        subjects.len()
+                    ));
+                    subjects.push(key);
+                    subjects.len() - 1
+                }
+            };
+            Some((alias, row.subject_url.as_deref() == Some(latest)))
+        });
+        plan.push(target);
+    }
+    if subjects.is_empty() {
+        return None;
+    }
+    Some((
+        format!(
+            "query{{{aliases}}}fragment L on IssueOrPullRequest{{...on Issue{{{LATEST_ACTOR_FIELDS}}}...on PullRequest{{{LATEST_ACTOR_FIELDS}reviews(last:1){{nodes{{author{{login __typename}}submittedAt}}}}}}}}"
+        ),
+        plan,
+    ))
+}
+/// A GraphQL `author` object: strict login, known kind. Null (a deleted
+/// account) or anything malformed is no actor.
+fn graph_actor(v: &Value) -> Option<crate::providers::gh::Actor> {
+    let login = identity_text(v, "login", 100).ok()?;
+    if !login
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"-[]_".contains(&b))
+    {
+        return None;
+    }
+    let kind = v
+        .get("__typename")
+        .and_then(Value::as_str)
+        .filter(|kind| matches!(*kind, "User" | "Bot" | "Organization"))
+        .unwrap_or("Unknown");
+    Some(crate::providers::gh::Actor {
+        login: login.to_owned(),
+        display_name: None,
+        avatar_url: None,
+        actor_type: kind.into(),
+    })
+}
+/// The latest actor of one alias: the subject's author when the latest
+/// activity is the subject itself, otherwise the author of whichever is newer
+/// of the last issue comment and the last review. Nothing found is `None`.
+pub(in crate::providers::gh::repository_catalogue) fn latest_actors(
+    v: &Value,
+    alias: usize,
+    is_subject: bool,
+) -> Option<crate::providers::gh::Actor> {
+    let item = v
+        .get("data")?
+        .get(format!("n{alias}"))?
+        .get("issueOrPullRequest")
+        .filter(|item| item.is_object())?;
+    if is_subject {
+        return item.get("author").and_then(graph_actor);
+    }
+    let last = |connection: &str, at: &str| {
+        item.get(connection)
+            .and_then(|c| c.get("nodes"))
+            .and_then(Value::as_array)
+            .and_then(|nodes| nodes.last())
+            .and_then(|node| {
+                let when = node
+                    .get(at)
+                    .and_then(Value::as_str)
+                    .filter(|t| timestamp(t))?;
+                Some((when.to_owned(), node.get("author")?))
+            })
+    };
+    let newest = match (
+        last("comments", "createdAt"),
+        last("reviews", "submittedAt"),
+    ) {
+        (Some(comment), Some(review)) => Some(if review.0 > comment.0 {
+            review
+        } else {
+            comment
+        }),
+        (comment, review) => comment.or(review),
+    };
+    newest.and_then(|(_, author)| graph_actor(author))
+}
 pub(in crate::providers::gh::repository_catalogue) fn row(
     host: &str,
     v: &Value,

@@ -14,6 +14,53 @@ use ratatui::{
 };
 use std::sync::Arc;
 pub const TITLE: &str = "Notifications • observed";
+/// One list row: state, freshness, reason and resource, then the latest
+/// actor's initials chip and login (or `—` when unknown), then title and
+/// repository. Below `ROW_LOGIN_WIDTH` columns only the chip is drawn, so the
+/// title stays readable at 80x24; Details always names the login. The row's
+/// own style is applied by the caller.
+pub(crate) const ROW_LOGIN_WIDTH: u16 = 100;
+pub(crate) fn row_line(
+    theme: crate::theme::Theme,
+    row: &PreparedNotificationRowV63,
+    width: u16,
+) -> ratatui::text::Line<'static> {
+    let wide = width >= ROW_LOGIN_WIDTH;
+    use ratatui::text::{Line, Span};
+    let split = if row.label.is_char_boundary(row.lead) {
+        row.lead
+    } else {
+        0
+    };
+    let (lead, tail) = row.label.split_at(split);
+    let mut spans = vec![Span::raw(lead.to_owned())];
+    match &row.actor {
+        Some(identity) => {
+            let chip = if theme.mode == crate::theme::ColorMode::NoColor {
+                theme.style(SemanticToken::Actor)
+            } else {
+                theme.identity_chip(crate::identity::InitialsChip::slot(identity))
+            };
+            spans.push(Span::styled(
+                crate::identity::InitialsChip::text(identity, theme.mode),
+                chip,
+            ));
+            spans.push(Span::raw(if wide {
+                format!(
+                    " {} • ",
+                    crate::providers::runner::sanitize_terminal(&crate::ui_table::actor_text(
+                        identity
+                    ))
+                )
+            } else {
+                " ".into()
+            }));
+        }
+        None => spans.push(Span::raw(if wide { "— • " } else { "— " })),
+    }
+    spans.push(Span::raw(tail.to_owned()));
+    Line::from(spans)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotificationActionV63 {
     Open,
@@ -220,8 +267,7 @@ pub(crate) fn dispatch(app: &mut App, action: NotificationActionV63) {
         }
         A::MarkUnread => {
             if let Some(view) = &mut app.notifications_v63 {
-                view.message =
-                    "Mark unread unavailable on this server • bulk PUT is not an inverse";
+                view.message = "Mark unread unavailable: GitHub has no API to mark a thread unread";
             }
             return;
         }
@@ -629,7 +675,10 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 } else {
                     SemanticToken::Normal
                 });
-                frame.render_widget(Paragraph::new(row.label.as_ref()).style(style), rect);
+                frame.render_widget(
+                    Paragraph::new(row_line(theme, row, rect.width)).style(style),
+                    rect,
+                );
                 view.hits
                     .push((rect, NotificationActionV63::Select(offset)));
             }

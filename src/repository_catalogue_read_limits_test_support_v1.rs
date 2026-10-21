@@ -93,6 +93,27 @@ pub(crate) fn load(
         .unwrap(),
     )
 }
+/// A `gh api graphql` POST whose body is exactly `{"query":"query{…"}`: a
+/// read. Any mutation, variables or other method stays a refused write.
+pub(crate) fn graphql_read(step: &GhStep) -> bool {
+    step.args
+        == [
+            "api",
+            "graphql",
+            "--hostname",
+            HOST,
+            "--method",
+            "POST",
+            "--input",
+            "-",
+        ]
+        && serde_json::from_slice::<Value>(&step.stdin).is_ok_and(|body| {
+            body.as_object().is_some_and(|body| body.len() == 1)
+                && body["query"]
+                    .as_str()
+                    .is_some_and(|query| query.starts_with("query{") && !query.contains("mutation"))
+        })
+}
 pub(crate) fn exact(fixture: &Fixture, steps: &[GhStep]) {
     let rows = fs::read_to_string(fixture.root.join("gh-fixture/commands.jsonl"))
         .unwrap_or_default()
@@ -103,6 +124,16 @@ pub(crate) fn exact(fixture: &Fixture, steps: &[GhStep]) {
     for (actual, expected) in rows.iter().zip(steps) {
         assert_eq!(actual["matched"], true);
         assert_eq!(actual["args"], json!(expected.args));
+        if graphql_read(expected) {
+            // The one read-only GraphQL query: exact stdin, never a mutation.
+            let hex = expected
+                .stdin
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+            assert_eq!(actual["stdin_hex"], hex);
+            continue;
+        }
         assert_eq!(actual["stdin_hex"], "");
         assert!(!expected.args.iter().any(|arg| matches!(
             arg.as_str(),

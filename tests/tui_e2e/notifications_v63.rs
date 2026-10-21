@@ -84,13 +84,61 @@ fn phase(all: bool, participating: bool, conditional: bool, empty: bool) -> Vec<
         conditional,
     ));
     if !empty {
-        for _ in 0..2 {
-            steps.push(get(&format!("repos/{REPO}"), repository()));
-        }
+        // Between the two repository checks: the ONE batched latest-actor read.
+        steps.push(get(&format!("repos/{REPO}"), repository()));
+        steps.push(actors());
+        steps.push(get(&format!("repos/{REPO}"), repository()));
     }
     steps.extend(principal(42));
-    assert_eq!(steps.len(), if empty { 5 } else { 7 });
+    assert_eq!(steps.len(), if empty { 5 } else { 8 });
     steps
+}
+/// The list's one GraphQL read: an alias per distinct issue or PR among the
+/// first visible-page rows. The fixture's rows all name PR #7.
+const ACTORS_QUERY: &str = "query{n0:repository(owner:\"example\",name:\"notifications\"){issueOrPullRequest(number:7){...L}}}fragment L on IssueOrPullRequest{...on Issue{author{login __typename}comments(last:1){nodes{author{login __typename}createdAt}}}...on PullRequest{author{login __typename}comments(last:1){nodes{author{login __typename}createdAt}}reviews(last:1){nodes{author{login __typename}submittedAt}}}}";
+/// The row's latest commenter (alice-liddell), newer than the last review;
+/// the PR author is never shown as the actor.
+fn actors() -> GhStep {
+    let response = json!({"data":{"n0":{"issueOrPullRequest":{
+        "author":{"login":"pr-author","__typename":"User"},
+        "comments":{"nodes":[{"author":{"login":"alice-liddell","__typename":"User"},"createdAt":"2026-10-15T17:00:00Z"}]},
+        "reviews":{"nodes":[{"author":{"login":"old-reviewer","__typename":"User"},"submittedAt":"2026-10-14T17:00:00Z"}]}}}}});
+    let mut step = GhStep::read(
+        &[
+            "api",
+            "graphql",
+            "--hostname",
+            HOST,
+            "--method",
+            "POST",
+            "--input",
+            "-",
+        ],
+        &response.to_string(),
+    );
+    step.stdin = serde_json::to_vec(&json!({ "query": ACTORS_QUERY })).unwrap();
+    step
+}
+/// The batched actor read is the only POST a read journey may make: exactly
+/// `gh api graphql` with a `query{` body, never a mutation.
+fn graphql_read(step: &GhStep) -> bool {
+    step.args
+        == [
+            "api",
+            "graphql",
+            "--hostname",
+            HOST,
+            "--method",
+            "POST",
+            "--input",
+            "-",
+        ]
+        && serde_json::from_slice::<Value>(&step.stdin).is_ok_and(|body| {
+            body.as_object().is_some_and(|body| body.len() == 1)
+                && body["query"]
+                    .as_str()
+                    .is_some_and(|q| q.starts_with("query{") && !q.contains("mutation"))
+        })
 }
 fn not_modified_phase() -> Vec<GhStep> {
     let mut steps = phase(false, false, true, false);
@@ -328,6 +376,15 @@ fn exact(session: &Session, f: &Fixture, steps: &[GhStep]) {
         assert_eq!(row["step"], index);
         assert_eq!(row["matched"], true);
         assert_eq!(row["args"], json!(expected.args));
+        if graphql_read(expected) {
+            let hex = expected
+                .stdin
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+            assert_eq!(row["stdin_hex"], hex);
+            continue;
+        }
         assert_eq!(row["stdin_hex"], "");
         assert!(!expected.args.iter().any(|arg| matches!(
             arg.as_str(),
@@ -405,19 +462,41 @@ fn assert_readable_row(body: &str) {
             || age.ends_with("mo"),
         "{row}"
     );
-    // The repository follows the title; the 80-column row may cut the tail,
-    // so require at least the repository owner's start (78 inner columns end
-    // exactly at `example` with this fixture).
-    assert!(row[title..].contains(" • example"), "{row}");
+    // The latest actor's initials chip sits between the resource and the
+    // title; at 80 columns the login is left to Details so the title stays.
+    assert!(
+        row[reason..title].ends_with("PR #7 • AL "),
+        "chip before title: {row}"
+    );
+}
+/// At 120 columns the row also names the latest actor's login and keeps the
+/// repository after the title.
+fn assert_wide_row(body: &str) {
+    let row = body
+        .lines()
+        .find(|line| line.contains(PRIVATE))
+        .unwrap_or_else(|| panic!("No notification row\n{body}"));
+    assert!(
+        row.contains(&format!(
+            "Review requested • PR #7 • AL alice-liddell • {PRIVATE}"
+        )),
+        "{row}"
+    );
+    assert!(row.contains(&format!(" • {REPO}")), "{row}");
+    assert!(
+        !row.contains("pr-author") && !row.contains("old-reviewer"),
+        "{row}"
+    );
 }
 fn read_details(mouse: bool) {
     let mut steps = empty_inbox_steps("octocat");
     steps.extend(phase(false, false, false, false));
-    // Details alone reads the selected row's latest comment, once, between
-    // the two repository checks; History reads no comment.
+    // Every list read makes the one batched actor read; Details alone also
+    // reads the selected row's exact latest comment, right after it.
     let mut details = not_modified_phase();
+    assert!(graphql_read(&details[4]));
     details.insert(
-        4,
+        5,
         get(
             &format!("repos/{REPO}/issues/comments/99"),
             json!({"id":99,"user":{"login":"alice-liddell","id":5,"type":"User"},"body":"looks good"}),
@@ -433,7 +512,8 @@ fn read_details(mouse: bool) {
     assert_readable_row(&body);
     session.capture_completed_terminal_v1("notifications-observed-80");
     session.resize_owned_header(120, 40, TITLE, CONTROLS);
-    ready(&mut session, 0, PRIVATE);
+    let wide = ready(&mut session, 0, &format!("AL alice-liddell • {PRIVATE}"));
+    assert_wide_row(&wide);
     let after = session.completed_cells_end();
     choose(&mut session, mouse, "[Enter Details]", b"\r");
     let detail = ready(&mut session, after, ACTOR);
@@ -659,9 +739,11 @@ fn partial(mouse: bool) {
             false,
         ));
     }
-    for _ in 0..2 {
-        steps.push(get(&format!("repos/{REPO}"), repository()));
-    }
+    // 200 rows of the same PR still make ONE actor read with ONE alias,
+    // bounded to the first visible-page rows.
+    steps.push(get(&format!("repos/{REPO}"), repository()));
+    steps.push(actors());
+    steps.push(get(&format!("repos/{REPO}"), repository()));
     steps.extend(principal(42));
     let f = fixture(&steps);
     let mut session = start(&f);
@@ -669,10 +751,18 @@ fn partial(mouse: bool) {
     let after = open(&mut session, mouse);
     ready(&mut session, after, "Partial query; absence unknown");
     session.resize_owned_header(120, 40, TITLE, CONTROLS);
-    assert!(session
-        .visible_overlay_body(TITLE)
-        .unwrap()
-        .contains("200 observed"));
+    let body = session.visible_overlay_body(TITLE).unwrap();
+    assert!(body.contains("200 observed"), "{body}");
+    assert!(
+        body.contains("Partial query; absence unknown | actors: first 40 rows | 200 raw"),
+        "{body}"
+    );
+    assert!(
+        body.lines()
+            .filter(|line| line.contains(PRIVATE))
+            .all(|line| line.contains("AL alice-liddell • ")),
+        "{body}"
+    );
     assert_sql_generation(&f, &[1]);
     exact(&session, &f, &steps);
     assert_eq!(witness(&f), before);

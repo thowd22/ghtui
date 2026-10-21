@@ -179,7 +179,7 @@ fn happy(mouse: bool) {
     let browser = ready(&mut session, after, PRIVATE);
     let after = open_follow(&mut session, mouse);
     files(&mut session, after, true);
-    session.wait_for_command_count(&f, 26);
+    session.wait_for_command_count(&f, 27);
     assert_eq!(witness(&f), before);
     assert_sql_generation(&f, &[1]);
     session.capture_completed_terminal_v1(if mouse {
@@ -208,7 +208,7 @@ fn happy(mouse: bool) {
         Duration::from_secs(8),
     );
     action(&mut session, mouse, PR_TITLE, "[v Native diff]", b"v");
-    session.wait_for_command_count(&f, 43);
+    session.wait_for_command_count(&f, 44);
     session.wait_for_cursorless_condition(
         |frame| {
             crate::support::overlay_body(frame, "Native PR diff •").is_some_and(|body| {
@@ -376,13 +376,13 @@ fn cancel(mouse: bool) {
     let after = open(&mut session, mouse);
     ready(&mut session, after, PRIVATE);
     let after = open_follow(&mut session, mouse);
-    session.wait_for_command_count(&f, 18);
+    session.wait_for_command_count(&f, 19);
     let rows = session
         .inspect_command_journal(&f)
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .collect::<Vec<_>>();
-    let pid = i32::try_from(rows[17]["pid"].as_u64().unwrap()).unwrap();
+    let pid = i32::try_from(rows[18]["pid"].as_u64().unwrap()).unwrap();
     let child = process_identity(pid)
         .unwrap()
         .expect("Original six-second real thread GET live BEFORE cancellation");
@@ -424,6 +424,10 @@ fn unsupported(mouse: bool) {
     };
     page[0]["subject"]["url"] = Value::Null;
     steps[9] = super::page(false, false, 1, page, false);
+    // An unresolved subject names no issue or PR, so the list makes NO
+    // batched actor read and the row shows an unknown actor.
+    assert!(graphql_read(&steps[11]));
+    steps.remove(11);
     f.scripted_gh(&steps);
     let mut session = start(&f);
     let before = witness(&f);
@@ -468,7 +472,7 @@ fn unavailable_patch(mouse: bool) {
         let original = ready(&mut session, after, PRIVATE);
         let after = open_follow(&mut session, mouse);
         files(&mut session, after, false);
-        session.wait_for_command_count(&f, 26);
+        session.wait_for_command_count(&f, 27);
         let after = session.completed_cells_end();
         action(&mut session, mouse, PR_TITLE, "[N Next file]", b"N");
         session.wait_for_new_cursorless_condition(

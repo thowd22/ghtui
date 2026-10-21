@@ -57,10 +57,10 @@ pub(crate) use repository_catalogue::notifications_v63;
 pub(crate) use repository_catalogue::OriginalPrClosedAccessV13;
 pub use repository_catalogue::*;
 pub(crate) use repository_catalogue::{
-    ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationInspectionV63,
-    NotificationLatestActorV63, NotificationPrFollowIntentV63, NotificationPrSourceV63,
-    NotificationPublicationStateV63, NotificationPublicationV63, NotificationSelectionV63,
-    NotificationWriteReceiptV63, WorkflowCleanupSealV9,
+    ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationActorsStatusV63,
+    NotificationInspectionV63, NotificationLatestActorV63, NotificationPrFollowIntentV63,
+    NotificationPrSourceV63, NotificationPublicationStateV63, NotificationPublicationV63,
+    NotificationSelectionV63, NotificationWriteReceiptV63, WorkflowCleanupSealV9,
 };
 pub(crate) use repository_catalogue::{
     ClosedStateSourceV80, StateSourcePreparedBindingV80, StateSourceReadV80,

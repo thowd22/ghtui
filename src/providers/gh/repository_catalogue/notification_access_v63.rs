@@ -37,6 +37,22 @@ pub(crate) enum NotificationLatestActorV63 {
     },
     Unavailable(&'static str),
 }
+/// The list's latest actors, one per row in row order, from one batched read.
+pub(crate) struct NotificationActorsV63 {
+    pub(crate) actors: Vec<Option<crate::providers::gh::Actor>>,
+    pub(crate) status: NotificationActorsStatusV63,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NotificationActorsStatusV63 {
+    /// Every eligible row was read.
+    Read,
+    /// Only the first N rows were read; later rows show no actor.
+    FirstRows(usize),
+    /// No row names an issue or pull request with activity; nothing read.
+    NoneEligible,
+    /// The batched read failed or its window ended; every actor is unknown.
+    Unavailable,
+}
 #[derive(Clone, Default)]
 pub(crate) struct NotificationCoverageV63 {
     pub(crate) pages: usize,
@@ -627,6 +643,59 @@ impl NotificationReadAccessV63<'_> {
         {
             Ok(actor) => NotificationLatestActorV63::Observed { actor, is_subject },
             Err(_) => NotificationLatestActorV63::Unavailable("latest comment could not be read"),
+        }
+    }
+    /// ONE bounded GraphQL read of the latest actor of every issue or pull
+    /// request among the first visible-page rows, on the SAME runner, token
+    /// and original deadline, after every repository was verified readable.
+    /// No eligible row means no child. A failed read leaves every actor
+    /// unknown and says so; it never fails the list.
+    pub(crate) fn latest_actors_v63(&self, provider: &GithubProvider) -> NotificationActorsV63 {
+        let unknown = |status| NotificationActorsV63 {
+            actors: vec![None; self.rows.len()],
+            status,
+        };
+        let Some((query, plan)) = notifications_v63::parse::latest_actors_plan(
+            &self.rows,
+            notifications_v63::parse::LATEST_ACTOR_ROWS,
+        ) else {
+            return unknown(NotificationActorsStatusV63::NoneEligible);
+        };
+        if !provider.runner.same_instance(&self.producing_runner)
+            || live(&self.original_cancel, self.deadline).is_err()
+        {
+            return unknown(NotificationActorsStatusV63::Unavailable);
+        }
+        let Ok(child) = provider
+            .clone()
+            .with_scoped_read_window(self.deadline, PAGE)
+        else {
+            return unknown(NotificationActorsStatusV63::Unavailable);
+        };
+        let Ok(value) = child.api(
+            "graphql",
+            "POST",
+            Some(serde_json::json!({ "query": query })),
+            None,
+            false,
+            &self.original_cancel,
+        ) else {
+            return unknown(NotificationActorsStatusV63::Unavailable);
+        };
+        NotificationActorsV63 {
+            actors: plan
+                .iter()
+                .map(|target| {
+                    target.and_then(|(alias, is_subject)| {
+                        notifications_v63::parse::latest_actors(&value, alias, is_subject)
+                    })
+                })
+                .collect(),
+            status: if self.rows.len() > notifications_v63::parse::LATEST_ACTOR_ROWS {
+                NotificationActorsStatusV63::FirstRows(notifications_v63::parse::LATEST_ACTOR_ROWS)
+            } else {
+                NotificationActorsStatusV63::Read
+            },
         }
     }
     pub(crate) fn local_witness_v63(&self) -> &NotificationSourceWitnessV63 {
