@@ -573,3 +573,280 @@ fn ci_workflow_assemble_refuses_partial_matrix_and_untested_bytes() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("FAILED"));
     assert!(!tampered.root.join("dist/SHA256SUMS").exists());
 }
+
+const TMPDIR_STEP: &str = "Keep test temporary files outside the checkout";
+
+fn step_index(job: &Yaml, needle: &str) -> usize {
+    steps(job)
+        .iter()
+        .position(|step| {
+            step["run"].as_str().is_some_and(|run| run.contains(needle))
+                || step["name"].as_str() == Some(needle)
+        })
+        .unwrap_or_else(|| panic!("no step runs or is named {needle}"))
+}
+
+fn upload_paths(job: &Yaml) -> String {
+    steps(job)
+        .iter()
+        .filter(|step| {
+            step["if"].as_str() == Some("${{ failure() }}")
+                && step["uses"]
+                    .as_str()
+                    .is_some_and(|uses| uses.starts_with("actions/upload-artifact@"))
+        })
+        .filter_map(|step| step["with"]["path"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// AC1: the Linux suite and the macOS job run with TMPDIR outside the
+/// checkout and the test-only Git maintenance policy, run the coverage audits
+/// on every run, refuse zero selected or ignored tests, and upload the PTY
+/// screen artifacts when they fail.
+#[test]
+fn ci_workflow_test_jobs_audit_count_tests_and_keep_pty_artifacts() {
+    let ci = yaml("ci.yml");
+    let test = &ci["jobs"]["test"];
+    let macos = &ci["jobs"]["macos"];
+
+    // TMPDIR is set before any test command in both jobs.
+    for (job_name, job, first_test) in [
+        ("test", test, "ci-test-counts.mjs"),
+        ("macos", macos, "cargo build --locked --all-targets"),
+    ] {
+        let tmp = step_index(job, TMPDIR_STEP);
+        assert!(
+            step_named(job, TMPDIR_STEP)["if"].is_badvalue(),
+            "{job_name}: TMPDIR step is conditional"
+        );
+        assert!(
+            tmp < step_index(job, first_test),
+            "{job_name}: TMPDIR set too late"
+        );
+        assert!(
+            step_named(job, TMPDIR_STEP)["run"]
+                .as_str()
+                .unwrap()
+                .contains(r#"echo "TMPDIR=$tmp" >> "$GITHUB_ENV""#),
+            "{job_name}"
+        );
+    }
+
+    // Both audits run unconditionally, before the full suite, and each must
+    // select tests in every binary it runs.
+    for (name, command) in [
+        (
+            "Coverage inventory audit",
+            "node scripts/ci-test-counts.mjs --each -- cargo test --locked --test coverage_inventory_v64",
+        ),
+        (
+            "Theme and identity audit",
+            "node scripts/ci-test-counts.mjs --each -- cargo test --locked --lib audit_v64_",
+        ),
+    ] {
+        let step = step_named(test, name);
+        assert!(step["if"].is_badvalue(), "{name} is conditional");
+        assert!(
+            step["run"].as_str().unwrap().starts_with(command),
+            "{name}: {:?}",
+            step["run"]
+        );
+        assert!(step_index(test, name) < step_index(test, "Full suite"));
+    }
+    // The audit filters still select real, non-ignored tests.
+    let theme_audit =
+        fs::read_to_string(Path::new(ROOT).join("src/theme_audit_v64_tests.rs")).unwrap();
+    assert!(theme_audit.matches("#[test]\nfn audit_v64_").count() >= 3);
+    let inventory =
+        fs::read_to_string(Path::new(ROOT).join("tests/coverage_inventory_v64.rs")).unwrap();
+    assert!(inventory.matches("#[test]\nfn coverage_v64_").count() >= 2);
+
+    // The full suite goes through test-all.mjs (TMPDIR + Git policy) and its
+    // log must show a floor of passed tests with none ignored.
+    let full = step_named(test, "Full suite");
+    assert!(full["run"]
+        .as_str()
+        .unwrap()
+        .starts_with("node scripts/test-all.mjs 2>&1 | tee \"$RUNNER_TEMP/test-all.log\""));
+    let count = step_named(test, "Full suite selected test count");
+    assert_eq!(count["if"].as_str(), full["if"].as_str());
+    let count_run = count["run"].as_str().unwrap();
+    assert!(count_run.contains("--log \"$RUNNER_TEMP/test-all.log\""));
+    let floor: u64 = count_run
+        .split_once("--min-passed ")
+        .unwrap()
+        .1
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        floor >= 6000,
+        "floor {floor} is too low to catch dropped targets"
+    );
+    assert!(step_index(test, "Full suite") < step_index(test, "Full suite selected test count"));
+    assert!(step_named(test, "Filtered PTY journeys")["run"]
+        .as_str()
+        .unwrap()
+        .starts_with(
+            "node scripts/ci-test-counts.mjs -- cargo test --locked --test tui_e2e -- \"$FILTER\""
+        ));
+    assert!(step_named(macos, "Library tests")["run"]
+        .as_str()
+        .unwrap()
+        .starts_with("node scripts/ci-test-counts.mjs -- cargo test --locked --lib"));
+    assert!(step_named(test, "Node script tests")["run"]
+        .as_str()
+        .unwrap()
+        .contains("tests/ci_test_counts.test.mjs"));
+
+    // Every cargo test in ci.yml goes through a wrapper that applies the
+    // test-only Git environment, instead of a hand-copied env block.
+    for (job_name, job) in jobs(&ci) {
+        for step in steps(job) {
+            let Some(run) = step["run"].as_str() else {
+                continue;
+            };
+            for line in run.lines().filter(|line| line.contains("cargo test")) {
+                assert!(
+                    line.trim_start()
+                        .starts_with("node scripts/ci-test-counts.mjs"),
+                    "{job_name}: `{line}` bypasses ci-test-counts.mjs"
+                );
+            }
+        }
+    }
+
+    // Failure uploads keep the PTY screens and transcripts of failed journeys.
+    let release = yaml("release.yml");
+    for (job_name, job) in [
+        ("test", test),
+        ("macos", macos),
+        ("release build", &release["jobs"]["build"]),
+    ] {
+        let paths = upload_paths(job);
+        assert!(
+            paths.contains("target/tui-artifacts/"),
+            "{job_name}: {paths}"
+        );
+    }
+    let paths = upload_paths(test);
+    assert!(paths.contains("${{ runner.temp }}/test-all.log"));
+    assert!(paths.contains("${{ runner.temp }}/audits.log"));
+
+    // No required test is ignored anywhere in the tree.
+    let mut files = Vec::new();
+    for dir in ["src", "tests"] {
+        let mut stack = vec![Path::new(ROOT).join(dir)];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    assert!(files.len() > 50);
+    for file in files {
+        let text = fs::read_to_string(&file).unwrap();
+        for line in text.lines() {
+            assert!(
+                !line.trim_start().starts_with("#[ignore"),
+                "{}: {line}",
+                file.display()
+            );
+        }
+    }
+}
+
+/// The TMPDIR step refuses a temporary directory inside the checkout and
+/// otherwise exports one outside it (run with real Bash).
+#[test]
+fn ci_workflow_tmpdir_step_refuses_a_directory_inside_the_checkout() {
+    let script = step_named(&yaml("ci.yml")["jobs"]["test"], TMPDIR_STEP)["run"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let outside = temp.path().join("runner-temp");
+    fs::create_dir_all(&workspace).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let env_file = temp.path().join("github-env");
+
+    let ok = bash(
+        &script,
+        &workspace,
+        &[
+            ("RUNNER_TEMP", outside.to_str().unwrap()),
+            ("GITHUB_WORKSPACE", workspace.to_str().unwrap()),
+            ("GITHUB_ENV", env_file.to_str().unwrap()),
+        ],
+    );
+    assert!(ok.status.success(), "{}", stderr(&ok));
+    assert_eq!(
+        fs::read_to_string(&env_file).unwrap(),
+        format!("TMPDIR={}/ghtui-tmp\n", outside.display())
+    );
+    assert!(outside.join("ghtui-tmp").is_dir());
+
+    fs::remove_file(&env_file).unwrap();
+    let inside = workspace.join("target");
+    let refused = bash(
+        &script,
+        &workspace,
+        &[
+            ("RUNNER_TEMP", inside.to_str().unwrap()),
+            ("GITHUB_WORKSPACE", workspace.to_str().unwrap()),
+            ("GITHUB_ENV", env_file.to_str().unwrap()),
+        ],
+    );
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stdout).contains("is inside the checkout"));
+    assert!(!env_file.exists());
+}
+
+/// The zero-selected-tests guard the workflow relies on refuses a log in
+/// which nothing passed and one with an ignored test, and accepts a real one.
+#[test]
+fn ci_workflow_test_count_guard_refuses_zero_selected_and_ignored_tests() {
+    let temp = tempfile::tempdir().unwrap();
+    let script = Path::new(ROOT).join("scripts/ci-test-counts.mjs");
+    let check = |log: &str, args: &[&str]| {
+        let path = temp.path().join("cargo.log");
+        fs::write(&path, log).unwrap();
+        Command::new("node")
+            .arg(&script)
+            .args(args)
+            .arg("--log")
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    let line = |passed: u32, ignored: u32, filtered: u32| {
+        format!("test result: ok. {passed} passed; 0 failed; {ignored} ignored; 0 measured; {filtered} filtered out; finished in 0.10s\n")
+    };
+    let zero = check(&line(0, 0, 37), &[]);
+    assert!(!zero.status.success());
+    assert!(stderr(&zero).contains("only 0 test(s) passed"));
+    let nothing = check("error: could not compile `ghtui`\n", &[]);
+    assert!(!nothing.status.success());
+    let ignored = check(&line(5, 1, 0), &[]);
+    assert!(!ignored.status.success());
+    assert!(stderr(&ignored).contains("ignored"));
+    let empty_binary = check(&format!("{}{}", line(3, 0, 0), line(0, 0, 9)), &["--each"]);
+    assert!(!empty_binary.status.success());
+    let floor = check(&line(5999, 0, 0), &["--min-passed", "6000"]);
+    assert!(!floor.status.success());
+    let ok = check(
+        &format!("{}{}", line(6000, 0, 0), line(0, 0, 0)),
+        &["--min-passed", "6000"],
+    );
+    assert!(ok.status.success(), "{}", stderr(&ok));
+    assert!(String::from_utf8_lossy(&ok.stdout).contains("6000 passed"));
+}

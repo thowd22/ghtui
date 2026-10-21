@@ -96,16 +96,43 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
+      # Git-discovery tests walk up from their temporary repositories; a
+      # TMPDIR inside the checkout would find ghtui's own .git instead.
+      - name: Keep test temporary files outside the checkout
+        run: |
+          tmp="$RUNNER_TEMP/ghtui-tmp"
+          mkdir -p "$tmp"
+          case "$(realpath "$tmp")/" in
+            "$(realpath "$GITHUB_WORKSPACE")"/*)
+              echo "::error::TMPDIR $tmp is inside the checkout"
+              exit 1
+              ;;
+          esac
+          echo "TMPDIR=$tmp" >> "$GITHUB_ENV"
+      # Coverage audits run first and on every run (filtered dispatches too):
+      # the v64 coverage inventory and the theme/identity/CI-token audits.
+      # ci-test-counts.mjs runs each with the test-only Git environment and
+      # fails when it selects zero tests or any test is ignored.
+      - name: Coverage inventory audit
+        run: node scripts/ci-test-counts.mjs --each -- cargo test --locked --test coverage_inventory_v64 2>&1 | tee "$RUNNER_TEMP/audits.log"
+      - name: Theme and identity audit
+        run: node scripts/ci-test-counts.mjs --each -- cargo test --locked --lib audit_v64_ 2>&1 | tee -a "$RUNNER_TEMP/audits.log"
       # PTY tests run headless: portable-pty allocates its own pseudo-terminal
       # and the tests use an offline fake gh, so no TTY or GitHub login is
       # needed. test-all.mjs runs `cargo test --locked --all-targets` with the
       # test-only Git environment (foreground automatic maintenance).
-      - if: ${{ inputs.pty_filter == '' }}
+      - name: Full suite
+        if: ${{ inputs.pty_filter == '' }}
         run: node scripts/test-all.mjs 2>&1 | tee "$RUNNER_TEMP/test-all.log"
         env:
           # Saturated hosted runners produce rare one-off PTY timing flakes;
           # each failed test is retried once alone and listed in the log.
           GHTUI_CI_RETRY_FAILED: "1"
+      # A build that silently drops tests (a lost `mod`, an emptied target,
+      # an `#[ignore]`) still exits 0, so the passed count has a floor.
+      - name: Full suite selected test count
+        if: ${{ inputs.pty_filter == '' }}
+        run: node scripts/ci-test-counts.mjs --min-passed 6000 --log "$RUNNER_TEMP/test-all.log"
       # Targeted diagnosis of runner-only failures without the full suite.
       - if: ${{ inputs.pty_filter != '' }}
         name: Runner environment (diagnostic)
@@ -114,26 +141,26 @@ jobs:
           git config --list --show-origin --system || true
           git config --list --show-origin --global || true
           id; ulimit -a | tr '\n' ';'; echo
-      - if: ${{ inputs.pty_filter != '' }}
-        run: cargo test --locked --test tui_e2e -- "$FILTER" 2>&1 | tee "$RUNNER_TEMP/test-all.log"
+      # A filter that matches nothing fails instead of passing vacuously.
+      - name: Filtered PTY journeys
+        if: ${{ inputs.pty_filter != '' }}
+        run: node scripts/ci-test-counts.mjs -- cargo test --locked --test tui_e2e -- "$FILTER" 2>&1 | tee "$RUNNER_TEMP/test-all.log"
         env:
           FILTER: ${{ inputs.pty_filter }}
-          GIT_CONFIG_COUNT: "2"
-          GIT_CONFIG_KEY_0: maintenance.autoDetach
-          GIT_CONFIG_VALUE_0: "false"
-          GIT_CONFIG_KEY_1: gc.autoDetach
-          GIT_CONFIG_VALUE_1: "false"
       - name: Node script tests
         if: ${{ inputs.pty_filter == '' }}
-        run: node --test tests/test_env.test.mjs tests/test_task_runner.test.mjs
-      # Keep the full test log (with PTY screen dumps of failed journeys) for
-      # diagnosis when the suite fails.
+        run: node --test tests/test_env.test.mjs tests/test_task_runner.test.mjs tests/ci_test_counts.test.mjs
+      # Keep the test logs and every failed PTY journey's screens and
+      # transcript (target/tui-artifacts) for diagnosis when a step fails.
       - name: Upload the test log
         if: ${{ failure() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-log
-          path: ${{ runner.temp }}/test-all.log
+          path: |
+            ${{ runner.temp }}/test-all.log
+            ${{ runner.temp }}/audits.log
+            target/tui-artifacts/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -167,19 +194,30 @@ jobs:
         with:
           shared-key: test-macos-${{ matrix.arch }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Keep test temporary files outside the checkout
+        run: |
+          tmp="$RUNNER_TEMP/ghtui-tmp"
+          mkdir -p "$tmp"
+          case "$(realpath "$tmp")/" in
+            "$(realpath "$GITHUB_WORKSPACE")"/*)
+              echo "::error::TMPDIR $tmp is inside the checkout"
+              exit 1
+              ;;
+          esac
+          echo "TMPDIR=$tmp" >> "$GITHUB_ENV"
       - run: cargo build --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/macos.log"
-      - run: cargo test --locked --lib 2>&1 | tee -a "$RUNNER_TEMP/macos.log"
-        env:
-          GIT_CONFIG_COUNT: "2"
-          GIT_CONFIG_KEY_0: maintenance.autoDetach
-          GIT_CONFIG_VALUE_0: "false"
-          GIT_CONFIG_KEY_1: gc.autoDetach
-          GIT_CONFIG_VALUE_1: "false"
+      - name: Library tests
+        run: node scripts/ci-test-counts.mjs -- cargo test --locked --lib 2>&1 | tee -a "$RUNNER_TEMP/macos.log"
       - name: Upload the macOS log
         if: ${{ failure() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-${{ matrix.arch }}-log
-          path: ${{ runner.temp }}/macos.log
+          path: |
+            ${{ runner.temp }}/macos.log
+            target/tui-artifacts/
           if-no-files-found: ignore
           retention-days: 14
