@@ -62,15 +62,30 @@ is not used, because initial indexing of 100k documents does not fit the 2-minut
 for the PTY suite in a debug build. Ranked first-page timing is warm: it is measured on the
 second query, after the index for this corpus has been built.
 
-## Known gaps
+### Warm Ranked reuse (TASK-106)
 
-- **Warmed Ranked first page** (measured at 3.6 to 6.0 s in debug, against a 1 s debug
-  ceiling). Every explicit Ranked query collects the selected corpus again and reserves a
-  new canonical generation before it reuses the committed Tantivy index. A warm query
-  therefore costs about as much as reading the corpus. The report marks the metric
-  `known_gap` with `over_budget`, and a 15 s regression ceiling still fails the journey.
-  Meeting the budget needs a follow-up: reuse the corpus when the selected checkouts are
-  unchanged, for example by comparing the index fingerprint before collecting.
+The warmed Ranked first page is held to the warmed search budget (`search_ranked_warm_first_page`,
+100 ms × the build factor). It was measured at 3.6 to 6.0 s in debug before this change and
+about 0.3 s after it, against the 1 s debug ceiling. The fixture's working files are dated an
+hour back, as for a checkout nobody is editing (see the racy rule below). Before collecting, a Ranked query fingerprints its inputs without
+reading file contents: for each selected checkout, HEAD, the index, config and exclude file
+stats, replacement refs and grafts, and the path, size, mtime, ctime and inode of every file
+the ignore-aware walk visits (a saved version uses its resolved commit). The fingerprint is
+committed with the source generation. When the next query's fingerprint matches and every
+published document is still a canonical member, the query searches that committed generation
+directly: it neither collects the corpus nor reserves a new generation. The canonical
+documents decoded by the last open stay in memory while a SQLite change token (record counts,
+sizes and times, and search checkpoints) and the Tantivy opstamp are unchanged, so a warm
+open does not decode them again.
+
+Any changed input collects again: an edited, added or deleted file, a moved HEAD, a changed
+index or config, or a revoke or clear of the canonical documents. A file modified within the
+last 2 seconds cannot prove itself unchanged by its timestamp, so such a generation stores no
+fingerprint and the next query collects as well. Cached discussions and commit messages, and
+`rev:` filters, always collect. The journey also checks the storage effect: the warm query
+leaves every `search-index:` checkpoint and reservation generation unchanged.
+
+## Known gaps
 
 - **Cached diff reopen** is within its debug ceiling (about 0.9 s against 1.5 s). However,
   reopening the 5 MB commit diff costs the same as the first open: the comparison is computed

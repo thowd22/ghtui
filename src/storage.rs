@@ -602,6 +602,52 @@ impl Cache {
         ).optional()?)
     }
 
+    /// A cheap change token over one account's records of `kinds` and its checkpoints whose
+    /// source starts with `source_prefix`: counts, stored sizes and times, generations and
+    /// memberships. It never copies payloads. Any publication, prune, clear or revoke of those
+    /// rows changes it, so a caller may keep decoded rows while the token is unchanged.
+    pub fn records_change_token(
+        &self,
+        scope: &Scope,
+        kinds: &[&str],
+        source_prefix: &str,
+    ) -> Result<String> {
+        let mut token = String::new();
+        for kind in kinds {
+            let (count, bytes, latest, total): (i64, f64, i64, f64) = self.connection.query_row(
+                "SELECT COUNT(*),TOTAL(length(CAST(payload AS BLOB))),COALESCE(MAX(fetched_at),0),TOTAL(fetched_at)
+                FROM records WHERE host=?1 AND login=?2 AND kind=?3",
+                params![scope.host, scope.login, kind],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+            token.push_str(&format!("{kind}:{count}:{bytes}:{latest}:{total};"));
+        }
+        // Prefix match without LIKE wildcards: [prefix, prefix + U+10FFFF).
+        let upper = format!("{source_prefix}\u{10FFFF}");
+        let mut statement = self.connection.prepare(
+            "SELECT c.source,c.generation,c.fetched_at,c.complete,
+            (SELECT COUNT(*) FROM checkpoint_records m WHERE m.host=c.host AND m.login=c.login AND m.source=c.source)
+            FROM checkpoints c WHERE c.host=?1 AND c.login=?2 AND c.source>=?3 AND c.source<?4 ORDER BY c.source",
+        )?;
+        let rows = statement.query_map(
+            params![scope.host, scope.login, source_prefix, upper],
+            |row| {
+                Ok(format!(
+                    "{}:{}:{}:{}:{};",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, bool>(3)?,
+                    row.get::<_, i64>(4)?
+                ))
+            },
+        )?;
+        for row in rows {
+            token.push_str(&row?);
+        }
+        Ok(token)
+    }
+
     /// Canonical, account/source-scoped membership without fetching payloads.
     pub fn sync_members(&self, scope: &Scope, source: &str) -> Result<Vec<(String, String)>> {
         let mut statement = self.connection.prepare(

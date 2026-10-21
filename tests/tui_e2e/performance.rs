@@ -58,8 +58,6 @@ const COLD_LARGE_LOAD_CEILING_MS: u64 = 20_000;
 const PEAK_RSS_CEILING_KIB: u64 = 1024 * 1024;
 const IDLE_CPU_CEILING_PERCENT: f64 = 50.0;
 const IDLE_WINDOW: Duration = Duration::from_secs(2);
-/// Regression ceiling for the warmed ranked query, a known gap against its doc budget.
-const RANKED_WARM_REGRESSION_CEILING_MS: u64 = 15_000;
 
 /// The doc budgets are for a release build. The PTY journeys drive the unoptimized test
 /// binary on a shared development host, so each budget is multiplied by this factor
@@ -139,35 +137,6 @@ impl Report {
         self.metrics
             .push(json!({"metric": metric, "kind": "separate", "ms": ms,
             "ceiling_ms": ceiling_ms}));
-    }
-
-    /// A metric known to miss its doc budget (a recorded product gap with its own follow-up):
-    /// the report marks it over budget against `budget_ms` × the build factor, and a
-    /// regression ceiling still fails the journey if it gets worse.
-    pub(crate) fn known_gap(
-        &mut self,
-        metric: &str,
-        value: Duration,
-        budget_ms: u64,
-        regression_ceiling_ms: u64,
-    ) {
-        let ms = value.as_millis() as u64;
-        let ceiling = budget_ms * budget_factor();
-        if ms > regression_ceiling_ms {
-            self.violations.push(format!(
-                "{metric}: {ms} ms > regression ceiling {regression_ceiling_ms} ms"
-            ));
-        }
-        if ms > ceiling {
-            eprintln!(
-                "[perf-v66] KNOWN GAP {metric}: {ms} ms > {ceiling} ms (budget {budget_ms} ms × {})",
-                budget_factor()
-            );
-        }
-        self.metrics
-            .push(json!({"metric": metric, "kind": "known_gap", "ms": ms,
-            "budget_ms": budget_ms, "ceiling_ms": ceiling, "over_budget": ms > ceiling,
-            "regression_ceiling_ms": regression_ceiling_ms}));
     }
 
     /// A recorded value with no ceiling of its own.
@@ -554,6 +523,31 @@ pub(crate) struct LargeRepo {
     pub build: Duration,
 }
 
+/// Moves every working file's mtime an hour back (`cp -a` keeps it for each fixture copy).
+fn settle_working_files(root: &Path) {
+    let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_name() == ".git" {
+                continue;
+            }
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                pending.push(entry.path());
+            } else if kind.is_file() {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .open(entry.path())
+                    .unwrap()
+                    .set_modified(old)
+                    .unwrap();
+            }
+        }
+    }
+}
+
 pub(crate) fn large_repo() -> &'static LargeRepo {
     static REPO: OnceLock<LargeRepo> = OnceLock::new();
     REPO.get_or_init(|| {
@@ -577,6 +571,10 @@ pub(crate) fn large_repo() -> &'static LargeRepo {
             Some(&fast_import_stream()),
         );
         git_in(&template, &["reset", "--quiet", "--hard", "main"], None);
+        // A checkout written seconds before the search is "racy": its timestamps cannot yet
+        // prove a file unchanged, so warm Ranked reuse (TASK-106) would rightly collect again.
+        // The benchmark models a checkout nobody is editing, written well before the session.
+        settle_working_files(&template);
         let shas: Vec<String> = git_in(&template, &["rev-list", "main"], None)
             .lines()
             .map(str::to_owned)
@@ -1022,6 +1020,26 @@ fn search_settled(frame: &vt100::Screen, parts: &[&str]) -> bool {
     shows(frame, parts) && !frame.contents().contains("Loading Search")
 }
 
+/// Every ranked source's committed and reserved generation, from the application's cache.
+fn ranked_generations(fixture: &Fixture) -> Vec<(String, String, u64)> {
+    let connection = rusqlite::Connection::open_with_flags(
+        fixture.root.join("config/ghtui/cache.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let mut statement = connection
+        .prepare(
+            "SELECT 'published',source,generation FROM checkpoints WHERE source LIKE 'search-index:%'
+            UNION ALL SELECT 'reserved',source,generation FROM sync_reservations WHERE source LIKE 'search-index:%'
+            ORDER BY 1,2",
+        )
+        .unwrap();
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap();
+    rows.map(Result::unwrap).collect()
+}
+
 fn search_journey(mouse: bool) {
     let _lock = perf_lock();
     let repo = large_repo();
@@ -1122,6 +1140,8 @@ fn search_journey(mouse: bool) {
         INDEXING_CEILING_MS,
     );
 
+    let first_generations = ranked_generations(&fixture);
+
     // Ranked, warmed: an unchanged corpus reuses the committed index.
     s.wait_for_settled_footer();
     type_query(&mut s, mouse, "perfneedleomega");
@@ -1133,14 +1153,15 @@ fn search_journey(mouse: bool) {
         |s| submit_query(s, mouse),
         |frame| search_settled(frame, &["1 results • Ranked", &omega]),
     );
-    // Known gap: every explicit Ranked query re-collects the selected corpus and reserves a
-    // new canonical generation before it reuses the committed index, so a warm query costs
-    // about as much as collection. Recorded against the doc budget; guarded for regressions.
-    report.known_gap(
-        "search_ranked_warm_first_page",
-        warm,
-        SEARCH_FIRST_PAGE_MS,
-        RANKED_WARM_REGRESSION_CEILING_MS,
+    // TASK-106: an unchanged checkout reuses the committed generation without collecting or
+    // reserving, so the warm query meets the warmed search first-page budget.
+    report.budget("search_ranked_warm_first_page", warm, SEARCH_FIRST_PAGE_MS);
+    // Storage effect: the warm query reserved and published nothing.
+    let warm_generations = ranked_generations(&fixture);
+    report.require(
+        "search_ranked_warm_reused_generation",
+        !first_generations.is_empty() && warm_generations == first_generations,
+        format!("after first query {first_generations:?}, after warm query {warm_generations:?}"),
     );
     s.wait_for_settled_footer();
 

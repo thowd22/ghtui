@@ -242,7 +242,7 @@ fn ranked_index(mouse: bool) {
             "replacedgenerationneedle distinct current content\n"
         ),
         next_generation + 1,
-        "Each explicit query reserves a new canonical source generation"
+        "The previous generation read a file written moments before, whose timestamp cannot prove it unchanged, so this query collects and reserves again (TASK-106)"
     );
     assert_eq!(
         ranked_derivative_generation(&fixture),

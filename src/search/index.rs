@@ -86,6 +86,40 @@ struct SourceState {
     source: String,
     generation: u64,
     coverage: Coverage,
+    /// The collector's input fingerprint (see `Corpus::input_fingerprint`) taken before this
+    /// generation was collected, and the number of documents it published. A later query whose
+    /// inputs and committed membership still match reuses this generation without collecting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    members: Option<usize>,
+}
+
+/// The canonical sources last loaded for one derivative directory, kept between queries in
+/// this process. `open` reuses them only while the SQLite change token and the committed
+/// Tantivy opstamp and fingerprints are exactly those they were loaded with.
+struct LoadedSources {
+    path: PathBuf,
+    scope: Scope,
+    token: String,
+    opstamp: u64,
+    documents: BTreeMap<String, Arc<Document>>,
+    memberships: BTreeMap<String, BTreeSet<String>>,
+    sources: BTreeMap<String, SourceState>,
+    fingerprints: BTreeMap<String, String>,
+}
+static LOADED: std::sync::Mutex<Option<LoadedSources>> = std::sync::Mutex::new(None);
+
+fn take_loaded(path: &Path, scope: &Scope) -> Option<LoadedSources> {
+    let mut slot = LOADED.lock().unwrap_or_else(|poison| poison.into_inner());
+    if slot
+        .as_ref()
+        .is_some_and(|loaded| loaded.path == path && &loaded.scope == scope)
+    {
+        slot.take()
+    } else {
+        None
+    }
 }
 #[derive(Serialize, Deserialize)]
 struct CommitState {
@@ -168,6 +202,8 @@ pub struct RankedIndex {
     sources: BTreeMap<String, SourceState>,
     fingerprints: BTreeMap<String, String>,
     full_rebuild: bool,
+    /// The SQLite change token of the canonical sources loaded into `documents`.
+    loaded_token: String,
     // A nonblocking OS lock protects derivative recovery/publication across application processes.
     _lock: SourceLock,
 }
@@ -314,8 +350,29 @@ impl RankedIndex {
             sources: BTreeMap::new(),
             fingerprints: loaded_fingerprints,
             full_rebuild,
+            loaded_token: String::new(),
             _lock: lock,
         };
+        // Unchanged canonical sources need not be read and decoded again.
+        let token = source_token(cache, &current.scope)?;
+        let opstamp = current.index.load_metas().map_err(error)?.opstamp;
+        match take_loaded(&current.path, &current.scope) {
+            Some(loaded)
+                if !current.full_rebuild
+                    && loaded.token == token
+                    && loaded.opstamp == opstamp
+                    && loaded.fingerprints == current.fingerprints =>
+            {
+                current.documents = loaded.documents;
+                current.memberships = loaded.memberships;
+                current.sources = loaded.sources;
+                current.status.generation = opstamp;
+                current.status.documents = current.documents.len();
+                current.remember(token);
+                return Ok(current);
+            }
+            _ => {}
+        }
         current.reload_sources(cache, cancel)?;
         let desired = fingerprints(&current.documents);
         if current.full_rebuild
@@ -330,7 +387,41 @@ impl RankedIndex {
             current.status.generation = current.index.load_metas().map_err(error)?.opstamp;
             current.status.documents = current.documents.len();
         }
+        current.remember(token);
         Ok(current)
+    }
+
+    /// Keeps the loaded canonical sources for the next `open` of this derivative.
+    fn remember(&mut self, token: String) {
+        self.loaded_token = token.clone();
+        let loaded = LoadedSources {
+            path: self.path.clone(),
+            scope: self.scope.clone(),
+            token,
+            opstamp: self.status.generation,
+            documents: self.documents.clone(),
+            memberships: self.memberships.clone(),
+            sources: self.sources.clone(),
+            fingerprints: self.fingerprints.clone(),
+        };
+        *LOADED.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(loaded);
+    }
+
+    /// The committed generation of `source` when it was collected from exactly `input` and
+    /// all of its published documents are still canonical members. A caller that gets one
+    /// may search it without collecting or reserving a new generation.
+    pub fn reusable_generation(&self, source: &str, input: &str) -> Option<u64> {
+        let state = self.sources.get(source)?;
+        (!self.status.stale
+            && state.input.as_deref() == Some(input)
+            && state.members == self.memberships.get(source).map(BTreeSet::len))
+        .then_some(state.generation)
+    }
+
+    /// True while the canonical sources are those this index loaded (no other publication,
+    /// clear or revoke has committed since).
+    pub fn sources_unchanged(&self, cache: &Cache) -> Result<bool, QueryError> {
+        Ok(!self.loaded_token.is_empty() && source_token(cache, &self.scope)? == self.loaded_token)
     }
 
     /// Source publication is atomic in SQLite. Incomplete refreshes never delete unseen members.
@@ -343,7 +434,7 @@ impl RankedIndex {
         corpus: &Corpus,
         cancel: &CancellationToken,
     ) -> Result<PublishSummary, QueryError> {
-        self.publish_inner(cache, source, generation, corpus, cancel, false)
+        self.publish_inner(cache, source, generation, corpus, cancel, false, None)
     }
     pub fn reserve_generation(
         cache: &mut Cache,
@@ -367,8 +458,22 @@ impl RankedIndex {
         corpus: &Corpus,
         cancel: &CancellationToken,
     ) -> Result<PublishSummary, QueryError> {
-        self.publish_inner(cache, source, generation, corpus, cancel, true)
+        self.publish_inner(cache, source, generation, corpus, cancel, true, None)
     }
+    /// `publish_reserved` that also records the collector's input fingerprint, taken before
+    /// collection, so an unchanged checkout can reuse this generation (`reusable_generation`).
+    pub fn publish_reserved_from_input(
+        &mut self,
+        cache: &mut Cache,
+        source: &str,
+        generation: u64,
+        corpus: &Corpus,
+        input: Option<String>,
+        cancel: &CancellationToken,
+    ) -> Result<PublishSummary, QueryError> {
+        self.publish_inner(cache, source, generation, corpus, cancel, true, input)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn publish_inner(
         &mut self,
         cache: &mut Cache,
@@ -377,6 +482,7 @@ impl RankedIndex {
         corpus: &Corpus,
         cancel: &CancellationToken,
         reserved: bool,
+        input: Option<String>,
     ) -> Result<PublishSummary, QueryError> {
         if source.is_empty()
             || source.len() > 256
@@ -477,10 +583,15 @@ impl RankedIndex {
             })
             .collect::<Result<Vec<_>, QueryError>>()?;
         drop(retained_files);
+        // Only a reserved, authoritative publication replaces the whole membership, so only
+        // it can stand for an unchanged input later.
+        let reusable = reserved && authoritative;
         let state = SourceState {
             source: source.into(),
             generation,
             coverage: corpus.coverage.clone(),
+            input: input.filter(|_| reusable),
+            members: reusable.then_some(records.len()),
         };
         records.push(Record::new(
             COVERAGE_KIND,
@@ -515,8 +626,11 @@ impl RankedIndex {
             ));
         }
         self.status.stale = true;
+        self.loaded_token.clear();
+        let token = source_token(cache, &self.scope)?;
         self.reload_sources(cache, cancel)?;
         let (changed, deleted, retained) = self.update_derivative(cancel)?;
+        self.remember(token);
         Ok(PublishSummary {
             source_generation: generation,
             index_generation: self.status.generation,
@@ -998,6 +1112,13 @@ fn first_match(value: &str, wanted: &BTreeSet<String>) -> Option<tantivy::tokeni
     }
     earliest
 }
+/// A cheap change token for this account's canonical ranked sources: record counts, sizes
+/// and times, and every search-index checkpoint. Any publication, clear or revoke changes it.
+fn source_token(cache: &Cache, scope: &Scope) -> Result<String, QueryError> {
+    cache
+        .records_change_token(scope, &[DOCUMENT_KIND, COVERAGE_KIND], &checkpoint(""))
+        .map_err(error)
+}
 fn checkpoint(source: &str) -> String {
     format!("search-index:{source}")
 }
@@ -1439,6 +1560,8 @@ mod tests {
             source: "chosen".into(),
             generation: 2,
             coverage: corpus(vec![], true).coverage,
+            input: None,
+            members: None,
         };
         cache
             .commit_sync(

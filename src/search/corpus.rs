@@ -133,6 +133,110 @@ impl Corpus {
         });
         Ok(corpus)
     }
+    /// A cheap identity of everything `collect` would read for these selections, without
+    /// reading file contents: each repository's HEAD, index and config file stats, replacement
+    /// refs and grafts, and, for working files, the path, size, mtime, ctime and inode of every
+    /// file the same ignore-aware walk visits. `None` means the inputs cannot be trusted to be
+    /// unchanged (a missing repository, a walk error, cancellation, or a file modified within
+    /// the last two seconds, whose timestamp may not change on a second same-size edit), and
+    /// the caller must collect again.
+    pub fn input_fingerprint(
+        selections: &[RepositorySelection],
+        limits: &CorpusLimits,
+        cancellation: &CancellationToken,
+    ) -> Option<String> {
+        let started = SystemTime::now();
+        let racy_after = started
+            .checked_sub(std::time::Duration::from_secs(RACY_SECONDS))
+            .unwrap_or(UNIX_EPOCH);
+        let mut hasher = Sha256::new();
+        let mut field = |bytes: &[u8]| {
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        };
+        field(b"ghtui-corpus-input-v1");
+        field(
+            format!(
+                "{} {} {} {} {}",
+                limits.max_file_bytes,
+                limits.max_total_bytes,
+                limits.max_documents,
+                limits.include_ignored,
+                limits.include_hidden
+            )
+            .as_bytes(),
+        );
+        for selection in selections {
+            if cancellation.is_cancelled() {
+                return None;
+            }
+            field(selection.repository.as_bytes());
+            field(selection.directory.as_os_str().as_bytes());
+            field(selection.sets.join("\n").as_bytes());
+            let repository = GitRepository::discover_with_cancellation(
+                &selection.directory,
+                cancellation.clone(),
+            )
+            .ok()??;
+            field(repository.root.as_os_str().as_bytes());
+            field(repository.git_dir.as_os_str().as_bytes());
+            field(repository.common_dir.as_os_str().as_bytes());
+            field(if repository.bare {
+                b"bare"
+            } else {
+                b"worktree"
+            });
+            let (replacements, grafted) = repository.history_overrides().ok()?;
+            field(format!("{replacements} {grafted}").as_bytes());
+            match &selection.source {
+                LocalSource::Revision(revision) => {
+                    field(b"revision");
+                    field(revision.as_bytes());
+                    field(repository.resolve_original(revision).ok()?.as_bytes());
+                }
+                LocalSource::Worktree => {
+                    field(b"worktree");
+                    if repository.bare {
+                        return None;
+                    }
+                    field(
+                        repository
+                            .resolve("HEAD")
+                            .unwrap_or_else(|_| "unborn".into())
+                            .as_bytes(),
+                    );
+                    for path in [
+                        repository.git_dir.join("index"),
+                        repository.git_dir.join("config"),
+                        repository.common_dir.join("config"),
+                        repository.git_dir.join("info/exclude"),
+                        repository.common_dir.join("info/exclude"),
+                    ] {
+                        field(path.as_os_str().as_bytes());
+                        field(stat_identity(fs::symlink_metadata(&path).ok().as_ref()).as_bytes());
+                    }
+                    let root = fs::canonicalize(&repository.root).ok()?;
+                    field(root.as_os_str().as_bytes());
+                    for entry in walker(&root, limits).build() {
+                        if cancellation.is_cancelled() {
+                            return None;
+                        }
+                        let entry = entry.ok()?;
+                        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+                            continue;
+                        }
+                        field(entry.path().as_os_str().as_bytes());
+                        let metadata = fs::symlink_metadata(entry.path()).ok()?;
+                        if metadata.modified().ok()? >= racy_after {
+                            return None;
+                        }
+                        field(stat_identity(Some(&metadata)).as_bytes());
+                    }
+                }
+            }
+        }
+        Some(format!("{:x}", hasher.finalize()))
+    }
     fn collect_repository(
         &mut self,
         selection: &RepositorySelection,
@@ -167,19 +271,7 @@ impl Corpus {
                 }
                 let root =
                     fs::canonicalize(&repository.root).map_err(|e| QueryError(e.to_string()))?;
-                let mut walk = WalkBuilder::new(&root);
-                walk.follow_links(false)
-                    .hidden(!limits.include_hidden)
-                    .parents(false)
-                    .git_global(!limits.include_ignored)
-                    .ignore(!limits.include_ignored)
-                    .git_ignore(!limits.include_ignored)
-                    .git_exclude(!limits.include_ignored)
-                    .filter_entry(|entry| entry.file_name() != std::ffi::OsStr::new(".git"));
-                if !limits.include_ignored {
-                    walk.add_custom_ignore_filename(".rgignore");
-                }
-                for entry in walk.build() {
+                for entry in walker(&root, limits).build() {
                     if cancellation.is_cancelled() {
                         self.cancel();
                         break;
@@ -446,6 +538,46 @@ impl Corpus {
         self.coverage.deletion_authoritative = false;
     }
 }
+/// Seconds within which a file's mtime is too recent to prove it unchanged later.
+const RACY_SECONDS: u64 = 2;
+
+/// The ignore-aware working-file walk shared by collection and its input fingerprint.
+fn walker(root: &std::path::Path, limits: &CorpusLimits) -> WalkBuilder {
+    let mut walk = WalkBuilder::new(root);
+    walk.follow_links(false)
+        .hidden(!limits.include_hidden)
+        .parents(false)
+        .git_global(!limits.include_ignored)
+        .ignore(!limits.include_ignored)
+        .git_ignore(!limits.include_ignored)
+        .git_exclude(!limits.include_ignored)
+        .filter_entry(|entry| entry.file_name() != std::ffi::OsStr::new(".git"));
+    if !limits.include_ignored {
+        walk.add_custom_ignore_filename(".rgignore");
+    }
+    walk
+}
+
+fn stat_identity(metadata: Option<&fs::Metadata>) -> String {
+    use std::os::unix::fs::MetadataExt;
+    metadata.map_or_else(
+        || "absent".into(),
+        |metadata| {
+            format!(
+                "{:o} {} {}.{} {}.{} {} {}",
+                metadata.mode(),
+                metadata.len(),
+                metadata.mtime(),
+                metadata.mtime_nsec(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+                metadata.ino(),
+                metadata.dev()
+            )
+        },
+    )
+}
+
 pub fn language(path: &RawPath) -> Option<String> {
     let suffix = path.0.rsplit(|byte| *byte == b'.').next()?;
     let value = match suffix {

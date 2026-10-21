@@ -23,6 +23,10 @@ use std::collections::BTreeMap;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+#[cfg(test)]
+#[path = "ranked_reuse_tests.rs"]
+mod ranked_reuse_tests;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchAction {
     Query,
@@ -381,15 +385,51 @@ impl SearchWorkspace {
         ))
         .map_err(|error| QueryError(error.to_string()))?;
         let source = format!("selected-local:{:x}", Sha256::digest(key));
+        let mut limits = self.ranked_limits.clone();
+        limits.max_hits = self.scan_limits.max_matches.min(limits.max_hits);
+        // Working and saved files only: cached discussions and commit messages are always
+        // collected again, because their visibility is proved per query. A rev: filter is
+        // resolved against the collected corpus, so it collects too.
+        let fingerprint = (self.metadata_sources.is_empty()
+            && !selections.is_empty()
+            && !query.filters.contains_key("rev"))
+        .then(|| {
+            Corpus::input_fingerprint(&selections, &self.ranked_file_limits(0, 0), cancellation)
+        })
+        .flatten();
+        if let Some(fingerprint) = &fingerprint {
+            let index = RankedIndex::open(
+                index_root,
+                self.scope.clone(),
+                cache,
+                limits.clone(),
+                cancellation,
+            )?;
+            if index.reusable_generation(&source, fingerprint).is_some() {
+                let page =
+                    index.search_source_current(&source, &query, &BTreeMap::new(), cancellation)?;
+                // A clear, revoke or other publication committed while searching withdraws
+                // this page; collect again instead.
+                if index.sources_unchanged(cache)? && !page.coverage.cancelled {
+                    self.accept_page(input, selections, page);
+                    return Ok(());
+                }
+            }
+        }
         // Reserve before any file/Git/cache collection. Clear/revoke fences late completion.
         let generation = RankedIndex::reserve_generation(cache, &self.scope, &source)?;
         let (corpus, versions) = self.collect_combined(&query, &selections, cache, cancellation)?;
         Self::resolve_file_filter(&mut query, &corpus);
-        let mut limits = self.ranked_limits.clone();
-        limits.max_hits = self.scan_limits.max_matches.min(limits.max_hits);
         let mut index =
             RankedIndex::open(index_root, self.scope.clone(), cache, limits, cancellation)?;
-        index.publish_reserved(cache, &source, generation, &corpus, cancellation)?;
+        index.publish_reserved_from_input(
+            cache,
+            &source,
+            generation,
+            &corpus,
+            fingerprint,
+            cancellation,
+        )?;
         let page = index.search_source_current(&source, &query, &versions, cancellation)?;
         self.accept_page(input, selections, page);
         Ok(())
@@ -811,6 +851,21 @@ impl SearchWorkspace {
             query.filters.insert("rev".into(), revisions);
         }
     }
+    /// File collection limits left after `metadata_bytes`/`metadata_documents` of metadata.
+    fn ranked_file_limits(&self, metadata_bytes: usize, metadata_documents: usize) -> CorpusLimits {
+        let mut files = self.corpus_limits.clone();
+        files.max_total_bytes = files.max_total_bytes.min(
+            self.ranked_limits
+                .max_total_bytes
+                .saturating_sub(metadata_bytes),
+        );
+        files.max_documents = files.max_documents.min(
+            self.ranked_limits
+                .max_documents
+                .saturating_sub(metadata_documents),
+        );
+        files
+    }
     fn collect_combined(
         &self,
         query: &Query,
@@ -866,17 +921,8 @@ impl SearchWorkspace {
                 metadata.coverage.reasons.push("Metadata safety budget reached before commit collection; no older messages implicitly admitted".into());
             }
         }
-        let mut files = self.corpus_limits.clone();
-        files.max_total_bytes = files.max_total_bytes.min(
-            self.ranked_limits
-                .max_total_bytes
-                .saturating_sub(metadata.coverage.scanned_bytes),
-        );
-        files.max_documents = files.max_documents.min(
-            self.ranked_limits
-                .max_documents
-                .saturating_sub(metadata.documents.len()),
-        );
+        let files =
+            self.ranked_file_limits(metadata.coverage.scanned_bytes, metadata.documents.len());
         let mut corpus = if selections.is_empty() {
             Corpus {
                 scope: self.scope.clone(),
