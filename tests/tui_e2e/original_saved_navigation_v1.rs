@@ -296,7 +296,7 @@ fn fresh_crumb_restore(
     choose(session, mouse, "[w Working]", b"w");
     session.wait_for_screen("user dirty nested bytes");
     choose(session, mouse, "3 Search", b"3");
-    session.wait_for_screen("Exact mode • enter a query, then Search.");
+    session.wait_for_screen("Fuzzy mode • type to search file names, code");
     session.assert_focused_view("Search");
     choose(session, mouse, "Alt-← Back", b"\x1b[1;3D");
     session.assert_focused_view("Repository");

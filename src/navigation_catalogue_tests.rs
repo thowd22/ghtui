@@ -261,6 +261,7 @@ fn navigation_catalogue_search_keeps_four_distinct_modes_and_explicit_source_int
         SearchMode::Exact,
         SearchMode::Regex,
         SearchMode::GitHub,
+        SearchMode::Fuzzy,
     ]
     .into_iter()
     .enumerate()

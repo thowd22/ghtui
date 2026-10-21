@@ -152,7 +152,7 @@ fn discovered_pr_journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(&mut session, mouse, "h GitHub", b"h");
+    session.search_option(mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
     query(&mut session, mouse, "DISCUSS type:pr");
     session.wait_for_screen("1 results • GitHub");
@@ -245,7 +245,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(&mut session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
-    choose(&mut session, mouse, "h GitHub", b"h");
+    session.search_option(mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
     journal(&mut session, &fixture, 4);
     query(&mut session, mouse, "REMOTE type:file");
@@ -265,7 +265,7 @@ fn journey(mouse: bool) {
         choose(&mut session, mouse, "[Ctrl↓ More]", b"\x1b[1;5B");
     }
     session.wait_for_screen("REMOTE LINE 25");
-    choose(&mut session, mouse, "[z Name]", b"z");
+    session.search_option(mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("remote exact scope");
     if !mouse {
@@ -389,7 +389,7 @@ fn origin_issue_journey(mouse: bool) {
     session.wait_for_screen("Selected local search corpus ready");
     // SSH origin names the explicit mapping step instead of a dead end.
     session.wait_for_screen("origin org/app is not mapped");
-    choose(&mut session, mouse, "h GitHub", b"h");
+    session.search_option(mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
     session.wait_for_screen("GitHub remote discovery / org/app");
     session.wait_for_screen("searches outside org/app");

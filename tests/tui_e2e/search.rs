@@ -77,13 +77,14 @@ fn query_modes(mouse: bool) {
     let index = std::fs::read(fixture.repo().join(".git/index")).unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
+    session.search_option(mouse, "e Exact", b"e");
     enter_query(&mut session, mouse, "working needle");
     session.wait_for_screen("1 results • Exact");
     session.wait_for_row(&["日本語.txt", " 1:8 "]);
     session.wait_for_screen("including uncommitted content");
     // Each result's preview says when its content was read, in UTC.
     session.wait_for_screen(&format!("scanned {}", today_utc()));
-    choose(&mut session, mouse, "x Regex", b"x");
+    session.search_option(mouse, "x Regex", b"x");
     enter_query(&mut session, mouse, "[");
     session.wait_for_screen("Invalid or excessive regex");
     enter_query(&mut session, mouse, "working.*β");
@@ -97,7 +98,7 @@ fn query_modes(mouse: bool) {
     choose(&mut session, mouse, "[b Hidden files: off]", b"b");
     session.wait_for_screen("Hidden files: on");
     choose(&mut session, mouse, "[c Corpus]", b"c");
-    choose(&mut session, mouse, "e Exact", b"e");
+    session.search_option(mouse, "e Exact", b"e");
     enter_query(&mut session, mouse, "working needle");
     session.wait_for_screen("3 results • Exact");
     choose(&mut session, mouse, "[o Open result]", b"o");
@@ -138,9 +139,10 @@ fn results_table(mouse: bool) {
     let pane = crate::support::view_title("Search");
     let mut session = Session::launch(&fixture, 140, 42);
     open_search(&mut session, mouse);
+    session.search_option(mouse, "e Exact", b"e");
     enter_query(&mut session, mouse, "tablekey");
     session.wait_for_screen("3 results • Exact");
-    session.wait_for_row(&["RESULT", "LINE", "REPOSITORY"]);
+    session.wait_for_row(&["RESULT", "LINE"]);
     session.wait_for_selected_cells(&pane, &["a.txt", " 1:7 "]);
     // The snippet sits on the line below its row, inside the results panel.
     session.wait_for_screen("alpha tablekey");
@@ -209,7 +211,7 @@ fn ranked_index(mouse: bool) {
     .unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     enter_query(&mut session, mouse, "uniqueobsoleteidentifier");
     session.wait_for_screen("1 results • Ranked");
     session.wait_for_screen("temporary.txt");
@@ -253,11 +255,11 @@ fn ranked_index(mouse: bool) {
     std::fs::remove_file(fixture.repo().join("temporary.txt")).unwrap();
     let mut session = Session::launch(&fixture, 80, 24);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     enter_query(&mut session, mouse, "replacedgenerationneedle");
     session.wait_for_screen("0 results • Ranked");
     assert!(!session.screen().contains("temporary.txt"));
-    choose(&mut session, mouse, "v Saved version", b"v");
+    session.search_option(mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "saved needle");
     session.wait_for_screen("1 results • Ranked");
     session.wait_for_screen("saved needle α");
@@ -365,8 +367,8 @@ fn rewritten_ref(mouse: bool) {
     let first = fixture.git(&["rev-parse", "HEAD"]).trim().to_owned();
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "n Ranked", b"n");
-    choose(&mut session, mouse, "v Saved version", b"v");
+    session.search_option(mouse, "n Ranked", b"n");
+    session.search_option(mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "rewritealphamarker");
     session.wait_for_screen("1 results • Ranked");
     session.wait_for_screen("rewritealphamarker first tip");
@@ -431,11 +433,12 @@ fn exact_search(mouse: bool) {
     let index = std::fs::read(fixture.repo().join(".git/index")).unwrap();
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
+    session.search_option(mouse, "e Exact", b"e");
     enter_query(&mut session, mouse, "local-only marker");
     session.wait_for_screen("1 results • Exact");
     session.wait_for_row(&["日本語.txt", " 2:1 "]);
     session.resize(80, 24);
-    choose(&mut session, mouse, "v Saved version", b"v");
+    session.search_option(mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "local-only marker");
     session.wait_for_screen("0 results • Exact");
     enter_query(&mut session, mouse, "saved needle");
@@ -473,11 +476,11 @@ fn saved_searches(mouse: bool) {
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
-    choose(&mut session, mouse, "x Regex", b"x");
-    choose(&mut session, mouse, "v Saved version", b"v");
+    session.search_option(mouse, "x Regex", b"x");
+    session.search_option(mouse, "v Saved version", b"v");
     enter_query(&mut session, mouse, "saved.*α path:nested");
     session.wait_for_screen("1 results • Regex");
-    choose(&mut session, mouse, "[z Name]", b"z");
+    session.search_option(mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("Saved evidence");
     if mouse {
@@ -513,7 +516,7 @@ fn saved_searches(mouse: bool) {
     session.wait_for_screen("Pinned saved query: Saved evidence");
     session.wait_for_screen("[u Saved evidence (pinned)]");
     session.wait_for_screen("[P Unpin]");
-    choose(&mut session, mouse, "[z Name]", b"z");
+    session.search_option(mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("Daily evidence");
     if mouse {
@@ -649,9 +652,11 @@ fn cancel_scan(mouse: bool, ranked: bool) {
     let mut session = Session::launch(&fixture, 120, 40);
     open_search(&mut session, mouse);
     if ranked {
-        choose(&mut session, mouse, "n Ranked", b"n");
+        session.search_option(mouse, "n Ranked", b"n");
+    } else {
+        session.search_option(mouse, "e Exact", b"e");
     }
-    choose(&mut session, mouse, "v Saved version", b"v");
+    session.search_option(mouse, "v Saved version", b"v");
     std::fs::write(&scan.arm, b"hold the next saved-version scan").unwrap();
     enter_query(&mut session, mouse, "saved needle");
     session
@@ -712,5 +717,115 @@ fn cancel_scan(mouse: bool, ranked: bool) {
         index
     );
     assert!(session.inspect_command_journal(&fixture).is_empty());
+    session.quit_and_assert_restored_terminal(mouse);
+}
+
+#[test]
+fn search_fuzzy_v121_keyboard_types_live_picks_and_opens_a_grouped_result() {
+    fuzzy_finder(false)
+}
+#[test]
+fn search_fuzzy_v121_mouse_types_live_picks_and_opens_a_grouped_result() {
+    fuzzy_finder(true)
+}
+/// TASK-121: Search opens as one fuzzy box. Typing alone (no mode, source or Enter) shows
+/// live, ranked results grouped by file: the path once, then each line with its line:column
+/// and snippet. A pick opens it read-only; Exact stays an optional toggle under Options.
+fn fuzzy_finder(mouse: bool) {
+    let fixture = Fixture::new();
+    fixture.init_git();
+    fixture.commit_file(
+        "src/parser/tokenizer.rs",
+        b"fn tokenize_input() {}\nlet other = 1;\nfn parse_tokens() {}\n",
+        "Add tokenizer",
+    );
+    fixture.commit_file("README.md", b"Tokens are documented here\n", "Add readme");
+    let head = fixture.git(&["rev-parse", "HEAD"]);
+    let status = fixture.git(&["status", "--porcelain=v2", "-z"]);
+    let pane = crate::support::view_title("Search");
+    let mut session = Session::launch(&fixture, 140, 42);
+    open_search(&mut session, mouse);
+    session.wait_for_screen("Fuzzy mode • type to search file names, code");
+    session.wait_for_screen("[O Options] Fuzzy • working files");
+    // The mode and source tabs wait under Options.
+    assert!(
+        !session.screen().contains("x Regex"),
+        "{}",
+        session.screen()
+    );
+    choose(&mut session, mouse, "[/ Query]", b"/");
+    session.send_key(b"tokn");
+    // No Enter: the debounced live search answers the typed text.
+    session.wait_for_screen("4 results • Fuzzy");
+    session.wait_for_row(&["RESULT", "LINE"]);
+    session.wait_for_row(&["src/parser/tokenizer.rs", " name "]);
+    session.wait_for_row(&[" 1:4 "]);
+    session.wait_for_screen("fn tokenize_input() {}");
+    session.wait_for_screen("fn parse_tokens() {}");
+    session.wait_for_row(&["README.md", " 1:1 "]);
+    session.wait_for_screen("Tokens are documented here");
+    let screen = session.screen();
+    // Grouped by file: the tokenizer's later results do not repeat its path; each snippet is
+    // the line below its result; unmatched lines stay out.
+    let row = screen.lines().find(|line| line.contains(" 1:4 ")).unwrap();
+    assert!(!row.contains("tokenizer.rs"), "{row}\n{screen}");
+    assert!(!screen.contains("let other = 1;"), "{screen}");
+    // Readable at 80 columns too: path and line, with the snippet below.
+    session.resize(80, 24);
+    session.wait_for_row(&["README.md", " 1:1 "]);
+    session.wait_for_screen("Tokens are");
+    // Pick the README result: arrows move the selection while typing, Enter moves to the
+    // results and Enter again opens; a click selects and a click on the selection opens.
+    if mouse {
+        if !session
+            .selected_row(&pane)
+            .is_some_and(|row| row.contains("README.md"))
+        {
+            let (x, y) = session.locate("README.md").unwrap();
+            session.click(x, y);
+            session.wait_for_selected_cells(&pane, &["README.md", "1:1"]);
+        }
+        let (x, y) = session.locate("README.md").unwrap();
+        session.click(x, y);
+    } else {
+        for _ in 0..4 {
+            let before = session.selected_row(&pane);
+            if before
+                .as_deref()
+                .is_some_and(|row| row.contains("README.md"))
+            {
+                break;
+            }
+            session.send_key(b"\x1b[B");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            while session.selected_row(&pane) == before {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "Down did not move the selection\n{}",
+                    session.screen()
+                );
+                session.poll_output(std::time::Duration::from_millis(20));
+            }
+        }
+        session.wait_for_selected_cells(&pane, &["README.md", "1:1"]);
+        session.send_key(b"\r");
+        session.wait_for_screen("Results are current");
+        session.send_key(b"\r");
+    }
+    session.wait_for_screen("Opened exact search destination");
+    session.wait_for_screen("Tokens are documented here");
+    // Exact stays an optional toggle under Options.
+    choose(&mut session, mouse, "3 Search", b"3");
+    session.wait_for_screen("[/ Query] tokn");
+    session.search_option(mouse, "e Exact", b"e");
+    enter_query(&mut session, mouse, "Tokens are");
+    session.wait_for_screen("1 results • Exact");
+    session.wait_for_row(&["README.md", " 1:1 "]);
+    // Read-only: no Git change, no GitHub call and no ranked index.
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fixture.git(&["status", "--porcelain=v2", "-z"]), status);
+    assert_eq!(published_ranked_state(&fixture), (0, 0, 0));
+    let journal = session.inspect_command_journal(&fixture);
+    assert!(journal.is_empty(), "{journal}\n{}", session.screen());
     session.quit_and_assert_restored_terminal(mouse);
 }

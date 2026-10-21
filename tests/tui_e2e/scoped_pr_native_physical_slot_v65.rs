@@ -102,6 +102,7 @@ fn preselect_local_search(session: &mut Session, fixture: &Fixture, mouse: bool)
     );
     let before = session.completed_cells_end();
     choose(session, mouse, "[c Corpus]", b"c");
+    session.search_option(mouse, "e Exact", b"e");
     search_frame(
         session,
         before,

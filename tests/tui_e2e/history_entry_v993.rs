@@ -29,6 +29,7 @@ fn open_search(s: &mut Session, mouse: bool) {
     s.wait_for_screen("Recent commits");
     s.choose(mouse, "3 Search", b"3");
     s.wait_for_screen("Selected local search corpus ready");
+    s.search_option(mouse, "e Exact", b"e");
     s.wait_for_settled_footer();
 }
 

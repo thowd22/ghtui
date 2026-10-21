@@ -253,6 +253,259 @@ fn scan_document(
     Ok(true)
 }
 
+/// At most this many lines of one document stay in a fuzzy page, so one noisy file never
+/// pushes every other file off the list.
+pub const FUZZY_HITS_PER_DOCUMENT: usize = 20;
+/// Context kept before the first highlighted character of a fuzzy snippet.
+const FUZZY_LEAD: usize = 16;
+/// Characters a fuzzy snippet keeps.
+const FUZZY_SNIPPET: usize = 240;
+
+/// TASK-121: the fuzzy ranking over the same bounded documents as Exact/Regex. Every document
+/// is read (a ranking cannot stop at the first page); each one's file name and lines are
+/// ranked by the shared [`crate::fuzzy_rank_v1`] finder, at most
+/// [`FUZZY_HITS_PER_DOCUMENT`] lines per document, the best `max_matches` overall.
+struct FuzzyScan {
+    ranker: crate::fuzzy_rank_v1::FuzzyRankerV1,
+    hits: Vec<(crate::fuzzy_rank_v1::FuzzyMatchV1, SearchHit)>,
+    total: usize,
+    total_bytes: usize,
+}
+impl FuzzyScan {
+    fn new(query: &Query) -> Result<Self, QueryError> {
+        if query.mode != SearchMode::Fuzzy {
+            return Err(QueryError("Fuzzy ranking needs Fuzzy mode".into()));
+        }
+        let ranker = crate::fuzzy_rank_v1::FuzzyRankerV1::new(&query.text);
+        if ranker.is_empty() {
+            return Err(QueryError("Enter text to search".into()));
+        }
+        Ok(Self {
+            ranker,
+            hits: Vec::new(),
+            total: 0,
+            total_bytes: 0,
+        })
+    }
+
+    fn snippet(&mut self, text: &str) -> (String, Vec<std::ops::Range<usize>>, usize) {
+        let positions = self.ranker.positions(text);
+        let first = positions.first().copied().unwrap_or(0);
+        let chars = text.char_indices().map(|(at, _)| at).collect::<Vec<_>>();
+        let mut start = first.saturating_sub(FUZZY_LEAD);
+        while start < first && text[chars[start]..].starts_with(char::is_whitespace) {
+            start += 1;
+        }
+        let end = (start + FUZZY_SNIPPET).min(chars.len());
+        let byte = |index: usize| chars.get(index).copied().unwrap_or(text.len());
+        let snippet = text[byte(start)..byte(end)].to_owned();
+        let shifted = positions
+            .iter()
+            .filter(|&&position| position >= start && position < end)
+            .map(|position| position - start)
+            .collect::<Vec<_>>();
+        let ranges = crate::fuzzy_rank_v1::char_positions_to_byte_ranges(&snippet, &shifted);
+        (snippet, ranges, first + 1)
+    }
+
+    /// Ranks one document; `false` once the scan must stop (byte budget or cancelled).
+    fn document(
+        &mut self,
+        page: &mut SearchPage,
+        document: &Document,
+        limits: &ScanLimits,
+        cancellation: &CancellationToken,
+    ) -> bool {
+        if cancellation.is_cancelled() {
+            page.coverage.cancelled = true;
+            page.coverage.complete = false;
+            return false;
+        }
+        if !document.matches(&page.query) {
+            return true;
+        }
+        if document.body.len() > limits.max_file_bytes {
+            page.coverage.skipped_large += 1;
+            page.coverage.complete = false;
+            return true;
+        }
+        self.total_bytes = self.total_bytes.saturating_add(document.body.len());
+        if self.total_bytes > limits.max_total_bytes {
+            page.coverage.complete = false;
+            page.coverage
+                .reasons
+                .push("Fuzzy search reached its total-byte budget".into());
+            return false;
+        }
+        let mut found = Vec::new();
+        // A file's own name is a result too (line 0 marks it).
+        let file = matches!(
+            document.destination,
+            super::model::Destination::LocalFile { .. }
+        );
+        if file {
+            if let Some(rank) = self.ranker.rank(&document.title) {
+                found.push((rank, 0usize));
+            }
+        }
+        for (index, line) in document.body.lines().enumerate() {
+            if index % 1024 == 0 && cancellation.is_cancelled() {
+                page.coverage.cancelled = true;
+                page.coverage.complete = false;
+                return false;
+            }
+            if line.len() > 64 * 1024 {
+                continue;
+            }
+            if let Some(rank) = self.ranker.rank(line) {
+                found.push((rank, index + 1));
+            }
+        }
+        if found.is_empty() {
+            return true;
+        }
+        self.total += found.len();
+        found.sort_by(|(a, la), (b, lb)| a.better(b).then(la.cmp(lb)));
+        found.truncate(FUZZY_HITS_PER_DOCUMENT);
+        let shared = std::sync::Arc::new(document.clone());
+        let lines = document.body.lines().collect::<Vec<_>>();
+        for (rank, line) in found {
+            let text = if line == 0 {
+                document.title.as_str()
+            } else {
+                lines[line - 1]
+            };
+            let (snippet, highlights, column) = self.snippet(text);
+            self.hits.push((
+                rank,
+                SearchHit {
+                    document: std::sync::Arc::clone(&shared),
+                    line: line.max(1),
+                    column: if line == 0 { 1 } else { column },
+                    highlights,
+                    snippet,
+                    score: rank.score as f32 + if rank.whole { 1_000_000.0 } else { 0.0 },
+                    matched_fields: vec![if line == 0 {
+                        FUZZY_FILE_NAME.into()
+                    } else {
+                        FUZZY_TEXT.into()
+                    }],
+                },
+            ));
+        }
+        // Keep memory bounded: drop the worst once well past the page.
+        if self.hits.len() > limits.max_matches.saturating_mul(2).max(64) {
+            self.hits.sort_by(|(a, _), (b, _)| a.better(b));
+            self.hits.truncate(limits.max_matches);
+        }
+        true
+    }
+
+    fn finish(mut self, page: &mut SearchPage, limits: &ScanLimits) {
+        self.hits.sort_by(|(a, _), (b, _)| a.better(b));
+        if self.hits.len() > limits.max_matches {
+            self.hits.truncate(limits.max_matches);
+        }
+        if self.total > self.hits.len() {
+            page.coverage.reasons.push(format!(
+                "Best {} of {} fuzzy matches shown; type more to narrow",
+                self.hits.len(),
+                self.total
+            ));
+        }
+        // Grouped by file: files in order of their best line, each file's name first and then
+        // its lines in file order.
+        let mut order: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        for (position, (_, hit)) in self.hits.iter().enumerate() {
+            let key = std::sync::Arc::as_ptr(&hit.document) as usize;
+            order.entry(key).or_insert(position);
+        }
+        let mut hits = self.hits;
+        hits.sort_by(|(_, a), (_, b)| {
+            let (ka, kb) = (
+                std::sync::Arc::as_ptr(&a.document) as usize,
+                std::sync::Arc::as_ptr(&b.document) as usize,
+            );
+            order[&ka].cmp(&order[&kb]).then_with(|| {
+                let name = |hit: &SearchHit| hit.matched_fields[0] != FUZZY_FILE_NAME;
+                name(a).cmp(&name(b)).then(a.line.cmp(&b.line))
+            })
+        });
+        page.hits = hits.into_iter().map(|(_, hit)| hit).collect();
+    }
+}
+
+/// Why a fuzzy result matched, shown in its preview.
+pub const FUZZY_FILE_NAME: &str = "file name";
+pub const FUZZY_TEXT: &str = "fuzzy text";
+
+/// TASK-121: fuzzy ranking over a collected corpus (saved versions, cached conversations and
+/// commit messages included).
+pub fn fuzzy_search(
+    corpus: &Corpus,
+    query: &Query,
+    limits: &ScanLimits,
+    cancellation: &CancellationToken,
+) -> Result<SearchPage, QueryError> {
+    let mut scan = FuzzyScan::new(query)?;
+    let mut page = SearchPage {
+        query: query.clone(),
+        hits: Vec::new(),
+        coverage: corpus.coverage.clone(),
+    };
+    for document in &corpus.documents {
+        if !scan.document(&mut page, document, limits, cancellation) {
+            break;
+        }
+    }
+    scan.finish(&mut page, limits);
+    Ok(page)
+}
+
+/// TASK-121: fuzzy ranking over the selected working files that reads one document at a time
+/// (nothing is retained beyond its ranked lines). Every file is read: a ranking cannot stop
+/// at the first page.
+pub fn fuzzy_search_streaming(
+    scope: Scope,
+    selections: &[RepositorySelection],
+    corpus_limits: &CorpusLimits,
+    query: &Query,
+    limits: &ScanLimits,
+    cancellation: &CancellationToken,
+) -> Result<SearchPage, QueryError> {
+    let mut scan = FuzzyScan::new(query)?;
+    let mut ordered = selections.to_vec();
+    ordered.sort_by(|a, b| a.repository.cmp(&b.repository));
+    let mut page = SearchPage {
+        query: query.clone(),
+        hits: Vec::new(),
+        coverage: Coverage {
+            complete: true,
+            ..Default::default()
+        },
+    };
+    let corpus = Corpus::collect_with(
+        scope,
+        &ordered,
+        corpus_limits,
+        cancellation,
+        &mut |documents| {
+            let Some(document) = documents.pop() else {
+                return true;
+            };
+            scan.document(&mut page, &document, limits, cancellation)
+        },
+    )?;
+    let own = std::mem::take(&mut page.coverage);
+    page.coverage = corpus.coverage;
+    page.coverage.complete &= own.complete;
+    page.coverage.cancelled |= own.cancelled;
+    page.coverage.skipped_large += own.skipped_large;
+    page.coverage.reasons.extend(own.reasons);
+    scan.finish(&mut page, limits);
+    Ok(page)
+}
+
 fn sort_hits(page: &mut SearchPage) {
     page.hits.sort_by(|a, b| {
         (

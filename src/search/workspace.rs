@@ -53,6 +53,8 @@ pub enum SearchAction {
     PreviewScroll(i32),
     BlendControls,
     BlendPreferences,
+    /// TASK-121: show or hide the optional mode, source, revision and name controls.
+    Options,
 }
 fn merge_corpus(target: &mut Corpus, mut incoming: Corpus) {
     target.coverage.complete &= incoming.coverage.complete;
@@ -180,6 +182,9 @@ impl SearchWorkspace {
             })
             .collect::<Vec<_>>();
         let mut workspace = Self::new(scope, selections);
+        // TASK-121: the Search view opens as one fuzzy box; Exact, Regex, Ranked and GitHub
+        // stay optional toggles under Options.
+        workspace.mode = SearchMode::Fuzzy;
         workspace.corpus_limits.max_file_bytes = config.max_file_bytes as usize;
         workspace.ranked_limits.max_documents = config.index_max_documents;
         workspace.ranked_limits.max_total_bytes =
@@ -323,11 +328,18 @@ impl SearchWorkspace {
         input: &str,
         cancellation: &CancellationToken,
     ) -> Result<(), QueryError> {
-        if !matches!(self.mode, SearchMode::Exact | SearchMode::Regex) {
-            return Err(QueryError("This scan needs Exact or Regex. Ranked uses the selected Tantivy index; GitHub uses the authenticated gh search provider.".into()));
+        if !matches!(
+            self.mode,
+            SearchMode::Exact | SearchMode::Regex | SearchMode::Fuzzy
+        ) {
+            return Err(QueryError("This scan needs Fuzzy, Exact or Regex. Ranked uses the selected Tantivy index; GitHub uses the authenticated gh search provider.".into()));
         }
         let (query, selections, corpus) = self.prepare_corpus(input, cancellation)?;
-        let page = exact_search(&corpus, &query, &self.scan_limits, cancellation)?;
+        let page = if self.mode == SearchMode::Fuzzy {
+            super::scan::fuzzy_search(&corpus, &query, &self.scan_limits, cancellation)?
+        } else {
+            exact_search(&corpus, &query, &self.scan_limits, cancellation)?
+        };
         self.accept_page(input, selections, page);
         Ok(())
     }
@@ -339,11 +351,15 @@ impl SearchWorkspace {
         cache: &Cache,
         cancellation: &CancellationToken,
     ) -> Result<(), QueryError> {
-        if !matches!(self.mode, SearchMode::Exact | SearchMode::Regex) {
+        if !matches!(
+            self.mode,
+            SearchMode::Exact | SearchMode::Regex | SearchMode::Fuzzy
+        ) {
             return Err(QueryError(
-                "Cached scanning needs Exact or Regex mode".into(),
+                "Cached scanning needs Fuzzy, Exact or Regex mode".into(),
             ));
         }
+        let fuzzy = self.mode == SearchMode::Fuzzy;
         let (mut query, selections) = self.prepare_selections(input)?;
         // TASK-112: working files alone stream into the scan, which stops reading once the
         // first page is full; the hits equal a full collection's first page.
@@ -353,20 +369,35 @@ impl SearchWorkspace {
                 .iter()
                 .all(|selection| selection.source == LocalSource::Worktree)
         {
-            let page = super::scan::exact_search_streaming(
-                self.scope.clone(),
-                &selections,
-                &self.ranked_file_limits(0, 0),
-                &query,
-                &self.scan_limits,
-                cancellation,
-            )?;
+            let page = if fuzzy {
+                super::scan::fuzzy_search_streaming(
+                    self.scope.clone(),
+                    &selections,
+                    &self.ranked_file_limits(0, 0),
+                    &query,
+                    &self.scan_limits,
+                    cancellation,
+                )?
+            } else {
+                super::scan::exact_search_streaming(
+                    self.scope.clone(),
+                    &selections,
+                    &self.ranked_file_limits(0, 0),
+                    &query,
+                    &self.scan_limits,
+                    cancellation,
+                )?
+            };
             self.accept_page(input, selections, page);
             return Ok(());
         }
         let (corpus, _) = self.collect_combined(&query, &selections, cache, cancellation)?;
         Self::resolve_file_filter(&mut query, &corpus);
-        let page = exact_search(&corpus, &query, &self.scan_limits, cancellation)?;
+        let page = if fuzzy {
+            super::scan::fuzzy_search(&corpus, &query, &self.scan_limits, cancellation)?
+        } else {
+            exact_search(&corpus, &query, &self.scan_limits, cancellation)?
+        };
         self.accept_page(input, selections, page);
         Ok(())
     }

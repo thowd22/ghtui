@@ -139,6 +139,8 @@ fn start(session: &mut Session, mouse: bool) {
     session.wait_for_screen("Recent commits");
     choose(session, mouse, "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
+    // TASK-121: Fuzzy is the default; these journeys keep the Exact starting contract.
+    session.search_option(mouse, "e Exact", b"e");
 }
 fn load_parent(session: &mut Session, fixture: &Fixture, mouse: bool, expected_count: usize) {
     choose(session, mouse, "[H Sources]", b"H");
@@ -158,7 +160,7 @@ fn load_parent(session: &mut Session, fixture: &Fixture, mouse: bool, expected_c
     );
 }
 fn rank_off(session: &mut Session, fixture: &Fixture, mouse: bool, count: &mut usize) {
-    choose(session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     journal(session, fixture, *count);
     query(session, mouse, NEEDLE);

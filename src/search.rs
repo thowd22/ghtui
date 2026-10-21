@@ -29,6 +29,9 @@ pub enum SearchMode {
     Exact,
     Regex,
     GitHub,
+    /// TASK-121: the default. Live, fuzzy-ranked (smart case, all words first) over file
+    /// names, file lines and loaded conversations of the same local scope as Exact.
+    Fuzzy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

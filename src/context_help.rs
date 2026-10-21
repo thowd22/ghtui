@@ -256,9 +256,10 @@ fn topics(view: View) -> &'static [(HelpLineKind, &'static str)] {
             (G, "Author wrote the change; committer recorded it. Preserve both roles and exact paths, including renamed or non-UTF8 names."),
         ],
         View::Search => &[
-            (H, "Choose the query's meaning"),
-            (G, "Ranked finds relevant terms/identifiers. Exact searches literal text. Regex searches a pattern. GitHub is remote discovery with its own supported filters and limits."),
-            (L, "Unsupported regex, revision or comment constraints are not silently weakened into a different remote query. Fuzzy matching belongs to pickers and Commands."),
+            (H, "Type to search"),
+            (G, "Type in the box: results update as you type, fuzzy-ranked over file names, file lines and loaded PR/issue conversations. Lines with every typed word come first; an uppercase letter makes it case-sensitive. Enter or a click opens the selected result."),
+            (G, "O Options shows the optional toggles. Ranked finds relevant terms/identifiers. Exact searches literal text. Regex searches a pattern. GitHub is remote discovery with its own supported filters and limits."),
+            (L, "Unsupported regex, revision or comment constraints are not silently weakened into a different remote query."),
             (G, "Working files include uncommitted bytes. A selected saved version searches its exact Git objects. Repository/source scope is explicit; nothing clones every organization repository automatically."),
             (G, "Search sources can explicitly load PR/issue text, comments, reviews, inline threads or local commit messages. Coverage tells you what was actually loaded and when."),
             (G, "Ranked blend controls combine independent local/remote result ranks. Provider scores are not directly comparable; Rank sources explains counts, limits and partial coverage."),

@@ -558,6 +558,146 @@ fn exact_search_real_worktree_and_saved_commit_preserve_paths_coordinates_and_us
 }
 
 /// One comparable row per hit: repository, path, coordinates, snippet and highlight.
+/// TASK-121: the default Fuzzy search ranks file names and lines with the shared finder (smart
+/// case, every typed word first), groups each file's hits together (its name first, then its
+/// lines in file order), streams the same page as a collected corpus and changes no Git state.
+#[test]
+fn fuzzy_search_v121_ranks_whole_words_first_groups_by_file_and_streams_like_collected() {
+    let fixture = git_support::Fixture::linear();
+    fixture.write(
+        "src/parser/tokenizer.rs",
+        b"fn tokenize_input() {}\nlet other = 1;\nfn parse_tokens() {}\n",
+    );
+    fixture.write("README.md", b"Tokens are documented here\n");
+    fixture.write("noise.txt", b"t o k e n scattered\ntoken here\n");
+    let status = || git_support::git(&fixture.root, ["status", "--porcelain=v1", "-z"]).stdout;
+    let before = (status(), fixture.head());
+    let scope = Scope::new("github.invalid", "alice").unwrap();
+    let selections = vec![RepositorySelection {
+        repository: "org/app".into(),
+        directory: fixture.root.clone(),
+        source: LocalSource::Worktree,
+        sets: vec![],
+    }];
+    let limits = CorpusLimits::default();
+    let cancel = CancellationToken::default();
+    let corpus = Corpus::collect(scope.clone(), &selections, &limits, &cancel).unwrap();
+    let search = |text: &str, max_matches: usize| {
+        let query = Query::parse(text, SearchMode::Fuzzy).unwrap();
+        let scan = ScanLimits {
+            max_matches,
+            ..Default::default()
+        };
+        let collected = ghtui::search::scan::fuzzy_search(&corpus, &query, &scan, &cancel).unwrap();
+        let streamed = ghtui::search::scan::fuzzy_search_streaming(
+            scope.clone(),
+            &selections,
+            &limits,
+            &query,
+            &scan,
+            &cancel,
+        )
+        .unwrap();
+        assert_eq!(hit_rows(&streamed), hit_rows(&collected), "{text}");
+        collected
+    };
+    let page = search("token", 1000);
+    let rows = page
+        .hits
+        .iter()
+        .map(|hit| (hit.document.title.as_str(), hit.line, hit.snippet.as_str()))
+        .collect::<Vec<_>>();
+    // Each file's hits are together: its name first, then its lines in file order.
+    let mut seen = Vec::<&str>::new();
+    for (title, _, _) in &rows {
+        if seen.last() != Some(title) {
+            assert!(!seen.contains(title), "{title} is split: {rows:?}");
+            seen.push(title);
+        }
+    }
+    let tokenizer = rows
+        .iter()
+        .filter(|(title, _, _)| *title == "src/parser/tokenizer.rs")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tokenizer
+            .iter()
+            .map(|(_, line, snippet)| (*line, *snippet))
+            .collect::<Vec<_>>(),
+        [
+            (1, "src/parser/tokenizer.rs"),
+            (1, "fn tokenize_input() {}"),
+            (3, "fn parse_tokens() {}")
+        ]
+    );
+    let name = &page.hits[rows
+        .iter()
+        .position(|(title, line, snippet)| {
+            *title == "src/parser/tokenizer.rs" && *line == 1 && snippet.starts_with("src/")
+        })
+        .unwrap()];
+    assert_eq!(
+        name.matched_fields,
+        [ghtui::search::scan::FUZZY_FILE_NAME.to_owned()]
+    );
+    // Smart case: lowercase matches `Tokens`; both noise lines match, in file order.
+    assert!(rows.contains(&("README.md", 1, "Tokens are documented here")));
+    let noise = rows
+        .iter()
+        .filter(|(title, _, _)| *title == "noise.txt")
+        .map(|(_, line, _)| *line)
+        .collect::<Vec<_>>();
+    assert_eq!(noise, [1, 2]);
+    assert!(!rows
+        .iter()
+        .any(|(_, _, snippet)| snippet.contains("let other")));
+    // The highlight is the typed word where the line holds it whole.
+    let readme = page
+        .hits
+        .iter()
+        .find(|hit| hit.document.title == "README.md")
+        .unwrap();
+    assert_eq!(readme.column, 1);
+    assert_eq!(&readme.snippet[readme.highlights[0].clone()], "Token");
+    let whole = page
+        .hits
+        .iter()
+        .find(|hit| hit.snippet == "token here")
+        .unwrap();
+    assert_eq!(&whole.snippet[whole.highlights[0].clone()], "token");
+    // An uppercase letter makes the search case-sensitive.
+    let upper = search("Tokens", 1000);
+    assert_eq!(
+        hit_rows(&upper)
+            .iter()
+            .map(|row| (row.1.as_str(), row.2))
+            .collect::<Vec<_>>(),
+        [("README.md", 1)]
+    );
+    // The page keeps the best matches and says how many it left out.
+    let capped = search("token", 2);
+    assert_eq!(capped.hits.len(), 2);
+    assert!(
+        capped
+            .coverage
+            .reasons
+            .iter()
+            .any(|reason| reason.starts_with("Best 2 of 6 fuzzy matches shown")),
+        "{:?}",
+        capped.coverage.reasons
+    );
+    assert!(Query::parse("", SearchMode::Fuzzy)
+        .map(|query| ghtui::search::scan::fuzzy_search(
+            &corpus,
+            &query,
+            &ScanLimits::default(),
+            &cancel
+        ))
+        .unwrap()
+        .is_err());
+    assert_eq!((status(), fixture.head()), before);
+}
+
 fn hit_rows(page: &ghtui::search::scan::SearchPage) -> Vec<(String, String, usize, usize, String)> {
     page.hits
         .iter()

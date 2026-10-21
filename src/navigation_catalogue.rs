@@ -576,6 +576,7 @@ impl Builder {
             (SearchMode::Exact, "Exact literal text"),
             (SearchMode::Regex, "Regex pattern"),
             (SearchMode::GitHub, "GitHub remote discovery"),
+            (SearchMode::Fuzzy, "Fuzzy finder (default)"),
         ]
         .into_iter()
         .enumerate()
@@ -590,6 +591,11 @@ impl Builder {
         }
         for (id, label, action) in [
             ("query", "Edit search query", SearchAction::Query),
+            (
+                "options",
+                "Show or hide search options",
+                SearchAction::Options,
+            ),
             ("submit", "Run current search", SearchAction::Submit),
             ("working", "Search working files", SearchAction::Worktree),
             (

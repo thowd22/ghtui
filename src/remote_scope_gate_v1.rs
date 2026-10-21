@@ -133,7 +133,7 @@ pub fn independent_local_search(
         search.scope.host == "local"
             && matches!(
                 search.mode,
-                SearchMode::Exact | SearchMode::Regex | SearchMode::Ranked
+                SearchMode::Exact | SearchMode::Regex | SearchMode::Ranked | SearchMode::Fuzzy
             )
             && !search.blend_policy.enabled
             && search.remote_identity.is_none()
@@ -163,7 +163,9 @@ fn local_search_action(action: Option<&crate::search::workspace::SearchAction>) 
                 | SearchAction::Preview(_)
                 | SearchAction::Open(_)
                 | SearchAction::PreviewScroll(_)
-                | SearchAction::Mode(SearchMode::Exact | SearchMode::Regex | SearchMode::Ranked)
+                | SearchAction::Mode(
+                    SearchMode::Exact | SearchMode::Regex | SearchMode::Ranked | SearchMode::Fuzzy
+                )
         )
     )
 }

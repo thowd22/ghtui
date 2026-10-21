@@ -1225,6 +1225,7 @@ fn search_journey(mouse: bool) {
     s.wait_for_settled_footer();
     s.choose(mouse, "3 Search", b"3");
     s.wait_for_screen("Selected local search corpus ready");
+    s.search_option(mouse, "e Exact", b"e");
 
     // Exact: the first page of a query that matches every one of the 5,000 source files.
     type_query(&mut s, mouse, "pub fn item_");
@@ -1249,7 +1250,7 @@ fn search_journey(mouse: bool) {
     // Ranked, first query: the index builds (indexing, measured separately). A keypress made
     // while it builds is served at input-to-render speed.
     s.wait_for_settled_footer();
-    s.choose(mouse, "n Ranked", b"n");
+    s.search_option(mouse, "n Ranked", b"n");
     s.wait_for_settled_footer();
     type_query(&mut s, mouse, "perfneedlealpha");
     let index_started = Instant::now();

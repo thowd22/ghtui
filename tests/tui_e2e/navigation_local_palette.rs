@@ -424,7 +424,7 @@ fn journey(mouse: bool) {
     command(&mut session, mouse, "Open Search");
     session.wait_for_screen("Selected local search corpus ready");
     session.assert_focused_view("Search");
-    choose(&mut session, mouse, "e Exact", b"e");
+    session.search_option(mouse, "e Exact", b"e");
     choose(&mut session, mouse, "[/ Query]", b"/");
     session.send_key(b"\x01");
     session.paste("working navigation needle");
@@ -450,7 +450,7 @@ fn journey(mouse: bool) {
     help_prose(
         &mut session,
         mouse,
-        &["Choose the query's meaning", "Exact searches literal text"],
+        &["Type to search", "Exact searches literal text"],
     );
     close_help(&mut session, mouse, HELP_OVERLAY);
     assert_eq!(starts(&local.fixture), count);

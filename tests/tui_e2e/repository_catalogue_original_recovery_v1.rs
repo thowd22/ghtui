@@ -690,6 +690,7 @@ fn working_search(session: &mut Session, mouse: bool) {
             "[/ Query]",
         ],
     );
+    session.search_option(mouse, "e Exact", b"e");
     choose(session, mouse, "[/ Query]", b"/");
     session.send_key(b"\x01");
     session.paste("dirty checkout");

@@ -251,7 +251,7 @@ const VIEWS: [(&str, &str, &[u8], &str); 5] = [
         b"1",
         "Use Refresh to load your authenticated GitHub inbox.",
     ),
-    ("Search", "3 Search", b"3", "Exact mode"),
+    ("Search", "3 Search", b"3", "Fuzzy mode"),
     (
         "Actions",
         "4 Actions",

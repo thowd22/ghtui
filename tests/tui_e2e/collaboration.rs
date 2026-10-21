@@ -46,6 +46,8 @@ fn open_search(session: &mut Session, mouse: bool) {
     // opening the source editor can choose the actual configured repository.
     session.wait_for_screen("Selected local search corpus ready");
     session.wait_for_control("[H Sources]");
+    // TASK-121: Fuzzy is the default; these journeys keep the Exact starting contract.
+    session.search_option(mouse, "e Exact", b"e");
 }
 fn source_field(session: &mut Session, mouse: bool, label: &str, value: &str) {
     session.wait_for_screen(label);
@@ -169,7 +171,7 @@ fn local_commit(mouse: bool) {
         "CommitOnlyNeedle type:commit",
         "1 results • Exact",
     );
-    choose(&mut session, mouse, "x Regex", b"x");
+    session.search_option(mouse, "x Regex", b"x");
     query(
         &mut session,
         mouse,
@@ -177,7 +179,7 @@ fn local_commit(mouse: bool) {
         "1 results • Regex",
     );
     session.resize(80, 24);
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     query(
         &mut session,
         mouse,
@@ -201,7 +203,7 @@ fn local_commit(mouse: bool) {
     choose(&mut session, mouse, "[PgUp Previous]", b"\x1b[5~");
     choose(&mut session, mouse, "[Esc Close]", b"\x1b");
     session.wait_for_control("[H Sources]");
-    choose(&mut session, mouse, "[z Name]", b"z");
+    session.search_option(mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("original message scope");
     save_query_at_80(&mut session, mouse);
@@ -524,7 +526,7 @@ fn pr_sources(mouse: bool) {
         "ReviewOnlyNeedle",
         "0 results • Exact",
     );
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     private_query(
         &mut session,
         &fixture,
@@ -532,7 +534,7 @@ fn pr_sources(mouse: bool) {
         "FreshCommentOnlyNeedle",
         "1 results • Ranked",
     );
-    choose(&mut session, mouse, "[z Name]", b"z");
+    session.search_option(mouse, "[z Name]", b"z");
     session.send_key(b"\x01");
     session.paste("private discussion scope");
     save_query_at_80(&mut session, mouse);
@@ -541,7 +543,7 @@ fn pr_sources(mouse: bool) {
     // The loading shell already paints the mode controls; choosing GitHub
     // before the prepared corpus lands is superseded by its ready status.
     open_search(&mut restarted, mouse);
-    choose(&mut restarted, mouse, "h GitHub", b"h");
+    restarted.search_option(mouse, "h GitHub", b"h");
     restarted.wait_for_screen("GitHub scope verified");
     restarted.wait_for_screen("[u private discussion scope]");
     choose(&mut restarted, mouse, "[u private discussion scope]", b"u");
@@ -765,7 +767,7 @@ fn revoked_source(mouse: bool) {
         "RevokedPrivateOnlyNeedle",
         "1 results • Exact",
     );
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     private_query(
         &mut session,
         &fixture,
@@ -807,7 +809,7 @@ fn revoked_source(mouse: bool) {
     drop(cache);
     close_sources(&mut session, mouse);
     denied_private_query(&mut session, &fixture, mouse, "RevokedPrivateOnlyNeedle");
-    choose(&mut session, mouse, "e Exact", b"e");
+    session.search_option(mouse, "e Exact", b"e");
     denied_private_query(&mut session, &fixture, mouse, "RevokedPrivateOnlyNeedle");
     assert!(
         !session
@@ -888,9 +890,9 @@ fn account_switch(mouse: bool) {
     session.wait_for_screen("Source account unavailable");
     assert!(!session.screen().contains("Search sources • explicit"));
     assert!(!session.screen().contains("PriorPrincipalOnlyNeedle"));
-    choose(&mut session, mouse, "h GitHub", b"h");
+    session.search_option(mouse, "h GitHub", b"h");
     session.wait_for_screen("GitHub scope verified");
-    choose(&mut session, mouse, "e Exact", b"e");
+    session.search_option(mouse, "e Exact", b"e");
     private_query_reads(
         &mut session,
         &fixture,
@@ -985,7 +987,7 @@ fn unavailable_source(mouse: bool) {
     session.wait_for_screen("Loaded 2 cached discussion records");
     let targets = private_sources(&fixture).discussions;
     close_sources(&mut session, mouse);
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     private_query(
         &mut session,
         &fixture,

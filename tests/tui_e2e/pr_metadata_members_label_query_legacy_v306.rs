@@ -558,7 +558,7 @@ fn initial_search_ready(s: &mut Session, after: usize) {
                         .contents()
                         .contains("Selected local search corpus ready • no clone or fetch")
                     && crate::support::overlay_body(frame, SEARCH).is_some_and(|body| {
-                        ["h GitHub", "e Exact", "[/ Query]"]
+                        ["[O Options]", "[/ Query]"]
                             .iter()
                             .all(|needle| body.contains(needle))
                             && !body.contains("[Esc Cancel]")
@@ -1146,6 +1146,16 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     // Search controls are also painted in its loading shell. Source field
     // actions intentionally refuse then; wait for the actual prepared corpus.
     initial_search_ready(&mut s, before);
+    // TASK-121: the mode tabs wait under Options; this journey keeps them shown and Exact.
+    let before = s.completed_cells_end();
+    choose(&mut s, mouse, "[O Options]", b"O");
+    ready_v283(
+        &mut s,
+        before,
+        SEARCH,
+        &["[O Hide options]", "h GitHub", "e Exact"],
+    );
+    choose(&mut s, mouse, "e Exact", b"e");
     published(&mut s, &f, &steps, 25);
     load_source(&mut s, &f, mouse, &steps);
     let before = query(&mut s, mouse);

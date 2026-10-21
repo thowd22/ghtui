@@ -2801,6 +2801,8 @@ fn run() -> Result<()> {
                 }
             });
         }
+        // TASK-121: the debounced live fuzzy search for the typed query.
+        ghtui::search_ui::tick_live(&mut app);
         if (app.search_load_requested
             || app.search_action.is_some()
             || (app.refresh_requested && app.view == ghtui::app::View::Search))

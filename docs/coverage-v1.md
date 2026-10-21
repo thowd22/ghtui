@@ -565,6 +565,7 @@ A loaded Dashboard's keys are covered by
 | Repository Uncommitted | `?` | Help | key bar, Commands |
 | Repository Uncommitted | `:` | Commands | key bar, Commands |
 | Repository Uncommitted | `q` | Quit | key bar, Commands |
+| Search | `F` | Fuzzy | tab strip, Commands |
 | Search | `e` | Exact | tab strip, Commands |
 | Search | `x` | Regex | tab strip, Commands |
 | Search | `n` | Ranked | tab strip, Commands |
@@ -576,6 +577,7 @@ A loaded Dashboard's keys are covered by
 | Search | `c` | Corpus | key bar, Commands |
 | Search | `f` | File history | Commands (explains) |
 | Search | `M` | Repositories | key bar, Commands |
+| Search | `O` | Options | key bar, Commands |
 | Search | `S` | Save query | key bar, Commands |
 | Search | `H` | Sources | key bar, Commands |
 | Search | `B` | Blend | key bar, Commands |
@@ -585,6 +587,7 @@ A loaded Dashboard's keys are covered by
 | Search | `?` | Help | key bar, Commands |
 | Search | `:` | Commands | key bar, Commands |
 | Search | `q` | Quit | key bar, Commands |
+| Search (corpus) | `F` | Fuzzy | tab strip, Commands |
 | Search (corpus) | `e` | Exact | tab strip, Commands |
 | Search (corpus) | `x` | Regex | tab strip, Commands |
 | Search (corpus) | `n` | Ranked | tab strip, Commands |
@@ -598,6 +601,7 @@ A loaded Dashboard's keys are covered by
 | Search (corpus) | `c` | Corpus | key bar, Commands |
 | Search (corpus) | `f` | File history | Commands (explains) |
 | Search (corpus) | `M` | Repositories | key bar, Commands |
+| Search (corpus) | `O` | Options | key bar, Commands |
 | Search (corpus) | `S` | Save query | key bar, Commands |
 | Search (corpus) | `H` | Sources | key bar, Commands |
 | Search (corpus) | `B` | Blend | key bar, Commands |

@@ -134,7 +134,7 @@ fn unselected(mouse: bool) {
     drop(cache);
     let mut session = Session::launch(&fixture, 120, 40);
     start(&mut session, mouse);
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     let mut count = 29;
     enable_pr_only(&mut session, &fixture, mouse, &mut count, false);
@@ -796,7 +796,7 @@ fn first_source_receipt(mouse: bool) {
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
     start(&mut session, mouse);
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     let mut count = 0;
     enable_pr_only(&mut session, &fixture, mouse, &mut count, false);
@@ -878,8 +878,7 @@ fn first_source_receipt(mouse: bool) {
                     && crate::support::overlay_body(frame, "Search • focused view")
                         .is_some_and(|body| {
                             [
-                                "e Exact", "x Regex", "n Ranked", "h GitHub",
-                                "w Working files",
+                                "Ranked • working files",
                                 "2 results • Ranked • searched source snapshot",
                                 "COMPLETE within selected scope • 1 documents across 1 repositories",
                                 "GitHub PRs • COMPLETE • 1 admitted",
@@ -897,11 +896,11 @@ fn first_source_receipt(mouse: bool) {
         }
         assert!(Instant::now() < until, "NEW completed original ranked Search source/query/selected remote parent after confirmed privacy retirement\n{}", session.screen());
     }
-    choose(&mut session, mouse, "h GitHub", b"h");
+    session.search_option(mouse, "h GitHub", b"h");
     count += 4;
     publication_commands(&mut session, &fixture, count, &body, &steps[..count]);
     session.wait_for_screen("GitHub scope verified");
-    choose(&mut session, mouse, "n Ranked", b"n");
+    session.search_option(mouse, "n Ranked", b"n");
     session.wait_for_screen("Ranked mode");
     query(&mut session, mouse, NEEDLE);
     count += 8;

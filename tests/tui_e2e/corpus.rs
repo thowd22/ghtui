@@ -69,6 +69,8 @@ fn search(session: &mut Session, mouse: bool) {
     choose(session, mouse, "3 Search", b"3");
     session.wait_for_control("[M Repositories]");
     session.wait_for_settled_footer();
+    // TASK-121: Fuzzy is the default; these journeys keep the Exact contract.
+    session.search_option(mouse, "e Exact", b"e");
 }
 fn manage(session: &mut Session, mouse: bool) {
     // Tokens move once a corpus read finishes; click M only in the settled bar.

@@ -168,7 +168,7 @@ fn journey(mouse: bool) {
     switch(&mut session, mouse, "Search", "3 Search", b"3");
     session.wait_for_screen("Selected local search corpus ready");
     no_scope_block(&session);
-    choose(&mut session, mouse, "e Exact", b"e");
+    session.search_option(mouse, "e Exact", b"e");
     choose(&mut session, mouse, "[/ Query]", b"/");
     session.send_key(b"\x01");
     session.paste(NEEDLE);

@@ -1712,6 +1712,24 @@ impl Session {
         }
     }
 
+    /// TASK-121: a Search option (a mode or source tab, `[d Revision]`, `[z Name]`) by its key,
+    /// or by mouse: open `[O Options]` first when the options are hidden, then click it. The
+    /// options stay open until `[O Hide options]`.
+    pub fn search_option(&mut self, mouse: bool, label: &str, key: &[u8]) {
+        if !mouse {
+            self.send_key(key);
+            return;
+        }
+        self.wait_for_settled_footer();
+        // The pane's button text, not a control lookup: a bracketed label also matches the
+        // key bar's `O Options` token by its key.
+        if !self.screen().contains("[O Hide options]") {
+            self.click_visible_action("[O Options]");
+            self.wait_for_screen("[O Hide options]");
+        }
+        self.click_visible_action(label);
+    }
+
     /// `choose` with the key taken from the label itself, e.g. `[l Logs]`.
     pub fn choose_control(&mut self, mouse: bool, label: &str) {
         let key = Control::parse(label)
