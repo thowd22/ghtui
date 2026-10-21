@@ -1,10 +1,10 @@
 ---
 id: TASK-27
 title: Edit PR branch files and resolve conflicts in an isolated worktree
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-12 23:06'
-updated_date: '2026-10-21 11:34'
+updated_date: '2026-10-21 16:26'
 labels:
   - review
   - e2e
@@ -39,7 +39,7 @@ Some PR-page actions require modifying branch contents. Provide an understandabl
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Branch-file edit and conflict resolution open an isolated revision with a visible resulting diff.
-- [ ] #2 Commit/push targets, effects, permission and head checks are explicit; no force push or overwrite is implicit.
+- [x] #2 Commit/push targets, effects, permission and head checks are explicit; no force push or overwrite is implicit.
 - [x] #3 Conflict, editor failure, changed-head, and cancellation preserve useful work and explain recovery.
 - [x] #4 Automated code/provider tests pass for the task-specific scenarios in Testing steps.
 - [x] #5 Real-binary PTY E2E tests pass for the specified keyboard and mouse journeys; all exposed actions are clickable and keyboard accessible with equivalent effects.
@@ -57,4 +57,6 @@ Some PR-page actions require modifying branch contents. Provide an understandabl
 
 <!-- SECTION:NOTES:BEGIN -->
 PR Files E Edit file / R Resolve conflicts in an isolated worktree with resulting diff, explicit commit and no-force push guarded by the observed head (2c659194). pr_branch_edits PTY 5/0. AC2 open: push permission pre-check and remote-refusal journey (TASK-108). Gate 19 (node scripts/test-all.mjs at d8f60411): 6419 passed / 0 failed; fmt + clippy clean.
+
+Verified in gate 22 at 3c27e77f: node scripts/test-all.mjs 6468/0, fmt and clippy clean. AC2 push permission covered by TASK-108.
 <!-- SECTION:NOTES:END -->

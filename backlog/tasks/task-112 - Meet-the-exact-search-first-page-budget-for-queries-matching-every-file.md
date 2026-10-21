@@ -1,9 +1,10 @@
 ---
 id: TASK-112
 title: Meet the exact-search first-page budget for queries matching every file
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 13:29'
+updated_date: '2026-10-21 16:26'
 labels:
   - performance
 dependencies: []
@@ -19,5 +20,11 @@ TASK-66 release: exact search first page took 123-125 ms against 100 ms for a qu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Exact search first page for an all-matching query meets 100 ms in the release perf journey
+- [x] #1 Exact search first page for an all-matching query meets 100 ms in the release perf journey
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 22 at 3c27e77f: node scripts/test-all.mjs 6468/0, fmt and clippy clean. No background total-count job; page stops at 1000-match budget with PARTIAL coverage.
+<!-- SECTION:NOTES:END -->

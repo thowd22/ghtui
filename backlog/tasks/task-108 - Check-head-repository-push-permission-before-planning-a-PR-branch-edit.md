@@ -1,9 +1,10 @@
 ---
 id: TASK-108
 title: Check head-repository push permission before planning a PR branch edit
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 09:56'
+updated_date: '2026-10-21 16:26'
 labels:
   - feature
 dependencies: []
@@ -19,6 +20,12 @@ TASK-27 AC2 follow-up: the branch-edit plan says the remote decides with the use
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Plan shows push permission as granted/denied/unknown before confirm
-- [ ] #2 Remote refusal journey (pre-receive hook) keeps the edited file and journals not written
+- [x] #1 Plan shows push permission as granted/denied/unknown before confirm
+- [x] #2 Remote refusal journey (pre-receive hook) keeps the edited file and journals not written
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 22 at 3c27e77f: node scripts/test-all.mjs 6468/0, fmt and clippy clean.
+<!-- SECTION:NOTES:END -->

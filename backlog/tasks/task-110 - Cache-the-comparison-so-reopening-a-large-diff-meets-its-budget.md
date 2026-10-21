@@ -1,9 +1,10 @@
 ---
 id: TASK-110
 title: Cache the comparison so reopening a large diff meets its budget
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-21 13:29'
+updated_date: '2026-10-21 16:26'
 labels:
   - performance
 dependencies: []
@@ -20,5 +21,11 @@ TASK-66 release measurements: reopening a 5 MB commit diff takes 516-554 ms agai
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Reopening the same diff reuses the prepared comparison and meets the 150 ms release budget
-- [ ] #2 Changed inputs or memory pressure recompute; tests cover both
+- [x] #2 Changed inputs or memory pressure recompute; tests cover both
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Comparison LRU cache merged (7e2f7567); reopen 214-219 ms vs 150 ms release budget, AC1 open. Next: avoid deep clone/row rebuild of cached comparison.
+<!-- SECTION:NOTES:END -->

@@ -1,9 +1,10 @@
 ---
 id: TASK-105
 title: Let Refresh re-admit the Personal scope after a confirmed scoped review write
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 09:56'
+updated_date: '2026-10-21 16:26'
 labels:
   - bug
 dependencies: []
@@ -19,7 +20,13 @@ After a confirmed pending-review write (review Add, review submit), retire_remot
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After a confirmed scoped review write, Refresh (key and click) re-reads the same account's Personal scope without a restart
-- [ ] #2 A changed account or repository identity still stays fenced and says why
-- [ ] #3 Keyboard+mouse PTY journey performs two review writes in one session with strict fake gh
+- [x] #1 After a confirmed scoped review write, Refresh (key and click) re-reads the same account's Personal scope without a restart
+- [x] #2 A changed account or repository identity still stays fenced and says why
+- [x] #3 Keyboard+mouse PTY journey performs two review writes in one session with strict fake gh
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 22 at 3c27e77f: node scripts/test-all.mjs 6468/0, fmt and clippy clean.
+<!-- SECTION:NOTES:END -->

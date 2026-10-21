@@ -3,9 +3,10 @@ id: TASK-111
 title: >-
   Wait for the startup Inbox cache work instead of failing an early Refresh with
   database is locked
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 13:29'
+updated_date: '2026-10-21 16:26'
 labels:
   - bug
 dependencies: []
@@ -21,6 +22,12 @@ TASK-66 release run: a Refresh clicked during startup failed with 'Error: databa
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A Refresh during startup waits for or queues behind the startup cache work and succeeds
-- [ ] #2 Lib test reproduces the contention deterministically; PTY journey refreshes during startup by key and click
+- [x] #1 A Refresh during startup waits for or queues behind the startup cache work and succeeds
+- [x] #2 Lib test reproduces the contention deterministically; PTY journey refreshes during startup by key and click
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in gate 22 at 3c27e77f: node scripts/test-all.mjs 6468/0, fmt and clippy clean.
+<!-- SECTION:NOTES:END -->
