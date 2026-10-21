@@ -663,3 +663,119 @@ fn notifications_native_v63_reason_labels_are_readable_and_unknown_reasons_stay_
     assert!(!label.contains('\u{1b}'));
     assert!(label.chars().count() <= 40);
 }
+
+fn details_steps(actor: GhStep) -> Vec<GhStep> {
+    let mut steps = support::principal(42);
+    let mut page = GhStep::read(
+        &[
+            "api",
+            "notifications?all=false&participating=false&per_page=50&page=1",
+            "--hostname",
+            support::HOST,
+            "--method",
+            "GET",
+            "--include",
+            "--header",
+            "If-None-Match: \"actual\"",
+        ],
+        "HTTP/2 304 Not Modified\nETag: \"actual\"\r\nContent-Length: 17\r\nX-Poll-Interval: 60\r\n\r\n",
+    );
+    page.status = 1;
+    page.stderr = b"gh: HTTP 304\n".to_vec();
+    steps.push(page);
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.push(actor);
+    steps.push(support::get("repos/example/repo0000", support::row(0)));
+    steps.extend(support::principal(42));
+    steps
+}
+fn details_frame(actor: GhStep) -> String {
+    let f = Fixture::new();
+    let mut expected = steps(42);
+    expected.extend(details_steps(actor));
+    f.scripted_gh(&expected);
+    let mut app = app();
+    // ONE issuer: a refresh against a different runner is refused by design.
+    let provider = support::provider(&f);
+    let load = captured(&mut app);
+    let result = execute(load.clone(), &provider, &support::database(&f));
+    crate::notifications_native_v63::publish(&mut app, &load, result);
+    ui::dispatch(&mut app, ui::NotificationActionV63::Details);
+    let work = app
+        .notifications_work_v63
+        .take()
+        .expect("actual Details read captured before queue");
+    assert_eq!(work.phase, NotificationReadPhaseV63::Details);
+    let result = execute(work.clone(), &provider, &support::database(&f));
+    crate::notifications_native_v63::publish(&mut app, &work, result);
+    let frame = paint(&mut app, 120, 40);
+    // Exactly ONE latest-comment child, between the two repository checks.
+    support::exact(&f, &expected);
+    frame
+}
+#[test]
+fn notifications_native_v63_details_read_latest_commenter_once_with_initials_chip() {
+    let frame = details_frame(support::get(
+        "repos/example/repo0000/issues/comments/99",
+        json!({"id":99,"user":{"login":"alice-liddell","id":5,"type":"User"}}),
+    ));
+    assert!(
+        frame.contains("Latest activity: [AL] @alice-liddell • latest comment"),
+        "{frame}"
+    );
+    assert!(
+        frame.contains("PRIVATE_NOTIFICATION_ACTUAL_SOURCE"),
+        "{frame}"
+    );
+}
+#[test]
+fn notifications_native_v63_details_unreadable_latest_comment_stays_unknown_not_guessed() {
+    let mut missing = support::get(
+        "repos/example/repo0000/issues/comments/99",
+        json!({"message":"Not Found"}),
+    );
+    missing.status = 1;
+    missing.stderr = b"gh: Not Found (HTTP 404)\n".to_vec();
+    let frame = details_frame(missing);
+    assert!(
+        frame.contains(
+            "Latest activity: Acting user unavailable • latest comment could not be read"
+        ),
+        "{frame}"
+    );
+}
+#[test]
+fn notifications_native_v63_latest_actor_line_labels_subject_author_and_unknown_reason() {
+    use crate::providers::gh::{Actor, NotificationLatestActorV63 as Latest};
+    let author = Latest::Observed {
+        actor: Actor {
+            login: "bob".into(),
+            display_name: None,
+            avatar_url: None,
+            actor_type: "User".into(),
+        },
+        is_subject: true,
+    };
+    assert_eq!(
+        latest_actor_line_v63("github.com", &author, "Acting user unavailable"),
+        "Latest activity: [BO] @bob • subject author (no newer comment)"
+    );
+    let bot = Latest::Observed {
+        actor: Actor {
+            login: "dependabot[bot]".into(),
+            display_name: None,
+            avatar_url: None,
+            actor_type: "Bot".into(),
+        },
+        is_subject: false,
+    };
+    assert!(latest_actor_line_v63("github.com", &bot, "x").contains("@dependabot[bot] [bot]"));
+    assert_eq!(
+        latest_actor_line_v63(
+            "github.com",
+            &Latest::Unavailable("no latest comment observed"),
+            "Acting user unavailable"
+        ),
+        "Latest activity: Acting user unavailable • no latest comment observed"
+    );
+}

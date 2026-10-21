@@ -26,8 +26,9 @@ use original_repository_access_core_v13::OriginalRepositoryAccessCoreV13;
 mod notification_access_v63;
 pub(crate) use notification_access_v63::{
     ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationInspectionV63,
-    NotificationPrFollowIntentV63, NotificationPrSourceV63, NotificationPublicationStateV63,
-    NotificationPublicationV63, NotificationSelectionV63, NotificationWriteReceiptV63,
+    NotificationLatestActorV63, NotificationPrFollowIntentV63, NotificationPrSourceV63,
+    NotificationPublicationStateV63, NotificationPublicationV63, NotificationSelectionV63,
+    NotificationWriteReceiptV63,
 };
 #[path = "personal_access_v13.rs"]
 mod personal_access_v13;

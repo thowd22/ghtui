@@ -37,8 +37,9 @@ pub(crate) use current_access_v1::WorkflowCleanupSealV9;
 pub use current_access_v1::*;
 pub(crate) use current_access_v1::{
     ClosedNotificationReadV63, NotificationActionPreviewV63, NotificationInspectionV63,
-    NotificationPrFollowIntentV63, NotificationPrSourceV63, NotificationPublicationStateV63,
-    NotificationPublicationV63, NotificationSelectionV63, NotificationWriteReceiptV63,
+    NotificationLatestActorV63, NotificationPrFollowIntentV63, NotificationPrSourceV63,
+    NotificationPublicationStateV63, NotificationPublicationV63, NotificationSelectionV63,
+    NotificationWriteReceiptV63,
 };
 pub(in crate::providers::gh) use current_access_v1::{
     MembersMetadataClosingInputV62, MembersMetadataContextInputV62, MembersMetadataRoleV62,

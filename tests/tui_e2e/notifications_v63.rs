@@ -15,6 +15,7 @@ use std::{
 const TITLE: &str = "Notifications • observed";
 const PRIVATE: &str = "ACTUAL_PRIVATE_NOTIF_TITLE";
 const HOST: &str = "github.com";
+const ACTOR: &str = "Latest activity: [AL] @alice-liddell • latest comment";
 const REPO: &str = "example/notifications";
 const CONTROLS: &[&str] = &[
     "[b Back / Cancel]",
@@ -412,7 +413,17 @@ fn assert_readable_row(body: &str) {
 fn read_details(mouse: bool) {
     let mut steps = empty_inbox_steps("octocat");
     steps.extend(phase(false, false, false, false));
-    steps.extend(not_modified_phase());
+    // Details alone reads the selected row's latest comment, once, between
+    // the two repository checks; History reads no comment.
+    let mut details = not_modified_phase();
+    details.insert(
+        4,
+        get(
+            &format!("repos/{REPO}/issues/comments/99"),
+            json!({"id":99,"user":{"login":"alice-liddell","id":5,"type":"User"},"body":"looks good"}),
+        ),
+    );
+    steps.extend(details);
     steps.extend(not_modified_phase());
     let f = fixture(&steps);
     let mut session = start(&f);
@@ -425,7 +436,15 @@ fn read_details(mouse: bool) {
     ready(&mut session, 0, PRIVATE);
     let after = session.completed_cells_end();
     choose(&mut session, mouse, "[Enter Details]", b"\r");
-    let detail = ready(&mut session, after, "Acting user unavailable");
+    let detail = ready(&mut session, after, ACTOR);
+    // The actor chip and login lead the detail, right under its heading.
+    let lines = detail.lines().collect::<Vec<_>>();
+    let heading = lines
+        .iter()
+        .position(|line| line.contains("Notification #9007199254740993"))
+        .unwrap_or_else(|| panic!("{detail}"));
+    assert!(lines[heading + 1].contains(ACTOR), "{detail}");
+    assert!(!detail.contains("Acting user unavailable"), "{detail}");
     // Readable reason beside the raw API value, and the exact UTC time
     // beside its relative freshness.
     assert!(
@@ -478,7 +497,7 @@ fn read_details(mouse: bool) {
     assert!(body.contains("Widen to at least66"));
     assert!(!body.contains("Verifying current account"));
     session.resize_owned_header(120, 40, TITLE, CONTROLS);
-    ready(&mut session, 0, "Acting user unavailable");
+    ready(&mut session, 0, ACTOR);
     choose(&mut session, mouse, "[b Back / Cancel]", b"b");
     ready(&mut session, 0, PRIVATE);
     let after = session.completed_cells_end();

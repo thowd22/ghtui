@@ -26,6 +26,17 @@ pub(crate) use publication::{
     NotificationPublicationV63, NotificationWriteReceiptV63,
 };
 
+/// The latest commenter of one selected notification, or why it is unknown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NotificationLatestActorV63 {
+    /// `is_subject`: the latest activity URL was the subject itself, so the
+    /// user is the subject's author rather than a commenter.
+    Observed {
+        actor: crate::providers::gh::Actor,
+        is_subject: bool,
+    },
+    Unavailable(&'static str),
+}
 #[derive(Clone, Default)]
 pub(crate) struct NotificationCoverageV63 {
     pub(crate) pages: usize,
@@ -580,6 +591,43 @@ impl NotificationReadAccessV63<'_> {
             &self.original_cancel,
             self.deadline,
         )
+    }
+    /// One bounded read of the selected row's latest comment (or subject), on
+    /// the SAME runner, token and original deadline, after the repository was
+    /// verified readable. GitHub notifications carry no acting user, so this
+    /// is the latest commenter, never a claimed notification actor.
+    pub(crate) fn latest_actor_v63(
+        &self,
+        provider: &GithubProvider,
+        index: usize,
+    ) -> NotificationLatestActorV63 {
+        let Some(row) = self.rows.get(index) else {
+            return NotificationLatestActorV63::Unavailable("notification not observed");
+        };
+        let Some((endpoint, is_subject)) =
+            notifications_v63::parse::latest_comment_endpoint(&provider.host, row)
+        else {
+            return NotificationLatestActorV63::Unavailable("no latest comment observed");
+        };
+        if !provider.runner.same_instance(&self.producing_runner)
+            || live(&self.original_cancel, self.deadline).is_err()
+        {
+            return NotificationLatestActorV63::Unavailable("original read window ended");
+        }
+        let child = match provider
+            .clone()
+            .with_scoped_read_window(self.deadline, PAGE)
+        {
+            Ok(child) => child,
+            Err(_) => return NotificationLatestActorV63::Unavailable("read bound unavailable"),
+        };
+        match child
+            .api(&endpoint, "GET", None, None, false, &self.original_cancel)
+            .and_then(|value| notifications_v63::parse::latest_actor(&value))
+        {
+            Ok(actor) => NotificationLatestActorV63::Observed { actor, is_subject },
+            Err(_) => NotificationLatestActorV63::Unavailable("latest comment could not be read"),
+        }
     }
     pub(crate) fn local_witness_v63(&self) -> &NotificationSourceWitnessV63 {
         &self.witness

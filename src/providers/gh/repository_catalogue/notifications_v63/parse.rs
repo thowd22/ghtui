@@ -240,6 +240,60 @@ fn subject(
         latest.map(str::to_owned),
     ))
 }
+/// The latest-activity read for a row, as a closed same-repository endpoint.
+/// Only a comment (issue, review or commit) or the subject itself qualifies;
+/// any other or foreign URL is never followed.
+pub(in crate::providers::gh::repository_catalogue) fn latest_comment_endpoint(
+    host: &str,
+    row: &NotificationRowV63,
+) -> Option<(String, bool)> {
+    let url = row.latest_comment_url.as_deref()?;
+    let base = format!("repos/{}/", row.repository.full_name);
+    let marker = format!("/{base}");
+    let (_, tail) = url.rsplit_once(&marker)?;
+    let parts = tail.split('/').collect::<Vec<_>>();
+    let valid = match parts.as_slice() {
+        ["issues", "comments", id] | ["pulls", "comments", id] | ["comments", id] => {
+            canonical_id(id)
+        }
+        ["pulls", n] | ["issues", n] => canonical_id(n),
+        _ => false,
+    };
+    let endpoint = format!("{base}{tail}");
+    if !valid || exact_url(host, url, &endpoint).is_err() {
+        return None;
+    }
+    let is_subject = row.subject_url.as_deref() == Some(url);
+    Some((endpoint, is_subject))
+}
+/// The `user` of a latest-comment (or subject) response. Bounded and strict:
+/// a missing, empty or control-bearing login is no actor at all.
+pub(in crate::providers::gh::repository_catalogue) fn latest_actor(
+    v: &Value,
+) -> GithubResult<crate::providers::gh::Actor> {
+    let user = v
+        .get("user")
+        .filter(|u| u.is_object())
+        .ok_or_else(|| bad_v63(GithubErrorKind::Json))?;
+    let login = identity_text(user, "login", 100)?;
+    if !login
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"-[]_".contains(&b))
+    {
+        return Err(bad_v63(GithubErrorKind::Json));
+    }
+    let kind = user
+        .get("type")
+        .and_then(Value::as_str)
+        .filter(|kind| matches!(*kind, "User" | "Bot" | "Organization"))
+        .unwrap_or("Unknown");
+    Ok(crate::providers::gh::Actor {
+        login: login.to_owned(),
+        display_name: None,
+        avatar_url: None,
+        actor_type: kind.into(),
+    })
+}
 pub(in crate::providers::gh::repository_catalogue) fn row(
     host: &str,
     v: &Value,

@@ -46,6 +46,81 @@ fn notifications_v63_actual_schema_actor_unknown_and_minimal_repo_not_permission
     );
 }
 #[test]
+fn notifications_v63_latest_comment_endpoint_is_closed_same_repository_and_actor_strict() {
+    let row = parsed(&raw_row("5"));
+    assert_eq!(
+        parse::latest_comment_endpoint("github.com", &row),
+        Some(("repos/example/repo/issues/comments/99".into(), false))
+    );
+    for (url, expected) in [
+        (
+            "https://api.github.com/repos/example/repo/pulls/comments/12",
+            Some(("repos/example/repo/pulls/comments/12", false)),
+        ),
+        (
+            "https://api.github.com/repos/example/repo/comments/3",
+            Some(("repos/example/repo/comments/3", false)),
+        ),
+        (
+            "https://api.github.com/repos/example/repo/pulls/7",
+            Some(("repos/example/repo/pulls/7", true)),
+        ),
+        (
+            "https://api.github.com/repos/other/repo/issues/comments/99",
+            None,
+        ),
+        (
+            "https://foreign.invalid/repos/example/repo/issues/comments/99",
+            None,
+        ),
+        (
+            "https://api.github.com/repos/example/repo/issues/comments/099",
+            None,
+        ),
+        ("https://api.github.com/repos/example/repo/releases/1", None),
+        (
+            "https://api.github.com/repos/example/repo/issues/comments/9/x",
+            None,
+        ),
+    ] {
+        let mut raw = raw_row("5");
+        raw["subject"]["latest_comment_url"] = json!(url);
+        let row = parsed(&raw);
+        assert_eq!(
+            parse::latest_comment_endpoint("github.com", &row),
+            expected.map(|(e, s)| (e.to_owned(), s)),
+            "{url}"
+        );
+    }
+    let mut none = raw_row("5");
+    none["subject"]["latest_comment_url"] = Value::Null;
+    assert_eq!(
+        parse::latest_comment_endpoint("github.com", &parsed(&none)),
+        None
+    );
+
+    let actor =
+        parse::latest_actor(&json!({"id":99,"user":{"login":"alice","id":5,"type":"User"}}))
+            .unwrap();
+    assert_eq!(actor.login, "alice");
+    assert_eq!(actor.actor_type, "User");
+    let bot =
+        parse::latest_actor(&json!({"user":{"login":"dependabot[bot]","type":"Bot"}})).unwrap();
+    assert_eq!(bot.actor_type, "Bot");
+    let odd = parse::latest_actor(&json!({"user":{"login":"bob","type":"Mannequin"}})).unwrap();
+    assert_eq!(odd.actor_type, "Unknown");
+    for bad in [
+        json!({}),
+        json!({"user":null}),
+        json!({"user":{"login":""}}),
+        json!({"user":{"login":"a\u{1b}[31m"}}),
+        json!({"user":{"login":"has space"}}),
+        json!({"user":{"login":"x".repeat(101)}}),
+    ] {
+        assert!(parse::latest_actor(&bad).is_err(), "{bad}");
+    }
+}
+#[test]
 fn notifications_v63_nullable_actual_subject_urls_stay_unresolved_without_guessed_pr_or_run() {
     for kind in ["PullRequest", "CheckSuite", "FutureActualKind"] {
         let mut raw = raw_row("1");

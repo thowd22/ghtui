@@ -377,6 +377,31 @@ pub(crate) fn row_label_v63(
         sanitize_terminal(repository),
     )
 }
+/// The Details actor line: the shared initials chip and `@login` first, then
+/// what the login actually is. An unknown actor says why, never guesses.
+pub(crate) fn latest_actor_line_v63(
+    host: &str,
+    observed: &crate::providers::gh::NotificationLatestActorV63,
+    fallback: &str,
+) -> String {
+    use crate::providers::gh::NotificationLatestActorV63 as Latest;
+    match observed {
+        Latest::Observed { actor, is_subject } => {
+            let identity = crate::identity::ActorIdentity::github(host, actor);
+            format!(
+                "Latest activity: [{}] {} • {}",
+                identity.initials(),
+                identity.label(),
+                if *is_subject {
+                    "subject author (no newer comment)"
+                } else {
+                    "latest comment"
+                }
+            )
+        }
+        Latest::Unavailable(reason) => format!("Latest activity: {fallback} • {reason}"),
+    }
+}
 fn alive(work: &NotificationWorkV63) -> Result<(), &'static str> {
     if work.expired() {
         Err("Original notification read canceled or expired; refresh explicitly")
@@ -564,12 +589,30 @@ pub(crate) fn execute(
                 .ok_or(
                     "Selected notification is no longer in this actual query; nothing inferred",
                 )?;
+            // History stays a pure journal view: only Details reads the latest
+            // commenter, so History adds no child to its original phase.
+            let actor = if work.phase == NotificationReadPhaseV63::Details {
+                let index = access
+                    .rows()
+                    .iter()
+                    .position(|row| row.id() == selected.id())
+                    .ok_or("Original selected notification disappeared; details hidden")?;
+                let observed = access.latest_actor_v63(&provider, index);
+                alive(&work)?;
+                latest_actor_line_v63(&work.original.scope.host, &observed, row.actor_label())
+            } else {
+                format!(
+                    "Latest activity: open Details to read it • {}",
+                    row.actor_label()
+                )
+            };
             let mut lines = vec![
                 format!(
                     "Notification #{} • observed {}",
                     row.id(),
                     if row.unread() { "Unread" } else { "Read" }
                 ),
+                actor,
                 format!("Repository: {}", row.repository_label()),
                 format!("Subject: {}", row.subject_label()),
                 format!("Title: {}", row.title()),
@@ -585,7 +628,6 @@ pub(crate) fn execute(
                         .unwrap_or_else(|| "age unknown".into())
                 ),
                 format!("Last read: {}", row.last_read_at().unwrap_or("Unavailable")),
-                row.actor_label().into(),
                 format!(
                     "Signed-in observer: @{} • numeric account {}",
                     sanitize_terminal(&access.identity().login),
@@ -594,7 +636,7 @@ pub(crate) fn execute(
                         .account_id
                         .ok_or("Actual numeric observer unavailable")?
                 ),
-                "Repository owner and latest commenter are not the notification actor.".into(),
+                "GitHub notifications name no acting user; Latest activity is the latest comment's author.".into(),
                 "Observed notification metadata grants no PR/run access or publication permission."
                     .into(),
             ];
