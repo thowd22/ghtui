@@ -130,6 +130,7 @@ fn run() -> Result<()> {
             "Loading your authenticated GitHub inbox…".into();
         app.refresh_requested = true;
     }
+    let mut render_timings = ghtui::render_timings_v66::RenderTimings::from_env();
     while !app.quit {
         // Purpose-closed State Refresh capture/refusal precedes retirement.
         // A refused new enqueue cannot cancel the old accepted source worker.
@@ -3000,11 +3001,14 @@ fn run() -> Result<()> {
             });
         }
         ghtui::suggestion_apply_v1::tick(&mut app, &paths.database);
-        terminal.draw(|frame| ui::draw(frame, &mut app))?;
+        let render_started = render_timings.start();
+        let drawn = terminal.draw(|frame| ui::draw(frame, &mut app))?.area;
+        render_timings.record(render_started, drawn.width, drawn.height);
         if event::poll(Duration::from_millis(40))? {
             app.handle_event(event::read()?);
         }
     }
+    render_timings.finish();
     if let Some((_, cache)) = avatar_cache {
         cache.shutdown();
     }

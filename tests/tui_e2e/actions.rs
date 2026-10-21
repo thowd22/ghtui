@@ -27,6 +27,8 @@ mod log_export_v1;
 mod optional_attempt_v1;
 #[path = "actions/origin_default_v1.rs"]
 mod origin_default_v1;
+#[path = "actions/perf_log_v66.rs"]
+mod perf_log_v66;
 #[path = "actions/principal_freshness.rs"]
 mod principal_freshness;
 #[path = "../support/actions_publication.rs"]

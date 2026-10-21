@@ -89,6 +89,7 @@ pub mod prepared_form_text_v1;
 pub mod providers;
 mod read_only_pty_pane_v4;
 pub mod remote_scope_gate_v1;
+pub mod render_timings_v66;
 pub mod repository_catalogue_avatars_v1;
 pub mod repository_catalogue_dialogs;
 pub mod repository_catalogue_intent_v1;
