@@ -13,6 +13,8 @@ mod cache_outcomes_v1;
 mod commit_runs_v1;
 #[path = "actions/controls_v1.rs"]
 mod controls_v1;
+#[path = "actions/environment_secrets_v1.rs"]
+mod environment_secrets_v1;
 #[path = "actions/lease_selection.rs"]
 mod lease_selection;
 #[path = "actions/limitations_v1.rs"]
@@ -29,6 +31,8 @@ mod principal_freshness;
 mod publication_support;
 #[path = "actions/restart.rs"]
 mod restart;
+#[path = "actions/runner_groups_v1.rs"]
+mod runner_groups_v1;
 #[path = "actions/runs_focus_v1.rs"]
 mod runs_focus_v1;
 #[path = "actions/secret_cli_preflight.rs"]
