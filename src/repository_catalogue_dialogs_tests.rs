@@ -397,6 +397,34 @@ fn repo_catalog_dialogs_message_capture_resize_and_cleared_geometry_never_leak_h
     );
 }
 
+/// TASK-102: while a discovery worker runs, the chooser paints no Filter control and drops
+/// typed `/` and pastes; real-binary journeys therefore type a filter only after the
+/// completed frame paints `[/ Filter]` from the installed workspace.
+#[test]
+fn repo_catalog_dialogs_busy_discovery_paints_no_filter_and_drops_typed_filter_text() {
+    let mut app = app();
+    let modal = app.catalogue.as_mut().unwrap();
+    modal.busy = true;
+    modal.workspace = None;
+    for (width, height) in [(80, 24), (120, 40)] {
+        let body = screen(&draw_app(&mut app, width, height));
+        assert!(!body.contains("[/ Filter]"), "{body}");
+        assert!(!body.contains("Filter focused:"), "{body}");
+    }
+    assert_eq!(
+        press(&mut app, KeyCode::Char('/'), KeyModifiers::NONE),
+        None
+    );
+    assert_eq!(
+        press(&mut app, KeyCode::Char('a'), KeyModifiers::CONTROL),
+        None
+    );
+    let modal = app.catalogue.as_mut().unwrap();
+    assert_eq!(paste(modal, "repo0000"), None);
+    assert!(modal.busy);
+    assert!(modal.workspace.is_none());
+}
+
 #[test]
 fn repo_catalog_dialogs_busy_and_privacy_shell_have_only_safe_focusable_clickable_quit_close() {
     for fenced in [false, true] {

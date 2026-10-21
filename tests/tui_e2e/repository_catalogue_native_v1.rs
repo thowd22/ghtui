@@ -463,6 +463,12 @@ fn discover(session: &mut Session, mouse: bool) {
     session.wait_for_overlay_close(SOURCE);
 }
 fn filter(session: &mut Session, mouse: bool, query: &str, name: &str, id: &str) {
+    // A discovery's gh reads finish before its worker result is installed. Until then the
+    // chooser is busy: it paints no workspace controls and refuses typed keys and pastes
+    // ("Wait for the original worker"), and the installed workspace starts with an empty,
+    // focused filter. Type only once the completed frame paints the installed workspace's
+    // own Filter control, as the mouse path's click already requires (TASK-102).
+    session.wait_for_control("[/ Filter]");
     choose(session, mouse, "[/ Filter]", b"/");
     session.send_key(b"\x01");
     session.paste(query);
