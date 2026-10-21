@@ -319,8 +319,6 @@ pub fn acknowledge(
     if let Err(error) = result {
         return failure(workspace, provider, error.to_string(), cancel);
     }
-    workspace.observation = None;
-    workspace.reconciliation_target = None;
     workspace.publication_inspection = None;
     // An optional catalogue failure cannot undo the durable local acknowledgement.
     let refresh_error = workspace.load_catalog(provider, cancel).err();

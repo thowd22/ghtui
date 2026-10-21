@@ -758,7 +758,6 @@ fn scoped_check_queued_draft_and_recovery_actions_stopped_before_sql_or_child() 
         ActionsAction::Compose(ActionsCommand::RerunAll),
         ActionsAction::Compose(ActionsCommand::SearchLogs),
         ActionsAction::PublicationList,
-        ActionsAction::Reconcile,
     ] {
         app.dispatch(Action::Close);
         app.dispatch(Action::Actions(action));

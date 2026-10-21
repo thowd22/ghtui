@@ -1879,8 +1879,6 @@ impl ActionsPlan {
                 format!("Runner group {} deletion confirmed", observed.id)
             }
         };
-        workspace.reconciliation_target = None;
-        workspace.observation = None;
         workspace.fetched_at = Some(now());
         workspace.prepare_rows();
         Ok(ActionsOutcome { message, workspace })

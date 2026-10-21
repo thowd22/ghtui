@@ -28,9 +28,8 @@ use ghtui::{
     local_actions::LocalCommand,
     navigation_catalogue::PreparedCatalogue,
     providers::gh::{
-        ActionsArtifact, ActionsTarget, Actor, CapabilityContractRowV1, Coverage, HostIdentity,
-        PrDetails, PrSummary, PullRequest, Queue, RunAttempt, Workflow, WorkflowDefinition,
-        WorkflowRun,
+        ActionsArtifact, Actor, CapabilityContractRowV1, Coverage, HostIdentity, PrDetails,
+        PrSummary, PullRequest, Queue, RunAttempt, Workflow, WorkflowDefinition, WorkflowRun,
     },
     workspace::{RepositoryMode, Workspace},
 };
@@ -613,15 +612,6 @@ fn states(fixture: &git_support::Fixture) -> Vec<(String, App)> {
         "Actions Publications".into(),
         actions(ActionsView::Publications),
     ));
-    states.push((
-        "Actions Runs (uncertain write)".into(),
-        actions_with(ActionsView::Runs, |workspace| {
-            workspace.reconciliation_target = Some(ActionsTarget::Run {
-                repository: "example/repo".into(),
-                id: 123,
-            })
-        }),
-    ));
     states.push(("Dashboard (not loaded)".into(), empty(View::Dashboard)));
     states
 }
@@ -1012,21 +1002,10 @@ fn coverage_v64_actions_run_artifact_and_inspect_commands_have_their_own_keys() 
             other => panic!("{key} must explain {command:?}, got {other:?}"),
         }
     }
-    let uncertain = actions_with(ActionsView::Runs, |workspace| {
-        workspace.reconciliation_target = Some(ActionsTarget::Run {
-            repository: "example/repo".into(),
-            id: 123,
-        })
-    });
-    assert_eq!(
-        press(&uncertain, 'i'),
-        Some(Resolved::Act(Action::Actions(ActionsAction::Reconcile)))
-    );
     // Every new key has exactly one bearer on its page.
     for (app, keys) in [
         (&run, &["J", "!", "-", "L", "Y"][..]),
         (&artifact_page, &["X", "U", "-"][..]),
-        (&uncertain, &["i"][..]),
     ] {
         let controls = footer::main_controls(app);
         for key in keys {

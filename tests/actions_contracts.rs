@@ -12,8 +12,8 @@ use ghtui::{
     footer::{layout, resolve_key, ControlGroup},
     providers::{
         gh::{
-            ActionsArtifact, ActionsTarget, Actor, ArtifactArchive, ArtifactLimits, GithubProvider,
-            HostIdentity, RunAttempt, WorkflowRun,
+            ActionsArtifact, Actor, ArtifactArchive, ArtifactLimits, GithubProvider, HostIdentity,
+            RunAttempt, WorkflowRun,
         },
         runner::CancellationToken,
     },
@@ -527,65 +527,6 @@ fn actions_cache_filter_reads_exact_key_ref_and_keeps_usage_repo_wide() {
         .fields(ActionsCommand::DeleteCache)
         .is_err());
     assert_eq!(journal(&fixture).len(), 2);
-}
-
-#[test]
-fn actions_run_control_uncertain_target_blocks_remote_plans_but_keeps_reads_and_inspection() {
-    let fixture = Fixture::new();
-    let mut workspace = workspace();
-    workspace.view = ActionsView::Run;
-    workspace.run = Some(RunPage {
-        repository: "example/repo".into(),
-        attempt: RunAttempt {
-            run: run(),
-            jobs: vec![],
-            definition_note: String::new(),
-        },
-        selected_job: None,
-        logs: None,
-        logs_skipped_bytes: 0,
-        annotations: vec![],
-    });
-    workspace.mark_uncertain(
-        Some(ActionsTarget::Run {
-            repository: "example/repo".into(),
-            id: 123,
-        }),
-        "Readback unavailable",
-    );
-    assert!(workspace.observation.is_none());
-    assert!(workspace
-        .controls
-        .iter()
-        .any(|control| control.action == ActionsAction::Reconcile));
-    for command in [
-        ActionsCommand::RerunAll,
-        ActionsCommand::DeleteRun,
-        ActionsCommand::SetSecret,
-        ActionsCommand::SetVariable,
-    ] {
-        assert!(workspace
-            .disabled_reason(command)
-            .unwrap()
-            .contains("refresh alone does not unlock"));
-        assert!(ActionsPlan::prepare(
-            &workspace,
-            command,
-            &BTreeMap::new(),
-            &provider(&fixture),
-            &CancellationToken::default()
-        )
-        .is_err());
-    }
-    for command in [
-        ActionsCommand::ChooseScope,
-        ActionsCommand::FilterRuns,
-        ActionsCommand::FilterCaches,
-        ActionsCommand::SearchLogs,
-    ] {
-        assert!(workspace.disabled_reason(command).is_none());
-    }
-    assert!(journal(&fixture).is_empty());
 }
 
 #[test]

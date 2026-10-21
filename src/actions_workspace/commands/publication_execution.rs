@@ -82,8 +82,6 @@ fn finish_publication_v3(
     disposition: ActionsDisposition,
     refresh: PostPublicationRefresh,
 ) -> ActionsPublication {
-    workspace.reconciliation_target = None;
-    workspace.observation = None;
     workspace.fetched_at = Some(now());
     workspace.prepare_rows();
     ActionsPublication {

@@ -857,7 +857,6 @@ fn scoped_actions_rerun_v4_check_choice_selected_row_preserves_supported_and_dis
         ActionsAction::Compose(ActionsCommand::ApproveFork),
         ActionsAction::Compose(ActionsCommand::SearchLogs),
         ActionsAction::PublicationList,
-        ActionsAction::Reconcile,
     ] {
         app.dispatch(Action::Actions(action));
         assert!(app.actions_action.is_none());

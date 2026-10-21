@@ -48,7 +48,6 @@ pub enum ActionsView {
     Runners,
     RunnerGroups,
     Usage,
-    Reconciliation,
     Publications,
     PublicationInspection,
 }
@@ -96,7 +95,6 @@ impl ActionsView {
                     Self::Artifacts => "Artifacts",
                     Self::Artifact => "Archive preview",
                     Self::Workflow => "Workflow definition",
-                    Self::Reconciliation => "Inspect uncertain write",
                     Self::Publications => "Original Actions publications",
                     Self::PublicationInspection => "Inspect original Actions publication",
                     _ => "Actions",
@@ -148,7 +146,8 @@ pub enum ActionsAction {
     Compose(ActionsCommand),
     /// Inspect an unavailable control without preparing or executing its mutation.
     Unavailable(String),
-    Reconcile,
+    /// Never placed on a page: acknowledgement belongs to the exact original publication
+    /// (`K` on an inspected Publications row). The worker refuses it with that explanation.
     Acknowledge,
     /// Worker handles SQL and positive-account checks; no effect is resent.
     PublicationList,
@@ -335,8 +334,7 @@ impl ActionsControl {
     /// run filter (`f`), rerun all (`A`) and failed (`F`), acknowledgement (`K`), the
     /// settings, cache and approval commands, the run commands (`J` rerun job, `!`
     /// force-cancel, `-` delete run, `L` delete logs, `Y` approve fork), the artifact
-    /// commands (`X` export, `U` extract, `-` delete) and `i` Inspect uncertain write have
-    /// fixed keys. A scoped page's own control on the same key (`[f Edit filters]`) keeps it.
+    /// commands (`X` export, `U` extract, `-` delete) have fixed keys. A scoped page's own control on the same key (`[f Edit filters]`) keeps it.
     pub fn key_and_text(&self) -> (Option<String>, String) {
         let label = self.label.trim();
         let inner = label
@@ -394,7 +392,6 @@ impl ActionsControl {
             ActionsAction::Compose(ActionsCommand::ApproveFork) => Some("Y"),
             ActionsAction::Compose(ActionsCommand::ExportArtifact) => Some("X"),
             ActionsAction::Compose(ActionsCommand::ExtractArtifact) => Some("U"),
-            ActionsAction::Reconcile => Some("i"),
             ActionsAction::Compose(ActionsCommand::GroupRunners) => Some("T"),
             ActionsAction::Compose(ActionsCommand::GroupRepositories) => Some("O"),
             ActionsAction::Compose(ActionsCommand::ApproveDeployment) => Some("Y"),
@@ -430,10 +427,7 @@ impl ActionsControl {
         use ActionsAction::*;
         use ActionsCommand::*;
         match &self.action {
-            Reconcile
-            | Acknowledge
-            | PublicationAcknowledge(_)
-            | PublicationAcknowledgeAcceptance(_) => 5,
+            Acknowledge | PublicationAcknowledge(_) | PublicationAcknowledgeAcceptance(_) => 5,
             Back => 10,
             // An armed watch keeps its Stop on the bar, even at 80 columns and mid-tick.
             Watch if self.label == "[w Stop watch]" => 12,
@@ -516,7 +510,6 @@ impl ActionsControl {
             ActionsAction::Select(_) if text == NEXT_FAILURE[2..] => "Next fail",
             ActionsAction::Select(_) if text == PREVIOUS_FAILURE[2..] => "Prev fail",
             ActionsAction::PublicationList if text == "Publications" => "Pubs",
-            ActionsAction::Reconcile if text == "Inspect uncertain write" => "Inspect",
             ActionsAction::Acknowledge
             | ActionsAction::PublicationAcknowledge(_)
             | ActionsAction::PublicationAcknowledgeAcceptance(_)
@@ -596,8 +589,6 @@ pub struct ActionsWorkspace {
     /// Plain outcome of the last watch tick, e.g. that the watched run finished.
     pub watch_note: Option<String>,
     pub log_search: Option<(String, bool)>,
-    pub reconciliation_target: Option<ActionsTarget>,
-    pub observation: Option<ActionsObservation>,
     pub publication_rows: Vec<ActionsPublicationRow>,
     pub publication_total: Option<u64>,
     pub publication_complete: bool,
@@ -706,8 +697,6 @@ impl ActionsWorkspace {
             watching: false,
             watch_note: None,
             log_search: None,
-            reconciliation_target: None,
-            observation: None,
             publication_rows: vec![],
             publication_total: None,
             publication_complete: false,
@@ -967,12 +956,6 @@ impl ActionsWorkspace {
     pub(crate) fn artifact_image(&self) -> Option<(&crate::identity::ImageDisplay, usize, usize)> {
         let (start, count) = self.artifact_image_rows?;
         Some((self.artifact_image.as_deref()?, start, count))
-    }
-    pub fn mark_uncertain(&mut self, target: Option<ActionsTarget>, reason: impl Into<String>) {
-        self.reconciliation_target = target;
-        self.observation = None;
-        self.warnings.push(reason.into());
-        self.prepare_rows();
     }
     pub fn selected_action(&self) -> Option<ActionsAction> {
         self.rows.get(self.selected)?.action.clone()
@@ -1332,29 +1315,10 @@ impl ActionsWorkspace {
                 self.top = 0;
             }
             Refresh => {}
-            Reconcile => {
-                let target = self
-                    .reconciliation_target
-                    .as_ref()
-                    .ok_or_else(|| plain_error("No uncertain mutation target to inspect"))?;
-                self.observation =
-                    Some(gh.inspect_actions_target(&self.identity, target, cancel)?);
-                self.view = ActionsView::Reconciliation;
-            }
             Acknowledge => {
-                let observation = self
-                    .observation
-                    .take()
-                    .ok_or_else(|| plain_error("Read the affected state before acknowledging"))?;
-                gh.acknowledge_actions_observation(observation)?;
-                self.reconciliation_target = None;
-                self.load_catalog(gh, cancel)?;
-                self.warnings
-                    .push("Affected state acknowledged; no mutation was repeated".into());
-                // Catalogue refresh clears old warnings. Add the acknowledgement only
-                // afterwards so the confirmed recovery remains visibly inspectable.
-                self.prepare_rows();
-                return Ok(());
+                return Err(plain_error(
+                    "Open Publications and inspect the exact ORIGINAL attempt; a provider-only acknowledgement cannot release durable protection",
+                ));
             }
         }
         if !matches!(action, OpenRun { .. } | OpenJob(_)) {
@@ -1536,13 +1500,7 @@ impl ActionsWorkspace {
                     gh.cache_limits(&scope, cancel),
                 ));
             }
-            Workflow
-            | Logs
-            | Annotations
-            | Artifact
-            | Reconciliation
-            | Publications
-            | PublicationInspection => {}
+            Workflow | Logs | Annotations | Artifact | Publications | PublicationInspection => {}
         }
         Ok(())
     }
@@ -1593,10 +1551,6 @@ impl ActionsWorkspace {
                 workflow_control_label(ActionsCommand::WorkflowRevision),
                 ActionsAction::Compose(ActionsCommand::WorkflowRevision),
             ));
-        }
-        if self.reconciliation_target.is_some() {
-            self.controls
-                .push(add("Inspect uncertain write", ActionsAction::Reconcile));
         }
         self.rows = match self.view {
             Runs => {
@@ -2161,22 +2115,6 @@ impl ActionsWorkspace {
                     .collect()
             }
             Usage => self.rows.clone(),
-            Reconciliation => {
-                self.controls.push(add(
-                    "Acknowledge inspected state",
-                    ActionsAction::Acknowledge,
-                ));
-                self.observation
-                    .as_ref()
-                    .map(|observation| {
-                        serde_json::to_string_pretty(observation.state())
-                            .unwrap_or_default()
-                            .lines()
-                            .map(ActionsRow::text)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            }
             Publications | PublicationInspection => self.prepare_publication_rows(),
         };
         if let Some((_, reason)) = self
@@ -2271,9 +2209,6 @@ impl ActionsWorkspace {
                 | ExportArtifact
                 | ExtractArtifact
         );
-        if remote_mutation && self.reconciliation_target.is_some() {
-            return Some("Inspect and acknowledge the uncertain write before composing another mutation; refresh alone does not unlock it".into());
-        }
         if remote_mutation && self.identity.account_id.is_none_or(|id| id == 0) {
             return Some("Authenticate a verified account before composing changes".into());
         }

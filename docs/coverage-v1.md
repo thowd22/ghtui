@@ -208,8 +208,7 @@ Each row is one control of the key bar (or tab strip) in a probed view state, as
 with an empty queue and with three PRs; a PR on each of its eight tabs; Repository without a
 repository and in Overview, Graph, Tree, Working, Staged and Uncommitted modes; Search and
 Search corpus; Actions without an account, on each catalogue, on a finished run (Run), its
-Logs, an Artifact, a Workflow definition, Publications, and Runs with an uncertain write to
-inspect; Dashboard before it loads. A disabled control that shares its key with an enabled one
+Logs, an Artifact, a Workflow definition and Publications; Dashboard before it loads. A disabled control that shares its key with an enabled one
 on the same page (`X Enable workflow` beside `X Disable workflow`) lists that key; the key does
 the enabled control and Commands explains the disabled one.
 A loaded Dashboard's keys are covered by
@@ -970,28 +969,6 @@ A loaded Dashboard's keys are covered by
 | Actions Publications | `?` | Help | key bar, Commands |
 | Actions Publications | `:` | Commands | key bar, Commands |
 | Actions Publications | `q` | Quit | key bar, Commands |
-| Actions Runs (uncertain write) | `R` | Runs | tab strip, Commands |
-| Actions Runs (uncertain write) | `W` | Workflows | tab strip, Commands |
-| Actions Runs (uncertain write) | `c` | Caches | tab strip, Commands |
-| Actions Runs (uncertain write) | `S` | Secrets | tab strip, Commands |
-| Actions Runs (uncertain write) | `v` | Variables | tab strip, Commands |
-| Actions Runs (uncertain write) | `e` | Environments | tab strip, Commands |
-| Actions Runs (uncertain write) | `p` | Policies | tab strip, Commands |
-| Actions Runs (uncertain write) | `n` | Runners | tab strip, Commands |
-| Actions Runs (uncertain write) | `g` | Runner groups | tab strip, Commands |
-| Actions Runs (uncertain write) | `u` | Usage | tab strip, Commands |
-| Actions Runs (uncertain write) | `G` | Approvals | tab strip, Commands |
-| Actions Runs (uncertain write) | `r` | Refresh | key bar, Commands |
-| Actions Runs (uncertain write) | `P` | Publications | key bar, Commands |
-| Actions Runs (uncertain write) | `o` | Choose Actions scope | key bar, Commands |
-| Actions Runs (uncertain write) | `i` | Inspect uncertain write | key bar, Commands |
-| Actions Runs (uncertain write) | `f` | Filter runs | key bar, Commands |
-| Actions Runs (uncertain write) | `w` | Watch | key bar, Commands |
-| Actions Runs (uncertain write) | `{` | Previous repo | key bar, Commands |
-| Actions Runs (uncertain write) | `}` | Next repo | key bar, Commands |
-| Actions Runs (uncertain write) | `?` | Help | key bar, Commands |
-| Actions Runs (uncertain write) | `:` | Commands | key bar, Commands |
-| Actions Runs (uncertain write) | `q` | Quit | key bar, Commands |
 | Dashboard (not loaded) | `r` | Refresh | key bar, Commands |
 | Dashboard (not loaded) | `s` | Settings | key bar, Commands |
 | Dashboard (not loaded) | `?` | Help | key bar, Commands |
@@ -1035,9 +1012,5 @@ effect. Commands (`:`) is probed entry by entry by
 - **macOS**: native verification is deferred past the Linux v1.
 - **No browser handoff, clipboard or PR export.** Full SHAs and URLs are shown in full to
   select in the terminal.
-- **Inspect uncertain write (`i`)** has its key and click target whenever an Actions page holds
-  an uncertain write target, which the key-bar probe covers, but the running binary records
-  uncertain Actions writes as publications (`P Publications`, inspect, `K` acknowledge)
-  instead, so no PTY journey reaches this control.
 - **Merge and lifecycle (TASK-24, TASK-25)**: implemented and covered above; each task keeps
   one acceptance criterion open.

@@ -2568,7 +2568,7 @@ fn run() -> Result<()> {
                     }
                     use ghtui::actions_recovery::{self,RecoveryAcknowledgement};
                     match action.as_ref() {
-                        Some(ActionsAction::PublicationList|ActionsAction::Reconcile)=>return actions_recovery::list(workspace,&provider,&database,&cancel),
+                        Some(ActionsAction::PublicationList)=>return actions_recovery::list(workspace,&provider,&database,&cancel),
                         Some(ActionsAction::PublicationInspect(id))=>return actions_recovery::inspect(workspace,*id,&provider,&database,&cancel),
                         Some(ActionsAction::PublicationAcknowledge(id))=>return actions_recovery::acknowledge(workspace,RecoveryAcknowledgement::ObservedState(*id),inspection,&provider,&database,&cancel),
                         Some(ActionsAction::PublicationAcknowledgeAcceptance(id))=>return actions_recovery::acknowledge(workspace,RecoveryAcknowledgement::InspectedAcceptance(*id),inspection,&provider,&database,&cancel),
