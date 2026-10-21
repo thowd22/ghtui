@@ -125,6 +125,8 @@ pub enum GithubAction {
     ReviewOperationHistoryV3,
     ReviewThreadsV4,
     ActionsHistoryV5,
+    /// The selected row's GitHub actor profile (TASK-34); read-only.
+    ActorProfile,
     Filter(InboxFilter),
     Open(PrKey),
     Back,

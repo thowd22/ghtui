@@ -221,6 +221,20 @@ pub fn footer_keys(app: &App) -> Vec<KeyControl> {
         45
     };
     keys.extend([refresh(refresh_priority), clear(70)]);
+    if crate::pr_actor_profile_v1::offered(tab) {
+        // The selected comment's author, or the PR author (TASK-34). Last of the view's keys
+        // and the first to leave a narrow bar; Commands always lists it.
+        let (action, reason) = match crate::pr_actor_profile_v1::action(app) {
+            Ok(action) => (action, None),
+            Err(reason) => (Action::Explain(reason.clone()), Some(reason)),
+        };
+        keys.push(
+            KeyControl::new("@", "Actor profile", action)
+                .with_compact("Actor")
+                .with_priority(90)
+                .disabled_by(reason),
+        );
+    }
     keys.extend(
         PrTab::ALL
             .iter()

@@ -2067,6 +2067,10 @@ impl App {
                     self.dispatch(Action::View(View::Dashboard));
                     return;
                 }
+                if action == GithubAction::ActorProfile {
+                    crate::pr_actor_profile_v1::open(self);
+                    return;
+                }
                 if action == GithubAction::Actions {
                     self.overlay = Some(Overlay::PrActions);
                     self.pr_action_index = 0;
