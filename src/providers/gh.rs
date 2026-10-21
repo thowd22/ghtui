@@ -6,8 +6,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::time::Duration;
 mod inbox_exact_v1;
+mod inbox_rollup_v1;
 pub(crate) use inbox_exact_v1::ExactInboxRepositoryMetadataV1;
 use inbox_exact_v1::{ExactInboxState, InboxReadPolicy};
+pub use inbox_rollup_v1::{
+    inbox_rollup_args_v1, inbox_rollup_order_v1, inbox_rollup_query_v1, parse_inbox_rollup_v1,
+    InboxRollupV1, INBOX_ROLLUP_BATCH_V1,
+};
 mod pr;
 pub(crate) use pr::FreshInlineCommentObservationV14;
 #[cfg(test)]

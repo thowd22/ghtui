@@ -29,11 +29,11 @@ impl Held {
         assert_eq!(unsafe { libc::kill(self.pid, signal) }, 0);
     }
     fn stop(session: &mut Session, fixture: &Fixture, steps: &[GhStep]) -> Self {
-        session.wait_for_command_count(fixture, 19);
-        let journal = records(session, fixture, 19);
-        assert_eq!(journal[18]["matched"], true);
-        assert_eq!(journal[18]["args"], json!(steps[18].args));
-        let pid = i32::try_from(journal[18]["pid"].as_u64().unwrap()).unwrap();
+        session.wait_for_command_count(fixture, 20);
+        let journal = records(session, fixture, 20);
+        assert_eq!(journal[19]["matched"], true);
+        assert_eq!(journal[19]["args"], json!(steps[19].args));
+        let pid = i32::try_from(journal[19]["pid"].as_u64().unwrap()).unwrap();
         assert!(pid > 0 && pid != std::process::id() as i32);
         let owner = OwnedPtySession::capture(session.owned_application_pid() as u32).unwrap();
         let identity = process_identity(pid)
@@ -122,12 +122,12 @@ fn journey(mouse: bool) {
     steps.push(step("repos/example/repo", "GET", repository(), false));
     steps.extend(identity());
     assert_eq!(steps.len() - before_metadata, 10);
-    assert_eq!(steps.len(), 24);
-    assert!(steps[18]
+    assert_eq!(steps.len(), 25);
+    assert!(steps[19]
         .args
         .iter()
         .any(|a| a == "repos/example/repo/issues/7"));
-    steps[18].delay_ms = 3000;
+    steps[19].delay_ms = 3000;
     fixture.scripted_gh(&steps);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let index = fs::read(fixture.repo().join(".git/index")).unwrap();
@@ -145,7 +145,7 @@ fn journey(mouse: bool) {
     } else {
         session.send_key(b"\r");
     }
-    session.wait_for_command_count(&fixture, 14);
+    session.wait_for_command_count(&fixture, 15);
     session.wait_for_control("[o Summary]");
     let idle_summary = |frame: &vt100::Screen| {
         crate::support::main_footer_visible(frame)
@@ -198,11 +198,11 @@ fn journey(mouse: bool) {
         "Original Summary visibly scrolled while real Metadata child held",
         Duration::from_secs(8),
     );
-    assert_eq!(records(&mut session, &fixture, 19).len(), 19);
+    assert_eq!(records(&mut session, &fixture, 20).len(), 20);
     assert_eq!(sql(&fixture), before);
     let previous = session.completed_cursorless_end();
     held.release();
-    session.wait_for_command_count(&fixture, 24);
+    session.wait_for_command_count(&fixture, 25);
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         session.poll_output(Duration::from_millis(5));
@@ -244,8 +244,8 @@ fn journey(mouse: bool) {
     preserve_git(&fixture, &head, &index, &status);
     assert!(receipts(&fixture).is_empty());
     session.quit_and_assert_restored_terminal(mouse);
-    let journal = observed_requests(&mut session, &fixture, 24);
-    assert_eq!(journal.len(), 24);
+    let journal = observed_requests(&mut session, &fixture, 25);
+    assert_eq!(journal.len(), 25);
     for (row, step) in journal.iter().zip(&steps) {
         assert_eq!(row["args"], json!(step.args));
         assert_eq!(row["matched"], true);

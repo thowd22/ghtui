@@ -110,7 +110,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     choose(&mut session, mouse, "Improve auth", b"\r");
     session.wait_for_screen("Head aaaaaaaaa");
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     let original_sql = sql(&fixture);
     choose(&mut session, mouse, "[t Timeline]", b"t");
     session.wait_for_screen("Label: security");
@@ -146,7 +146,7 @@ fn journey(mouse: bool) {
     go(&mut session, mouse, "Timeline commit ccccccc → Commits");
     session.wait_for_screen(&format!("Commit {OLDER}"));
     back_to_timeline(&mut session, mouse, "commit ccccccc", "Add parser guard");
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     assert_eq!(sql(&fixture), original_sql);
 
     // The head commit opens the checks that ran on it: the Checks tab's own four reads.
@@ -159,7 +159,7 @@ fn journey(mouse: bool) {
     go(&mut session, mouse, "Timeline commit aaaaaaa → Checks");
     session.wait_for_screen("Rust tests");
     assert_selected(&session, "Rust tests");
-    journal(&mut session, &fixture, 18);
+    journal(&mut session, &fixture, 19);
 
     // At 80x24 the item control stays on the bar, and the return still works.
     session.resize(80, 24);
@@ -172,7 +172,7 @@ fn journey(mouse: bool) {
     choose(&mut session, mouse, "[b Back]", b"b");
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     assert_selected(&session, "Improve auth");
-    journal(&mut session, &fixture, 18);
+    journal(&mut session, &fixture, 19);
     assert_eq!(git(&fixture), original_git);
     assert_eq!(fs::read(&config_path).unwrap(), config);
     session.quit_and_assert_restored_terminal(mouse);

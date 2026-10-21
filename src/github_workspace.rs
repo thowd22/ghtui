@@ -1042,6 +1042,9 @@ pub struct GithubWorkspace {
     // decoded/cached queue can manufacture this actual startup lineage.
     legacy_startup_queue_v80: Option<std::sync::Arc<LegacyStartupQueueV80>>,
     state_source_route_v80: Option<std::sync::Arc<StateSourceRouteHintV80>>,
+    /// TASK-12 AC2: review decision and check rollup GitHub reported for the rows of the
+    /// last ordinary Inbox load, keyed like the session memo. Display only.
+    pub inbox_rollup_v1: std::collections::BTreeMap<PrKey, crate::inbox_status_v1::RowStatus>,
 }
 impl GithubWorkspace {
     /// SAME borrowed target predicate for painting, mouse hit regions and key
@@ -1119,6 +1122,7 @@ impl GithubWorkspace {
             state_membership_unavailable_v68: false,
             legacy_startup_queue_v80: None,
             state_source_route_v80: None,
+            inbox_rollup_v1: Default::default(),
         }
     }
     pub fn scope(&self) -> Result<Scope> {
@@ -1780,7 +1784,65 @@ impl GithubWorkspace {
         self.needs_refresh = false;
         Ok(self)
     }
+    /// The Inbox view's load follows a fresh ordinary queue read with this: one read-only
+    /// GraphQL batch per [`crate::providers::gh::INBOX_ROLLUP_BATCH_V1`] rows. `refresh`
+    /// itself stays the queue read only. Nothing is sent without a verified account, a fresh
+    /// queue or any row. A refused or failed batch leaves those rows to the session memo
+    /// (older rollups for them stay, and read as stale once the queue shows a newer update).
+    pub fn load_inbox_rollup_v1(&mut self, provider: &GithubProvider, cancel: &CancellationToken) {
+        use crate::inbox_status_v1::RowStatus;
+        use crate::providers::gh::{inbox_rollup_order_v1, INBOX_ROLLUP_BATCH_V1};
+        if self.identity.account_id.is_none() {
+            self.inbox_rollup_v1.clear();
+            return;
+        }
+        if !matches!(self.freshness, Freshness::Fresh { .. }) {
+            return;
+        }
+        let current: std::collections::BTreeMap<PrKey, String> = self
+            .inbox
+            .pull_requests
+            .iter()
+            .map(|pr| {
+                (
+                    crate::inbox_status_v1::row_key(&pr.host, &pr.repository, pr.number),
+                    pr.updated_at.clone(),
+                )
+            })
+            .collect();
+        self.inbox_rollup_v1
+            .retain(|key, _| current.contains_key(key));
+        let mut targets: Vec<(String, u64)> = self
+            .inbox
+            .pull_requests
+            .iter()
+            .map(|pr| (pr.repository.clone(), pr.number))
+            .collect();
+        inbox_rollup_order_v1(&mut targets);
+        for chunk in targets.chunks(INBOX_ROLLUP_BATCH_V1) {
+            if cancel.is_cancelled() {
+                return;
+            }
+            let batch: Vec<(&str, u64)> = chunk.iter().map(|(r, n)| (r.as_str(), *n)).collect();
+            let Ok(rows) = provider.inbox_rollup_v1(&batch, cancel) else {
+                continue;
+            };
+            for row in rows {
+                let key = crate::inbox_status_v1::row_key(
+                    &self.identity.host,
+                    &row.repository,
+                    row.number,
+                );
+                let Some(updated_at) = current.get(&key) else {
+                    continue;
+                };
+                self.inbox_rollup_v1
+                    .insert(key, RowStatus::from_rollup_v1(&row, updated_at));
+            }
+        }
+    }
     fn hide_private(mut self, error: &str) -> Self {
+        self.inbox_rollup_v1.clear();
         self.legacy_startup_queue_v80 = None;
         self.state_source_route_v80 = None;
         self.identity.account_id = None;

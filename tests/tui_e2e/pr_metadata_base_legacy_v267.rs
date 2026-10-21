@@ -336,7 +336,7 @@ fn startup(raw: &Value) -> Vec<GhStep> {
             call.stdout = b"gh version 2.99.0 (2026-10-01)\n".to_vec();
         }
     }
-    assert_eq!(calls.len(), 24);
+    assert_eq!(calls.len(), 25);
     calls
 }
 
@@ -958,7 +958,7 @@ pub(super) fn happy(mouse: bool) {
         );
     }
     let mut steps = startup(&original);
-    assert_eq!(steps.len(), 24);
+    assert_eq!(steps.len(), 25);
     steps.extend(base_read(&original, true, None));
     let first_open = steps.len();
     steps.extend(base_read(&original, false, Some(BASE)));
@@ -1019,7 +1019,7 @@ pub(super) fn happy(mouse: bool) {
             nochange_open,
             total
         ),
-        (34, 45, 69, 79, 90, 117, 127, 137, 142),
+        (35, 46, 71, 81, 92, 119, 129, 139, 144),
         "Core6/current protocol phase inventory, not legacy count offsets"
     );
     f.scripted_gh(&steps);
@@ -1239,7 +1239,7 @@ pub(super) fn partial(mouse: bool) {
     let opened = steps.len();
     steps.extend(base_read(&original, false, Some(BASE)));
     let end = steps.len();
-    assert_eq!((opened, end), (43, 54));
+    assert_eq!((opened, end), (44, 55));
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
@@ -1287,7 +1287,7 @@ pub(super) fn empty_and_forbidden(mouse: bool) {
     denied[5].stderr = b"gh: Forbidden PRIVATE_BRANCH_403_CANARY (HTTP 403)\n".to_vec();
     steps.extend(denied);
     let end = steps.len();
-    assert_eq!((empty, end), (34, 44));
+    assert_eq!((empty, end), (35, 45));
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
@@ -1368,7 +1368,7 @@ pub(super) fn changed_account(mouse: bool) {
     // response mislabeled as user and not a different displayed login.
     changed[9].stdout = serde_json::to_vec(&json!({"id":43,"login":"octocat"})).unwrap();
     steps.extend(changed);
-    assert_eq!(steps.len(), 34);
+    assert_eq!(steps.len(), 35);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
@@ -1588,7 +1588,7 @@ pub(super) fn stale_tip_observed_input(mouse: bool, controlled: bool) {
     changed.truncate(6);
     steps.extend(changed);
     let refused = steps.len();
-    assert_eq!((opened, previewed, refused), (34, 45, 51));
+    assert_eq!((opened, previewed, refused), (35, 46, 52));
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
@@ -1727,11 +1727,11 @@ pub(super) fn raw_stderr(mouse: bool) {
     // closing raw PR/repo/version/user and no separately renewed identity.
     opening.truncate(6);
     steps.extend(opening);
-    assert_eq!(steps.len(), 30);
+    assert_eq!(steps.len(), 31);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
-    no_write(&mut s, &f, &steps, 24);
+    no_write(&mut s, &f, &steps, 25);
     assert_eq!(saved(&f, &base_key(&original)), None);
     let mut expected_sql = raw_sql_v278(&f);
     // The actual Metadata read already owns generation1. Opening Base reserves
@@ -1788,7 +1788,7 @@ pub(super) fn raw_stderr(mouse: bool) {
     .expect("Actual original Metadata before Base opening");
     let after = s.completed_cells_end();
     menu(&mut s, mouse, "Change base branch");
-    s.wait_for_command_count(&f, 30);
+    s.wait_for_command_count(&f, 31);
     failed_base_open_v279(&mut s, after);
     assert_eq!(
         crate::support::overlay_body(
@@ -1799,10 +1799,10 @@ pub(super) fn raw_stderr(mouse: bool) {
         visible,
         "Original Metadata body and fields remain exactly visible at the same viewport"
     );
-    no_write(&mut s, &f, &steps, 30);
-    let commands = exact_current(&mut s, &f, &steps, 30);
+    no_write(&mut s, &f, &steps, 31);
+    let commands = exact_current(&mut s, &f, &steps, 31);
     assert_eq!(
-        commands[29]["args"][1],
+        commands[30]["args"][1],
         "repos/example/repo/branches?per_page=100&page=1"
     );
     assert_eq!(saved(&f, &base_key(&original)), None);
@@ -1814,11 +1814,11 @@ pub(super) fn raw_stderr(mouse: bool) {
     // Every old actor/team/label/milestone assertion remains actual visible
     // evidence, using real viewport movement rather than hidden model data.
     unchanged_metadata(&mut s, mouse);
-    assert_eq!(exact_current(&mut s, &f, &steps, 30), commands);
+    assert_eq!(exact_current(&mut s, &f, &steps, 31), commands);
     assert_eq!(raw_sql_v278(&f), expected_sql);
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     s.quit_and_assert_restored_terminal(mouse);
-    assert_eq!(exact_current(&mut s, &f, &steps, 30), commands);
+    assert_eq!(exact_current(&mut s, &f, &steps, 31), commands);
     assert_eq!(raw_sql_v278(&f), expected_sql);
     assert_eq!(saved(&f, &base_key(&original)), None);
     assert!(receipts(&f).is_empty());

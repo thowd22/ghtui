@@ -2229,7 +2229,13 @@ fn run() -> Result<()> {
                         _ if previous.pr.is_some() => {
                             previous.reconcile_page(&provider, &database, &cancel)
                         }
-                        _ => previous.refresh(&provider, &database, &cancel),
+                        _ => previous.refresh(&provider, &database, &cancel).map(
+                            |mut refreshed| {
+                                // TASK-12 AC2: review decision and check rollup for every row.
+                                refreshed.load_inbox_rollup_v1(&provider, &cancel);
+                                refreshed
+                            },
+                        ),
                     }
                 } else {
                     GithubWorkspace::legacy_startup_v80(

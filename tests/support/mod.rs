@@ -183,6 +183,108 @@ pub fn with_density(fixture: &Fixture, density: ghtui::config::Density) -> ghtui
     config
 }
 
+/// TASK-12 AC2: the GraphQL review/check rollup read the Inbox view sends after a fresh
+/// ordinary queue read with at least one row: one step per 50 PRs, in (repository, number)
+/// order. `answer` gives each PR's `pullRequest` object, or `None` for a null alias (GitHub
+/// returned nothing, so the row keeps the session memo). An empty queue sends nothing.
+pub fn inbox_rollup_steps(
+    host: &str,
+    prs: &[(&str, u64)],
+    answer: impl Fn(&str, u64) -> Option<serde_json::Value>,
+) -> Vec<GhStep> {
+    use ghtui::providers::gh::{
+        inbox_rollup_args_v1, inbox_rollup_order_v1, INBOX_ROLLUP_BATCH_V1,
+    };
+    let mut targets: Vec<(String, u64)> = prs.iter().map(|(r, n)| ((*r).into(), *n)).collect();
+    inbox_rollup_order_v1(&mut targets);
+    targets
+        .chunks(INBOX_ROLLUP_BATCH_V1)
+        .map(|chunk| {
+            let batch: Vec<(&str, u64)> = chunk.iter().map(|(r, n)| (r.as_str(), *n)).collect();
+            let mut data = serde_json::Map::new();
+            for (index, (repository, number)) in batch.iter().enumerate() {
+                data.insert(
+                    format!("p{index}"),
+                    answer(repository, *number).map_or(
+                        serde_json::Value::Null,
+                        |pr| serde_json::json!({ "pullRequest": pr }),
+                    ),
+                );
+            }
+            GhStep {
+                args: inbox_rollup_args_v1(host, &batch),
+                stdin: Vec::new(),
+                stdout: serde_json::json!({ "data": data }).to_string().into_bytes(),
+                stderr: Vec::new(),
+                status: 0,
+                delay_ms: 0,
+            }
+        })
+        .collect()
+}
+
+/// The rollup read answering null for every PR: rows keep "review/checks not loaded".
+pub fn inbox_rollup_unknown(host: &str, prs: &[(&str, u64)]) -> Vec<GhStep> {
+    inbox_rollup_steps(host, prs, |_, _| None)
+}
+
+/// One `pullRequest` answer for [`inbox_rollup_steps`].
+pub fn inbox_rollup_pr(review: Option<&str>, checks: Option<&str>, oid: &str) -> serde_json::Value {
+    serde_json::json!({
+        "reviewDecision": review,
+        "commits": {"nodes": [{"commit": {
+            "oid": oid,
+            "statusCheckRollup": checks.map(|state| serde_json::json!({ "state": state })),
+        }}]},
+    })
+}
+
+/// The `(repository, number)` of every item in the given `search/issues` steps, for
+/// [`inbox_rollup_steps`].
+pub fn inbox_rollup_targets(steps: &[GhStep]) -> Vec<(String, u64)> {
+    let mut targets = Vec::new();
+    for step in steps {
+        if step.args.get(1).is_none_or(|arg| arg != "search/issues") {
+            continue;
+        }
+        let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&step.stdout) else {
+            continue;
+        };
+        for item in raw["items"].as_array().into_iter().flatten() {
+            let repository = item["repository_url"]
+                .as_str()
+                .and_then(|url| url.split("/repos/").nth(1))
+                .unwrap_or_default()
+                .to_owned();
+            targets.push((repository, item["number"].as_u64().unwrap_or_default()));
+        }
+    }
+    targets
+}
+
+/// Whether a journal record is the Inbox load's read-only rollup query (argv only, no stdin,
+/// no `--method`); strict fake gh has already matched its exact argv.
+pub fn is_inbox_rollup_record(record: &serde_json::Value) -> bool {
+    let args = record["args"].as_array();
+    args.is_some_and(|args| {
+        args.len() == 6
+            && args[0] == "api"
+            && args[1] == "graphql"
+            && args[2] == "--hostname"
+            && args[4] == "-f"
+            && args[5]
+                .as_str()
+                .is_some_and(|query| query.starts_with("query=query{p0:repository("))
+    }) && record["stdin_hex"] == ""
+}
+
+/// [`inbox_rollup_unknown`] for the items the given queue steps return.
+pub fn inbox_rollup_unknown_for(host: &str, queue_steps: &[GhStep]) -> Vec<GhStep> {
+    let targets = inbox_rollup_targets(queue_steps);
+    let prs: Vec<(&str, u64)> = targets.iter().map(|(r, n)| (r.as_str(), *n)).collect();
+    inbox_rollup_unknown(host, &prs)
+}
+
 pub fn empty_inbox_steps(login: &str) -> Vec<GhStep> {
     let identity = || {
         vec![

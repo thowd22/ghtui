@@ -86,7 +86,7 @@ fn startup(raw: &Value) -> Vec<GhStep> {
         }
     }
     calls.extend(section(raw));
-    assert_eq!(calls.len(), 24);
+    assert_eq!(calls.len(), 25);
     calls
 }
 fn gql(command: PrMetadataCommand, raw: &Value, selected: bool) -> GhStep {
@@ -1051,20 +1051,20 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
     }
     let mut steps = startup(&original);
     steps.extend(phase(command, false));
-    assert_eq!(steps.len(), 35);
+    assert_eq!(steps.len(), 36);
     steps.extend(phase(command, false));
-    assert_eq!(steps.len(), 46);
+    assert_eq!(steps.len(), 47);
     steps.extend(phase(command, true));
-    assert_eq!(steps.len(), 57);
+    assert_eq!(steps.len(), 58);
     steps.extend(startup(&original));
-    assert_eq!(steps.len(), 81);
+    assert_eq!(steps.len(), 83);
     steps.extend(phase(command, false));
-    assert_eq!(steps.len(), 92);
+    assert_eq!(steps.len(), 94);
     steps.extend(phase(command, true));
-    assert_eq!(steps.len(), 103);
+    assert_eq!(steps.len(), 105);
     steps.extend(phase(command, true));
     steps.extend(paid(command));
-    assert_eq!(steps.len(), 136);
+    assert_eq!(steps.len(), 138);
     fixture.scripted_gh(&steps);
     for uid in [42, 43] {
         Cache::open(&cache_path(&fixture))
@@ -1112,8 +1112,8 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
     let mut s = launch(&fixture, mouse, false);
     enter(&mut s, mouse);
     observed_metadata(&mut s, mouse, &original);
-    exact(&mut s, &fixture, &steps, 24);
-    open_current(&mut s, &fixture, mouse, command, 35, &steps);
+    exact(&mut s, &fixture, &steps, 25);
+    open_current(&mut s, &fixture, mouse, command, 36, &steps);
     select(&mut s, mouse, command);
     let before_sql = sql(&fixture);
     let before_commands = fs::read(fixture.root.join("gh-fixture/commands.jsonl")).unwrap();
@@ -1143,14 +1143,14 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
     let before = s.completed_cursorless_end();
     s.resize(80, 24);
     metadata_frame(&mut s, before);
-    open_current(&mut s, &fixture, mouse, command, 46, &steps);
+    open_current(&mut s, &fixture, mouse, command, 47, &steps);
     select(&mut s, mouse, command);
-    let saved_before = preview(&mut s, &fixture, mouse, command, 57, &steps);
+    let saved_before = preview(&mut s, &fixture, mouse, command, 58, &steps);
     let before_close = sql(&fixture);
     close(&mut s, mouse, command, true);
     assert_eq!(sql(&fixture),before_close,"Pure Close preserves entire independently read database, including Saved17/canaries/journalabsence");
     assert_eq!(foreign(&fixture), foreign_before);
-    exact(&mut s, &fixture, &steps, 57);
+    exact(&mut s, &fixture, &steps, 58);
     preserve_git(&fixture, &head, &index, &status);
     s.quit_and_assert_restored_terminal(mouse);
     assert_eq!(
@@ -1166,18 +1166,18 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
     // from the accepted saved version17 envelope or cached Metadata page.
     let mut s = launch(&fixture, mouse, true);
     enter(&mut s, mouse);
-    exact(&mut s, &fixture, &steps, 81);
+    exact(&mut s, &fixture, &steps, 83);
     assert_eq!(saved(&fixture, command), saved_before);
-    open_current(&mut s, &fixture, mouse, command, 92, &steps);
+    open_current(&mut s, &fixture, mouse, command, 94, &steps);
     assert_eq!(saved(&fixture, command), saved_before);
     let body =
         crate::support::overlay_body(s.completed_cells_screen().unwrap(), &form_title(command))
             .unwrap();
     assert!(!body.contains("READ-ONLY PREVIEW") && !body.contains("[Confirm action]"));
     select(&mut s, mouse, command);
-    let fresh_saved = preview(&mut s, &fixture, mouse, command, 103, &steps);
+    let fresh_saved = preview(&mut s, &fixture, mouse, command, 105, &steps);
     assert_eq!(fresh_saved, saved_before);
-    assert_eq!(mutation_count(&exact(&mut s, &fixture, &steps, 103)), 0);
+    assert_eq!(mutation_count(&exact(&mut s, &fixture, &steps, 105)), 0);
     // Pin all independently expected original scalars, effect and actual
     // canonical DB path/devino BEFORE the real Confirm can change anything.
     let expected = expected_seed(&fixture, command);
@@ -1190,7 +1190,7 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
         "[Confirm action]",
         PREVIEW,
     );
-    s.wait_for_command_count(&fixture, 136);
+    s.wait_for_command_count(&fixture, 138);
     s.wait_for_new_cursorless_condition(
         before,
         |frame| {
@@ -1206,10 +1206,10 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
     metadata_frame(&mut s, before);
     receipt(&fixture, command, &fresh_saved.0, expected);
     observed_metadata(&mut s, mouse, &changed);
-    let journal = exact(&mut s, &fixture, &steps, 136);
+    let journal = exact(&mut s, &fixture, &steps, 138);
     assert_eq!(mutation_count(&journal), 1);
     assert_eq!(
-        journal[114]["args"],
+        journal[116]["args"],
         json!([
             "api",
             "graphql",
@@ -1222,14 +1222,14 @@ pub(super) fn happy(command: PrMetadataCommand, mouse: bool) {
         ])
     );
     assert_eq!(
-        journal[114]["stdin_hex"],
-        steps[114]
+        journal[116]["stdin_hex"],
+        steps[116]
             .stdin
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>()
     );
-    let bytes = journal[114]["stdin_hex"]
+    let bytes = journal[116]["stdin_hex"]
         .as_str()
         .unwrap()
         .as_bytes()

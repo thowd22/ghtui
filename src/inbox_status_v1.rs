@@ -1,9 +1,13 @@
 //! TASK-12 AC2: review and check state on Inbox rows.
 //!
-//! The Inbox queue read (`search/issues`) carries no review decision or check rollup, and a
-//! further `gh` call in that shared read would shift every strict fake-gh script. So the state
-//! is derived only from data this session already fetched: the reviews of a PR page that was
-//! opened and the checks of its Checks tab. Nothing here starts I/O.
+//! The Inbox queue read (`search/issues`) carries no review decision or check rollup, so the
+//! ordinary Inbox load follows it with one GraphQL read per 50 rows
+//! (`providers::gh::inbox_rollup_v1`) and keeps the result on the workspace
+//! (`GithubWorkspace::inbox_rollup_v1`). This memo is the fallback for rows that read did not
+//! cover (a host without GraphQL, a failed batch, a scoped catalogue Inbox): it is derived only
+//! from data this session already fetched, the reviews of a PR page that was opened and the
+//! checks of its Checks tab. Nothing here starts I/O. A page read after the rollup (same or
+//! newer `updated_at`) wins over the rollup, keeping the rollup's checks for the same head.
 //!
 //! The memo belongs to one verified account; another account (or a hidden identity) never
 //! sees it. A row whose PR changed on GitHub after the page was read (a newer `updated_at` in
@@ -25,6 +29,10 @@ pub enum ReviewState {
     /// Only comment-only or dismissed reviews.
     Reviewed,
     NoReviews,
+    /// GitHub's `REVIEW_REQUIRED` decision: a rule needs an approving review.
+    ReviewRequired,
+    /// GitHub reported no review decision (no review rule applies).
+    NoDecision,
 }
 impl ReviewState {
     pub fn label(self) -> &'static str {
@@ -33,6 +41,8 @@ impl ReviewState {
             Self::ChangesRequested => "Changes requested",
             Self::Reviewed => "Reviewed",
             Self::NoReviews => "No reviews",
+            Self::ReviewRequired => "Review required",
+            Self::NoDecision => "No review decision",
         }
     }
 }
@@ -82,7 +92,8 @@ pub struct InboxStatusMemo {
     rows: BTreeMap<PrKey, RowStatus>,
 }
 
-fn key(host: &str, repository: &str, number: u64) -> PrKey {
+/// The case-insensitive key shared by the memo and the workspace rollup.
+pub fn row_key(host: &str, repository: &str, number: u64) -> PrKey {
     PrKey {
         host: host.to_ascii_lowercase(),
         repository: repository.to_ascii_lowercase(),
@@ -153,6 +164,30 @@ pub fn check_state(checks: &[Check]) -> CheckState {
     }
 }
 
+impl RowStatus {
+    /// What the Inbox load's GraphQL read reported, stamped with the queue's `updated_at`.
+    pub fn from_rollup_v1(row: &crate::providers::gh::InboxRollupV1, updated_at: &str) -> Self {
+        let review = match row.review_decision.as_deref() {
+            Some("APPROVED") => ReviewState::Approved,
+            Some("CHANGES_REQUESTED") => ReviewState::ChangesRequested,
+            Some("REVIEW_REQUIRED") => ReviewState::ReviewRequired,
+            _ => ReviewState::NoDecision,
+        };
+        let checks = match row.check_state.as_deref() {
+            None => CheckState::NoChecks,
+            Some("SUCCESS") => CheckState::Passing,
+            Some("FAILURE" | "ERROR") => CheckState::Failing,
+            Some(_) => CheckState::Pending,
+        };
+        Self {
+            review,
+            checks: Some(checks),
+            head_sha: row.head_oid.clone(),
+            updated_at: updated_at.to_owned(),
+        }
+    }
+}
+
 impl InboxStatusMemo {
     fn owner(github: &GithubWorkspace) -> Option<(String, u64)> {
         Some((
@@ -180,7 +215,7 @@ impl InboxStatusMemo {
     fn record(&mut self, page: &PrPage) {
         let summary = &page.details.summary;
         let pr = &summary.pr;
-        let key = key(&pr.host, &pr.repository, pr.number);
+        let key = row_key(&pr.host, &pr.repository, pr.number);
         let old = self.rows.get(&key);
         let checks = match &page.checks {
             Some(checks) => Some(check_state(checks)),
@@ -204,13 +239,34 @@ impl InboxStatusMemo {
         if Self::owner(github).is_none() || Self::owner(github) != self.account {
             return None;
         }
-        self.rows.get(&key(&pr.host, &pr.repository, pr.number))
+        self.rows.get(&row_key(&pr.host, &pr.repository, pr.number))
     }
 
     /// The row's status text: review and checks with words (colour is redundant), marked
     /// stale when the queue shows a newer update than the page that was read.
     pub fn label(&self, github: &GithubWorkspace, pr: &PullRequest) -> RowLabel {
-        let Some(status) = self.get(github, pr) else {
+        let rollup = Self::owner(github).and(github.inbox_rollup_v1.get(&row_key(
+            &pr.host,
+            &pr.repository,
+            pr.number,
+        )));
+        let merged;
+        let status = match (self.get(github, pr), rollup) {
+            (Some(page), Some(rollup)) if page.updated_at >= rollup.updated_at => {
+                merged = RowStatus {
+                    checks: page.checks.or_else(|| {
+                        (page.head_sha == rollup.head_sha)
+                            .then_some(rollup.checks)
+                            .flatten()
+                    }),
+                    ..page.clone()
+                };
+                Some(&merged)
+            }
+            (_, Some(rollup)) => Some(rollup),
+            (page, None) => page,
+        };
+        let Some(status) = status else {
             return RowLabel {
                 text: NOT_LOADED.into(),
                 role: Role::TextMuted,

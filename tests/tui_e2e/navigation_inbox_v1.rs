@@ -59,7 +59,7 @@ fn journey(mouse: bool) {
     // summary ends in an ellipsis after the counts that fit.
     session.wait_for_screen("Queue: All • All 3 · Created by me 2 · Assigned to me 2 · Needs my");
     session.wait_for_screen("Created by me 2 · Assigned to me 2 · Needs my re…");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     choose(&mut session, mouse, "[v Needs my review]", b"v");
     session.wait_for_screen("Queue: Needs my review • All 3");
     session.wait_for_screen("Repair parser");
@@ -106,11 +106,11 @@ fn journey(mouse: bool) {
     }
     session.wait_for_screen(NOTIFICATIONS);
     session.wait_for_screen("No notifications observed in this exact query.");
-    journal(&mut session, &fixture, 12);
+    journal(&mut session, &fixture, 13);
     choose(&mut session, mouse, "[b Back / Cancel]", b"b");
     session.wait_for_overlay_close(NOTIFICATIONS);
     session.wait_for_screen("Queue: Needs my review");
-    journal(&mut session, &fixture, 12);
+    journal(&mut session, &fixture, 13);
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -125,7 +125,7 @@ fn footer_journey(mouse: bool) {
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     for control in [
         "[a All]",
         "[c Created by me]",
@@ -160,11 +160,11 @@ fn footer_journey(mouse: bool) {
     session.choose_control(mouse, "[F8 Notifications]");
     session.wait_for_screen(NOTIFICATIONS);
     session.wait_for_screen("No notifications observed in this exact query.");
-    journal(&mut session, &fixture, 12);
+    journal(&mut session, &fixture, 13);
     choose(&mut session, mouse, "[b Back / Cancel]", b"b");
     session.wait_for_overlay_close(NOTIFICATIONS);
     session.wait_for_screen("Queue: Created by me");
-    journal(&mut session, &fixture, 12);
+    journal(&mut session, &fixture, 13);
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -229,7 +229,7 @@ fn table_journey(mouse: bool) {
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     let title = crate::support::view_title("Inbox");
     let (header_y, header) = wait_line(&mut session, &["PR", "TITLE", "AUTHOR", "AGE", "QUEUE"]);
     let (alpha_y, alpha) = wait_line(
@@ -290,7 +290,7 @@ fn table_journey(mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("1 comments");
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     choose(&mut session, mouse, "[h Commits]", b"h");
     let (sha_header_y, sha_header) = wait_line(&mut session, &["SHA", "MESSAGE", "AUTHOR", "AGE"]);
     let (commit_y, commit) = wait_line(&mut session, &["aaaaaaa", "Fix auth boundary", "alice"]);
@@ -304,7 +304,7 @@ fn table_journey(mouse: bool) {
     let (parents_y, _) = wait_line(&mut session, &[&format!("Parents: {}", "b".repeat(40))]);
     assert_eq!(parents_y, sha_y + 1);
     session.wait_for_screen("@build-bot [bot]");
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -384,7 +384,7 @@ fn split_journey(mouse: bool) {
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     let title = crate::support::view_title("Inbox");
     session.wait_for_selected_row(&title, "Improve auth");
     let preview = wait_preview(
@@ -460,7 +460,7 @@ fn split_journey(mouse: bool) {
             .unwrap();
     }
     // Presenting cached summaries ran no gh command.
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
 
     // Below 120 columns the list keeps the whole pane: drill-down instead of a preview.
     session.resize(80, 24);
@@ -484,7 +484,7 @@ fn split_journey(mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("1 comments");
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     session.quit_and_assert_restored_terminal(mouse);
 }
 

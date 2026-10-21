@@ -620,17 +620,17 @@ fn load_source(s: &mut Session, f: &Fixture, mouse: bool, steps: &[GhStep]) {
     choose(s, mouse, "[p PR]", b"p");
     source_field(s, mouse, "[r Repository]", b"r", REPO);
     source_field(s, mouse, "[v PR/issue number]", b"v", "7");
-    published(s, f, steps, 24);
+    published(s, f, steps, 25);
     let before = s.completed_cells_end();
     choose(s, mouse, "[l Load source]", b"l");
-    s.wait_for_command_count(f, 53);
+    s.wait_for_command_count(f, 54);
     ready_v283(
         s,
         before,
         SOURCES,
         &["Loaded 1 cached discussion records", "[Esc Close]"],
     );
-    published(s, f, steps, 53);
+    published(s, f, steps, 54);
     let before = s.completed_cells_end();
     choose(s, mouse, "[Esc Close]", b"\x1b");
     ready_v283(s, before, SEARCH, &["h GitHub", "e Exact", "[/ Query]"]);
@@ -1124,20 +1124,20 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     let config = fs::read(f.repo().join(".git/config")).unwrap();
     let mut steps = startup_v282(&p);
     steps.extend(hydration(&p));
-    assert_eq!(steps.len(), 53);
+    assert_eq!(steps.len(), 54);
     steps.extend(cached_query(true));
-    assert_eq!(steps.len(), 59);
+    assert_eq!(steps.len(), 60);
     steps.extend(remove_phase(&p));
-    assert_eq!(steps.len(), 70);
+    assert_eq!(steps.len(), 71);
     steps.extend(remove_phase(&p));
-    assert_eq!(steps.len(), 81);
+    assert_eq!(steps.len(), 82);
     steps.extend(remove_phase(&p));
     steps.extend(paid_remove(&changed));
-    assert_eq!(steps.len(), 114);
+    assert_eq!(steps.len(), 115);
     steps.extend(cached_query(false));
-    assert_eq!(steps.len(), 119);
+    assert_eq!(steps.len(), 120);
     steps.extend(cached_query(true));
-    assert_eq!(steps.len(), 125);
+    assert_eq!(steps.len(), 126);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_query(&mut s, mouse);
@@ -1146,10 +1146,10 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     // Search controls are also painted in its loading shell. Source field
     // actions intentionally refuse then; wait for the actual prepared corpus.
     initial_search_ready(&mut s, before);
-    published(&mut s, &f, &steps, 24);
+    published(&mut s, &f, &steps, 25);
     load_source(&mut s, &f, mouse, &steps);
     let before = query(&mut s, mouse);
-    s.wait_for_command_count(&f, 59);
+    s.wait_for_command_count(&f, 60);
     ready_v283(
         &mut s,
         before,
@@ -1189,7 +1189,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
         before_resize,
         "Read-only viewport changes preserve all SQL"
     );
-    published(&mut s, &f, &steps, 59);
+    published(&mut s, &f, &steps, 60);
     let hydrated = image(&f);
     assert_bindings(&hydrated, true);
     let records = hydrated.tables["records"].clone();
@@ -1207,12 +1207,12 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
             "Label: existing ☃",
         ],
     );
-    published(&mut s, &f, &steps, 59);
+    published(&mut s, &f, &steps, 60);
     let before = s.completed_cells_end();
     menu(&mut s, mouse, "Remove label");
-    s.wait_for_command_count(&f, 70);
+    s.wait_for_command_count(&f, 71);
     ready_v283(&mut s, before, REMOVE_FORM, SELECT_CONTROLS);
-    published(&mut s, &f, &steps, 70);
+    published(&mut s, &f, &steps, 71);
     let before_select = image(&f);
     let before = s.completed_cells_end();
     action(
@@ -1266,7 +1266,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     );
     let before = s.completed_cells_end();
     action(&mut s, mouse, REMOVE_FORM, "[Preview]", SELECT_CONTROLS);
-    s.wait_for_command_count(&f, 81);
+    s.wait_for_command_count(&f, 82);
     ready_v283(
         &mut s,
         before,
@@ -1288,7 +1288,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
         Duration::from_secs(8),
     )
     .unwrap();
-    published(&mut s, &f, &steps, 81);
+    published(&mut s, &f, &steps, 82);
     Connection::open(cache_path(&f)).unwrap().execute_batch("CREATE TRIGGER metadata_label_fence_fails BEFORE INSERT ON sync_mutation_fences BEGIN SELECT RAISE(ABORT,'fixture actual label visibility failure'); END;").unwrap();
     let before_confirm = image(&f);
     assert_bindings(&before_confirm, true);
@@ -1301,7 +1301,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
         "[Confirm action]",
         PREVIEW_CONTROLS,
     );
-    s.wait_for_command_count(&f, 114);
+    s.wait_for_command_count(&f, 115);
     let safe = format!(
         "Actual safe effect: {}",
         expected_seed(&f, PrMetadataCommand::RemoveLabel)
@@ -1346,7 +1346,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
             s.screen()
         );
     }
-    published(&mut s, &f, &steps, 114);
+    published(&mut s, &f, &steps, 115);
     let original = protected(&f);
     let refused = image(&f);
     let clock_after = seconds();
@@ -1371,9 +1371,9 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     let before = s.completed_cells_end();
     choose(&mut s, mouse, "3 Search", b"3");
     ready_v283(&mut s, before, SEARCH, &["h GitHub", "e Exact"]);
-    published(&mut s, &f, &steps, 114);
+    published(&mut s, &f, &steps, 115);
     let before = query(&mut s, mouse);
-    s.wait_for_command_count(&f, 119);
+    s.wait_for_command_count(&f, 120);
     let until = Instant::now() + Duration::from_secs(8);
     loop {
         s.poll_output(Duration::from_millis(1));
@@ -1397,7 +1397,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
         }
         assert!(Instant::now()<until,"Actual fresh failed query hides prior body/results, not an empty-success substitute\n{}",s.screen());
     }
-    published(&mut s, &f, &steps, 119);
+    published(&mut s, &f, &steps, 120);
     assert_eq!(image(&f),refused,"Actual failed repair rolls back ALL SQL/schema/sequence and keeps bindings/raw bodies/receipt exact");
     assert_eq!(protected(&f), original);
     Connection::open(cache_path(&f))
@@ -1407,14 +1407,14 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     let before_repair = image(&f);
     let expected = repaired(before_repair.clone());
     let before = query(&mut s, mouse);
-    s.wait_for_command_count(&f, 125);
+    s.wait_for_command_count(&f, 126);
     ready_v283(
         &mut s,
         before,
         SEARCH,
         &["0 results • Exact", "PARTIAL", "h GitHub"],
     );
-    let commands = published(&mut s, &f, &steps, 125);
+    let commands = published(&mut s, &f, &steps, 126);
     let after = image(&f);
     assert_eq!(after,expected,"Exact4 ordinal rows +each enumerated PREscope reservation/binding fence ONLY; no table filtering or POSTstate accepted as expected");
     assert_bindings(&after, false);
@@ -1424,7 +1424,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn label_query(mouse: b
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     s.quit_and_assert_restored_terminal(mouse);
     assert_eq!(image(&f), expected);
-    assert_eq!(published(&mut s, &f, &steps, 125), commands);
+    assert_eq!(published(&mut s, &f, &steps, 126), commands);
     assert_eq!(protected(&f), original);
     preserve_git(&f, &head, &index, &status);
 }

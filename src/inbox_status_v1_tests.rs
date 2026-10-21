@@ -329,3 +329,112 @@ fn inbox_status_v1_rows_paint_status_column_when_wide_and_detail_line_when_narro
         .unwrap_or_else(|| panic!("row 1 at 100:\n{screen}"));
     assert!(lines[row + 1].contains("Approved, checks fail"), "{screen}");
 }
+
+fn rollup(
+    review: Option<&str>,
+    checks: Option<&str>,
+    head: char,
+) -> crate::providers::gh::InboxRollupV1 {
+    crate::providers::gh::InboxRollupV1 {
+        repository: "example/actual".into(),
+        number: 1,
+        review_decision: review.map(str::to_owned),
+        check_state: checks.map(str::to_owned),
+        head_oid: head.to_string().repeat(40),
+    }
+}
+
+#[test]
+fn inbox_status_v1_load_rollup_labels_unopened_rows_and_yields_to_newer_pages() {
+    let mut github = workspace(Some(42));
+    let rows = github.inbox.pull_requests.clone();
+    let key = row_key("github.invalid", "Example/Actual", 1);
+    let mut memo = InboxStatusMemo::default();
+    memo.observe(&github);
+    for (review, checks, text, role) in [
+        (
+            Some("APPROVED"),
+            Some("SUCCESS"),
+            "Approved, checks pass",
+            Role::Success,
+        ),
+        (
+            Some("CHANGES_REQUESTED"),
+            Some("SUCCESS"),
+            "Changes requested, checks pass",
+            Role::Failure,
+        ),
+        (
+            Some("REVIEW_REQUIRED"),
+            Some("PENDING"),
+            "Review required, checks pending",
+            Role::Warning,
+        ),
+        (
+            Some("REVIEW_REQUIRED"),
+            Some("EXPECTED"),
+            "Review required, checks pending",
+            Role::Warning,
+        ),
+        (
+            None,
+            Some("ERROR"),
+            "No review decision, checks fail",
+            Role::Failure,
+        ),
+        (None, None, "No review decision, no checks", Role::Text),
+    ] {
+        github.inbox_rollup_v1.insert(
+            key.clone(),
+            RowStatus::from_rollup_v1(&rollup(review, checks, 'a'), "2026-10-02T00:00:00Z"),
+        );
+        let label = memo.label(&github, &rows[0]);
+        assert_eq!(label.text, text);
+        assert_eq!(label.role, role);
+        assert!(label.known);
+    }
+    // The other row was not in the rollup and was never opened.
+    assert_eq!(memo.label(&github, &rows[1]).text, NOT_LOADED);
+    // A page read after the load wins; its missing checks come from the same head's rollup.
+    github.inbox_rollup_v1.insert(
+        key.clone(),
+        RowStatus::from_rollup_v1(
+            &rollup(Some("REVIEW_REQUIRED"), Some("SUCCESS"), 'a'),
+            "2026-10-02T00:00:00Z",
+        ),
+    );
+    github.pr = Some(page(
+        1,
+        'a',
+        "2026-10-02T00:00:00Z",
+        vec![review("bob", "APPROVED")],
+        None,
+    ));
+    memo.observe(&github);
+    assert_eq!(memo.label(&github, &rows[0]).text, "Approved, checks pass");
+    // A different head never borrows the rollup's checks.
+    github.pr = Some(page(
+        1,
+        'c',
+        "2026-10-02T00:00:00Z",
+        vec![review("bob", "APPROVED")],
+        None,
+    ));
+    memo.observe(&github);
+    assert_eq!(
+        memo.label(&github, &rows[0]).text,
+        "Approved, checks not loaded"
+    );
+    // A newer queue update than the rollup marks it stale.
+    let mut newer = rows[0].clone();
+    newer.updated_at = "2026-10-03T00:00:00Z".into();
+    github.pr = None;
+    let mut fresh_memo = InboxStatusMemo::default();
+    fresh_memo.observe(&github);
+    let stale = fresh_memo.label(&github, &newer);
+    assert_eq!(stale.text, "Review required, checks pass (stale)");
+    assert_eq!(stale.role, Role::TextMuted);
+    // A hidden identity never sees the rollup.
+    github.identity.account_id = None;
+    assert_eq!(fresh_memo.label(&github, &rows[0]).text, NOT_LOADED);
+}

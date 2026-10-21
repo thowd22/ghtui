@@ -139,8 +139,10 @@ fn initial_steps(personal: bool) -> Vec<GhStep> {
                     .to_string(),
             ));
         }
+        // TASK-12 AC2: the Personal Inbox load's review/check rollup read.
+        calls.extend(crate::support::inbox_rollup_unknown(HOST, &[(FIRST, 7)]));
         calls.extend(open_pr()[3..10].iter().cloned());
-        assert_eq!(calls.len(), 14);
+        assert_eq!(calls.len(), 15);
         calls
     } else {
         initial()
@@ -330,7 +332,7 @@ fn enter(
         let before_refresh = s.completed_cursorless_end();
         choose(s, mouse, "[r Refresh]", b"r");
         // A cached row is not refresh completion. The original queue phase is
-        // seven children; only the subsequent explicit Open consumes seven more.
+        // eight children (with the rollup read); only the subsequent explicit Open consumes seven more.
         s.wait_for_command_count(f, count - 7);
         s.wait_for_new_cursorless_condition(
             before_refresh,

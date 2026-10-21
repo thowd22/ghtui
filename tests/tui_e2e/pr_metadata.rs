@@ -115,6 +115,7 @@ fn observed_requests(session: &mut Session, fixture: &Fixture, count: usize) -> 
         let args = record["args"].as_array().unwrap();
         assert!(
             args[0] == "--version"
+                || crate::support::is_inbox_rollup_record(record)
                 || (args[0] == "api"
                     && args.iter().any(|arg| arg == "GET")
                     && record["stdin_hex"] == "")

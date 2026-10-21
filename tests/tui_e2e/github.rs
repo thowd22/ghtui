@@ -92,10 +92,17 @@ fn queues(login: &str, partial: bool) -> Vec<GhStep> {
         search(login, "review-requested", vec![b], false),
     ]
 }
+/// Every PR `queues` returns, for the Inbox load's review/check rollup read (TASK-12 AC2).
+const QUEUE_PRS: [(&str, u64); 3] = [("org/alpha", 7), ("org/beta", 7), ("org/gamma", 9)];
 fn initial(partial: bool) -> Vec<GhStep> {
     let mut steps = identity("octocat");
     steps.extend(identity("octocat"));
     steps.extend(queues("octocat", partial));
+    // GitHub answers nothing for these PRs, so rows keep the session memo's "not loaded".
+    steps.extend(crate::support::inbox_rollup_unknown(
+        "github.invalid",
+        &QUEUE_PRS,
+    ));
     steps
 }
 fn refresh(session: &mut Session, mouse: bool) {
@@ -147,7 +154,7 @@ fn inbox_on_start(mouse: bool) {
     let mut session =
         Session::launch_binary(binary, &fixture, 120, 40, &[("GHTUI_INBOX_ON_START", "")]);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     session.quit_and_assert_restored_terminal(mouse);
 
     // inbox_on_start = false keeps the old explicit Refresh, by key or click.
@@ -163,7 +170,7 @@ fn inbox_on_start(mouse: bool) {
     assert!(session.inspect_command_journal(&fixture).is_empty());
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     session.quit_and_assert_restored_terminal(mouse);
 }
 
@@ -194,7 +201,7 @@ fn principal_restart(mouse: bool) {
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
     let original = Scope::github("github.invalid", Some(42)).unwrap();
     cache
@@ -209,7 +216,7 @@ fn principal_restart(mouse: bool) {
     session.wait_for_screen("Fresh • fetched");
     session.wait_for_screen("No pull requests");
     assert!(!session.screen().contains("Improve auth"));
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     let reassigned = Scope::github("github.invalid", Some(43)).unwrap();
     assert!(cache.list(&reassigned, Some("pr")).unwrap().is_empty());
     assert!(cache.draft(&reassigned, "private").unwrap().is_none());
@@ -225,7 +232,7 @@ fn principal_restart(mouse: bool) {
     session.wait_for_screen("private cache remains hidden");
     assert!(!session.screen().contains("Improve auth"));
     assert!(!session.screen().contains("Original private draft"));
-    journal(&mut session, &fixture, 16);
+    journal(&mut session, &fixture, 17);
     assert_eq!(cache.list(&original, Some("pr")).unwrap(), original_records);
     session.quit_and_assert_restored_terminal(mouse);
 }
@@ -256,7 +263,7 @@ fn live_identity_loss(mouse: bool) {
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     // Check BEFORE any inspector Cache::open: actual binary publication must
     // create one0600 inode and remove only its unpublished temporary name.
     {
@@ -286,7 +293,7 @@ fn live_identity_loss(mouse: bool) {
     assert!(!session.screen().contains("Improve auth"));
     assert!(!session.screen().contains("Repair parser"));
     assert!(!session.screen().contains("Retain private draft"));
-    journal(&mut session, &fixture, 9);
+    journal(&mut session, &fixture, 10);
     assert_eq!(cache.list(&scope, Some("pr")).unwrap(), records);
     assert_eq!(
         cache.draft(&scope, "private").unwrap().as_deref(),
@@ -296,7 +303,7 @@ fn live_identity_loss(mouse: bool) {
     choose(&mut session, mouse, "4 Actions", b"4");
     session.wait_for_screen("Actions scope needed");
     assert!(!session.screen().contains("Improve auth"));
-    journal(&mut session, &fixture, 9);
+    journal(&mut session, &fixture, 10);
     session.quit_and_assert_restored_terminal(mouse);
 }
 #[test]
@@ -304,15 +311,71 @@ fn personal_inbox_mouse_overlap_scope_selection_and_partial_warning() {
     inbox(true)
 }
 fn inbox(mouse: bool) {
+    use crate::support::{inbox_rollup_pr, inbox_rollup_steps};
     let fixture = configured();
-    fixture.scripted_gh(&initial(true));
+    let mut steps = initial(true);
+    // TASK-12 AC2: the load's one GraphQL read gives every row its review decision and
+    // check rollup before any PR page is opened; gamma gets nothing back and says so.
+    let rollup = inbox_rollup_steps("github.invalid", &QUEUE_PRS, |repo, _| match repo {
+        "org/alpha" => Some(inbox_rollup_pr(
+            Some("APPROVED"),
+            Some("SUCCESS"),
+            &"a".repeat(40),
+        )),
+        "org/beta" => Some(inbox_rollup_pr(
+            Some("REVIEW_REQUIRED"),
+            Some("FAILURE"),
+            &"c".repeat(40),
+        )),
+        _ => None,
+    });
+    assert_eq!(rollup.len(), 1);
+    *steps.last_mut().unwrap() = rollup[0].clone();
+    // The later Refresh: the same queues, new review/check states.
+    steps.extend(identity("octocat"));
+    steps.extend(queues("octocat", false));
+    steps.extend(inbox_rollup_steps(
+        "github.invalid",
+        &QUEUE_PRS,
+        |repo, _| match repo {
+            "org/alpha" => Some(inbox_rollup_pr(
+                Some("CHANGES_REQUESTED"),
+                Some("PENDING"),
+                &"a".repeat(40),
+            )),
+            "org/beta" => Some(inbox_rollup_pr(
+                Some("APPROVED"),
+                Some("SUCCESS"),
+                &"c".repeat(40),
+            )),
+            _ => None,
+        },
+    ));
+    assert_eq!(steps.len(), 14);
+    fixture.scripted_gh(&steps);
     let mut session = Session::launch(&fixture, 120, 40);
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("3 unique PRs across 5 queue matches");
     session.wait_for_screen("PARTIAL");
     session.wait_for_screen("AL alice");
-    journal(&mut session, &fixture, 7);
+    wait_inbox_rows(
+        &mut session,
+        &[
+            ("org/alpha#7", "Approved, checks pass"),
+            ("org/beta#7", "Review required, checks fail"),
+            ("org/gamma#9", "review/checks not loaded"),
+        ],
+    );
+    journal(&mut session, &fixture, 8);
+    let rows: Vec<Value> = session
+        .inspect_command_journal(&fixture)
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows[7]["args"], json!(steps[7].args));
+    assert_eq!(rows[7]["args"][1], "graphql");
+    assert_eq!(rows[7]["stdin_hex"], "");
     choose(&mut session, mouse, "[m Assigned to me]", b"m");
     session.wait_for_screen("Queue: Assigned to me");
     session.wait_for_screen("Repair parser");
@@ -330,6 +393,32 @@ fn inbox(mouse: bool) {
     session.wait_for_screen("Queue: All");
     session.wait_for_screen("Improve auth");
     session.wait_for_screen("Repair parser");
+    // At 80 columns STATUS leaves first; the rollup is still on screen, and the queue
+    // filters sent no further gh command.
+    session.wait_for_screen("Approved, checks pass");
+    journal(&mut session, &fixture, 8);
+    // Refresh re-reads the queues and the rollup: the rows take the new states and the
+    // selected row stays selected.
+    let title = crate::support::view_title("Inbox");
+    if !mouse {
+        session.send_key(b"\x1b[B");
+        session.wait_for_selected_row(&title, "org/beta#7");
+    }
+    let selected = session.selected_row(&title).expect("a selected Inbox row");
+    let selected_pr = ["org/alpha#7", "org/beta#7", "org/gamma#9"]
+        .into_iter()
+        .find(|pr| selected.contains(pr))
+        .unwrap_or_else(|| panic!("selected row names a PR: {selected}"));
+    refresh(&mut session, mouse);
+    wait_inbox_rows(
+        &mut session,
+        &[
+            ("org/alpha#7", "Changes requested, checks pending"),
+            ("org/beta#7", "Approved, checks pass"),
+        ],
+    );
+    session.wait_for_selected_row(&title, selected_pr);
+    journal(&mut session, &fixture, 14);
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
     let scope = Scope::github("github.invalid", Some(42)).unwrap();
     let records = cache.list(&scope, Some("pr")).unwrap();
@@ -342,6 +431,35 @@ fn inbox(mouse: bool) {
         serde_json::from_value(overlap.payload.clone()).unwrap();
     assert!(saved.queues.contains(&Queue::Assigned) && saved.queues.contains(&Queue::Authored));
     session.quit_and_assert_restored_terminal(mouse);
+}
+
+/// Whether every `(row, status)` shows in the Inbox list pane (left of any Preview pane,
+/// which also names the selected PR): the status on the row's line or its detail line.
+fn inbox_rows_show(screen: &str, rows: &[(&str, &str)]) -> bool {
+    let list: Vec<&str> = screen
+        .lines()
+        .map(|line| line.split("││").next().unwrap_or(line))
+        .collect();
+    rows.iter().all(|(row, status)| {
+        list.iter()
+            .position(|line| line.contains(row))
+            .is_some_and(|at| {
+                list.iter()
+                    .skip(at)
+                    .take(2)
+                    .any(|line| line.contains(status))
+            })
+    })
+}
+/// Waits for one settled frame (no load in progress) showing every row's status.
+fn wait_inbox_rows(session: &mut Session, rows: &[(&str, &str)]) {
+    session
+        .try_wait_for_condition(
+            |screen| !screen.contains("Loading Inbox") && inbox_rows_show(screen, rows),
+            &format!("settled Inbox rows {rows:?}"),
+            std::time::Duration::from_secs(8),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
 fn pages() -> Vec<GhStep> {
@@ -510,7 +628,7 @@ fn detail_steps_v83() -> (Vec<GhStep>, usize, usize) {
     steps.extend(identity("octocat"));
     assert_eq!(steps.len() - before_metadata, 10);
     let before_files = steps.len();
-    assert_eq!(before_files, 24);
+    assert_eq!(before_files, 25);
     let parent = detail_parent_v83(pr("org/alpha", 7, "Improve auth", "2026-10-12T14:00:00Z"));
     // Same genuine Core opening/closing principal + actual repo + raw PR;
     // the Files body and raw patch belong to that one started read budget.
@@ -528,7 +646,7 @@ fn detail_steps_v83() -> (Vec<GhStep>, usize, usize) {
     let after_files = steps.len();
     assert_eq!(after_files - before_files, 10);
     steps.extend(checks);
-    assert_eq!(steps.len(), 38);
+    assert_eq!(steps.len(), 39);
     (steps, before_files, after_files)
 }
 fn detail_sql_v83(fixture: &Fixture, include_reservations: bool) -> Vec<String> {
@@ -608,8 +726,9 @@ fn detail(mouse: bool) {
     );
     refresh(&mut session, mouse);
     session.wait_for_screen("3 unique PRs across 5 queue matches");
-    // TASK-12 AC2: before any PR page is read, rows say their review/check state is not
-    // loaded instead of inventing one (the queue search carries neither).
+    // TASK-12 AC2: the load's rollup read answered nothing for these PRs (as a host without
+    // GraphQL data would), so before any PR page is read rows say their review/check state
+    // is not loaded instead of inventing one.
     session.wait_for_screen("review/checks");
     assert!(
         !session.screen().contains("Changes requested"),
@@ -1117,7 +1236,7 @@ fn composer(mouse: bool) {
     choose(&mut session, mouse, "[Preview]", b"\x10");
     session.wait_for_screen("PREVIEW • Nothing published");
     session.wait_for_screen("Saved alpha");
-    readonly_journal(&mut session, &fixture, 14);
+    readonly_journal(&mut session, &fixture, 15);
     choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
     session.wait_for_control("[p PR actions]");
     let cache = Cache::open(&fixture.root.join("config/ghtui/cache.sqlite3")).unwrap();
@@ -1210,7 +1329,7 @@ fn publish(mouse: bool) {
     open_comment(&mut session, mouse);
     session.paste(body);
     session.wait_for_screen("A published café comment");
-    readonly_journal(&mut session, &fixture, 14);
+    readonly_journal(&mut session, &fixture, 15);
     if mouse {
         session.click_visible_action("[Submit]")
     } else {

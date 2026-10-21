@@ -127,7 +127,7 @@ fn density_journey(density: Density, mouse: bool) {
     session.wait_for_screen("ghtui");
     refresh(&mut session, mouse);
     session.wait_for_screen("Improve auth");
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
     wait_laid_out(&mut session, density, true);
     let title = crate::support::view_title("Inbox");
     session.wait_for_selected_row(&title, "Improve auth");
@@ -152,7 +152,7 @@ fn density_journey(density: Density, mouse: bool) {
     wait_laid_out(&mut session, density, true);
 
     // Presenting and switching density ran no gh command.
-    journal(&mut session, &fixture, 7);
+    journal(&mut session, &fixture, 8);
 
     // Either line of an item opens it: the detail line below `Improve auth` by click at
     // Comfortable (its row at Compact), or Up then Enter by keyboard.
@@ -179,7 +179,7 @@ fn density_journey(density: Density, mouse: bool) {
         session.send_key(b"\r");
     }
     session.wait_for_screen("1 comments");
-    journal(&mut session, &fixture, 14);
+    journal(&mut session, &fixture, 15);
     session.quit_and_assert_restored_terminal(mouse);
 }
 

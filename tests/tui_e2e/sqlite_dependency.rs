@@ -80,12 +80,18 @@ fn journal_exact(session: &mut Session, fixture: &Fixture, count: usize) {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     assert!(rows.iter().all(|row| row["stdin_hex"] == ""));
-    assert!(rows.iter().all(
-        |row| row["args"].as_array().unwrap().iter().all(|arg| !matches!(
-            arg.as_str(),
-            Some("graphql" | "POST" | "PUT" | "PATCH" | "DELETE")
-        ))
-    ));
+    // The only GraphQL call is the Inbox load's exact read-only review/check rollup.
+    let rollup = crate::support::inbox_rollup_unknown("github.invalid", &QUEUE_PRS);
+    assert!(
+        rows.iter()
+            .all(|row| row["args"][1] != "graphql"
+                || row["args"] == serde_json::json!(rollup[0].args))
+    );
+    assert!(rows.iter().all(|row| row["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|arg| !matches!(arg.as_str(), Some("POST" | "PUT" | "PATCH" | "DELETE")))));
 }
 fn journey(mouse: bool) {
     let fixture = configured();
@@ -148,7 +154,7 @@ fn journey(mouse: bool) {
     for queue in ["author", "assignee", "review-requested"] {
         steps.push(search("octocat", queue, vec![], false));
     }
-    assert_eq!(steps.len(), 35);
+    assert_eq!(steps.len(), 37);
     fixture.scripted_gh(&steps);
     let mut session = Session::launch(
         &fixture,
@@ -192,7 +198,7 @@ fn journey(mouse: bool) {
     session.wait_for_screen("PREVIEW • Nothing published");
     session.wait_for_screen("Exact Unicode");
     draft(&cache, &mut session, FIRST);
-    journal_exact(&mut session, &fixture, 14);
+    journal_exact(&mut session, &fixture, 15);
     choose(&mut session, mouse, "[Keep draft / Close]", b"\x1b");
     completed(
         &mut session,
@@ -238,7 +244,7 @@ fn journey(mouse: bool) {
         &["[p PR actions]"],
         &["[Keep draft / Close]", "LOCAL DRAFT"],
     );
-    journal_exact(&mut restarted, &fixture, 28);
+    journal_exact(&mut restarted, &fixture, 30);
     checkpoint(&keeper, "TRUNCATE");
     restarted.quit_and_assert_restored_terminal(mouse);
     let original_records = cache.list(&original, None).unwrap();
@@ -256,7 +262,7 @@ fn journey(mouse: bool) {
             "OTHER_NUMERIC_PRINCIPAL_DRAFT",
         ],
     );
-    journal_exact(&mut reassigned, &fixture, 35);
+    journal_exact(&mut reassigned, &fixture, 37);
     assert!(cache.list(&other, Some("pr")).unwrap().is_empty());
     assert_eq!(
         cache.list(&original, None).unwrap(),

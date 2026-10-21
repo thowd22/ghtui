@@ -324,9 +324,9 @@ fn select_label(s: &mut Session, mouse: bool) {
 fn actual_label_preview(s: &mut Session, f: &Fixture, mouse: bool, steps: &[GhStep]) -> String {
     let after = s.completed_cells_end();
     menu(s, mouse, "Add label");
-    s.wait_for_command_count(f, 35);
+    s.wait_for_command_count(f, 36);
     ready_v283(s, after, LABEL_FORM, SELECT_CONTROLS);
-    exact_v282(s, f, steps, 35);
+    exact_v282(s, f, steps, 36);
     let before_select = whole_sql_v282(f);
     select_label(s, mouse);
     assert_eq!(
@@ -339,7 +339,7 @@ fn actual_label_preview(s: &mut Session, f: &Fixture, mouse: bool, steps: &[GhSt
     let untouched = unrelated_sql_v283(f, &key);
     let after = s.completed_cells_end();
     control_v283(s, mouse, LABEL_FORM, "[Preview]", SELECT_CONTROLS);
-    s.wait_for_command_count(f, 46);
+    s.wait_for_command_count(f, 47);
     ready_v283(
         s,
         after,
@@ -362,7 +362,7 @@ fn actual_label_preview(s: &mut Session, f: &Fixture, mouse: bool, steps: &[GhSt
     )
     .unwrap();
     assert_eq!(unrelated_sql_v283(f, &key), untouched);
-    exact_v282(s, f, steps, 46);
+    exact_v282(s, f, steps, 47);
     saved_v283(f, &key).unwrap()
 }
 
@@ -837,12 +837,12 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn confirmed_restart(mo
     steps.extend(label_open_v282(&p));
     steps.extend(label_open_v282(&p));
     steps.extend(paid_label(&changed));
-    assert_eq!(steps.len(), 79);
+    assert_eq!(steps.len(), 80);
     steps.extend(startup_v282(&changed));
     steps.extend(history_roles(&changed, false));
-    assert_eq!(steps.len(), 111);
+    assert_eq!(steps.len(), 113);
     steps.extend(history_roles(&changed, false));
-    assert_eq!(steps.len(), 119);
+    assert_eq!(steps.len(), 121);
     f.scripted_gh(&steps);
     let mut first = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut first, mouse);
@@ -859,7 +859,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn confirmed_restart(mo
         "[Confirm action]",
         PREVIEW_CONTROLS,
     );
-    first.wait_for_command_count(&f, 79);
+    first.wait_for_command_count(&f, 80);
     ready_v283(
         &mut first,
         before,
@@ -871,7 +871,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn confirmed_restart(mo
             "[Esc Back to Inbox]",
         ],
     );
-    exact_published(&mut first, &f, &steps, 79);
+    exact_published(&mut first, &f, &steps, 80);
     let original = verify_original(&f, "confirmed");
     let before_close = whole_sql_v282(&f);
     let after = first.completed_cells_end();
@@ -898,27 +898,27 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn confirmed_restart(mo
     second.wait_for_main_frame();
     resize_history_source(&mut second, 120, 40);
     enter_metadata_v282(&mut second, mouse);
-    exact_published(&mut second, &f, &steps, 103);
+    exact_published(&mut second, &f, &steps, 105);
     resize_history_source(&mut second, 80, 24);
-    history_open(&mut second, &f, mouse, &steps, 111);
+    history_open(&mut second, &f, mouse, &steps, 113);
     let listed = whole_sql_v282(&f);
     let payload = current_payload(&f);
     original_facts(&mut second, mouse, "Confirmed", &payload);
     assert_eq!(saved_v283(&f, &key), Some(original.clone()));
     assert_eq!(whole_sql_v282(&f), listed);
-    history_close(&mut second, &f, mouse, &steps, 111);
-    history_open(&mut second, &f, mouse, &steps, 119);
+    history_close(&mut second, &f, mouse, &steps, 113);
+    history_open(&mut second, &f, mouse, &steps, 121);
     let twice = whole_sql_v282(&f);
     original_facts(&mut second, mouse, "Confirmed", &payload);
     assert_eq!(verify_original(&f, "confirmed"), original);
     assert_eq!(whole_sql_v282(&f), twice);
-    history_close(&mut second, &f, mouse, &steps, 119);
-    let commands = exact_published(&mut second, &f, &steps, 119);
+    history_close(&mut second, &f, mouse, &steps, 121);
+    let commands = exact_published(&mut second, &f, &steps, 121);
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     second.quit_and_assert_restored_terminal(mouse);
     assert_eq!(whole_sql_v282(&f), twice);
-    assert_eq!(exact_published(&mut second, &f, &steps, 119), commands);
+    assert_eq!(exact_published(&mut second, &f, &steps, 121), commands);
     preserve_git(&f, &head, &index, &status);
 }
 pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mouse: bool) {
@@ -936,12 +936,12 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mous
     let mut paid = paid_label(&changed);
     paid.truncate(6);
     steps.extend(paid);
-    assert_eq!(steps.len(), 63);
+    assert_eq!(steps.len(), 64);
     steps.extend(startup_v282(&changed));
     steps.extend(history_roles(&changed, false));
-    assert_eq!(steps.len(), 95);
+    assert_eq!(steps.len(), 97);
     steps.extend(history_roles(&changed, true));
-    assert_eq!(steps.len(), 105);
+    assert_eq!(steps.len(), 107);
     f.scripted_gh(&steps);
     let mut first = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut first, mouse);
@@ -955,7 +955,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mous
         "[Confirm action]",
         PREVIEW_CONTROLS,
     );
-    first.wait_for_command_count(&f, 63);
+    first.wait_for_command_count(&f, 64);
     // Actual output wraps the label and this entire independent expected
     // numeric/hash receipt over adjacent physical rows. Keep every byte,
     // within ONE completed owning body, not merely an effect-name prefix.
@@ -1006,7 +1006,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mous
             first.screen()
         );
     }
-    exact_published(&mut first, &f, &steps, 63);
+    exact_published(&mut first, &f, &steps, 64);
     let original = verify_original(&f, "pending");
     let protected = whole_sql_v282(&f);
     first.quit_and_assert_restored_terminal(mouse);
@@ -1015,9 +1015,9 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mous
     second.wait_for_main_frame();
     resize_history_source(&mut second, 120, 40);
     enter_metadata_v282(&mut second, mouse);
-    exact_published(&mut second, &f, &steps, 87);
+    exact_published(&mut second, &f, &steps, 89);
     resize_history_source(&mut second, 80, 24);
-    history_open(&mut second, &f, mouse, &steps, 95);
+    history_open(&mut second, &f, mouse, &steps, 97);
     let payload = current_payload(&f);
     original_facts(&mut second, mouse, "Pending", &payload);
     let before_inspect = whole_sql_v282(&f);
@@ -1031,7 +1031,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mous
         "[Inspect current]",
         HISTORY_CONTROLS,
     );
-    second.wait_for_command_count(&f, 105);
+    second.wait_for_command_count(&f, 107);
     ready_v283(&mut second, before, HISTORY, HISTORY_CONTROLS);
     history_fact(
         &mut second,
@@ -1042,15 +1042,15 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn receipt_failure(mous
         ),
     );
     history_fact(&mut second, mouse, "Currently observed new 🐛 • #81 • L_81");
-    let commands = exact_published(&mut second, &f, &steps, 105);
+    let commands = exact_published(&mut second, &f, &steps, 107);
     assert_eq!(whole_sql_v282(&f), expected);
     assert_eq!(verify_original(&f, "pending"), original);
-    history_close(&mut second, &f, mouse, &steps, 105);
+    history_close(&mut second, &f, mouse, &steps, 107);
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     second.quit_and_assert_restored_terminal(mouse);
     assert_eq!(whole_sql_v282(&f), expected);
-    assert_eq!(exact_published(&mut second, &f, &steps, 105), commands);
+    assert_eq!(exact_published(&mut second, &f, &steps, 107), commands);
     preserve_git(&f, &head, &index, &status);
 }
 
@@ -1070,12 +1070,12 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn crash(mouse: bool) {
     let mut invoked = paid_label(&changed).remove(0);
     invoked.delay_ms = 20_000;
     steps.push(invoked);
-    assert_eq!(steps.len(), 58);
+    assert_eq!(steps.len(), 59);
     steps.extend(startup_v282(&changed));
     steps.extend(history_roles(&changed, false));
-    assert_eq!(steps.len(), 90);
+    assert_eq!(steps.len(), 92);
     steps.extend(history_roles(&changed, true));
-    assert_eq!(steps.len(), 100);
+    assert_eq!(steps.len(), 102);
     f.scripted_gh(&steps);
     let mut first = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut first, mouse);
@@ -1088,7 +1088,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn crash(mouse: bool) {
         "[Confirm action]",
         PREVIEW_CONTROLS,
     );
-    let calls = exact_published(&mut first, &f, &steps, 58);
+    let calls = exact_published(&mut first, &f, &steps, 59);
     let until = Instant::now() + Duration::from_secs(8);
     loop {
         first.poll_output(Duration::from_millis(1));
@@ -1146,9 +1146,9 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn crash(mouse: bool) {
     second.wait_for_main_frame();
     resize_history_source(&mut second, 120, 40);
     enter_metadata_v282(&mut second, mouse);
-    exact_published(&mut second, &f, &steps, 82);
+    exact_published(&mut second, &f, &steps, 84);
     resize_history_source(&mut second, 80, 24);
-    history_open(&mut second, &f, mouse, &steps, 90);
+    history_open(&mut second, &f, mouse, &steps, 92);
     let payload = current_payload(&f);
     original_facts(&mut second, mouse, "Pending", &payload);
     let expected = next_reservation_v290(whole_sql_v282(&f), reservation_generation(&f));
@@ -1160,7 +1160,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn crash(mouse: bool) {
         "[Inspect current]",
         HISTORY_CONTROLS,
     );
-    second.wait_for_command_count(&f, 100);
+    second.wait_for_command_count(&f, 102);
     ready_v283(&mut second, after, HISTORY, HISTORY_CONTROLS);
     history_fact(
         &mut second,
@@ -1171,15 +1171,15 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn crash(mouse: bool) {
         ),
     );
     history_fact(&mut second, mouse, "Currently observed new 🐛 • #81 • L_81");
-    let commands = exact_published(&mut second, &f, &steps, 100);
+    let commands = exact_published(&mut second, &f, &steps, 102);
     assert_eq!(verify_original(&f, "pending"), original);
     assert_eq!(whole_sql_v282(&f), expected);
-    history_close(&mut second, &f, mouse, &steps, 100);
+    history_close(&mut second, &f, mouse, &steps, 102);
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     second.quit_and_assert_restored_terminal(mouse);
     assert_eq!(whole_sql_v282(&f), expected);
-    assert_eq!(exact_published(&mut second, &f, &steps, 100), commands);
+    assert_eq!(exact_published(&mut second, &f, &steps, 102), commands);
     assert!(process_identity(child_pid).unwrap().is_none());
     preserve_git(&f, &head, &index, &status);
 }
@@ -1195,7 +1195,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn prewrite_access(mous
     let mut steps = startup_v282(&p);
     steps.extend(label_open_v282(&p));
     steps.extend(label_open_v282(&p));
-    assert_eq!(steps.len(), 46);
+    assert_eq!(steps.len(), 47);
     let mut confirm = principal_v282();
     let mut denied = values::get("repos/example/repo", Value::Null);
     denied.status = 1;
@@ -1214,13 +1214,13 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn prewrite_access(mous
     steps.extend(confirm);
     assert_eq!(
         steps.len(),
-        49,
-        "24 + actual Open11 + Preview11 + denied Confirm3; no closing/write"
+        50,
+        "25 + actual Open11 + Preview11 + denied Confirm3; no closing/write"
     );
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut s, mouse);
-    exact_v282(&mut s, &f, &steps, 24);
+    exact_v282(&mut s, &f, &steps, 25);
     let durable = actual_label_preview(&mut s, &f, mouse, &steps);
     let key = selected_draft_key_v283();
     let before_confirm = whole_sql_v282(&f);
@@ -1240,9 +1240,9 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn prewrite_access(mous
         "[Confirm action]",
         PREVIEW_CONTROLS,
     );
-    s.wait_for_command_count(&f, 49);
+    s.wait_for_command_count(&f, 50);
     capability_retired(&mut s, after);
-    let commands = exact_v282(&mut s, &f, &steps, 49);
+    let commands = exact_v282(&mut s, &f, &steps, 50);
     assert_eq!(whole_sql_v282(&f), before_confirm);
     assert_eq!(saved_v283(&f, &key), Some(durable.clone()));
     // The former input/control cannot reconstruct a Form or a Source. Use a
@@ -1254,7 +1254,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn prewrite_access(mous
         s.send_key(b"u");
     }
     capability_retired(&mut s, after);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 49), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 50), commands);
     assert_eq!(whole_sql_v282(&f), before_confirm);
     let after = s.completed_cells_end();
     s.resize(80, 24);
@@ -1265,7 +1265,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn prewrite_access(mous
     assert_eq!(fs::read(f.repo().join(".git/HEAD")).unwrap(), raw_head);
     preserve_git(&f, &head, &index, &status);
     s.quit_and_assert_restored_terminal(mouse);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 49), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 50), commands);
     assert_eq!(whole_sql_v282(&f), before_confirm);
     preserve_git(&f, &head, &index, &status);
 }

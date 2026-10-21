@@ -313,7 +313,7 @@ fn startup(raw: &Value) -> Vec<GhStep> {
             call.stdout = b"gh version 2.99.0 (2026-10-01)\n".to_vec();
         }
     }
-    assert_eq!(calls.len(), 24);
+    assert_eq!(calls.len(), 25);
     calls
 }
 fn exact_current(s: &mut Session, f: &Fixture, steps: &[GhStep], count: usize) -> Vec<Value> {
@@ -1205,7 +1205,7 @@ pub(super) fn preview_restart(mouse: bool) {
             restart_preview,
             end
         ),
-        (62, 67, 76, 85, 94, 103, 127, 136, 145, 170)
+        (63, 68, 77, 86, 95, 104, 129, 138, 147, 172)
     );
     f.scripted_gh(&steps);
     let editor = f.root.join("metadata fixture editor.sh");
@@ -1381,7 +1381,7 @@ pub(super) fn happy(mouse: bool) {
             base_confirmed,
             total
         ),
-        (33, 42, 158, 169, 196, 206)
+        (34, 43, 159, 170, 197, 207)
     );
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
@@ -1617,7 +1617,7 @@ pub(super) fn failure(mouse: bool, account_change: bool) {
     }
     steps.extend(paid);
     let end = steps.len();
-    assert_eq!(end, if account_change { 67 } else { 64 });
+    assert_eq!(end, if account_change { 68 } else { 65 });
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
@@ -1799,12 +1799,12 @@ pub(super) fn concurrent(mouse: bool) {
     let reopened = steps.len();
     assert_eq!(
         (opened, previewed, refused, fresh_page, reopened),
-        (33, 42, 47, 71, 80)
+        (34, 43, 48, 73, 82)
     );
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata(&mut s, mouse);
-    exact_current(&mut s, &f, &steps, 24);
+    exact_current(&mut s, &f, &steps, 25);
     open_field(&mut s, &f, mouse, "Title", opened);
     replace_field(&mut s, mouse, "Title", TITLE);
     preview(&mut s, &f, mouse, "Title", previewed);

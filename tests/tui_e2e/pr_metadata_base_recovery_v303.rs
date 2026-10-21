@@ -669,21 +669,21 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
     steps.extend(current_phase(&old, false, true));
     steps.extend(current_phase(&old, false, true));
     steps.extend(post(&old, &updated, "base", BASE));
-    assert_eq!(steps.len(), 72);
+    assert_eq!(steps.len(), 73);
     steps.extend(startup(&current));
-    assert_eq!(steps.len(), 96);
+    assert_eq!(steps.len(), 98);
     steps.extend(current_phase(&current, false, false));
-    assert_eq!(steps.len(), 105);
+    assert_eq!(steps.len(), 107);
     steps.extend(current_phase(&current, false, false));
-    assert_eq!(steps.len(), 114);
+    assert_eq!(steps.len(), 116);
     steps.extend(current_phase(&current, true, false));
-    assert_eq!(steps.len(), 124);
+    assert_eq!(steps.len(), 126);
     f.scripted_gh(&steps);
     let mut first = Session::launch(&f, 120, 40);
     enter_metadata(&mut first, mouse);
-    open_picker(&mut first, &f, mouse, 34);
+    open_picker(&mut first, &f, mouse, 35);
     select(&mut first, mouse);
-    preview_base(&mut first, &f, mouse, 45);
+    preview_base(&mut first, &f, mouse, 46);
     let inert = draft(&mut first, &f, &old);
     assert_eq!(
         serde_json::from_str::<Value>(&inert).unwrap(),
@@ -692,7 +692,7 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
     Connection::open(cache_path(&f)).unwrap().execute_batch(&format!("CREATE TRIGGER keep_original_base_v303 BEFORE DELETE ON drafts WHEN OLD.host='github.invalid' AND OLD.login='user-id:42' AND OLD.resource='{old_key}' BEGIN SELECT RAISE(ABORT,'fixture retains actual original Base reference'); END;")).unwrap();
     let after = first.completed_cells_end();
     base_action(&mut first, mouse, "[Confirm action]", BASE_PREVIEW);
-    first.wait_for_command_count(&f, 72);
+    first.wait_for_command_count(&f, 73);
     ready(
         &mut first,
         after,
@@ -705,7 +705,7 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
         ],
     );
     assert_eq!(
-        mutation_count(&exact_current(&mut first, &f, &steps, 72)),
+        mutation_count(&exact_current(&mut first, &f, &steps, 73)),
         1
     );
     let protected = protected_rows(&f, &old);
@@ -730,27 +730,27 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
     assert_eq!(raw_sql_v278(&f), complete);
     let mut second = Session::launch(&f, 80, 24);
     restarted_metadata(&mut second, mouse, &current);
-    exact_current(&mut second, &f, &steps, 96);
+    exact_current(&mut second, &f, &steps, 98);
     assert_eq!(protected_rows(&f, &old), protected);
     assert_eq!(saved(&f, &fresh_key), None);
     let payload = receipts(&f)[0].payload_sha256.clone();
-    history_open(&mut second, &f, mouse, &steps, 105);
+    history_open(&mut second, &f, mouse, &steps, 107);
     let listed = raw_sql_v278(&f);
     full_original_facts(&mut second, mouse, &payload);
     assert_eq!(raw_sql_v278(&f), listed);
-    ignored_history_input(&mut second, &f, mouse, &steps, 105);
+    ignored_history_input(&mut second, &f, mouse, &steps, 107);
     assert_eq!(protected_rows(&f, &old), protected);
-    history_close(&mut second, &f, mouse, &steps, 105);
-    history_open(&mut second, &f, mouse, &steps, 114);
+    history_close(&mut second, &f, mouse, &steps, 107);
+    history_open(&mut second, &f, mouse, &steps, 116);
     let twice = raw_sql_v278(&f);
     full_original_facts(&mut second, mouse, &payload);
     assert_eq!(raw_sql_v278(&f), twice);
     assert_eq!(protected_rows(&f, &old), protected);
-    history_close(&mut second, &f, mouse, &steps, 114);
+    history_close(&mut second, &f, mouse, &steps, 116);
     let expected_read = next_read_sql(raw_sql_v278(&f));
     let start = seconds();
     assert_eq!(saved(&f, &fresh_key), None);
-    open_picker(&mut second, &f, mouse, 124);
+    open_picker(&mut second, &f, mouse, 126);
     let before = second.completed_cells_end();
     picker_action(&mut second, mouse, "[Esc Back]");
     ready(&mut second, before, BASE_TITLE, BASE_FORM);
@@ -800,7 +800,7 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
     assert!(blank_visible(&second));
     second.capture_completed_terminal_v1("base-fresh-open-readonly-choice-guidance");
     assert_eq!(raw_sql_v278(&f), fresh);
-    exact_current(&mut second, &f, &steps, 124);
+    exact_current(&mut second, &f, &steps, 126);
     let after = second.completed_cells_end();
     base_action(&mut second, mouse, "[F2 Choose branch]", BASE_FORM);
     ready(&mut second, after, BASE_PICKER, PICKER_CONTROLS);
@@ -819,7 +819,7 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
     assert!(blank_visible(&second));
     assert_eq!(raw_sql_v278(&f), fresh);
     assert_eq!(protected_rows(&f, &old), protected);
-    let commands = exact_current(&mut second, &f, &steps, 124);
+    let commands = exact_current(&mut second, &f, &steps, 126);
     assert_eq!(mutation_count(&commands), 1);
     close(&mut second, mouse, BASE_FORM);
     assert_eq!(raw_sql_v278(&f), fresh);
@@ -828,7 +828,7 @@ pub(in crate::pr_actions::pr_metadata::base) fn original(mouse: bool) {
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     second.quit_and_assert_restored_terminal(mouse);
     assert_eq!(raw_sql_v278(&f), fresh);
-    assert_eq!(exact_current(&mut second, &f, &steps, 124), commands);
+    assert_eq!(exact_current(&mut second, &f, &steps, 126), commands);
     assert_eq!(protected_rows(&f, &old), protected);
     preserve_git(&f, &head, &index, &status);
 }

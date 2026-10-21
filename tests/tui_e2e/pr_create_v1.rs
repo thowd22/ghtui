@@ -387,13 +387,16 @@ fn search(queue: &str, items: Vec<Value>) -> GhStep {
     )
 }
 /// One Inbox load: the first adds the startup identity read before the
-/// refresh identity; a reload re-reads only the refresh identity.
+/// refresh identity; a reload re-reads only the refresh identity. Rows add the rollup read.
 fn inbox_load(first: bool, authored: Vec<Value>) -> Vec<GhStep> {
     let mut steps = if first { identity() } else { Vec::new() };
     steps.extend(identity());
     steps.push(search("author", authored));
     steps.push(search("assignee", vec![]));
     steps.push(search("review-requested", vec![]));
+    // TASK-12 AC2: a load with rows follows its queues with the review/check rollup read.
+    let rollup = crate::support::inbox_rollup_unknown_for(HOST, &steps);
+    steps.extend(rollup);
     steps
 }
 fn choose(session: &mut Session, mouse: bool, label: &str, key: &[u8]) {

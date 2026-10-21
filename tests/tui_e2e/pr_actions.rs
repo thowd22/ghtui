@@ -115,6 +115,11 @@ fn initial() -> Vec<GhStep> {
         ]);
         steps.push(read);
     }
+    // TASK-12 AC2: the Inbox load's review/check rollup read; GitHub answers nothing here.
+    steps.extend(crate::support::inbox_rollup_unknown(
+        "github.invalid",
+        &[("example/repo", 7)],
+    ));
     steps
 }
 /// Repository settings that allow every merge method, read by a writer.

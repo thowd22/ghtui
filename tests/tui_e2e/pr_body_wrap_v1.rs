@@ -23,6 +23,10 @@ fn steps() -> Vec<GhStep> {
     for queue in ["author", "assignee", "review-requested"] {
         steps.push(search("octocat", queue, vec![pr_value()], false));
     }
+    steps.extend(crate::support::inbox_rollup_unknown(
+        "github.invalid",
+        &[(REPO, 7)],
+    ));
     steps.push(read(api(&format!("repos/{REPO}/pulls/7")), pr_value()));
     for endpoint in [
         "issues/7/comments",

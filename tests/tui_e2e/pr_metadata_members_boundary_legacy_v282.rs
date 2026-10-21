@@ -69,7 +69,11 @@ fn section_v282(p: &Value) -> Vec<GhStep> {
 fn startup_v282(p: &Value) -> Vec<GhStep> {
     let mut calls = bound(initial(), p);
     calls.extend(bound(details(vec![starter()]), p));
-    assert_eq!(calls.len(), 14, "Actual initial7 plus detail7");
+    assert_eq!(
+        calls.len(),
+        15,
+        "Actual initial8 (queues and rollup) plus detail7"
+    );
     for call in &mut calls {
         if call.args == ["--version"] {
             call.stdout = b"gh version 2.99.0 (2026-10-01)\n".to_vec();
@@ -78,7 +82,7 @@ fn startup_v282(p: &Value) -> Vec<GhStep> {
         }
     }
     calls.extend(section_v282(p));
-    assert_eq!(calls.len(), 24);
+    assert_eq!(calls.len(), 25);
     calls
 }
 fn label_open_v282(p: &Value) -> Vec<GhStep> {
@@ -341,11 +345,11 @@ pub(super) fn source_identity(mouse: bool) {
     assert_eq!(load[10].args[1], "user");
     load[10].stdout = serde_json::to_vec(&json!({"id":43,"login":"requester"})).unwrap();
     steps.extend(load);
-    assert_eq!(steps.len(), 35);
+    assert_eq!(steps.len(), 36);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut s, mouse);
-    exact_v282(&mut s, &f, &steps, 24);
+    exact_v282(&mut s, &f, &steps, 25);
     let before_sql = whole_sql_v282(&f);
     // The genuine same42 Personal read reserves its next generation before
     // the last UID refuses43. Model exactly that already-existing row; no
@@ -360,9 +364,9 @@ pub(super) fn source_identity(mouse: bool) {
     .expect("Actual original Metadata button before same-login numeric loss");
     let after = s.completed_cells_end();
     menu(&mut s, mouse, "Add label");
-    s.wait_for_command_count(&f, 35);
+    s.wait_for_command_count(&f, 36);
     retired_v282(&mut s, after);
-    let commands = exact_v282(&mut s, &f, &steps, 35);
+    let commands = exact_v282(&mut s, &f, &steps, 36);
     assert_eq!(whole_sql_v282(&f), expected_sql);
     let db =
         Connection::open_with_flags(cache_path(&f), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -387,7 +391,7 @@ pub(super) fn source_identity(mouse: bool) {
         s.send_key(b"u");
     }
     retired_v282(&mut s, after);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 35), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 36), commands);
     let after = s.completed_cells_end();
     s.resize(80, 24);
     retired_v282(&mut s, after);
@@ -395,7 +399,7 @@ pub(super) fn source_identity(mouse: bool) {
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     s.quit_and_assert_restored_terminal(mouse);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 35), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 36), commands);
     assert_eq!(whole_sql_v282(&f), expected_sql);
     preserve_git(&f, &head, &index, &status);
 }
@@ -512,7 +516,7 @@ pub(super) fn opposite_review_drift(mouse: bool) {
     refusal.truncate(7);
     steps.extend(refusal);
     let refused = steps.len();
-    assert_eq!((opened, previewed, refused), (35, 46, 53));
+    assert_eq!((opened, previewed, refused), (36, 47, 54));
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut s, mouse);
@@ -682,11 +686,11 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn missing_current_arra
     read.truncate(6);
     let mut steps = startup_v282(&p);
     steps.extend(read);
-    assert_eq!(steps.len(), 30);
+    assert_eq!(steps.len(), 31);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut s, mouse);
-    exact_v282(&mut s, &f, &steps, 24);
+    exact_v282(&mut s, &f, &steps, 25);
     let before = whole_sql_v282(&f);
     let original = crate::support::overlay_body(
         s.completed_cells_screen().unwrap(),
@@ -695,16 +699,16 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn missing_current_arra
     .unwrap();
     let after = s.completed_cells_end();
     menu(&mut s, mouse, "Remove label");
-    s.wait_for_command_count(&f, 30);
+    s.wait_for_command_count(&f, 31);
     unknown_metadata_v288(&mut s, after, Some(&original), true);
-    let commands = exact_v282(&mut s, &f, &steps, 30);
+    let commands = exact_v282(&mut s, &f, &steps, 31);
     assert_eq!(whole_sql_v282(&f), before);
     let after = s.completed_cells_end();
     // No Confirm control exists to click. The old global Confirm shortcut is
     // still probed in both genuine sessions, and must create no Source/work.
     s.send_key(b"\x1b[13;5u");
     unknown_metadata_v288(&mut s, after, Some(&original), false);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 30), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 31), commands);
     assert_eq!(whole_sql_v282(&f), before);
     let after = s.completed_cells_end();
     s.resize(80, 24);
@@ -717,7 +721,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn missing_current_arra
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     s.quit_and_assert_restored_terminal(mouse);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 30), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 31), commands);
     assert_eq!(whole_sql_v282(&f), before);
     preserve_git(&f, &head, &index, &status);
 }
@@ -885,11 +889,11 @@ pub(super) fn raw_capture_limit(mouse: bool) {
     assert!(read[5].stderr.len() > 128 * 1024);
     read.truncate(6);
     steps.extend(read);
-    assert_eq!(steps.len(), 30);
+    assert_eq!(steps.len(), 31);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut s, mouse);
-    exact_v282(&mut s, &f, &steps, 24);
+    exact_v282(&mut s, &f, &steps, 25);
     let before = whole_sql_v282(&f);
     let body = crate::support::overlay_body(
         s.completed_cells_screen().unwrap(),
@@ -898,14 +902,14 @@ pub(super) fn raw_capture_limit(mouse: bool) {
     .unwrap();
     let after = s.completed_cells_end();
     menu(&mut s, mouse, "Add label");
-    s.wait_for_command_count(&f, 30);
+    s.wait_for_command_count(&f, 31);
     failed_open_v290(&mut s, after, Some(&body), true);
-    let commands = exact_v282(&mut s, &f, &steps, 30);
+    let commands = exact_v282(&mut s, &f, &steps, 31);
     assert_eq!(whole_sql_v282(&f), before);
     let after = s.completed_cells_end();
     s.send_key(b"\x1b[13;5u");
     failed_open_v290(&mut s, after, Some(&body), false);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 30), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 31), commands);
     assert_eq!(whole_sql_v282(&f), before);
     let after = s.completed_cells_end();
     s.resize(80, 24);
@@ -917,7 +921,7 @@ pub(super) fn raw_capture_limit(mouse: bool) {
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     s.quit_and_assert_restored_terminal(mouse);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 30), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 31), commands);
     assert_eq!(whole_sql_v282(&f), before);
     preserve_git(&f, &head, &index, &status);
 }
@@ -1032,20 +1036,20 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn empty_and_forbidden(
     second[5].stderr = b"gh: Forbidden PRIVATE_MEMBER_403_CANARY (HTTP 403)\n".to_vec();
     let mut steps = startup_v282(&p);
     steps.extend(first);
-    assert_eq!(steps.len(), 35);
+    assert_eq!(steps.len(), 36);
     steps.extend(second);
-    assert_eq!(steps.len(), 46);
+    assert_eq!(steps.len(), 47);
     f.scripted_gh(&steps);
     let mut s = Session::launch(&f, 120, 40);
     enter_metadata_v282(&mut s, mouse);
-    exact_v282(&mut s, &f, &steps, 24);
+    exact_v282(&mut s, &f, &steps, 25);
     let before = whole_sql_v282(&f);
     let expected_empty = next_reservation_v290(before, 1);
     let after = s.completed_cells_end();
     menu(&mut s, mouse, "Add label");
-    s.wait_for_command_count(&f, 35);
+    s.wait_for_command_count(&f, 36);
     ready_v283(&mut s, after, LABEL_FORM, SELECT_CONTROLS);
-    exact_v282(&mut s, &f, &steps, 35);
+    exact_v282(&mut s, &f, &steps, 36);
     assert_eq!(whole_sql_v282(&f), expected_empty);
     let after = s.completed_cells_end();
     control_v283(
@@ -1083,7 +1087,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn empty_and_forbidden(
         ],
     );
     assert_eq!(whole_sql_v282(&f), expected_empty);
-    exact_v282(&mut s, &f, &steps, 35);
+    exact_v282(&mut s, &f, &steps, 36);
     control_v283(&mut s, mouse, LABEL_PICKER, "[Esc Back]", PICKER_CONTROLS);
     s.wait_for_overlay_close(LABEL_PICKER);
     s.wait_for_owned_completed_action(LABEL_FORM, "[Esc Close]", &[]);
@@ -1099,9 +1103,9 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn empty_and_forbidden(
     let expected_forbidden = next_reservation_v290(expected_empty, 2);
     let after = s.completed_cells_end();
     menu(&mut s, mouse, "Add label");
-    s.wait_for_command_count(&f, 46);
+    s.wait_for_command_count(&f, 47);
     ready_v283(&mut s, after, LABEL_FORM, SELECT_CONTROLS);
-    exact_v282(&mut s, &f, &steps, 46);
+    exact_v282(&mut s, &f, &steps, 47);
     assert_eq!(whole_sql_v282(&f), expected_forbidden);
     let after = s.completed_cells_end();
     control_v283(
@@ -1144,7 +1148,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn empty_and_forbidden(
             "[Enter Choose]",
         ],
     );
-    let commands = exact_v282(&mut s, &f, &steps, 46);
+    let commands = exact_v282(&mut s, &f, &steps, 47);
     assert_eq!(whole_sql_v282(&f), expected_forbidden);
     control_v283(&mut s, mouse, LABEL_PICKER, "[Esc Back]", PICKER_CONTROLS);
     s.wait_for_overlay_close(LABEL_PICKER);
@@ -1170,7 +1174,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn empty_and_forbidden(
     assert_eq!(fs::read(f.repo().join(".git/config")).unwrap(), config);
     preserve_git(&f, &head, &index, &status);
     s.quit_and_assert_restored_terminal(mouse);
-    assert_eq!(exact_v282(&mut s, &f, &steps, 46), commands);
+    assert_eq!(exact_v282(&mut s, &f, &steps, 47), commands);
     assert_eq!(whole_sql_v282(&f), expected_forbidden);
     preserve_git(&f, &head, &index, &status);
 }
@@ -1230,7 +1234,7 @@ pub(in crate::pr_actions::pr_metadata::metadata_actions) fn partial(mouse: bool)
     let previewed = steps.len();
     assert_eq!(
         (opened, previewed),
-        (44, 55),
+        (45, 56),
         "Fresh Preview is an independent actual eleven-child phase"
     );
     f.scripted_gh(&steps);
