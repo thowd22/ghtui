@@ -491,6 +491,7 @@ fn run_page(logs: Option<&str>) -> RunPage {
         },
         selected_job: None,
         logs: logs.map(str::to_owned),
+        logs_skipped_bytes: 0,
         annotations: vec![],
     }
 }
